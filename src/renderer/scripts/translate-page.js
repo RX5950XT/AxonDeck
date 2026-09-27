@@ -100,6 +100,8 @@ let engineAcquired = false
 let audioEl = null
 let objectUrl = null
 let speakGen = 0
+/** 最後一段剩這麼多秒就當念完（Edge TTS 結尾靜音約 0.7 秒） */
+const TTS_TAIL_SILENCE_SEC = 0.5
 /** @type {(() => void) | null} */
 let cancelPlayback = null
 /** @type {'input'|'output'|null} */
@@ -657,10 +659,22 @@ async function toggleSpeak(pane) {
       objectUrl = URL.createObjectURL(blob)
       audioEl.src = objectUrl
 
+      const isLast = chunkIndex + 1 >= totalChunks
       await new Promise((resolve, reject) => {
         const onEnded = () => {
           cleanup()
           resolve()
+        }
+        // Edge TTS 每段結尾固定補約 0.7 秒靜音；最後一段念完就收，不讓按鈕停在「停止」
+        const onTimeUpdate = () => {
+          if (isLast && audioEl.duration - audioEl.currentTime <= TTS_TAIL_SILENCE_SEC) {
+            onEnded()
+            audioEl.pause()
+          }
+        }
+        // 被外部暫停（耳機鍵、系統媒體控制）不會有 ended，當成停止
+        const onPause = () => {
+          if (!audioEl.ended) stopSpeak()
         }
         const onError = () => {
           const code = audioEl?.error?.code
@@ -672,11 +686,15 @@ async function toggleSpeak(pane) {
         const cleanup = () => {
           audioEl.removeEventListener('ended', onEnded)
           audioEl.removeEventListener('error', onError)
+          audioEl.removeEventListener('timeupdate', onTimeUpdate)
+          audioEl.removeEventListener('pause', onPause)
           if (cancelPlayback === onEnded) cancelPlayback = null
         }
         cancelPlayback = onEnded
         audioEl.addEventListener('ended', onEnded)
         audioEl.addEventListener('error', onError)
+        audioEl.addEventListener('timeupdate', onTimeUpdate)
+        audioEl.addEventListener('pause', onPause)
         audioEl.play().catch((err) => {
           console.error('[TTS] play()', err)
           cleanup()

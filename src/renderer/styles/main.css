@@ -12434,10 +12434,19 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   background: color-mix(in srgb, var(--accent-soft) 78%, var(--surface-glass));
 }
 
+/* 項目名稱沿用了 .ex-side-label 這個 class，要蓋掉標題用的小灰字 */
+.ex-side-item .ex-side-label {
+  margin: 0;
+  font-size: inherit;
+  font-weight: 500;
+  letter-spacing: normal;
+  color: var(--text-primary);
+}
+
 .ex-side-meta {
   margin-left: auto;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 

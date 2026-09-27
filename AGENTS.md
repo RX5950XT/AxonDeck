@@ -586,9 +586,10 @@ tag 要與 `package.json` 的 version 一致。
 - `probe.ps1` 要有 UTF-8 BOM ＋ `AutoFlush`；**probe 裡不可以相信 `$env:*`**（被 spawn 的子程序沒有）；static 框裡不准查 `Win32_Tpm`（未提權卡 5.2 秒）；網路卡走 `Win32_NetworkAdapter` 不用 `Get-NetAdapter`。
 - **資料列一律往後加欄位、解析端逐格取值**（不要插在中間）；SMBIOS 佔位字串統一在 `metrics.clean()` 清掉；groups 的 rows 值不能給空字串（整列會塌成 0 高）。
 - 感測器 sidecar：只有它提權（不是整個 App）、版本鎖 `0.9.7-pre728`、斷線／卡住**一直重拉**（指數退避，經 `ensureSensors`；讀數穩定 60s 才把間隔歸零）；**自動啟用只能放在進系統監控頁時**（開機那條只走排程工作）；PawnIO 由 App 代裝但要驗 Authenticode（不釘 SHA-256），靜默安裝參數是 `-install -silent`；殭屍 sidecar 要用 `Invoke-CimMethod ... Terminate` 才殺得掉。
+  **sidecar 必須 AboveNormal＋執行緒 Highest**：LHM 讀 CPU 會把執行緒輪流釘到每顆核心，一般優先權在全核滿載時 40 秒一框都送不出來 → 主程式 20 秒判斷線 → 重拉 → 舊的收尾把風扇交還 BIOS（量測 `hwtime` 對照：740ms → 0ms）。記憶體組（SMBus 探 SPD）開啟要 6.4 秒，**第一框送出後才開**。排程工作的查詢結果快取、啟動用 `schtasks.exe /run`（PowerShell 一支就 1 秒）；事件記錄裡的「Pipe is broken」是主程式先斷線的結果，要回頭查是誰卡住。
 - **probe.ps1 與 nvidia-smi 開機就常駐**：離開系統監控頁與縮到系統匣都不要 `stop()`（每次重開會付冷啟動＋第一輪 CPU% 全 0）；壓力測試才要離頁收掉。進頁 `start()` 要把 lastFeed 立刻再送一次。
   **沒人看時改走 `idle()`（30 秒一輪）**：每 2 秒掃 430 個程序是整個 App 背景 CPU 的大宗（實測 5.65% → 0.52% 單核）。開機那次用 `start(key, { background: true })`，頁面已先叫起來就不動它（兩邊誰先到不一定）；nvidia-smi 不跟著放慢（改間隔＝重開）。量測 `probe-sysmon-idle-cpu.js`。
-- **風扇的手動 PWM 是留在晶片裡的**，新程序 `SetDefault()` 救不回來（只有重開機）：所以下限 `minPwm` ≥20、sidecar 5 秒看門狗、`before-quit` 要 await 得到、`dirty` 存 store。
+- **風扇的手動 PWM 是留在晶片裡的**，新程序 `SetDefault()` 救不回來（只有重開機）：所以下限 `minPwm` ≥20、sidecar 5 秒看門狗、`before-quit` 要 await 得到、`dirty` 存 store。**目標值每秒都重送**（值沒變也送）：sidecar 重拉後新的那顆不知道要接管哪條，平的曲線以前重連後就永遠留在 BIOS。
 - **雙向管道一定要 `PipeOptions.Asynchronous`**（同步讀會把同步寫整個擋住，症狀是只收到第一框且完全不報錯）。
 - 開機接管只能走排程工作（無觸發程序、`RunLevel Highest`、`ExecutionTimeLimit 0`），管道名走交接檔；**只在打包版提供安裝**（開發版執行檔可寫＝免 UAC 後門）。
 - 緊急放手要用未平滑的原始值；讀不到來源值要交還 BIOS 不是沿用舊值；曲線 Y 軸是 PWM 不是 RPM；等角示意圖的槽位要驗「投影後兩兩不重疊」；槽位只印短代碼。

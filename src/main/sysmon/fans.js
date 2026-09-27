@@ -423,7 +423,8 @@ function createFanEngine(deps = {}) {
       state.target = target
       // 緊急時不套斜率上限：要的就是立刻全速
       const value = state.panic ? 100 : Math.round(nextPwm(state.applied, target, channel.minPwm))
-      if (state.applied !== null && value === state.applied) continue
+      // 值沒變也每秒重送：sidecar 重拉後新的那顆不知道要接管哪條（以前平的曲線重連後就永遠留在 BIOS），
+      // 舊的那顆收尾時的 SetDefault 也會把剛接管的通道放掉。重寫同一個值不會改轉速。
       markDirty()
       if (sensors.send(`S ${control.id} ${value}`)) state.applied = value
     }

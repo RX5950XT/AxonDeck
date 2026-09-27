@@ -35,11 +35,19 @@ function protectedExe() {
   return root ? path.join(root, 'VoiceInk Sensors', 'VoiceInkSensors.exe') : ''
 }
 
+/** 檔案沒變就不重算：每次重拉都在主執行緒同步讀兩個 37MB 檔太貴 */
+const hashCache = new Map()
+function fileHash(file) {
+  const st = fs.statSync(file)
+  const key = `${file}|${st.size}|${st.mtimeMs}`
+  if (!hashCache.has(key)) hashCache.set(key, crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'))
+  return hashCache.get(key)
+}
+
 /** 比對本版 helper，避免新版 App 靜默連到舊協議。 */
 function sameBinary(source, target) {
   try {
-    const hash = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
-    return hash(source) === hash(target)
+    return fileHash(source) === fileHash(target)
   } catch { return false }
 }
 
@@ -81,12 +89,17 @@ function runPowerShell(script, { elevate = false, timeoutMs = RUN_TIMEOUT_MS, sp
       + `; exit $p.ExitCode`
     : script
 
+  return runProcess('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
+  ], { timeoutMs, spawnFn })
+}
+
+/** @returns {Promise<{ code: number }>} */
+function runProcess(file, args, { timeoutMs = RUN_TIMEOUT_MS, spawnFn = spawn } = {}) {
   return new Promise((resolve) => {
     let child
     try {
-      child = spawnFn('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command
-      ], { windowsHide: true, stdio: 'ignore' })
+      child = spawnFn(file, args, { windowsHide: true, stdio: 'ignore' })
     } catch {
       resolve({ code: -1 })
       return
@@ -101,38 +114,42 @@ function runPowerShell(script, { elevate = false, timeoutMs = RUN_TIMEOUT_MS, sp
 }
 
 /**
- * 讀出現有排程工作寫死的交接檔路徑（測試暫存 userData 裝過之後會對不上現在的 userData）。
+ * 讀出現有排程工作的執行檔與寫死的交接檔路徑（測試暫存 userData 裝過之後會對不上現在的 userData）。
+ * 一支 PowerShell 就約 1 秒，所以兩樣一次問完。
  * @param {typeof spawn} spawnFn
- * @returns {Promise<string>}
+ * @returns {Promise<{ installed: boolean, execute: string, arg: string }>}
  */
-function readTaskHandoffArg(spawnFn) {
+function readTask(spawnFn) {
+  const none = { installed: false, execute: '', arg: '' }
   return new Promise((resolve) => {
     let out = ''
     let child
     try {
       child = spawnFn('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
-        `$ErrorActionPreference='SilentlyContinue'; $t=Get-ScheduledTask -TaskName ${psQuote(TASK_NAME)}; [string]$t.Actions[0].Arguments`
+        `$ErrorActionPreference='SilentlyContinue'; $t=Get-ScheduledTask -TaskName ${psQuote(TASK_NAME)}; `
+          + `if (-not $t) { exit 3 }; [string]$t.Actions[0].Execute; [string]$t.Actions[0].Arguments`
       ], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
     } catch {
-      resolve('')
+      resolve(none)
       return
     }
     if (!child.stdout || typeof child.stdout.on !== 'function') {
-      resolve('')
+      resolve(none)
       return
     }
     const timer = setTimeout(() => {
       try { child.kill() } catch { /* ignore */ }
-      resolve('')
-    }, 4000)
+      resolve(none)
+    }, RUN_TIMEOUT_MS)
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => { out += chunk })
-    child.on('error', () => { clearTimeout(timer); resolve('') })
-    child.on('close', () => {
+    child.on('error', () => { clearTimeout(timer); resolve(none) })
+    child.on('close', (code) => {
       clearTimeout(timer)
-      const arg = out.trim().replace(/^["']+|["']+$/g, '')
-      resolve(arg.toLowerCase().endsWith('.txt') ? arg : '')
+      if (code !== 0) { resolve(none); return }
+      const [execute = '', rawArg = ''] = out.split(/\r?\n/).map((line) => line.trim().replace(/^["']+|["']+$/g, ''))
+      resolve({ installed: true, execute, arg: rawArg.toLowerCase().endsWith('.txt') ? rawArg : '' })
     })
   })
 }
@@ -142,6 +159,18 @@ function createSensorTask(deps = {}) {
   /** 打包版才准安裝（開發版執行檔在可寫目錄＝提權後門） */
   const packaged = deps.packaged === true
   const userDataPath = deps.userDataPath || ''
+  /** 排程工作的內容只有 install／remove 會改；問一次就記住（每次重拉都問要多 2 秒） */
+  let taskInfo = null
+  const lookup = () => {
+    if (!taskInfo) {
+      // 只記住「有」：逾時或還沒裝的結果留著，之後就永遠退回 UAC
+      taskInfo = readTask(spawnFn).then((found) => {
+        if (!found.installed) taskInfo = null
+        return found
+      })
+    }
+    return taskInfo
+  }
 
   /** 交接檔：只裝一個管道名，sidecar 讀完就刪 */
   function handoffPath() {
@@ -154,13 +183,9 @@ function createSensorTask(deps = {}) {
    * @returns {Promise<{ installed: boolean, stale: boolean }>}
    */
   async function query(exePath) {
-    const script = `$ErrorActionPreference='Stop'; `
-      + `try { $t = Get-ScheduledTask -TaskName ${psQuote(TASK_NAME)} } catch { exit 3 }; `
-      + `if ($t.Actions[0].Execute -ne ${psQuote(exePath)}) { exit 4 }; exit 0`
-    const { code } = await runPowerShell(script, { spawnFn })
-    if (code === 0) return { installed: true, stale: false }
-    if (code === 4) return { installed: true, stale: true }
-    return { installed: false, stale: false }
+    const found = await lookup()
+    if (!found.installed) return { installed: false, stale: false }
+    return { installed: true, stale: found.execute.toLowerCase() !== String(exePath).toLowerCase() }
   }
 
   return {
@@ -228,6 +253,7 @@ function createSensorTask(deps = {}) {
       ].join('; ')
 
       const { code } = await runPowerShell(script, { elevate: true, timeoutMs: INSTALL_TIMEOUT_MS, spawnFn })
+      taskInfo = null
       if (code !== 0) {
         const err = new Error(`register failed ${code}`)
         err.code = 'SYSMON_TASK_FAILED'
@@ -242,6 +268,7 @@ function createSensorTask(deps = {}) {
       const script = `$ErrorActionPreference='SilentlyContinue'; `
         + `Unregister-ScheduledTask -TaskName ${psQuote(TASK_NAME)} -Confirm:$false; exit 0`
       await runPowerShell(script, { elevate: true, timeoutMs: INSTALL_TIMEOUT_MS, spawnFn })
+      taskInfo = null
       return { installed: false, stale: false }
     },
 
@@ -256,8 +283,7 @@ function createSensorTask(deps = {}) {
       if (!isProtectedInstall(target) || !sameBinary(exePath, target)) return false
       const found = await query(target)
       if (!found.installed || found.stale) return false
-      const taskArg = await readTaskHandoffArg(spawnFn)
-      const file = taskArg || handoffPath() || path.join(os.tmpdir(), 'voiceink-sensors-handoff.txt')
+      const file = (await lookup()).arg || handoffPath() || path.join(os.tmpdir(), 'voiceink-sensors-handoff.txt')
       let wrote = 0
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -265,11 +291,10 @@ function createSensorTask(deps = {}) {
         wrote = 1
       } catch { /* 交接檔寫不進去就退回 UAC */ }
       if (!wrote) return false
-      const { code } = await runPowerShell(
-        `$ErrorActionPreference='Stop'; Start-ScheduledTask -TaskName ${psQuote(TASK_NAME)}; exit 0`,
-        { spawnFn }
-      )
+      // schtasks.exe 約 0.1 秒；Start-ScheduledTask 要先冷啟一支 PowerShell（約 1 秒）
+      const { code } = await runProcess('schtasks.exe', ['/run', '/tn', TASK_NAME], { spawnFn })
       if (code !== 0) {
+        taskInfo = null
         try { fs.unlinkSync(file) } catch { /* 沒建成也沒關係 */ }
         return false
       }

@@ -6,13 +6,20 @@
 ## 專案概況
 
 VoiceInk：Windows Electron AI 工作台。Vanilla JS + Vite（無前端框架），Electron 43.4.1 ＋ Node.js 22。
-目前版本 **v1.36.0**（檔案頁右鍵對準選到的東西、首頁卡片有右鍵、詳細資訊依類型補齊（照片 EXIF、影音串流、程式版本、文字編碼）、大照片與影片縮圖；前版 v1.35.0 終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
+目前版本 **v1.36.1**（系統監控感測器滿載不再掉線、風扇重連後接得回去、感測器上線 8 秒 → 1.5 秒；前版 v1.36.0 檔案頁右鍵對準選到的東西、首頁卡片有右鍵、詳細資訊依類型補齊（照片 EXIF、影音串流、程式版本、文字編碼）、大照片與影片縮圖；前版 v1.35.0 終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
 資料夾監看不再漏事件；前版終端機 PATH 不再被 Ctrl+G 橋接蓋掉；再前檢查更新改走鏡像）。
 
 nav 十頁：聊天（預設，**專案工作區與終端機都在同一頁**）｜Telegram（官方網頁版 `web.telegram.org/a` 放進 `<webview>`，可並排多開最多 4 格（沒存過開 2 格；每格卡 600px，Web A 一律手機版版面）、共用 `persist:telegram`，一格載完等 1.5 秒才載下一格（同時開會有好幾格拿同一把金鑰一起連），每格頂端細列 ✕ 關（先導到 `about:blank` 再拿掉：直接拿掉 webview 不觸發 beforeunload，關到 Web A 的主分頁其他格會全斷）／最右格 ＋ 再開，每格停的聊天室存 store `telegramPanes`（不用 localStorage：結束走 `app.exit()` 會掉最後幾秒的寫入）；`telegram-page.js`，第一次點才建）｜檔案｜CC代理（`data-page` 仍是 `ccswitch`）｜
 AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定。額度不再是一頁：收成工作區主區最下面那條，用量統計在 CC代理。
 
 ## 架構
+
+### 系統監控感測器不再一直掉線、風扇接得回去（2026-09-27）
+
+- **掉線根因**：LHM 讀 CPU 感測器會把執行緒輪流釘到每顆核心，sidecar 一般優先權在機器忙時要排隊；實測全核滿載 40 秒送不出一框 → 主程式 20 秒判斷線重拉。事件記錄 9/27 晚上每 1.5～3 分鐘一筆「Pipe is broken」就是這個。sidecar 改 AboveNormal＋Highest 後同樣負載每框約 1.2 秒。
+- **風扇沒控制住**：重拉後主程式只在目標值「變了」才送 `S`，新的 sidecar 收不到；曲線平的那段（例如 75°C 以下都 20%）就永遠留在 BIOS。另外舊 sidecar 晚死時的 `SetDefault` 會放掉新的剛接管的通道。改成每秒重送（`fans.js`）。
+- **上線變快**：排程工作查詢快取、改 `schtasks.exe /run`、雜湊只算一次（每次重拉省約 3.5 秒）；記憶體組延後開（sidecar 第一框 8 秒 → 1.5 秒）；sidecar 收尾不再因 Dispose 丟例外而變成當機記錄。
+- **要生效得裝新版**：Program Files 那份 sidecar 跟新版對不上時，第一次進系統監控頁會跳一次 UAC 重裝排程工作。
 
 ### 檔案頁：右鍵對準你選的東西、詳細資訊依類型補齊（2026-09-27）
 
@@ -74,7 +81,7 @@ AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定�
   `explorer/drives.js`（`isDirSoon`、`listPlaces`／`listDrives` 並行探測 1.5 秒逾時；使用者的「下載」在 NAS 上）、`explorer/index.js` bootstrap、
   `explorer/recycle.js`（SID 資料夾、whoami、丟回收筒 PowerShell）、`terminal/links.js`（`statSoon` 800ms；**UNC 預設不查**，
   Claude Code 輸出的 JSON 轉義 `\\Users` 會被當網路路徑）、`codeusage/scan.js`、`workspace/agents.js`、`stt-archive.readRecording`、`hfmodels/library.importFile`。
-  VoiceInkSensors.exe 的「Pipe is broken」是主程式死掉後的連帶結果，不是起因。
+  VoiceInkSensors.exe 的「Pipe is broken」是主程式先斷線的連帶結果（主程式死掉，或 sidecar 卡住被判斷線，見 9/27 那節），不是起因。
 - **檔案頁**：左欄也有 `#exScopeBtn`（`searchMode` 'global'｜'filter'，分頁各自記、存進 `explorer.json`）；`#exSort`／`#exSortDir` 工具列排序，
   搜尋中選項換成 相關度／路徑／時間／大小／類型（`sortHitList`，hit 帶 `rank`）；排序鍵多了 `type`（副檔名，沒有的排前面，main `fs.js` `sortEntries` 與 renderer 共用 `BROWSE_SORT_KEYS`）。
   「大小」「修改」欄寬是 `--ex-col-size`／`--ex-col-date`（`initResizer` 以欄標題當 panel、`invert`）；欄標題與清單都 `scrollbar-gutter: stable` 才對得齊。

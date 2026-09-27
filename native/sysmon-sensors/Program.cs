@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
@@ -120,7 +121,14 @@ namespace VoiceInkSensors
                 return 3;
             }
 
-            using var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
+            // 讀 CPU 感測器時 LHM 會把執行緒輪流釘到每一顆核心上；一般優先權在核心忙時要排隊。
+            // 實測全核滿載下一輪平均 740ms、最慢 1s，機器再忙一點就超過主程式 20 秒的斷線門檻
+            // → 重拉 → 舊的這顆收尾時把風扇交還 BIOS。AboveNormal 之後同樣負載一輪 0～2ms。
+            // 每秒只做幾毫秒的事，拉高不會搶到別人。
+            try { Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.AboveNormal; } catch { /* 拉不高就照舊 */ }
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
+
+            var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
 
             // LibreHardwareMonitor 0.9.4 起把 WinRing0 換成 PawnIO（另一顆已簽章、
             // 相容記憶體完整性的核心驅動），但它**必須另外安裝**。沒裝的時候 LHM
@@ -138,7 +146,9 @@ namespace VoiceInkSensors
             {
                 IsCpuEnabled = true,
                 IsGpuEnabled = true,
-                IsMemoryEnabled = true,
+                // 記憶體（DIMM SPD 走 SMBus 逐一探位址）實測開啟要 6.4 秒，佔整個開機的大半；
+                // 先送第一框再開，溫度與風扇不用陪它等
+                IsMemoryEnabled = false,
                 IsMotherboardEnabled = true,
                 IsControllerEnabled = true,
                 IsStorageEnabled = true,
@@ -159,6 +169,7 @@ namespace VoiceInkSensors
             var visitor = new UpdateVisitor();
             int writeFailures = 0;
             var builder = new StringBuilder(16 * 1024);
+            bool memoryTried = false;
 
             // 先跑一輪才索引得到控制通道（LHM 要 Update 過才會把感測器物件建出來）
             try { computer.Accept(visitor); } catch { /* 下一輪還會再試 */ }
@@ -166,7 +177,7 @@ namespace VoiceInkSensors
             Oc.Init(computer);
             _lastCommandAt = Environment.TickCount64;
 
-            var reader = new Thread(() => ReadCommands(pipe, writer)) { IsBackground = true };
+            var reader = new Thread(() => ReadCommands(pipe, writer)) { IsBackground = true, Priority = ThreadPriority.Highest };
             reader.Start();
 
             try
@@ -196,6 +207,15 @@ namespace VoiceInkSensors
                     catch
                     {
                         writeFailures++;
+                    }
+
+                    if (!memoryTried)
+                    {
+                        memoryTried = true;
+                        lock (Gate)
+                        {
+                            try { computer.IsMemoryEnabled = true; } catch { /* 開不起來就少記憶體那組 */ }
+                        }
                     }
 
                     if (!pipe.IsConnected)
@@ -228,6 +248,9 @@ namespace VoiceInkSensors
                 // 交還一定要排在 Close 之前：Close 之後控制物件就不能用了
                 lock (Gate) { RestoreAll(); }
                 try { computer.Close(); } catch { /* 關不掉就算了，程序要結束了 */ }
+                // 主程式先斷線時 Dispose 的 Flush 會丟「Pipe is broken」；以前沒接住，
+                // 每次都變成一筆應用程式當機記錄（還要等 WER 收完才真的結束）
+                try { writer.Dispose(); } catch { /* 對方已經走了 */ }
             }
 
             return 0;

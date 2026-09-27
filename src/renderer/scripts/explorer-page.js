@@ -1591,6 +1591,11 @@ function onSecondDragStart(e, entry) {
 
 function onSecondContext(e) {
   setActivePane('right')
+  if (!e.target.closest('.ex-row') && e.button !== 2 && secondPane.selected.size) {
+    e.preventDefault()
+    openContextMenu(keyboardMenuPoint(e, $('exSecondList')), selectedEntries(), secondPane.cwd)
+    return
+  }
   const row = e.target.closest('.ex-row')
   if (row && row.dataset.path && !secondPane.selected.has(row.dataset.path)) {
     secondPane.selected = new Set([row.dataset.path])
@@ -2081,6 +2086,15 @@ async function paintDetail() {
       if (result && result.ok) return result.data
       throw new Error('inspect')
     },
+    mediaUrl: async (filePath) => {
+      const result = await electronAPI.explorer.mediaUrl(filePath)
+      return result && result.ok ? String(result.data.url || '') : ''
+    },
+    details: async (filePath) => {
+      const result = await electronAPI.explorer.details(filePath)
+      if (result && result.ok) return result.data.groups
+      throw new Error('details')
+    },
     formatSize,
     formatTime,
     // 側欄那張小預覽點下去＝開大預覽（游標也會變成放大鏡）
@@ -2428,7 +2442,8 @@ async function onDevicesChanged() {
 function paintHome() {
   const host = $('exHome')
   if (!host) return
-  const fallback = disks.map((d) => ({ ...d, label: '', fs: '', type: 3 }))
+  // 容量還在問（剛進首頁那一兩秒）：卡片寫「讀取中」，不要先顯示「未就緒」嚇人
+  const fallback = disks.map((d) => ({ ...d, label: '', fs: '', type: 3, loading: true }))
   paintHomePane({
     host,
     folders: places.filter((p) => {
@@ -2439,6 +2454,10 @@ function paintHome() {
     devices,
     formatSize,
     onOpen: (target, newPage) => void (newPage ? newTab(target) : navigate(target)),
+    onMenu: (e, target, name) => {
+      e.preventDefault()
+      openContextMenu(e, [{ path: target, name, dir: true }])
+    },
     bindDrop: (el, target) => bindDropTarget(el, () => target, (event, dest) => void handleDrop(event, dest))
   })
 }
@@ -2944,8 +2963,12 @@ function findShellVerb(items, verb) {
  * @param {object[]} items
  */
 async function showProperties(items) {
-  const folder = activeCwd()
+  const folder = items.length ? shellFolderOf(items) : activeCwd()
   if (activeInRecycle() || pathKey(folder) === THIS_PC || blockInZip(items.length ? items : undefined)) return
+  if (!folder || items.some((i) => isPhonePath(i.path))) {
+    showToast(folder ? '手機裡的項目沒有「內容」視窗' : '不同資料夾的項目沒辦法一起看內容', 'error')
+    return
+  }
   let token = 0
   try {
     const res = await electronAPI.explorer.shellMenu({ paths: items.map((item) => item.path), dir: folder })
@@ -3348,11 +3371,13 @@ function openContextMenu(e, items, dir) {
   const phoneView = paneInPhone(activePane)
   const archive = paneArchive(activePane)
   const extended = Boolean(e.shiftKey)
-  const folder = dir || activeCwd()
+  const home = items.length > 0 && pathKey(startCwd) === THIS_PC && !inSearch()
+  // 選到東西時殼層選單要開在「它所在的那一層」：搜尋結果、首頁的磁碟都不在目前資料夾裡
+  const folder = items.length ? shellFolderOf(items) : (dir || activeCwd())
   void (async () => {
     let shellItems = []
     let token = 0
-    if (!recycle && !zipView && !phoneView && folder && folder !== THIS_PC) {
+    if (!recycle && !zipView && !phoneView && folder && pathKey(folder) !== THIS_PC && !items.some((i) => isPhonePath(i.path))) {
       try {
         const res = await electronAPI.explorer.shellMenu({
           paths: items.map((item) => item.path).filter(Boolean),
@@ -3373,6 +3398,7 @@ function openContextMenu(e, items, dir) {
     }
     showExplorerMenu(at, {
       recycle,
+      home,
       zip: zipView,
       phone: phoneView,
       items,
@@ -3714,9 +3740,26 @@ async function toggleHidden() {
   showToast(showHidden ? '已顯示隱藏項目' : '已隱藏系統項目')
 }
 
+/**
+ * 鍵盤叫出來的選單開在選到的第一列底下（看得到的話），不然就照事件給的位置。
+ * @param {MouseEvent} e
+ * @param {HTMLElement | null} host
+ */
+function keyboardMenuPoint(e, host) {
+  const row = host?.querySelector('.ex-row.is-selected')
+  const r = row?.getBoundingClientRect()
+  const at = r && r.height ? { clientX: r.left + 24, clientY: r.bottom } : { clientX: e.clientX, clientY: e.clientY }
+  return { ...at, shiftKey: e.shiftKey }
+}
+
 function onListContext(e) {
   if (e.target.closest('.ex-row')) return
   e.preventDefault()
+  // 選單鍵／Shift+F10 叫出來的（button 不是右鍵、target 是清單本身）要給選到的那幾個，不是資料夾
+  if (e.button !== 2 && selected.size) {
+    openContextMenu(keyboardMenuPoint(e, $('exList')), selectedEntries())
+    return
+  }
   selected = new Set()
   paintList()
   openContextMenu(e, [])
@@ -3985,6 +4028,16 @@ export async function openExplorerPath(full, kind = 'dir') {
   const target = isFile ? parentOf(raw) : raw
   pendingOpen = { target, select: isFile ? raw : '', newTab: true }
   switchPage('explorer')
+}
+
+/**
+ * 殼層選單／內容視窗的工作目錄＝選到的東西所在的那一層（搜尋結果、首頁的磁碟都不在目前資料夾）。
+ * 殼層只能對同一層的項目開選單，跨資料夾回空字串；磁碟根目錄回它自己。
+ * @param {{ path: string }[]} items
+ */
+function shellFolderOf(items) {
+  const parents = items.map((i) => (/^[A-Za-z]:\\?$/.test(i.path) ? `${i.path.slice(0, 2)}\\` : parentOf(i.path)))
+  return parents.every((p) => pathKey(p) === pathKey(parents[0])) ? parents[0] : ''
 }
 
 /** @param {string} full */

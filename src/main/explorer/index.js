@@ -26,6 +26,10 @@ const operations = require('./operations')
 const zipOps = require('./zip-ops')
 const zip = require('./zip')
 const mtp = require('./mtp')
+const fileDetails = require('./details')
+
+/** 壓縮檔／手機裡的檔案要先複製到暫存才讀得到詳細資訊，只做這個大小以下（手機影片動輒幾 GB） */
+const DETAILS_COPY_LIMIT = 64 * 1024 * 1024
 
 /** @type {(channel: string, payload: any) => void} */
 let emit = () => {}
@@ -122,6 +126,18 @@ const inspect = async (filePath) => {
   if (mtp.isMtp(filePath)) return mtp.inspect(filePath)
   const inner = await zipOps.innerOf(filePath)
   return inner ? zipOps.inspect(inner) : files.inspect(filePath)
+}
+
+/**
+ * 詳細資訊依類型補的那幾段（影音串流、相片 EXIF、文件、程式版本、文字編碼）。
+ * @param {unknown} filePath
+ */
+async function details(filePath) {
+  if (mtp.isMtp(filePath) || await zipOps.innerOf(filePath)) {
+    const info = await inspect(filePath)
+    if (info.dir || info.size > DETAILS_COPY_LIMIT) return { groups: [] }
+  }
+  return fileDetails.details(await realFile(filePath))
 }
 
 async function savePlaces(raw) {
@@ -640,6 +656,7 @@ module.exports = {
   readMarkdown,
   mediaUrl,
   inspect,
+  details,
   createEntry,
   renameEntry,
   removeEntry,

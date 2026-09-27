@@ -13009,6 +13009,23 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   gap: 6px;
 }
 
+/* 標籤｜值 左右兩欄：影音、相片的詳細資訊一來就二三十列，上下疊會捲很長 */
+.ex-detail dl > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: baseline;
+}
+
+.ex-detail-group {
+  margin: 4px 0 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .ex-detail dt {
   font-size: 11px;
   color: var(--text-tertiary);

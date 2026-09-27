@@ -1875,6 +1875,7 @@ registerExplorerIpc({
     // 大預覽的來源網址（`vi-media://`，邊讀邊送）
     mediaUrl: (...args) => loadExplorer().mediaUrl(...args),
     inspect: (...args) => loadExplorer().inspect(...args),
+    details: (...args) => loadExplorer().details(...args),
     createEntry: (...args) => loadExplorer().createEntry(...args),
     renameEntry: (...args) => loadExplorer().renameEntry(...args),
     removeEntry: (...args) => loadExplorer().removeEntry(...args),

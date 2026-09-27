@@ -93,6 +93,7 @@ namespace VoiceInkShell
                         case "icon": return Ok(id, w => Icon(root, w));
                         case "thumb": return Ok(id, w => Thumb(root, w));
                         case "attrs": return Ok(id, w => Attributes.Write(Str(root, "dir"), w));
+                        case "props": return Ok(id, w => Properties.Write(root, w));
                         case "menu": return Ok(id, w => Menu(root, w));
                         case "invoke": return Ok(id, w => Invoke(root, w));
                         case "release": return Ok(id, w => Release(root, w));

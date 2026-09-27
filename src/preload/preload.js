@@ -719,6 +719,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 大預覽的來源網址（`vi-media://`）。側欄小預覽才用 `inspect` 的 data: URI（卡 2MB）。 */
     mediaUrl: (filePath) => ipcRenderer.invoke('explorer:mediaUrl', filePath),
     inspect: (filePath) => ipcRenderer.invoke('explorer:inspect', filePath),
+    details: (filePath) => ipcRenderer.invoke('explorer:details', filePath),
     createEntry: (dirPath, name, dir) => ipcRenderer.invoke('explorer:createEntry', dirPath, name, dir),
     renameEntry: (target, name) => ipcRenderer.invoke('explorer:renameEntry', target, name),
     removeEntry: (target, opts) => ipcRenderer.invoke('explorer:removeEntry', target, opts),

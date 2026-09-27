@@ -6,13 +6,20 @@
 ## 專案概況
 
 VoiceInk：Windows Electron AI 工作台。Vanilla JS + Vite（無前端框架），Electron 43.4.1 ＋ Node.js 22。
-目前版本 **v1.35.0**（終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
+目前版本 **v1.36.0**（檔案頁右鍵對準選到的東西、首頁卡片有右鍵、詳細資訊依類型補齊（照片 EXIF、影音串流、程式版本、文字編碼）、大照片與影片縮圖；前版 v1.35.0 終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
 資料夾監看不再漏事件；前版終端機 PATH 不再被 Ctrl+G 橋接蓋掉；再前檢查更新改走鏡像）。
 
 nav 十頁：聊天（預設，**專案工作區與終端機都在同一頁**）｜Telegram（官方網頁版 `web.telegram.org/a` 放進 `<webview>`，可並排多開最多 4 格（沒存過開 2 格；每格卡 600px，Web A 一律手機版版面）、共用 `persist:telegram`，一格載完等 1.5 秒才載下一格（同時開會有好幾格拿同一把金鑰一起連），每格頂端細列 ✕ 關（先導到 `about:blank` 再拿掉：直接拿掉 webview 不觸發 beforeunload，關到 Web A 的主分頁其他格會全斷）／最右格 ＋ 再開，每格停的聊天室存 store `telegramPanes`（不用 localStorage：結束走 `app.exit()` 會掉最後幾秒的寫入）；`telegram-page.js`，第一次點才建）｜檔案｜CC代理（`data-page` 仍是 `ccswitch`）｜
 AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定。額度不再是一頁：收成工作區主區最下面那條，用量統計在 CC代理。
 
 ## 架構
+
+### 檔案頁：右鍵對準你選的東西、詳細資訊依類型補齊（2026-09-27）
+
+- **右鍵**：選單鍵／Shift+F10（事件 `button !== 2`、target 是清單本身）以前會清掉選取、開成目前資料夾的選單，「內容」也變成資料夾的；現在有選取就給選到的那幾個（`onListContext`／`onSecondContext`）。殼層選單與內容視窗的工作目錄改用 `shellFolderOf(items)`＝選到的東西所在那一層（搜尋結果跨資料夾就不開殼層那份、內容視窗提示）。「本機」首頁的資料夾／磁碟／手機卡片以前按右鍵沒反應，現在有 `showHomeMenu`（開啟／新分頁／複製路徑／內容＋殼層，磁碟有格式化、BitLocker；不給刪除／剪下／改名）。首頁容量還沒回來時卡片寫「讀取中…」，不再先顯示「未就緒」。
+- **詳細資訊**：新 IPC `explorer:details` → `explorer/details.js`，在基本資料畫完後補一段一段（`h3.ex-detail-group`＋兩欄 `dl`，跟上面重複的不列）。影音走 `ffmpeg -i` 的檔頭（`ffmpeg-path.js` 從 `file-transcribe.js` 抽出來共用）：長度、總位元率、視訊編碼／解析度／像素／幀率／位元率／色彩深度／HDR／旋轉、每條音訊的取樣率／聲道／位元深度／kbps、字幕、標籤（手機的裝置型號、拍攝位置）。文字檔自己數編碼／換行／行數／字元數。其他檔案問殼層 sidecar 新的 `props` op（`Properties.cs`，Windows 屬性系統＋`PSFormatForDisplayAlloc`）：相機 EXIF、影像解析度、GPS（排成度分秒＋十進位座標）、程式版本、文件頁數。壓縮檔／手機裡的檔案 64MB 以下才複製到暫存來讀。
+- **右側預覽**：超過 2MB 的照片以前只寫「檔案太大」，現在走 `vi-media://` 顯示；影片抓第一格畫到 canvas 後**立刻放掉 video**（串流抓著檔案會刪不掉、改不了名）。
+- 測試：`test-explorer-details.js`（解析＋真的 ffmpeg）、`probe-explorer-menu-target-cdp.js`（真的右鍵／Shift+F10／圖示檢視／首頁磁碟 → 內容視窗標題；詳細資訊三種類型；影片縮圖後還改得了名）。改了 C# 要 `npm run build:shell`。
 
 ### 終端機看得懂 Claude 在忙／等你／做完，重開後接回對話（2026-09-27）
 

@@ -43,8 +43,9 @@ function section(title, cards) {
  * @param {{ icon: string, name: string, sub: string, path: string }} spec
  * @param {(path: string, newPage?: boolean) => void} onOpen
  * @param {(el: HTMLElement, path: string) => void} bindDrop
+ * @param {(e: MouseEvent, path: string, name: string) => void} [onMenu]
  */
-function card(spec, onOpen, bindDrop) {
+function card(spec, onOpen, bindDrop, onMenu) {
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'ex-home-card'
@@ -70,6 +71,7 @@ function card(spec, onOpen, bindDrop) {
     e.preventDefault()
     onOpen(spec.path, true)
   })
+  if (onMenu) btn.addEventListener('contextmenu', (e) => onMenu(e, spec.path, spec.name))
   bindDrop(btn, spec.path)
   return { btn, body }
 }
@@ -92,20 +94,21 @@ function bar(used) {
  * @param {{
  *   host: HTMLElement,
  *   folders: Array<{ label: string, path: string }>,
- *   disks: Array<{ letter: string, path: string, label?: string, fs?: string, total?: number, free?: number, type?: number }>,
+ *   disks: Array<{ letter: string, path: string, label?: string, fs?: string, total?: number, free?: number, type?: number, loading?: boolean }>,
  *   devices?: Array<{ name: string, path: string, type?: string }>,
  *   formatSize: (n: number) => string,
  *   onOpen: (path: string, newPage?: boolean) => void,
+ *   onMenu?: (e: MouseEvent, path: string, name: string) => void,
  *   bindDrop: (el: HTMLElement, path: string) => void
  * }} spec
  */
 export function paintHomePane(spec) {
-  const { host, formatSize, onOpen, bindDrop } = spec
+  const { host, formatSize, onOpen, bindDrop, onMenu } = spec
   host.replaceChildren()
   const folders = spec.folders || []
   if (folders.length) {
     host.appendChild(section('資料夾', folders.map((f) => (
-      card({ icon: '📁', name: f.label, sub: f.path, path: f.path }, onOpen, bindDrop).btn
+      card({ icon: '📁', name: f.label, sub: f.path, path: f.path }, onOpen, bindDrop, onMenu).btn
     ))))
   }
   const disks = spec.disks || []
@@ -117,9 +120,9 @@ export function paintHomePane(spec) {
     const { btn, body } = card({
       icon: iconOf(disk.type),
       name: driveName(disk),
-      sub: total ? `剩餘 ${formatSize(free)}，共 ${formatSize(total)}` : (disk.fs ? '' : '未就緒'),
+      sub: total ? `剩餘 ${formatSize(free)}，共 ${formatSize(total)}` : (disk.loading ? '讀取中…' : (disk.fs ? '' : '未就緒')),
       path: disk.path
-    }, onOpen, bindDrop)
+    }, onOpen, bindDrop, onMenu)
     if (total > 0) body.insertBefore(bar((total - free) / total), body.lastChild)
     if (disk.fs) {
       const fsTag = document.createElement('span')
@@ -133,7 +136,8 @@ export function paintHomePane(spec) {
   const phones = (spec.devices || []).map((dev) => card(
     { icon: '📱', name: dev.name, sub: dev.type || '手機', path: dev.path },
     onOpen,
-    () => {}
+    () => {},
+    onMenu
   ).btn)
   if (local.length || phones.length) host.appendChild(section('裝置和磁碟機', [...local.map(build), ...phones]))
   if (net.length) host.appendChild(section('網路位置', net.map(build)))

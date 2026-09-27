@@ -186,6 +186,26 @@ async function release(token) {
 }
 
 /**
+ * Windows 屬性系統（檔案總管「內容 › 詳細資料」那一頁）的指定屬性，值已照系統格式排好。
+ * sidecar 沒建置或問不到回空陣列：詳細資訊只是少那幾段。
+ * @param {string} full
+ * @param {string[]} names 標準名稱（`System.Photo.CameraModel`…）
+ * @param {number} timeoutMs
+ * @returns {Promise<{ name: string, value: string }[]>}
+ */
+async function propsOf(full, names, timeoutMs) {
+  const s = await ensure()
+  if (!s || !full) return []
+  try {
+    const result = await s.send({ op: 'props', path: full, names }, timeoutMs)
+    return result.ok && result.data && Array.isArray(result.data.props) ? result.data.props : []
+  } catch (error) {
+    console.error('[explorer] 讀不到檔案屬性:', error?.message || error)
+    return []
+  }
+}
+
+/**
  * 這個路徑在檔案總管裡實際長的樣子（含 Google Drive 綠勾）。問不到回空字串。
  * @param {string} full
  * @returns {Promise<string>}
@@ -259,6 +279,7 @@ module.exports = {
   iconOf,
   thumbOf,
   attrsOf,
+  propsOf,
   toPng,
   mapNode,
   hwndOf

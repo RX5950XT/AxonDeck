@@ -751,3 +751,11 @@ Review：
 - [x] 同步 package.json、README、CONTEXT 版本，建置正式安裝檔
 - [x] 驗證安裝檔、latest.yml、blockmap，提交並發布 GitHub Release
 - Review：`test-claude-hooks` 68、`test-term-agent` 全過、`test-terminal` 105、`test-terminal-ui` 12、`test-workspace-ui` 183、`test-terminal-links` 125、`test-terminal-host` 全過、`cargo test` 25＋12；`electron:pack` 比對 246 支 src、packaged terminal CDP 59；`electron:build` 成功；安裝檔 SHA-512 與 `latest.yml` 相符，GitHub 三個資產的 SHA-256 與本機相符，Release 為 Latest。
+
+## 2026-09-27 檔案頁：右鍵對準目標、詳細資訊依類型補齊
+
+- [x] 重現「右鍵內容變成目前資料夾」：選取後按選單鍵／Shift+F10 會清掉選取；首頁卡片按右鍵沒反應
+- [x] 修鍵盤右鍵、殼層選單目錄改用選到的東西那一層、首頁卡片右鍵選單
+- [x] 詳細資訊：影音（ffmpeg）、文字（編碼／換行／行數）、其他走 Windows 屬性系統（sidecar `props`）
+- [x] 體驗：大照片右側預覽、影片第一格縮圖（不抓著檔案）、詳細資訊兩欄排版、首頁容量讀取中
+- Review：`test-explorer-details` 5 段全過（含真 ffmpeg）、`test-explorer` 309、zip 35、shell 44、zoom 22、clipboard 3、browse／wiring 過；`electron:pack` 比對 248 支 src；`probe-explorer-menu-target-cdp` 11 項全 PASS；`e2e-explorer-cdp`／dual／files-plan／zip 全過。

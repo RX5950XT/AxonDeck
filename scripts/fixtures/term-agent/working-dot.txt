@@ -1,0 +1,11 @@
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Haiku 4.5 · Claude Pro
+ ▝▝   ▝▝   ~\AppData\Local\Temp\claude\D--Workspace-Personal-Project-VoiceInk\5ef56637-be62-447c-a7a
+❯ Write a 700 word essay about mountains. Do not use tools.
+· Flibbertigibbeting… (running UserPromptSubmit hooks… 3/4 · 0s)
+────────────────────────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE
+  Haiku 4.5 [thinking] C:\Users\rx595\AppData\Local\Temp\claude\D--Workspace-Personal-Project-VoiceI
+  ⏸ manual mode on
+

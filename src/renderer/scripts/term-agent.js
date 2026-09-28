@@ -42,18 +42,22 @@ const SCREEN_RULES = [
     },
     // `esc to interrupt` 是說明書上的那句。2.1.283 這台實測常被 hook 狀態換掉，
     // 畫面底部變成 `✶ Concocting…`。轉圈符號要跟 `ing…` 在同一行，總結行的
-    // `✻ Brewed for 7s` 才不會被當成還在跑。中間那個 `·` 到處都有，不拿來當符號。
+    // `✻ Brewed for 7s` 才不會被當成還在跑。轉圈也會輪到 `·` 與 `*`
+    // （`· Flibbertigibbeting…`、`* Considering… (1s · thinking)`），所以符號後面要緊接
+    // 一個大寫開頭的 `…ing…` 單字（會有 `Sautéing…` 這種重音字母），內文的 `* 項目…` 與中間的 `·` 才不會中。
     working: {
       lines: 8,
       any: ['esc to interrupt'],
-      line: /^\s*[✢✳✶✻✽].*ing…/
+      line: /^\s*[·*✢✳✶✻✽]\s+\p{Lu}[\p{L}-]*ing…/u
     },
     // 行首 ❯ 才是輸入框。2.1.283 的狀態列（模型、manual、/rc）佔掉最底三、四行，
     // ❯ 不在最底 4 行裡，所以視窗放到 8。選單的 `❯ No, exit` 也長這樣，
-    // 範圍內不能有上面那些確認提示。
+    // 範圍內不能有上面那些確認提示。剛送出的那句訊息也印成 `❯ …`，
+    // 真正的輸入框上一行一定是框線（`after`）。
     idle: {
       lines: 8,
       prompt: /^\s*❯(?:\s|$)/,
+      after: /^\s*─{3,}/,
       absent: ['esc to cancel', 'enter to select', 'esc to interrupt']
     }
   }
@@ -123,13 +127,9 @@ function matchRule(lines, rule) {
   if (hasAny(work, rule.working.any)) return 'working'
   if (rule.working.line && work.some((line) => rule.working.line.test(line))) return 'working'
   const idle = tailLines(lines, rule.idle.lines)
-  let prompted = false
-  for (const line of idle) {
-    if (rule.idle.prompt.test(line)) {
-      prompted = true
-      break
-    }
-  }
+  const offset = lines.length - idle.length
+  const prompted = idle.some((line, i) => rule.idle.prompt.test(line)
+    && rule.idle.after.test(lines[offset + i - 1] || ''))
   if (prompted && !hasAny(idle, rule.idle.absent)) return 'idle'
   return null
 }
@@ -149,6 +149,8 @@ export function detectScreen(lines) {
 
 /**
  * 顯示用狀態。程序已經結束就聽宿主；否則 hook 優先，再來是畫面，都沒有才回到宿主。
+ * 例外：hook 說閒置是最弱的——排隊的訊息在上一輪 `Stop` 之後接著跑、不會再送
+ * UserPromptSubmit；Esc 關掉的也可能不是這一輪。畫面看得到在轉圈或在問，就以畫面為準。
  * hook／畫面的 `working` 畫面上叫 `running`（跟宿主的「運行中」同一個字）。
  *
  * @param {{ host?: string, hook?: string | null, screen?: string | null }} input
@@ -156,6 +158,7 @@ export function detectScreen(lines) {
  */
 export function mergeState({ host, hook, screen } = {}) {
   if (host === 'exited' || host === 'stopped') return host
+  if (hook === 'idle' && (screen === 'working' || screen === 'waiting')) return AGENT_VIEW[screen]
   if (hook != null && AGENT_VIEW[hook]) return AGENT_VIEW[hook]
   if (screen != null && AGENT_VIEW[screen]) return AGENT_VIEW[screen]
   return host

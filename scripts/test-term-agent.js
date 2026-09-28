@@ -39,6 +39,22 @@ async function main() {
   check('做完回到輸入框是 idle', () => {
     assert.equal(detectScreen(linesOf('idle.txt')), 'idle')
   })
+  check('轉圈符號 · 與 * 也是 working（2.1.283 實測）', () => {
+    assert.equal(detectScreen(linesOf('working-dot.txt')), 'working')
+    assert.equal(detectScreen(linesOf('working-star.txt')), 'working')
+    assert.equal(detectScreen(['✻ Sautéing…', '────────', '❯ ']), 'working')
+  })
+  check('剛送出的那句 ❯ 訊息不是輸入框', () => {
+    assert.equal(detectScreen([
+      '❯ Write a 700 word essay about mountains.',
+      '────────────────',
+      '────────────────',
+      '  ⏸ manual mode on'
+    ]), null)
+  })
+  check('項目符號 * 開頭的內文不是 working', () => {
+    assert.equal(detectScreen(['* Remember to check the logs…']), null)
+  })
   check('確認畫面是 waiting', () => {
     assert.equal(detectScreen(linesOf('waiting.txt')), 'waiting')
   })
@@ -47,6 +63,7 @@ async function main() {
     assert.equal(detectScreen([
       '水循環講完了',
       '✳ Baked for 14m',
+      '────────────────',
       '❯ '
     ]), 'idle')
   })
@@ -64,7 +81,7 @@ async function main() {
   check('esc to interrupt 在視窗上面不誤判', () => {
     const above = ['前面的對話提到 esc to interrupt 這幾個字']
     const filler = Array.from({ length: 8 }, (_, i) => `填充 ${i}`)
-    assert.equal(detectScreen([...above, ...filler, '❯ ']), 'idle')
+    assert.equal(detectScreen([...above, ...filler, '────────', '❯ ']), 'idle')
   })
   check('大小寫不分', () => {
     assert.equal(detectScreen(['ESC TO INTERRUPT']), 'working')
@@ -84,7 +101,11 @@ async function main() {
   check('hook 優先，working 顯示成 running', () => {
     assert.equal(mergeState({ host: 'running', hook: 'working', screen: 'idle' }), 'running')
     assert.equal(mergeState({ host: 'running', hook: 'waiting', screen: 'working' }), 'waiting')
-    assert.equal(mergeState({ host: 'idle', hook: 'idle', screen: 'working' }), 'idle')
+  })
+  check('hook 說閒置、畫面看得到在轉圈或在問：以畫面為準（排隊的訊息、Esc 關掉別的東西）', () => {
+    assert.equal(mergeState({ host: 'idle', hook: 'idle', screen: 'working' }), 'running')
+    assert.equal(mergeState({ host: 'idle', hook: 'idle', screen: 'waiting' }), 'waiting')
+    assert.equal(mergeState({ host: 'idle', hook: 'idle', screen: null }), 'idle')
   })
   check('沒有 hook 才看畫面', () => {
     assert.equal(mergeState({ host: 'idle', hook: null, screen: 'working' }), 'running')

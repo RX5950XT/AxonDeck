@@ -35,7 +35,7 @@ namespace VoiceInkSensors
     /// 交還完成後回一行 {"reset":1}，主程式靠它知道可以安全結束了。
     ///
     /// **看門狗**：只要我們寫過任何一條通道，超過 WatchdogMs 沒收到任何指令就自己
-    /// 全部交還並結束。手動 PWM 是**留在晶片裡的**（實測硬殺程序後仍在），
+    /// 全部交還（不結束，主程式回神後再接管）。手動 PWM 是**留在晶片裡的**（實測硬殺程序後仍在），
     /// 沒有這道保險，主程式被硬殺就會把風扇永久釘在最後的轉速。
     ///
     /// 缺 PawnIO 核心驅動時先送一行 {"warn":"pawnio"} 再照常送資料（GPU 與硬碟溫度
@@ -61,6 +61,8 @@ namespace VoiceInkSensors
         /// 同一顆硬體上同 Index 的轉速感測器（可能沒有，例如沒插風扇的接頭）
         private static readonly Dictionary<string, ISensor> Fans = new Dictionary<string, ISensor>(StringComparer.Ordinal);
         private static long _lastCommandAt;
+        /// 讀取執行緒正在處理一條指令（可能在等 Gate）：這段時間不算主程式沒聲音
+        private static volatile bool _inCommand;
         /** 主程式送 R 後，回報交還並立即離開，不再多跑取樣迴圈。 */
         private static volatile bool _stopRequested;
 
@@ -201,7 +203,8 @@ namespace VoiceInkSensors
 
                     try
                     {
-                        writer.WriteLine(builder.ToString());
+                        // 讀取執行緒也會寫（{"reset":1}）；StreamWriter 不是執行緒安全的，不鎖會把兩行攪成一行壞 JSON
+                        lock (writer) writer.WriteLine(builder.ToString());
                         writeFailures = 0;
                     }
                     catch
@@ -229,14 +232,16 @@ namespace VoiceInkSensors
                     }
 
                     // 看門狗：只有在我們真的寫過風扇或效能調整時才作用——純讀感測器的
-                    // 用法沒有心跳，不能因此被關掉。主程式被硬殺時，這是唯一會交還的機制。
+                    // 用法沒有心跳，不能因此被關掉。主程式卡住時先把風扇交還 BIOS，
+                    // 但**不結束**：主程式回神後下一秒的 S 就接得回去；真的死了管道會斷，上面那條會收尾。
+                    // 讀取執行緒卡在 Gate 上（開記憶體組 6 秒多、滿載時的 Accept）是我們自己慢，
+                    // 不是主程式沒聲音——以前這裡會把它當成斷線，開機 8 秒就自殺、每分鐘重拉一次。
                     lock (Gate)
                     {
-                        if ((Overridden.Count > 0 || Oc.IsApplied)
+                        if ((Overridden.Count > 0 || Oc.IsApplied) && !_inCommand
                             && Environment.TickCount64 - _lastCommandAt > WatchdogMs)
                         {
                             RestoreAll();
-                            break;
                         }
                     }
 
@@ -340,58 +345,70 @@ namespace VoiceInkSensors
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
+                    _inCommand = true;
                     _lastCommandAt = Environment.TickCount64;
-                    string[] parts = line.Trim().Split(' ');
-                    if (parts.Length == 0 || parts[0].Length == 0) continue;
-                    switch (parts[0])
+                    try { RunCommand(line, writer); }
+                    finally
                     {
-                        case "P":
-                            break;
-                        case "S" when parts.Length >= 3:
-                            ApplyControl(parts[1], parts[2]);
-                            break;
-                        case "D" when parts.Length >= 2:
-                            ApplyControl(parts[1], null);
-                            break;
-                        case "R":
-                            lock (Gate) { RestoreAll(); }
-                            // 主程式靠這一行知道風扇已經交還、可以安全收掉我們了
-                            lock (Gate) { TryWrite(writer, "{\"reset\":1}"); }
-                            _stopRequested = true;
-                            break;
-                        case "G" when parts.Length >= 4:
-                            Oc.ApplyGpu(
-                                OptInt(parts, 6, 0),
-                                ParseInt(parts[1]), ParseInt(parts[2]), ParseInt(parts[3]),
-                                OptInt(parts, 4, 0), OptInt(parts, 5, 90));
-                            break;
-                        case "C" when parts.Length >= 5:
-                            Oc.ApplyCpu(
-                                ParseInt(parts[1]), ParseInt(parts[2]), ParseInt(parts[3]), ParseInt(parts[4]),
-                                OptInt(parts, 5, 0), OptInt(parts, 6, 0), OptInt(parts, 7, 90),
-                                OptInt(parts, 8, 0), OptInt(parts, 9, 0));
-                            break;
-                        case "K" when parts.Length >= 2:
-                            Oc.ApplyCores(ParseList(parts, 16));
-                            break;
-                        case "F" when parts.Length >= 2:
-                            Oc.ApplyFreqCores(ParseList(parts, 16));
-                            break;
-                        case "V" when parts.Length >= 2:
-                            Oc.ApplyVf(0, ParseList(parts, 96));
-                            break;
-                        case "W" when parts.Length >= 3:
-                            Oc.ApplyVf(ParseInt(parts[1]), ParseListAt(parts, 2, 96));
-                            break;
-                        case "X":
-                            Oc.Reset();
-                            break;
+                        // 先蓋新時間再放旗標：看門狗不會在兩者之間看到舊時間
+                        _lastCommandAt = Environment.TickCount64;
+                        _inCommand = false;
                     }
                 }
             }
             catch
             {
-                // 管道斷了：主迴圈的 IsConnected 與看門狗會把風扇交還後結束
+                // 管道斷了：主迴圈看到 IsConnected 變假就會把風扇交還後結束
+            }
+        }
+
+        private static void RunCommand(string line, StreamWriter writer)
+        {
+            string[] parts = line.Trim().Split(' ');
+            if (parts.Length == 0 || parts[0].Length == 0) return;
+            switch (parts[0])
+            {
+                case "P":
+                    break;
+                case "S" when parts.Length >= 3:
+                    ApplyControl(parts[1], parts[2]);
+                    break;
+                case "D" when parts.Length >= 2:
+                    ApplyControl(parts[1], null);
+                    break;
+                case "R":
+                    lock (Gate) { RestoreAll(); }
+                    // 主程式靠這一行知道風扇已經交還、可以安全收掉我們了
+                    lock (Gate) { TryWrite(writer, "{\"reset\":1}"); }
+                    _stopRequested = true;
+                    break;
+                case "G" when parts.Length >= 4:
+                    Oc.ApplyGpu(
+                        OptInt(parts, 6, 0),
+                        ParseInt(parts[1]), ParseInt(parts[2]), ParseInt(parts[3]),
+                        OptInt(parts, 4, 0), OptInt(parts, 5, 90));
+                    break;
+                case "C" when parts.Length >= 5:
+                    Oc.ApplyCpu(
+                        ParseInt(parts[1]), ParseInt(parts[2]), ParseInt(parts[3]), ParseInt(parts[4]),
+                        OptInt(parts, 5, 0), OptInt(parts, 6, 0), OptInt(parts, 7, 90),
+                        OptInt(parts, 8, 0), OptInt(parts, 9, 0));
+                    break;
+                case "K" when parts.Length >= 2:
+                    Oc.ApplyCores(ParseList(parts, 16));
+                    break;
+                case "F" when parts.Length >= 2:
+                    Oc.ApplyFreqCores(ParseList(parts, 16));
+                    break;
+                case "V" when parts.Length >= 2:
+                    Oc.ApplyVf(0, ParseList(parts, 96));
+                    break;
+                case "W" when parts.Length >= 3:
+                    Oc.ApplyVf(ParseInt(parts[1]), ParseListAt(parts, 2, 96));
+                    break;
+                case "X":
+                    Oc.Reset();
+                    break;
             }
         }
 
@@ -469,7 +486,7 @@ namespace VoiceInkSensors
 
         private static void TryWrite(StreamWriter writer, string line)
         {
-            try { writer.WriteLine(line); } catch { /* 對方已經走了 */ }
+            try { lock (writer) writer.WriteLine(line); } catch { /* 對方已經走了 */ }
         }
 
         private static void BuildPayload(StringBuilder sb, Computer computer)

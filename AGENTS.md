@@ -295,7 +295,8 @@ tag 要與 `package.json` 的 version 一致。
 - **`SessionStart` 的 `source=startup` 不可搶走已追蹤的 session**：Claude 在工具裡跑的巢狀 `claude -p` 會繼承同一個 `VOICEINK_TERMINAL_ID`。只有 `clear`／`resume` 才換。
 - **帶 `--user-data-dir`（預覽／CDP／e2e）不寫真的 `~/.claude/settings.json`**：command 會指向測完就刪的暫存 exe，使用者之後每次開 claude 都報 hook 錯誤。寫 settings 只動 command 含 `voiceink-claude-hook.exe` 的項目（Orca 那些原樣留著）。
 - **從 Claude Code 裡開 App 做驗收要先拿掉 `CLAUDECODE`／`CLAUDE_CODE_*`**：終端機會繼承，裡面的 claude 以為自己是子對話（「Transcript saving is off」、不存對話檔、送出卡住）。
-- **畫面規則要照真實畫面校正**（`scripts/fixtures/term-agent/`）：這台 Claude 2.1.283 的自訂狀態列會蓋掉 `esc to interrupt`，進行中改認「轉圈符號＋`ing…`」；轉圈符號單獨不能當證據（「✻ Baked for 7s」總結行也有）。
+- **畫面規則要照真實畫面校正**（`scripts/fixtures/term-agent/`）：這台 Claude 2.1.283 的自訂狀態列會蓋掉 `esc to interrupt`，進行中改認「轉圈符號＋`ing…`」；轉圈符號單獨不能當證據（「✻ Baked for 7s」總結行也有）。轉圈也會輪到 `·`／`*`，動詞可能帶重音（`Sautéing…`）。**輸入框的 `❯` 上一行一定是框線 `───`**：剛送出的那句訊息也印成 `❯ …`，只認行首 `❯` 會在運行中判成閒置。
+  **hook 說 idle 是最弱的**：排隊的訊息在 `Stop` 之後接著跑、不再送 UserPromptSubmit（正式的 `PreToolUse` 只掛 `AskUserQuestion|ExitPlanMode`，看不到工具在跑），畫面看得到在轉圈或在問就以畫面為準。真機驗收可用 node-pty＋`@xterm/headless` 跑真的 `claude`，每 300ms 比對畫面與 hook（headless 沒送焦點事件時輸入框那行常畫不出來，要先寫 `ESC [ I`）。
 - **xterm 6 自己畫捲軸（`.scrollbar.vertical`）**，但 `xterm.css` 的 `.xterm-viewport` 仍是 `overflow-y: scroll`：打包版會多畫一條原生捲軸疊在旁邊（開發版看不出來）。已設 `scrollbar-width: none`，不要拿掉。
 - 終端機的按鍵攔截（`attachCustomKeyEventHandler`）要對 App 層快捷鍵（Ctrl+Tab、Ctrl+Shift+T／W）回 `false`，不然 xterm 吃掉、工作區收不到。
 - **狀態變動只能就地改那一列，不可 `renderList()` 重建**（待確認的刪除鈕與改名輸入框掛在 DOM 上 → 跑著的終端機刪不掉）。
@@ -586,6 +587,8 @@ tag 要與 `package.json` 的 version 一致。
 - `probe.ps1` 要有 UTF-8 BOM ＋ `AutoFlush`；**probe 裡不可以相信 `$env:*`**（被 spawn 的子程序沒有）；static 框裡不准查 `Win32_Tpm`（未提權卡 5.2 秒）；網路卡走 `Win32_NetworkAdapter` 不用 `Get-NetAdapter`。
 - **資料列一律往後加欄位、解析端逐格取值**（不要插在中間）；SMBIOS 佔位字串統一在 `metrics.clean()` 清掉；groups 的 rows 值不能給空字串（整列會塌成 0 高）。
 - 感測器 sidecar：只有它提權（不是整個 App）、版本鎖 `0.9.7-pre728`、斷線／卡住**一直重拉**（指數退避，經 `ensureSensors`；讀數穩定 60s 才把間隔歸零）；**自動啟用只能放在進系統監控頁時**（開機那條只走排程工作）；PawnIO 由 App 代裝但要驗 Authenticode（不釘 SHA-256），靜默安裝參數是 `-install -silent`；殭屍 sidecar 要用 `Invoke-CimMethod ... Terminate` 才殺得掉。
+  **看門狗不能把「讀取執行緒卡在我們自己的 `Gate` 上」算成主程式沒聲音**（`_inCommand`），而且只交還不結束；任何在 `Gate` 裡做的慢事（開記憶體組 6 秒多）都會撞上它。
+  管道只有一個 `StreamWriter`、兩條執行緒都會寫，**一律 `lock (writer)`**。改看門狗或寫入跑 `probe-sensors-watchdog.js`。
   **sidecar 必須 AboveNormal＋執行緒 Highest**：LHM 讀 CPU 會把執行緒輪流釘到每顆核心，一般優先權在全核滿載時 40 秒一框都送不出來 → 主程式 20 秒判斷線 → 重拉 → 舊的收尾把風扇交還 BIOS（量測 `hwtime` 對照：740ms → 0ms）。記憶體組（SMBus 探 SPD）開啟要 6.4 秒，**第一框送出後才開**。排程工作的查詢結果快取、啟動用 `schtasks.exe /run`（PowerShell 一支就 1 秒）；事件記錄裡的「Pipe is broken」是主程式先斷線的結果，要回頭查是誰卡住。
 - **probe.ps1 與 nvidia-smi 開機就常駐**：離開系統監控頁與縮到系統匣都不要 `stop()`（每次重開會付冷啟動＋第一輪 CPU% 全 0）；壓力測試才要離頁收掉。進頁 `start()` 要把 lastFeed 立刻再送一次。
   **沒人看時改走 `idle()`（30 秒一輪）**：每 2 秒掃 430 個程序是整個 App 背景 CPU 的大宗（實測 5.65% → 0.52% 單核）。開機那次用 `start(key, { background: true })`，頁面已先叫起來就不動它（兩邊誰先到不一定）；nvidia-smi 不跟著放慢（改間隔＝重開）。量測 `probe-sysmon-idle-cpu.js`。

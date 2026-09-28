@@ -500,6 +500,9 @@ function diskIndexOf(name) {
   return /^(\d+)\s/.exec(name || '')?.[1] ?? ''
 }
 
+/** 門檻值（不是讀數）的感測器名稱 */
+const THRESHOLD_SENSOR = /^(Warning|Critical)\b/i
+
 /**
  * @param {string} idx
  * @param {any} pdisk
@@ -510,7 +513,9 @@ function diskIndexOf(name) {
 function diskTempOf(idx, pdisk, sensors, liveTemps) {
   const temps = (sensors?.groups || [])
     .filter((hw) => hw.t === 'Storage' && hw.n === pdisk?.name)
-    .flatMap((hw) => (hw.s || []).filter((x) => x.t === 'Temperature' && /Temperature$/.test(x.n)))
+    // LHM 把 NVMe 的警告／危險門檻也當 Temperature 感測器送出（`Warning Temperature` 70、
+    // `Critical Temperature` 75），取最大值會把門檻當成讀數
+    .flatMap((hw) => (hw.s || []).filter((x) => x.t === 'Temperature' && /Temperature$/.test(x.n) && !THRESHOLD_SENSOR.test(x.n)))
   const live = (liveTemps || []).find((t) => t.id === idx)
   if (temps.length) return Math.max(...temps.map((x) => x.v))
   return live ? live.tempC : null

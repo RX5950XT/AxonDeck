@@ -11,7 +11,7 @@
  *  - IPC：fanList 回 ok；fanSetChannel 擋掉不存在的 identifier（renderer 是敵意輸入）
  *  - 圖示、提示列、RWD 900px 收一欄
  */
-const { spawn } = require('child_process')
+const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const os = require('os')
@@ -82,7 +82,8 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
-  const child = spawn(EXE, ['--hidden', `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  // 不讀 log 就別開 pipe：緩衝塞滿後 App 主程序會卡在寫 stdout，CDP 呼叫跟著永遠等不到
+  const child = spawn(EXE, ['--hidden', `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: 'ignore', windowsHide: true })
   let cdp = null
   let originalSensors = null
   let passed = 0
@@ -256,10 +257,11 @@ async function main() {
       } catch { /* 視窗已關就算了 */ }
     }
     cdp?.close()
-    try { child.kill() } catch { /* ignore */ }
+    // 先趁主程序還活著整棵殺（同步等完）：先 kill 主程序樹就斷了，nvidia-smi 會活下來抱著 CDP 埠
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
+      try { spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
     }
+    try { child.kill() } catch { /* ignore */ }
     for (let i = 0; i < 5; i += 1) {
       try { removeTree(USER_DATA_DIR); break } catch { await sleep(600) }
     }

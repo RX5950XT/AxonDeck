@@ -235,6 +235,8 @@ function readSource(groups, sourceId) {
     if (!spec.hw.test(String(group?.t || ''))) continue
     for (const sensor of group?.s || []) {
       if (String(sensor?.t) !== spec.kind) continue
+      // `Warning Temperature`／`Critical Temperature` 是門檻值，不是讀數
+      if (/^(Warning|Critical)\b/i.test(String(sensor?.n || ''))) continue
       const value = Number(sensor?.v)
       if (!Number.isFinite(value)) continue
       if (preferred === null && spec.prefer.test(String(sensor?.n || ''))) preferred = value

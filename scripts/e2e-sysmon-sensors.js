@@ -37,15 +37,21 @@ function ok(name, cond, detail = '') {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function sensorProcessCount() {
+function sensorPids() {
   try {
-    const out = execFileSync('tasklist.exe', ['/FI', 'IMAGENAME eq VoiceInkSensors.exe', '/NH'], {
+    const out = execFileSync('tasklist.exe', ['/FI', 'IMAGENAME eq VoiceInkSensors.exe', '/NH', '/FO', 'CSV'], {
       windowsHide: true, encoding: 'utf8'
     })
-    return (out.match(/VoiceInkSensors\.exe/g) || []).length
+    return [...out.matchAll(/"VoiceInkSensors\.exe","(\d+)"/g)].map((m) => Number(m[1]))
   } catch {
-    return 0
+    return []
   }
+}
+
+// 使用者自己開著的 VoiceInk 也有一顆 sidecar：只數這支測試拉起來的
+const PREEXISTING = new Set(sensorPids())
+function sensorProcessCount() {
+  return sensorPids().filter((pid) => !PREEXISTING.has(pid)).length
 }
 
 async function main() {
@@ -163,8 +169,11 @@ async function main() {
 
   console.log('\n[收程序]')
   bridge.stop()
-  await sleep(2500)
-  ok('stop() 之後沒有孤兒 sidecar', sensorProcessCount() === 0, `還有 ${sensorProcessCount()} 個`)
+  const stopAt = Date.now()
+  while (sensorProcessCount() > 0 && Date.now() - stopAt < 10_000) await sleep(250)
+  ok('stop() 之後沒有孤兒 sidecar', sensorProcessCount() === 0,
+    `還有 ${sensorProcessCount()} 個，等了 ${Date.now() - stopAt}ms`)
+  console.log(`       sidecar ${Date.now() - stopAt}ms 內收掉`)
   ok('stop() 之後 read() 回不可用', bridge.read().available === false)
 
   console.log(`\n${passed} passed, ${failed} failed`)

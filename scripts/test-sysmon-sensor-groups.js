@@ -27,7 +27,7 @@ function loadHelpers() {
     .replace(/^export /gm, '')
   const fn = new Function('document', 'localStorage', 'electronAPI',
     'initCustomSelects', 'syncCustomSelects',
-    `${src}\nreturn { sensorGroups, sensorRow, sensorHwLabel, sensorValueText }`)
+    `${src}\nreturn { sensorGroups, sensorRow, sensorHwLabel, sensorValueText, diskTempOf }`)
   const noop = () => {}
   return fn(
     { getElementById: () => null, createElement: () => ({ append: noop, appendChild: noop }) },
@@ -142,6 +142,20 @@ console.log('[E] 雙 GPU 感測器要分開')
   ok('指名 4060 只拿到 41', b.length === 1 && b[0].rows.some(([, v]) => v.startsWith('41')),
     JSON.stringify(b))
   ok('不指名還是兩張都在', all.length === 2, JSON.stringify(all.map((g) => g.title)))
+}
+
+console.log('\n[硬碟溫度]')
+{
+  // 2026-09 實測：LHM 0.9.7 對 NVMe 送出門檻值 Warning 70／Critical 75，都以 Temperature 結尾
+  const pdisk = { name: 'ADATA SX8200PNP' }
+  const sensors = { available: true, groups: [{ n: 'ADATA SX8200PNP', t: 'Storage', s: [
+    { n: 'Temperature', t: 'Temperature', v: 49 },
+    { n: 'Warning Temperature', t: 'Temperature', v: 70 },
+    { n: 'Critical Temperature', t: 'Temperature', v: 75 }
+  ] }] }
+  ok('門檻值不算讀數', h.diskTempOf('1', pdisk, sensors, []) === 49)
+  const onlyLimits = { available: true, groups: [{ ...sensors.groups[0], s: sensors.groups[0].s.slice(1) }] }
+  ok('只有門檻值時改用 NVMe 即時溫度', h.diskTempOf('1', pdisk, onlyLimits, [{ id: '1', tempC: 50 }]) === 50)
 }
 
 console.log(failed ? `\n${failed} 項失敗` : '\n全部通過')

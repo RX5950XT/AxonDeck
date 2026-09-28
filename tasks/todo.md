@@ -1,3 +1,16 @@
+# 2026-09-28 — 系統監控硬碟溫度偏高＋整頁體檢
+
+- [x] 硬碟溫度：LHM 0.9.7 對 NVMe 送出門檻值 `Warning Temperature` 70／`Critical Temperature` 75，頁面 `diskTempOf` 取最大值把門檻當讀數；風扇 `readSource` 同樣排除
+- [x] `ocGpuSpark` id 補回（多 GPU 改版後遺失）；`e2e-sysmon-oc-cdp` 的 V/F 斷言改成「沒開感測器時要講原因」
+- [x] `e2e-sysmon-cdp` 陣列 pid 斷言過期（v1.33.0 起支援多選）：改驗「陣列夾壞值整批擋掉」，不再真的送 taskkill
+- [x] `e2e-sysmon-fans-cdp`／`oc-cdp` 收尾順序跟 disk-cdp 對齊（先同步 `taskkill /T` 再 kill），stdio 改 ignore：之前每跑一次留一顆 nvidia-smi 抱住 CDP 埠，下一輪卡死
+
+## Review
+
+- 驗證：11 支 test-sysmon*、cargo test 25＋12、native-probe parity、真 Electron `e2e-sysmon.js` 63/0；electron:pack 後 `e2e-sysmon-cdp` 114/0、disk 17/0、fans 23/0（5 秒結束）、oc 18/0，跑完零孤兒
+- `e2e-sysmon-sensors.js` 29/0（真 UAC）：孤兒檢查原本把使用者開著的正式版 sidecar 也算進去，改成只數測試自己拉起的 pid，並輪詢到 10 秒（實測 stop 後約 8 秒收掉：先交還風扇再關 LHM）
+- 未跑：`probe-sysmon-fans.js`／`probe-sysmon-oc.js`（會真的改風扇／時脈）
+
 # 2026-09-25（二）— 系統監控加「磁碟空間」子分頁（類似 disktree）
 
 - [x] Rust `voiceink-probe disk-tree`：一次掃完、bottom-up 修剪（每層留前 200、太小併「其他」）、輸出單行 JSON

@@ -587,6 +587,8 @@ tag 要與 `package.json` 的 version 一致。
 - `probe.ps1` 要有 UTF-8 BOM ＋ `AutoFlush`；**probe 裡不可以相信 `$env:*`**（被 spawn 的子程序沒有）；static 框裡不准查 `Win32_Tpm`（未提權卡 5.2 秒）；網路卡走 `Win32_NetworkAdapter` 不用 `Get-NetAdapter`。
 - **資料列一律往後加欄位、解析端逐格取值**（不要插在中間）；SMBIOS 佔位字串統一在 `metrics.clean()` 清掉；groups 的 rows 值不能給空字串（整列會塌成 0 高）。
 - 感測器 sidecar：只有它提權（不是整個 App）、版本鎖 `0.9.7-pre728`、斷線／卡住**一直重拉**（指數退避，經 `ensureSensors`；讀數穩定 60s 才把間隔歸零）；**自動啟用只能放在進系統監控頁時**（開機那條只走排程工作）；PawnIO 由 App 代裝但要驗 Authenticode（不釘 SHA-256），靜默安裝參數是 `-install -silent`；殭屍 sidecar 要用 `Invoke-CimMethod ... Terminate` 才殺得掉。
+- **LHM 對 NVMe 會送 `Warning Temperature`／`Critical Temperature`（型別是 Temperature，值是門檻 70／75）**：挑硬碟溫度不能「名稱以 Temperature 結尾取最大值」，要排除 `^(Warning|Critical)`（`diskTempOf`、`fans.js readSource`）。回歸 `test-sysmon-sensor-groups.js`、`test-sysmon-fans.js`。
+- **CDP e2e 收尾一定要先 `spawnSync('taskkill', ['/F','/T',…])` 再 `child.kill()`**：反過來樹就斷了，`nvidia-smi` 變孤兒抱著 CDP 埠與繼承的 stdout 管線，下一輪「等不到主視窗」、node 也不會結束。不讀 log 就 `stdio: 'ignore'`。
   **看門狗不能把「讀取執行緒卡在我們自己的 `Gate` 上」算成主程式沒聲音**（`_inCommand`），而且只交還不結束；任何在 `Gate` 裡做的慢事（開記憶體組 6 秒多）都會撞上它。
   管道只有一個 `StreamWriter`、兩條執行緒都會寫，**一律 `lock (writer)`**。改看門狗或寫入跑 `probe-sensors-watchdog.js`。
   **sidecar 必須 AboveNormal＋執行緒 Highest**：LHM 讀 CPU 會把執行緒輪流釘到每顆核心，一般優先權在全核滿載時 40 秒一框都送不出來 → 主程式 20 秒判斷線 → 重拉 → 舊的收尾把風扇交還 BIOS（量測 `hwtime` 對照：740ms → 0ms）。記憶體組（SMBus 探 SPD）開啟要 6.4 秒，**第一框送出後才開**。排程工作的查詢結果快取、啟動用 `schtasks.exe /run`（PowerShell 一支就 1 秒）；事件記錄裡的「Pipe is broken」是主程式先斷線的結果，要回頭查是誰卡住。

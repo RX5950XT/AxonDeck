@@ -680,7 +680,8 @@ async function main() {
         pid4: await api.kill(4, true),
         strPid: await api.kill('1234', true),
         // Number([1234]) === 1234：用 Number() 當守衛的話這個會過關
-        arrayPid: await api.kill([1234], true),
+        // 陣列本身合法（多選一起結束），但裡面夾一個壞值就整批擋掉，一個都不能砍
+        arrayPid: await api.kill([999999, '1234'], true),
         badDir: await api.diskBench({ dir: 'Z:/nope/nope', sizeMb: 128 }),
         pathDrive: await api.diskBench({ drive: 'C:\\Users', sizeMb: 128 }),
         traversalDrive: await api.diskBench({ drive: 'C:..\\..', sizeMb: 128 })
@@ -688,7 +689,7 @@ async function main() {
     })()`)
     ok('IPC 擋下 pid 4', guards.pid4.ok === false && guards.pid4.error.code === 'SYSMON_BAD_PID')
     ok('IPC 擋下字串 pid', guards.strPid.ok === false)
-    ok('IPC 擋下假裝成 pid 的陣列', guards.arrayPid.ok === false, JSON.stringify(guards.arrayPid))
+    ok('IPC 擋下夾了壞 pid 的陣列', guards.arrayPid.ok === false, JSON.stringify(guards.arrayPid))
     ok('IPC 擋下舊格式的路徑字串', guards.badDir.ok === false && guards.badDir.error.code === 'SYSMON_BAD_DIR')
     ok('IPC 只收單一磁碟代號（路徑擋掉）', guards.pathDrive.ok === false, JSON.stringify(guards.pathDrive))
     ok('IPC 擋下帶走路字元的代號', guards.traversalDrive.ok === false, JSON.stringify(guards.traversalDrive))

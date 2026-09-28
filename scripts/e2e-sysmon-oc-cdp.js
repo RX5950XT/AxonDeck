@@ -5,7 +5,7 @@
  * **不按套用**（會改到使用者正在用的機器）。只驗第五 tab、兩欄卡片、空狀態說明、
  * IPC 守衛。真的改時脈是以後 `probe-sysmon-oc.js` 的職責。
  */
-const { spawn } = require('child_process')
+const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const os = require('os')
@@ -76,7 +76,8 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
-  const child = spawn(EXE, ['--hidden', `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  // 不讀 log 就別開 pipe：緩衝塞滿後 App 主程序會卡在寫 stdout，CDP 呼叫跟著永遠等不到
+  const child = spawn(EXE, ['--hidden', `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: 'ignore', windowsHide: true })
   let cdp = null
   let originalSensors = null
   let passed = 0
@@ -143,11 +144,13 @@ async function main() {
       cores: Boolean(document.getElementById('ocCpuCores')),
       cpuSpark: Boolean(document.getElementById('ocCpuSpark')),
       gpuSpark: Boolean(document.getElementById('ocGpuSpark')),
-      vf: Boolean(document.getElementById('ocVfHost') || document.querySelector('#ocGpuHost .oc-vf-host'))
+      vf: Boolean(document.getElementById('ocVfHost') || document.querySelector('#ocGpuHost .oc-vf-host')),
+      // V/F 曲線要可寫入（感測器已開）才畫；這支刻意關著感測器，所以改看有沒有講原因
+      vfReason: (document.getElementById('ocGpuHost')?.textContent || '').includes('感測器')
     }))()`)
     ok('套用／還原與兩欄卡片都在', bar.apply && bar.reset && bar.cpu && bar.gpu, JSON.stringify(bar))
     ok('即時儀表區在', bar.dash && bar.cpuGauges && bar.gpuGauges && bar.cores && bar.cpuSpark && bar.gpuSpark, JSON.stringify(bar))
-    ok('V/F 曲線容器在', bar.vf, JSON.stringify(bar))
+    ok('V/F 曲線容器在（或說明為什麼還不能調）', bar.vf || bar.vfReason, JSON.stringify(bar))
     ok('走勢線有時脈／溫度說明',
       await cdp.eval(`(document.querySelector('.oc-spark-legend')?.textContent || '').includes('時脈')
         && (document.querySelector('.oc-spark-legend')?.textContent || '').includes('溫度')`))
@@ -228,10 +231,11 @@ async function main() {
       } catch { /* 視窗已關就算了 */ }
     }
     cdp?.close()
-    try { child.kill() } catch { /* ignore */ }
+    // 先趁主程序還活著整棵殺（同步等完）：先 kill 主程序樹就斷了，nvidia-smi 會活下來抱著 CDP 埠
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
+      try { spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
     }
+    try { child.kill() } catch { /* ignore */ }
     for (let i = 0; i < 5; i += 1) {
       try { removeTree(USER_DATA_DIR); break } catch { await sleep(600) }
     }

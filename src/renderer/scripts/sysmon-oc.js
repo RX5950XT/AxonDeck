@@ -822,6 +822,7 @@ function paintOcGpuDash(data, gpus, cards) {
         const b = el('i', 'oc-spark-swatch is-power')
         legend.append(a, document.createTextNode('核心時脈（這一分鐘）'), b, document.createTextNode('功耗'))
         const spark = document.createElement('canvas')
+        spark.id = 'ocGpuSpark'
         spark.className = 'oc-spark'
         spark.width = 640
         spark.height = 56

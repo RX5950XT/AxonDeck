@@ -197,6 +197,20 @@ console.log('\n[E] UFFS pattern 消毒')
   ok('uffsAuto 預設開', storeMod.sanitizeAuto(undefined) === true)
   ok('明示 false 才關', storeMod.sanitizeAuto(false) === false)
   ok('別的值當開', storeMod.sanitizeAuto('no') === true)
+  {
+    const merged = storeMod.mergeFolderViews(
+      { 'c:\\a': { view: 'grid', tile: 128, sort: 'date', sortDesc: true }, 'c:\\b': { view: 'list', tile: 96, sort: 'name' } },
+      { 'c:\\a': { view: 'list', tile: 999, sort: 'bogus' } }
+    )
+    ok('資料夾檢視：只改那一筆、其他保留', merged['c:\\b'].view === 'list' && merged['c:\\a'].view === 'list')
+    ok('資料夾檢視：壞值收成合法值', merged['c:\\a'].tile === 256 && merged['c:\\a'].sort === 'name')
+    ok('資料夾檢視：改過的排到最後', Object.keys(merged).at(-1) === 'c:\\a')
+    const many = {}
+    for (let i = 0; i < storeMod.MAX_FOLDER_VIEWS; i++) many[`c:\\${i}`] = { view: 'list' }
+    const capped = storeMod.mergeFolderViews(many, { 'c:\\new': { view: 'grid' } })
+    ok('資料夾檢視：超過上限丟最舊的', Object.keys(capped).length === storeMod.MAX_FOLDER_VIEWS &&
+      !capped['c:\\0'] && capped['c:\\new'].view === 'grid')
+  }
 }
 
 console.log('\n[F] 本機位置與磁碟')

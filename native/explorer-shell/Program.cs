@@ -128,7 +128,11 @@ namespace VoiceInkShell
         private static void Thumb(JsonElement root, Utf8JsonWriter w)
         {
             int size = Thumbnails.ClampSize(Num(root, "size", Thumbnails.DefaultSize));
-            WriteImage(w, "thumb", Thumbnails.Of(Str(root, "path"), size));
+            string path = Str(root, "path");
+            Bgra thumb = Thumbnails.Of(path, size);
+            WriteImage(w, "thumb", thumb);
+            // 縮圖不帶同步標記（Google Drive 綠勾），另外給一顆讓 renderer 疊在左下角
+            if (thumb != null) WriteImage(w, "overlay", Overlays.BadgeOf(path, Directory.Exists(path), Math.Clamp(size / 2, 16, 128)));
         }
 
         private static void Menu(JsonElement root, Utf8JsonWriter w)

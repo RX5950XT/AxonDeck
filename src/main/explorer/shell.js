@@ -227,7 +227,7 @@ async function iconOf(full) {
  * pending ＝殼層還在現生，這張只是暫時的。
  * @param {string} full
  * @param {unknown} [size]
- * @returns {Promise<{ url: string, pending?: boolean }>}
+ * @returns {Promise<{ url: string, pending?: boolean, overlay?: string }>}
  */
 async function thumbOf(full, size) {
   const s = await ensure()
@@ -239,9 +239,13 @@ async function thumbOf(full, size) {
     if (!result.ok || !result.data) return { url: '' }
     const url = toPng(result.data.thumb)
     if (!url) return { url: '' }
-    return result.data.thumb && result.data.thumb.pending === true
-      ? { url, pending: true }
-      : { url }
+    // 同步標記（Google Drive 綠勾／雲朵）：縮圖本身不帶，另外疊
+    const overlay = toPng(result.data.overlay)
+    return {
+      url,
+      ...(result.data.thumb && result.data.thumb.pending === true ? { pending: true } : {}),
+      ...(overlay ? { overlay } : {})
+    }
   } catch {
     return { url: '' }
   }

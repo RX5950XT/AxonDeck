@@ -26,6 +26,8 @@ const MAX_HISTORY = 64
 const MAX_SELECTED = 10000
 const MAX_SEARCH = 200
 const TAB_ID_RE = /^[A-Za-z0-9_-]{1,40}$/
+/** 各資料夾自己記的檢視／大小／排序最多留幾筆；超過從最久沒動的開始丟。 */
+const MAX_FOLDER_VIEWS = 1000
 
 /** @type {import('electron-store') | null} */
 let store = null
@@ -195,6 +197,42 @@ function sanitizeTab(raw, fallbackId = 't1') {
   }
 }
 
+/**
+ * 每個資料夾各自的檢視／大小／排序。鍵是 renderer 的 `pathKey`（小寫、去尾端反斜線）。
+ * @param {unknown} raw
+ * @returns {Record<string, { view: 'list'|'grid', tile: number, sort: string, sortDesc: boolean }>}
+ */
+function sanitizeFolderViews(raw) {
+  const out = {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
+  for (const [key, value] of Object.entries(raw)) {
+    if (!key || key.length > 32767 || !value || typeof value !== 'object') continue
+    out[key] = {
+      view: sanitizeView(value.view),
+      tile: sanitizeTile(value.tile),
+      sort: sanitizeSortKey(value.sort),
+      sortDesc: value.sortDesc === true
+    }
+  }
+  return out
+}
+
+/**
+ * 只把這次有變的那幾筆併進去；改過的移到最後，超過上限從最前面（最久沒動的）丟。
+ * @param {unknown} saved
+ * @param {unknown} patch
+ */
+function mergeFolderViews(saved, patch) {
+  const next = { ...sanitizeFolderViews(saved) }
+  for (const [key, value] of Object.entries(sanitizeFolderViews(patch))) {
+    delete next[key]
+    next[key] = value
+  }
+  const keys = Object.keys(next)
+  for (const key of keys.slice(0, Math.max(0, keys.length - MAX_FOLDER_VIEWS))) delete next[key]
+  return next
+}
+
 /** @param {unknown} raw @returns {object[]} */
 function sanitizeTabs(raw) {
   if (!Array.isArray(raw)) return []
@@ -215,7 +253,7 @@ function sanitizeActiveTab(raw, tabs) {
 }
 
 /**
- * @returns {Promise<{ lastPath: string, view: 'list'|'grid', tile: number, sort: string, sortDesc: boolean, showHidden: boolean, dualPane: boolean, uffsAuto: boolean, places: object[], tabs: object[], activeTabId: string }>}
+ * @returns {Promise<{ lastPath: string, view: 'list'|'grid', tile: number, sort: string, sortDesc: boolean, showHidden: boolean, dualPane: boolean, uffsAuto: boolean, places: object[], folderViews: object, tabs: object[], activeTabId: string }>}
  */
 function readState() {
   return withStore(async () => {
@@ -231,6 +269,7 @@ function readState() {
       dualPane: s.get('dualPane', false) === true,
       uffsAuto: sanitizeAuto(s.get('uffsAuto', true)),
       places: places.sanitizePlaces(s.get('places', [])),
+      folderViews: sanitizeFolderViews(s.get('folderViews', {})),
       tabs,
       activeTabId: sanitizeActiveTab(s.get('activeTabId', ''), tabs)
     }
@@ -238,8 +277,8 @@ function readState() {
 }
 
 /**
- * @param {{ lastPath?: unknown, view?: unknown, tile?: unknown, sort?: unknown, sortDesc?: unknown, showHidden?: unknown, dualPane?: unknown, uffsAuto?: unknown, places?: unknown, tabs?: unknown, activeTabId?: unknown }} patch
- * @returns {Promise<{ lastPath: string, view: 'list'|'grid', tile: number, sort: string, sortDesc: boolean, showHidden: boolean, dualPane: boolean, uffsAuto: boolean, places: object[], tabs: object[], activeTabId: string }>}
+ * @param {{ lastPath?: unknown, view?: unknown, tile?: unknown, sort?: unknown, sortDesc?: unknown, showHidden?: unknown, dualPane?: unknown, uffsAuto?: unknown, places?: unknown, folderViews?: unknown, tabs?: unknown, activeTabId?: unknown }} patch
+ * @returns {Promise<{ lastPath: string, view: 'list'|'grid', tile: number, sort: string, sortDesc: boolean, showHidden: boolean, dualPane: boolean, uffsAuto: boolean, places: object[], folderViews: object, tabs: object[], activeTabId: string }>}
  */
 function writeState(patch) {
   return withStore(async () => {
@@ -275,6 +314,9 @@ function writeState(patch) {
       places: patch.places !== undefined
         ? places.sanitizePlaces(patch.places)
         : places.sanitizePlaces(s.get('places', [])),
+      folderViews: patch.folderViews !== undefined
+        ? mergeFolderViews(s.get('folderViews', {}), patch.folderViews)
+        : sanitizeFolderViews(s.get('folderViews', {})),
       tabs,
       activeTabId: sanitizeActiveTab(
         patch.activeTabId !== undefined ? patch.activeTabId : s.get('activeTabId', ''),
@@ -290,6 +332,7 @@ function writeState(patch) {
     s.set('dualPane', next.dualPane)
     s.set('uffsAuto', next.uffsAuto)
     s.set('places', next.places)
+    s.set('folderViews', next.folderViews)
     s.set('tabs', next.tabs)
     s.set('activeTabId', next.activeTabId)
     return next
@@ -313,6 +356,9 @@ module.exports = {
   sanitizeTab,
   sanitizeTabs,
   sanitizeActiveTab,
+  sanitizeFolderViews,
+  mergeFolderViews,
+  MAX_FOLDER_VIEWS,
   readState,
   writeState
 }

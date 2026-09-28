@@ -118,6 +118,19 @@ namespace VoiceInkShell
         [PreserveSig] int GetImage(SIZE size, int flags, out IntPtr phbm);
     }
 
+    /// <summary>
+    /// 圖示重疊處理常式（Google Drive／OneDrive 登記在 ShellIconOverlayIdentifiers 的那些）。
+    /// 圖示檔路徑用 IntPtr 自己配緩衝區：它是往裡面寫的 out 字串。
+    /// </summary>
+    [ComImport, Guid("0C6C4200-C589-11D0-999A-00C04FD655E1")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellIconOverlayIdentifier
+    {
+        [PreserveSig] int IsMemberOf([MarshalAs(UnmanagedType.LPWStr)] string path, uint attrib);
+        [PreserveSig] int GetOverlayInfo(IntPtr iconFile, int cchMax, out int index, out uint flags);
+        [PreserveSig] int GetPriority(out int priority);
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal struct CMINVOKECOMMANDINFOEX
     {
@@ -304,6 +317,11 @@ namespace VoiceInkShell
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         public static extern int SHCreateItemFromParsingName([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr bindCtx,
             ref Guid riid, out IntPtr ppv);
+
+        /// <summary>iconSize：LOWORD 大圖邊長、HIWORD 小圖邊長。</summary>
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern int SHDefExtractIconW([MarshalAs(UnmanagedType.LPWStr)] string iconFile, int index, uint flags,
+            out IntPtr large, out IntPtr small, uint iconSize);
 
         [DllImport("shell32.dll")]
         public static extern int SHGetImageList(int imageList, ref Guid riid, out IImageList ppv);

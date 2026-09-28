@@ -162,5 +162,15 @@ function showIcon(el, data) {
   image.src = data.url
   image.alt = ''
   image.draggable = false
-  el.replaceChildren(image)
+  if (!/^data:image\/png;base64,/.test(data.overlay || '')) {
+    el.replaceChildren(image)
+    return
+  }
+  // 縮圖不帶同步標記（Google Drive 綠勾），殼層另給一張 overlay 畫布蓋在左下
+  const badge = document.createElement('img')
+  badge.className = 'ex-row-overlay'
+  badge.src = data.overlay
+  badge.alt = ''
+  badge.draggable = false
+  el.replaceChildren(image, badge)
 }

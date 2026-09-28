@@ -390,7 +390,11 @@ async function fileIcon(target, opts) {
     try {
       const thumb = await shellExt.thumbOf(resolved.path, opts.size)
       if (thumb && thumb.url) {
-        return thumb.pending === true ? { url: thumb.url, pending: true } : { url: thumb.url }
+        return {
+          url: thumb.url,
+          ...(thumb.pending === true ? { pending: true } : {}),
+          ...(thumb.overlay ? { overlay: thumb.overlay } : {})
+        }
       }
     } catch (error) {
       console.error('[explorer] 殼層縮圖失敗:', error?.message || error)

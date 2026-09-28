@@ -1,3 +1,13 @@
+# 2026-09-29 — 檔案頁 Google Drive 綠勾＋每個資料夾各自記檢視
+
+- [x] 方格縮圖不帶同步標記：sidecar `thumb` 多回 `overlay`（問 ShellIconOverlayIdentifiers 處理常式），renderer 疊在左下
+- [x] `explorer.json` 的 `folderViews`：檢視／Ctrl+滾輪大小／排序依資料夾記，左右欄共用，全域值只當預設
+
+## Review
+
+- 驗證：`test-explorer` 313/0、`test-explorer-shell` 44/0、page-state／browse-wiring／icons-state 綠；electron:pack 後 `probe-explorer-folder-views-cdp.js` 4/4 全過，截圖確認綠勾與雲朵
+- 疑點：另寫的截圖版腳本兩次數不到 `.ex-row-overlay`，但同次截圖有標記；正式探針沒重現
+
 # 2026-09-28 — 系統監控硬碟溫度偏高＋整頁體檢
 
 - [x] 硬碟溫度：LHM 0.9.7 對 NVMe 送出門檻值 `Warning Temperature` 70／`Critical Temperature` 75，頁面 `diskTempOf` 取最大值把門檻當讀數；風扇 `readSource` 同樣排除

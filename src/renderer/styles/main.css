@@ -12596,6 +12596,16 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   object-fit: contain;
 }
 
+/* 殼層給的 overlay 畫布是縮圖邊長的一半，標記畫在畫布左下，所以蓋在圖示框左下那一半 */
+.ex-row-icon img.ex-row-overlay {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  height: 50%;
+  pointer-events: none;
+}
+
 .ex-row-icon.is-shortcut::after {
   content: '↗';
   position: absolute;

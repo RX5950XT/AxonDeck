@@ -170,6 +170,14 @@ let view = 'list'
 let tile = DEFAULT_TILE
 let sortBy = 'name'
 let sortDesc = false
+/**
+ * 每個資料夾各自記住的檢視／大小（Ctrl+滾輪）／排序，鍵是 `pathKey`。
+ * 沒調過的資料夾用 `folderDefaults`＝explorer.json 的全域值；那組值不再被個別資料夾改掉，
+ * 不然在 A 調大小，沒調過的 B 也會跟著變。
+ * @type {Record<string, { view: string, tile: number, sort: string, sortDesc: boolean }>}
+ */
+let folderViews = {}
+let folderDefaults = { view: 'list', tile: DEFAULT_TILE, sort: 'name', sortDesc: false }
 /** 要不要把隱藏／系統項目也列出來（跟檔案總管的「顯示隱藏的項目」同一件事）*/
 let showHidden = false
 /** @type {string[]} */
@@ -638,6 +646,7 @@ function bindOnce() {
       return
     }
     secondPane.sortBy = BROWSE_SORT_KEYS.has(value) ? value : 'name'
+    rememberSecondFolder()
     saveSecondPaneState()
     void loadSecond(secondPane.cwd, { pushHistory: false })
   })
@@ -648,6 +657,7 @@ function bindOnce() {
       paintSecondPane()
       return
     }
+    rememberSecondFolder()
     saveSecondPaneState()
     void loadSecond(secondPane.cwd, { pushHistory: false })
   })
@@ -852,14 +862,36 @@ function paintNav() {
   if (fwd) fwd.disabled = histIndex < 0 || histIndex >= history.length - 1
 }
 
-function setView(next) {
+/** @param {string} dir */
+function folderPrefs(dir) {
+  return folderViews[pathKey(dir)] || folderDefaults
+}
+
+/**
+ * 記住這個資料夾的檢視／大小／排序（只送有變的那一筆，main 那邊合併）。
+ * @param {string} dir
+ * @param {{ view: string, tile: number, sort: string, sortDesc: boolean }} pref
+ */
+function rememberFolder(dir, pref) {
+  const key = pathKey(dir)
+  if (!key) return
+  folderViews = { ...folderViews, [key]: pref }
+  void electronAPI.explorer.saveState({ folderViews: { [key]: pref } })
+}
+
+/** 只換畫面上的檢視，不記：切資料夾套用它自己記的檢視時用。 */
+function showView(next) {
   view = next === 'grid' ? 'grid' : 'list'
   $('exViewListBtn')?.setAttribute('aria-pressed', view === 'list' ? 'true' : 'false')
   $('exViewGridBtn')?.setAttribute('aria-pressed', view === 'grid' ? 'true' : 'false')
   $('exList')?.classList.toggle('is-grid', view === 'grid')
   applyTile()
   paintSortHead()
-  void electronAPI.explorer.saveState({ view })
+}
+
+function setView(next) {
+  showView(next)
+  rememberFolder(cwd, { view, tile, sort: sortBy, sortDesc })
   syncTab()
   persistTabs()
 }
@@ -893,7 +925,7 @@ function stepZoom(delta) {
   } else {
     applyTile()
   }
-  void electronAPI.explorer.saveState({ tile, view: next.view })
+  rememberFolder(cwd, { view, tile, sort: sortBy, sortDesc })
   // 圖示變大就得跟殼層要一張更大的縮圖，不然放大只是把 96px 那張拉糊。
   paintList()
 }
@@ -1342,8 +1374,19 @@ async function onSecondPathKey(e) {
   }
 }
 
+/** 右欄跟左欄共用同一份「每個資料夾記的檢視／大小／排序」。 */
+function rememberSecondFolder() {
+  rememberFolder(secondPane.cwd, {
+    view: secondPane.view,
+    tile: secondPane.tile,
+    sort: secondPane.sortBy,
+    sortDesc: secondPane.sortDesc
+  })
+}
+
 function setSecondView(next) {
   secondPane.view = next === 'grid' ? 'grid' : 'list'
+  rememberSecondFolder()
   saveSecondPaneState()
   paintSecondPane()
 }
@@ -1356,6 +1399,7 @@ function onSecondWheel(e) {
   if (next.view === secondPane.view && next.tile === secondPane.tile) return
   secondPane.view = next.view
   secondPane.tile = next.tile
+  rememberSecondFolder()
   saveSecondPaneState()
   paintSecondPane()
 }
@@ -1710,11 +1754,12 @@ async function loadSecond(dirPath, opts = {}) {
     secondPane.loadedOffsets = new Set()
     secondPane.pendingOffsets = new Set()
   } else {
+    const pref = folderPrefs(dirPath)
     let data
     try {
       data = await listDirectoryPage(dirPath, {
-        sort: secondPane.sortBy,
-        desc: secondPane.sortDesc,
+        sort: pref.sort,
+        desc: pref.sortDesc,
         showHidden
       }, 0)
     } catch {
@@ -1729,6 +1774,10 @@ async function loadSecond(dirPath, opts = {}) {
     }
     secondPane.cwd = data.path
     secondPane.archive = data.archive || ''
+    secondPane.sortBy = pref.sort
+    secondPane.sortDesc = pref.sortDesc
+    secondPane.view = pref.view
+    secondPane.tile = pref.tile
     secondPane.entries = mergeBrowsePage([], data, 0).entries
     secondPane.total = Number(data.total) || secondPane.entries.filter(Boolean).length
     secondPane.loadedOffsets = new Set([Number(data.offset) || 0])
@@ -2222,10 +2271,6 @@ function persistTabs() {
     })),
     activeTabId: activeId,
     lastPath: cwd,
-    view,
-    tile,
-    sort: sortBy,
-    sortDesc,
     showHidden,
     dualPane
   })
@@ -2407,7 +2452,7 @@ async function loadHome(opts = {}) {
   paintRecycleChrome()
   syncTab()
   paintTabs()
-  if (!opts.silent) void electronAPI.explorer.saveState({ lastPath: THIS_PC, sort: sortBy, sortDesc })
+  if (!opts.silent) void electronAPI.explorer.saveState({ lastPath: THIS_PC })
   refreshHomeInfo(seq)
   if (dualPane) refreshExplorerWatches()
   return true
@@ -2512,11 +2557,13 @@ async function loadDir(dirPath, opts = {}) {
   navTarget = String(dirPath || '')
   if (pathKey(dirPath) === THIS_PC) return loadHome(opts)
   const seq = ++navSeq
+  // 這個資料夾自己記的排序／檢視；讀成功才套上，失敗時畫面還是上一個資料夾的樣子
+  const pref = folderPrefs(dirPath)
   let data
   pageRequestSeq += 1
   loadedOffsets = new Set()
   try {
-    data = await listDirectoryPage(dirPath, { sort: sortBy, desc: sortDesc, showHidden }, 0)
+    data = await listDirectoryPage(dirPath, { sort: pref.sort, desc: pref.sortDesc, showHidden }, 0)
   } catch {
     data = null
   }
@@ -2529,6 +2576,10 @@ async function loadDir(dirPath, opts = {}) {
   cwd = data.path
   cwdArchive = data.archive || ''
   navTarget = cwd
+  sortBy = pref.sort
+  sortDesc = pref.sortDesc
+  tile = pref.tile
+  showView(pref.view)
   entries = mergeBrowsePage([], data, 0).entries
   directoryTotal = Number(data.total) || entries.filter(Boolean).length
   loadedOffsets = new Set([Number(data.offset) || 0])
@@ -2570,7 +2621,7 @@ async function loadDir(dirPath, opts = {}) {
     // 監看不起來就安靜退回手動重新整理（AGENTS.md「資料夾監看」）
     void electronAPI.explorer.watch(cwd).catch(() => {})
   }
-  if (!opts.silent) void electronAPI.explorer.saveState({ lastPath: cwd, sort: sortBy, sortDesc })
+  if (!opts.silent) void electronAPI.explorer.saveState({ lastPath: cwd })
   return true
 }
 
@@ -2709,6 +2760,7 @@ function applySort(key, desc) {
   if (!BROWSE_SORT_KEYS.has(key)) return
   sortBy = key
   sortDesc = desc
+  rememberFolder(cwd, { view, tile, sort: key, sortDesc: desc })
   void loadDir(cwd, { silent: true, keepSelection: true })
 }
 
@@ -4078,6 +4130,8 @@ export async function refreshExplorerPage() {
     tile = TILE_SIZES.includes(Number(boot.tile)) ? Number(boot.tile) : DEFAULT_TILE
     sortBy = BROWSE_SORT_KEYS.has(boot.sort) ? boot.sort : 'name'
     sortDesc = boot.sortDesc === true
+    folderDefaults = { view, tile, sort: sortBy, sortDesc }
+    folderViews = boot.folderViews && typeof boot.folderViews === 'object' ? boot.folderViews : {}
     showHidden = boot.showHidden === true
     dualPane = boot.dualPane === true
     places = boot.places || []
@@ -4098,7 +4152,7 @@ export async function refreshExplorerPage() {
         applyTabState(active)
       }
     }
-    setView(view)
+    showView(view)
     paintSidebar(places, disks)
     if (!tabs.length && !job) await newTab(boot.lastPath || THIS_PC)
     else if (!job) await loadDir(cwd, { silent: true, keepSelection: true })

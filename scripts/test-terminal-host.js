@@ -18,7 +18,9 @@ if (!process.versions.electron) {
   child.on('error', error => { console.error(error); process.exitCode = 1 })
 } else {
   const { HostClient } = require('../src/main/terminal/host-client')
-  const { connection, stageRuntime } = require('../src/main/terminal/host-runtime')
+  const { connection, stageRuntime, runtimeName } = require('../src/main/terminal/host-runtime')
+  // ponytail: Electron 退路版宿主沒有 CreateEnvironmentBlock，只擋 Claude 標記；開 App 的終端機留下的其他變數照樣帶過去
+  const native = Boolean(runtimeName().native)
   const userData = fs.mkdtempSync(path.join(root, 'dist/terminal-host-test-'))
   const id = 't_host_continuity'
   const meta = { id, shell: 'powershell', preset: 'shell', cwd: userData, title: 'Host test' }
@@ -53,6 +55,8 @@ if (!process.versions.electron) {
     // App 從 Claude 工作階段裡開起來時會繼承這些；宿主要擋掉，終端機裡的 Claude 才不會當自己是子工作階段
     process.env.CLAUDE_CODE_CHILD_SESSION = '1'
     process.env.GIT_EDITOR = 'true'
+    // 開 App 的那個終端機（Windows Terminal／Claude 的工具 shell）留下的；Rust 宿主改用登錄檔裡的使用者環境，一個都不會帶過去
+    process.env.WT_SESSION = 'inherited'
     // PATH 被別的 whoami.exe／icacls.exe 佔走（Git Bash 的 MSYS 版）時也要建得起宿主資料夾
     const poisoned = fs.mkdtempSync(path.join(root, 'dist/terminal-host-path-'))
     const savedPath = process.env.PATH
@@ -86,7 +90,7 @@ if (!process.versions.electron) {
     console.log('PASS 操作、工作階段 id 與輸入型別驗證')
 
     await sleep(1500)
-    await client.request('write', { sessionId: id, data: "& { Set-Content -LiteralPath 'env.txt' ($env:ELECTRON_RUN_AS_NODE + '|' + $env:ELECTRON_NO_ASAR + '|' + $env:CLAUDE_CODE_CHILD_SESSION + '|' + $env:GIT_EDITOR); 1..24 | ForEach-Object { Add-Content -LiteralPath 'beat.txt' $_; Write-Output ('HOST_KEEP_' + $_); Start-Sleep -Milliseconds 200 } }\r" })
+    await client.request('write', { sessionId: id, data: "& { Set-Content -LiteralPath 'env.txt' ($env:ELECTRON_RUN_AS_NODE + '|' + $env:ELECTRON_NO_ASAR + '|' + $env:CLAUDE_CODE_CHILD_SESSION + '|' + $env:GIT_EDITOR + '|' + $env:WT_SESSION); 1..24 | ForEach-Object { Add-Content -LiteralPath 'beat.txt' $_; Write-Output ('HOST_KEEP_' + $_); Start-Sleep -Milliseconds 200 } }\r" })
     // shell 正在 Add-Content 時讀會拿到 EBUSY，等下一輪再讀就好。
     let lastBeats = 0
     const beats = () => {
@@ -101,7 +105,7 @@ if (!process.versions.electron) {
     const reattached = await client.request('open', { sessionId: id, meta, cols: 100, rows: 30 }, true)
     assert.equal(reattached.pid, pid)
     assert.ok(reattached.buffer.includes('HOST_KEEP_'))
-    assert.equal(fs.readFileSync(path.join(userData, 'env.txt'), 'utf8').trim(), '|||', 'Node 宿主與 Claude 工作階段的環境變數不可污染 shell')
+    assert.equal(fs.readFileSync(path.join(userData, 'env.txt'), 'utf8').trim(), native ? '||||' : '||||inherited', 'Node 宿主與 Claude 工作階段的環境變數不可污染 shell')
     console.log('PASS App 斷線期間繼續執行，重新接回同一個 PID 與輸出')
     await waitFor(() => beats() === 24, '心跳指令未完成')
     await client.request('write', { sessionId: id, data: 'exit\r' })

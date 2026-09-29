@@ -147,8 +147,11 @@ pub fn shell_command(key: &str) -> (String, Vec<String>) {
 /// 這支 exe 的內容雜湊就是宿主版本（`host-runtime.js` 的 `runtimeName`）：舊宿主不會帶這個
 /// 變數，App 連上時認得出來，不用為此改協定版號。
 pub fn shell_environment(editor: &str, editor_dir: &str, terminal_id: &str) -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = std::env::vars_os()
-        .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+    let base = user_environment().unwrap_or_else(|| {
+        std::env::vars_os().map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned())).collect()
+    });
+    let mut env: Vec<(String, String)> = base
+        .into_iter()
         // `=C:` 這種每個磁碟機的工作目錄變數 Node 的 process.env 也不給
         .filter(|(k, _)| !k.is_empty() && !k.starts_with('='))
         .filter(|(k, _)| !k.eq_ignore_ascii_case("ELECTRON_RUN_AS_NODE") && !k.eq_ignore_ascii_case("ELECTRON_NO_ASAR"))
@@ -171,7 +174,45 @@ pub fn shell_environment(editor: &str, editor_dir: &str, terminal_id: &str) -> V
     env
 }
 
-/// pty.js 的 `CLAUDE_SESSION_VARS`：App 從 Claude 工作階段裡開起來時繼承到的標記，
+/// 使用者「現在」的環境：跟從檔案總管開的一樣（登錄檔裡的系統＋使用者變數，Windows Terminal 也這樣做）。
+///
+/// **不可以改回沿用宿主自己的環境**：宿主繼承的是「開 App 的那個程序」的環境。App 被
+/// Claude Code 或 Windows Terminal 開起來時，終端機會一路帶著 `NO_COLOR=1`（Claude 整片白色）、
+/// `CLAUDE_CODE_CHILD_SESSION`（不存對話）、`WT_SESSION`、`GIT_TERMINAL_PROMPT=0`……黑名單擋不完；
+/// App 自己塞進 PATH 的 CUDA DLL 路徑也不該漏給使用者的 shell。順帶：安裝新工具後 PATH 不用重開 App 就生效。
+fn user_environment() -> Option<Vec<(String, String)>> {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{TOKEN_DUPLICATE, TOKEN_QUERY};
+    use windows::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut token = HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &mut token).ok()?;
+        let mut block: *mut core::ffi::c_void = std::ptr::null_mut();
+        let made = CreateEnvironmentBlock(&mut block, Some(token), false);
+        let _ = CloseHandle(token);
+        made.ok()?;
+        // 格式：`K=V\0K=V\0\0`（UTF-16）
+        let mut env = Vec::new();
+        let mut p = block as *const u16;
+        loop {
+            let len = (0..).take_while(|&i| *p.add(i) != 0).count();
+            if len == 0 {
+                break;
+            }
+            let entry = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
+            // 從第 2 個字元找 `=`：`=C:=C:\x` 這種鍵本身就以 `=` 開頭
+            if let Some(i) = entry.char_indices().skip(1).find(|(_, c)| *c == '=').map(|(i, _)| i) {
+                env.push((entry[..i].to_string(), entry[i + 1..].to_string()));
+            }
+            p = p.add(len + 1);
+        }
+        let _ = DestroyEnvironmentBlock(block);
+        Some(env)
+    }
+}
+
+/// pty.js 的 `CLAUDE_SESSION_VARS`（`user_environment` 拿不到時的退路才用得上）：App 從 Claude 工作階段裡開起來時繼承到的標記，
 /// 留著的話終端機裡的 Claude 會當自己是子工作階段、不存對話紀錄。`GIT_EDITOR=true` 也是 Claude 塞的。
 const CLAUDE_SESSION_VARS: &[&str] = &[
     "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
@@ -232,6 +273,16 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].0, "PATH");
         assert_eq!(paths[0].1, "C:\\b\\editor-bridge;C:\\a");
+    }
+
+    #[test]
+    fn fresh_user_environment() {
+        // 宿主自己的環境被污染了，shell 拿到的仍是登錄檔裡那份
+        unsafe { std::env::set_var("VOICEINK_INHERITED_JUNK", "1") }
+        let env = shell_environment("", "", "t_abc-1");
+        let has = |key: &str| env.iter().any(|(k, _)| k.eq_ignore_ascii_case(key));
+        assert!(has("SystemRoot") && has("Path") && has("USERPROFILE") && has("TERM"));
+        assert!(!has("VOICEINK_INHERITED_JUNK"));
     }
 
     #[test]

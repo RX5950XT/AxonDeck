@@ -134,7 +134,7 @@ tag 要與 `package.json` 的 version 一致。
   回歸 `test-updater.js` 的 [F]；代理還活著、而且比官方快，跑 `probe-updater-mirrors.js`。
 - **`electron:pack`（dir target）的預覽版永遠檢查不到更新，那不是 bug**（只有 nsis／appx 才寫 `app-update.yml`）；**不可以把 error 當成測試通過**。`autoInstallOnAppQuit` 在本 App 無效——`installOnQuit()` 要在 `app.exit(0)` 前一行。
 - **應用程式內更新不可以改回 `/S` 靜默安裝**：App 一關就兩三分鐘沒畫面，使用者會以為壞了去重開機，把安裝砍在「舊版已刪、新版沒裝完」＝App 整個消失（實際發生過）。`installOnQuit` 在 Windows 關機／登出時也不能開安裝程式。動 `build/installer.nsh` 或 `quitAndInstall` 後，拿 `dist/VoiceInk-Setup-*.exe --updated --force-run` 真的跑一次：要看到進度視窗、裝完自己開回來。
-- **從 Claude Code 裡開 App ＝宿主帶著 Claude 工作階段標記**：終端機組環境時要濾掉（`CLAUDE_SESSION_VARS`／`is_claude_session_var`，兩邊一起改），否則終端機裡的 Claude 不存對話。
+- **終端機的環境不可以沿用宿主繼承來的**：宿主繼承「開 App 的那個程序」的環境，從 Claude Code／Windows Terminal 開 App 時會帶著 `NO_COLOR=1`（Claude 整片白）、`CLAUDE_CODE_CHILD_SESSION`（不存對話）、`WT_SESSION`。Rust 宿主用 `CreateEnvironmentBlock`（`shell.rs` 的 `user_environment`）；Electron 退路版只有 `CLAUDE_SESSION_VARS` 黑名單。
 - CDP 腳本都吃 `VOICEINK_EXE` 環境變數。
 
 ### 啟動與常駐

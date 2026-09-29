@@ -361,6 +361,8 @@ function openSessionWithMeta(meta, cols, rows, editor, editorDir) {
  * Claude 就把自己當成子工作階段：`Transcript saving is off — inherited
  * CLAUDE_CODE_CHILD_SESSION marker`，對話不存檔、之後也 --resume 不回來。
  * 只拿掉「工作階段」這幾個；`CLAUDE_CODE_GIT_BASH_PATH` 這類使用者自己設的要留著。
+ * ponytail: 只有 Electron 退路版宿主靠這份黑名單；Rust 宿主（`shell.rs` 的 `user_environment`）
+ * 直接拿登錄檔裡的使用者環境，`NO_COLOR`／`WT_SESSION` 這類開 App 時繼承的都不會帶到。
  */
 const CLAUDE_SESSION_VARS = [
   'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID',

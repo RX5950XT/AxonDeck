@@ -152,6 +152,7 @@ pub fn shell_environment(editor: &str, editor_dir: &str, terminal_id: &str) -> V
         // `=C:` 這種每個磁碟機的工作目錄變數 Node 的 process.env 也不給
         .filter(|(k, _)| !k.is_empty() && !k.starts_with('='))
         .filter(|(k, _)| !k.eq_ignore_ascii_case("ELECTRON_RUN_AS_NODE") && !k.eq_ignore_ascii_case("ELECTRON_NO_ASAR"))
+        .filter(|(k, v)| !is_claude_session_var(k, v))
         .collect();
     set_var(&mut env, "TERM", "xterm-256color");
     if !editor.is_empty() {
@@ -168,6 +169,20 @@ pub fn shell_environment(editor: &str, editor_dir: &str, terminal_id: &str) -> V
         env.retain(|(k, _)| !k.eq_ignore_ascii_case("VOICEINK_TERMINAL_ID"));
     }
     env
+}
+
+/// pty.js 的 `CLAUDE_SESSION_VARS`：App 從 Claude 工作階段裡開起來時繼承到的標記，
+/// 留著的話終端機裡的 Claude 會當自己是子工作階段、不存對話紀錄。`GIT_EDITOR=true` 也是 Claude 塞的。
+const CLAUDE_SESSION_VARS: &[&str] = &[
+    "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SSE_PORT", "CLAUDE_PID",
+    "CLAUDE_EFFORT", "AI_AGENT",
+];
+
+fn is_claude_session_var(key: &str, value: &str) -> bool {
+    CLAUDE_SESSION_VARS.iter().any(|name| key.eq_ignore_ascii_case(name))
+        || (key.eq_ignore_ascii_case("GIT_EDITOR") && value == "true")
 }
 
 fn set_var(env: &mut Vec<(String, String)>, key: &str, value: &str) {
@@ -217,6 +232,15 @@ mod tests {
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].0, "PATH");
         assert_eq!(paths[0].1, "C:\\b\\editor-bridge;C:\\a");
+    }
+
+    #[test]
+    fn claude_markers() {
+        assert!(is_claude_session_var("CLAUDE_CODE_CHILD_SESSION", "1"));
+        assert!(is_claude_session_var("claudecode", "1"));
+        assert!(is_claude_session_var("GIT_EDITOR", "true"));
+        assert!(!is_claude_session_var("GIT_EDITOR", "code --wait"));
+        assert!(!is_claude_session_var("CLAUDE_CODE_GIT_BASH_PATH", "C:\\git\\bash.exe"));
     }
 
     #[test]

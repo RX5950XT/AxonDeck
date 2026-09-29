@@ -133,6 +133,8 @@ tag 要與 `package.json` 的 version 一致。
   排前面就永遠輪不到代理。下完仍由 electron-updater 對雜湊，代理換檔會失敗並試下一跳。
   回歸 `test-updater.js` 的 [F]；代理還活著、而且比官方快，跑 `probe-updater-mirrors.js`。
 - **`electron:pack`（dir target）的預覽版永遠檢查不到更新，那不是 bug**（只有 nsis／appx 才寫 `app-update.yml`）；**不可以把 error 當成測試通過**。`autoInstallOnAppQuit` 在本 App 無效——`installOnQuit()` 要在 `app.exit(0)` 前一行。
+- **應用程式內更新不可以改回 `/S` 靜默安裝**：App 一關就兩三分鐘沒畫面，使用者會以為壞了去重開機，把安裝砍在「舊版已刪、新版沒裝完」＝App 整個消失（實際發生過）。`installOnQuit` 在 Windows 關機／登出時也不能開安裝程式。動 `build/installer.nsh` 或 `quitAndInstall` 後，拿 `dist/VoiceInk-Setup-*.exe --updated --force-run` 真的跑一次：要看到進度視窗、裝完自己開回來。
+- **從 Claude Code 裡開 App ＝宿主帶著 Claude 工作階段標記**：終端機組環境時要濾掉（`CLAUDE_SESSION_VARS`／`is_claude_session_var`，兩邊一起改），否則終端機裡的 Claude 不存對話。
 - CDP 腳本都吃 `VOICEINK_EXE` 環境變數。
 
 ### 啟動與常駐

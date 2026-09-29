@@ -117,6 +117,8 @@ let tray = null
 let store = null
 /** 正在執行 before-quit 卸載 */
 let isQuitting = false
+/** Windows 正在關機／重新開機／登出 */
+let sessionEnding = false
 
 // 開發模式判斷
 const isDev = !app.isPackaged
@@ -887,6 +889,10 @@ function createMainWindow() {
     ensureTray()
     mainWindow.hide()
   })
+
+  // Windows 關機／登出：結束流程照走，但不要順手開安裝程式（會被砍在半路，見 updater.installOnQuit）
+  mainWindow.on('query-session-end', () => { sessionEnding = true })
+  mainWindow.on('session-end', () => { sessionEnding = true })
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -2318,7 +2324,7 @@ app.on('before-quit', (e) => {
     .catch((err) => console.error('[engine] unloadAll on quit failed:', err))
     .finally(() => {
       // 已下載好的更新在這裡靜默安裝（autoInstallOnAppQuit 對這個 App 無效，見 updater.js）
-      updater.installOnQuit()
+      updater.installOnQuit(sessionEnding)
       app.exit(0)
     })
 })

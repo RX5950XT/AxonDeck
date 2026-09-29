@@ -356,6 +356,20 @@ function openSessionWithMeta(meta, cols, rows, editor, editorDir) {
 }
 
 /**
+ * Claude Code 塞給自己子程序的工作階段標記。App 若是從某個 Claude 工作階段裡開起來的
+ * （發行時跑的 CDP 探針、或在終端機裡手動開），宿主會一路繼承下來，終端機裡再開的
+ * Claude 就把自己當成子工作階段：`Transcript saving is off — inherited
+ * CLAUDE_CODE_CHILD_SESSION marker`，對話不存檔、之後也 --resume 不回來。
+ * 只拿掉「工作階段」這幾個；`CLAUDE_CODE_GIT_BASH_PATH` 這類使用者自己設的要留著。
+ */
+const CLAUDE_SESSION_VARS = [
+  'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_PID',
+  'CLAUDE_EFFORT', 'AI_AGENT'
+]
+
+/**
  * 宿主的 Node 模式只給宿主自己用，不污染使用者啟動的程式。
  *
  * `editor` 有值時把 `EDITOR`／`VISUAL` 兩個都指到 App 的編輯器橋接（Claude Code 與
@@ -374,6 +388,9 @@ function shellEnvironment(editor, editorDir, terminalId) {
   const env = { ...process.env, TERM: 'xterm-256color' }
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_NO_ASAR
+  for (const name of CLAUDE_SESSION_VARS) delete env[name]
+  // Claude 把 GIT_EDITOR 設成 `true`（commit 不開編輯器）；留著的話終端機裡 `git commit` 會直接用空訊息放棄
+  if (env.GIT_EDITOR === 'true') delete env.GIT_EDITOR
   if (editor) {
     env.EDITOR = editor
     env.VISUAL = editor

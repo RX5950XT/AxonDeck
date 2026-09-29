@@ -33,3 +33,40 @@
   ; SHCNE_ASSOCCHANGED：叫檔案總管重讀圖示
   System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
 !macroend
+
+; ── 應用程式內更新走「看得到進度」的安裝（updater.js 的 quitAndInstall 不再 /S）──
+; 靜默安裝時 App 一關就兩三分鐘什麼都看不到（先跑舊版解除安裝、再解 400MB 的 7z），
+; 使用者以為壞了去重開機，安裝被打斷在「舊版刪光、新版只解一半」＝App 整個消失（實際發生過）。
+; 看得到進度之後，下面兩頁在更新時是多餘的：
+
+; 「安裝給誰」：更新沿用原本那份，不必再問（per-machine 的舊安裝照原本流程走）
+!macro customInstallMode
+  ${if} ${isUpdated}
+  ${andIf} $hasPerMachineInstallation == "0"
+    StrCpy $isForceCurrentInstall "1"
+  ${endIf}
+!macroend
+
+; 完成頁：更新時直接把 App 開回來、安裝視窗自己關掉；全新安裝照舊顯示「執行 VoiceInk」勾選框
+!macro customFinishPage
+  Function StartApp
+    ${if} ${isUpdated}
+      StrCpy $1 "--updated"
+    ${else}
+      StrCpy $1 ""
+    ${endif}
+    ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+  FunctionEnd
+
+  Function voiceInkFinishPre
+    ${if} ${isUpdated}
+      Call StartApp
+      Abort
+    ${endIf}
+  FunctionEnd
+
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE voiceInkFinishPre
+  !define MUI_FINISHPAGE_RUN
+  !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !insertmacro MUI_PAGE_FINISH
+!macroend

@@ -138,18 +138,28 @@ function checkQuietly() {
   check().catch(() => {})
 }
 
-/** 「重新啟動並安裝」：靜默安裝 ＋ 裝完自己開起來 */
+/**
+ * 「重新啟動並安裝」：**顯示安裝進度**，裝完自己開起來（`build/installer.nsh` 的 customFinishPage）。
+ *
+ * 不可以改回靜默（`/S`）：App 一關就兩三分鐘什麼都看不到，實測使用者以為壞了去重開機，
+ * 安裝被打斷在「舊版已刪、新版只解一半」，App 整個消失。
+ */
 function quitAndInstall() {
   if (!app.isPackaged || state.state !== 'downloaded') return false
-  get().quitAndInstall(true, true)
+  get().quitAndInstall(false, true)
   return true
 }
 
 /**
  * 結束前順手把已下載的更新裝起來（同步，只能在 before-quit 的最後一步呼叫）。
  * 已經走過 quitAndInstall 的話 electron-updater 自己會擋掉重複安裝。
+ *
+ * `sessionEnding`＝Windows 正在關機／重新開機／登出：這時開安裝程式一定會被砍在半路
+ * （舊版刪光、新版沒裝完），留到下次正常結束或按「重新啟動並安裝」再裝。
+ * @param {boolean} [sessionEnding]
  */
-function installOnQuit() {
+function installOnQuit(sessionEnding = false) {
+  if (sessionEnding) return false
   if (!app.isPackaged || !autoEnabled || state.state !== 'downloaded' || !updater) return false
   try {
     return updater.install(true, false)

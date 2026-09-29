@@ -6,13 +6,24 @@
 ## 專案概況
 
 VoiceInk：Windows Electron AI 工作台。Vanilla JS + Vite（無前端框架），Electron 43.4.1 ＋ Node.js 22。
-目前版本 **v1.37.0**（檔案頁方格縮圖有 Google Drive 綠勾／雲朵、每個資料夾各自記住檢視／Ctrl+滾輪大小／排序；前版 v1.36.3 系統監控硬碟溫度不再把 LHM 的警告／危險門檻當讀數（偏高到 75 °C）、系統監控 e2e 收尾不再留 nvidia-smi 孤兒；前版 v1.36.2 感測器元件不再開機 8 秒就自己結束、風扇一直接得住；終端機 Claude 狀態不再閃、排隊訊息不再顯示閒置；前版 v1.36.1 系統監控感測器滿載不再掉線、風扇重連後接得回去、感測器上線 8 秒 → 1.5 秒；前版 v1.36.0 檔案頁右鍵對準選到的東西、首頁卡片有右鍵、詳細資訊依類型補齊（照片 EXIF、影音串流、程式版本、文字編碼）、大照片與影片縮圖；前版 v1.35.0 終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
+目前版本 **v1.37.1**（應用程式內更新改成看得到進度、裝完自己開回來，關機時不再順手開安裝程式；終端機不再繼承 Claude 工作階段標記；前版 v1.37.0 檔案頁方格縮圖有 Google Drive 綠勾／雲朵、每個資料夾各自記住檢視／Ctrl+滾輪大小／排序；前版 v1.36.3 系統監控硬碟溫度不再把 LHM 的警告／危險門檻當讀數（偏高到 75 °C）、系統監控 e2e 收尾不再留 nvidia-smi 孤兒；前版 v1.36.2 感測器元件不再開機 8 秒就自己結束、風扇一直接得住；終端機 Claude 狀態不再閃、排隊訊息不再顯示閒置；前版 v1.36.1 系統監控感測器滿載不再掉線、風扇重連後接得回去、感測器上線 8 秒 → 1.5 秒；前版 v1.36.0 檔案頁右鍵對準選到的東西、首頁卡片有右鍵、詳細資訊依類型補齊（照片 EXIF、影音串流、程式版本、文字編碼）、大照片與影片縮圖；前版 v1.35.0 終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
 資料夾監看不再漏事件；前版終端機 PATH 不再被 Ctrl+G 橋接蓋掉；再前檢查更新改走鏡像）。
 
 nav 十頁：聊天（預設，**專案工作區與終端機都在同一頁**）｜Telegram（官方網頁版 `web.telegram.org/a` 放進 `<webview>`，可並排多開最多 4 格（沒存過開 2 格；每格卡 600px，Web A 一律手機版版面）、共用 `persist:telegram`，一格載完等 1.5 秒才載下一格（同時開會有好幾格拿同一把金鑰一起連），每格頂端細列 ✕ 關（先導到 `about:blank` 再拿掉：直接拿掉 webview 不觸發 beforeunload，關到 Web A 的主分頁其他格會全斷）／最右格 ＋ 再開，每格停的聊天室存 store `telegramPanes`（不用 localStorage：結束走 `app.exit()` 會掉最後幾秒的寫入）；`telegram-page.js`，第一次點才建）｜檔案｜CC代理（`data-page` 仍是 `ccswitch`）｜
 AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定。額度不再是一頁：收成工作區主區最下面那條，用量統計在 CC代理。
 
 ## 架構
+
+### 更新不再「App 直接消失」、終端機不再繼承 Claude 標記（2026-09-29）
+
+- **更新消失**：`quitAndInstall` 原本是 `/S` 靜默安裝，App 一關就兩三分鐘沒畫面（先跑舊版解除安裝、再把 426MB 的 7z 解到暫存再複製）。
+  實際發生：14:27:58 開始安裝，14:29:05 才開始解壓，14:29:07 使用者從開始功能表重新開機 → 舊版已刪、新版只解 58MB，App 整個不見。
+  修法：`quitAndInstall(false, true)` 顯示安裝進度；`build/installer.nsh` 的 `customInstallMode`（更新時不問安裝給誰）＋ `customFinishPage`（更新時直接開回 App、視窗自己關）。
+  結束時順手安裝（`installOnQuit`）遇到 Windows 關機／登出（主視窗 `query-session-end`／`session-end`）就跳過。實測 `--updated --force-run`：4 秒出現視窗、47 秒裝完自動開回。
+- **終端機 `Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker`**：App 若是從 Claude 工作階段裡開起來（手動重裝、CDP 探針），
+  宿主繼承 `CLAUDE_CODE_CHILD_SESSION`／`CLAUDECODE`／`GIT_EDITOR=true` 等，終端機裡的 Claude 就當自己是子工作階段、不存對話。
+  `pty.js` 的 `CLAUDE_SESSION_VARS` ＋ `shell.rs` 的 `is_claude_session_var` 在組 shell 環境時濾掉（只濾工作階段標記，使用者設定如 `CLAUDE_CODE_GIT_BASH_PATH` 保留）。
+  宿主活得比 App 久，要重開宿主才生效（App 會問）。回歸 `test-terminal-host.js`（兩種宿主）＋ `cargo test`。
 
 ### 檔案頁：方格縮圖有 Google Drive 綠勾、每個資料夾各自記住檢視／大小／排序（2026-09-29）
 

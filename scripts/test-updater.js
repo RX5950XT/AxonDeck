@@ -130,9 +130,13 @@ async function main() {
     assert.strictEqual(updater.installOnQuit(), true)
     assert.deepStrictEqual(fake.installCalls, [[true, false]])
 
-    // 「重新啟動並安裝」：靜默 ＋ 裝完自己開起來
+    // Windows 關機中不裝（安裝程式會被砍在半路，App 整個消失）
+    assert.strictEqual(updater.installOnQuit(true), false)
+    assert.strictEqual(fake.installCalls.length, 1)
+
+    // 「重新啟動並安裝」：看得到進度（不可以 /S，靜默時使用者以為壞了去重開機）＋ 裝完自己開起來
     assert.strictEqual(updater.quitAndInstall(), true)
-    assert.deepStrictEqual(fake.quitCalls, [[true, true]])
+    assert.deepStrictEqual(fake.quitCalls, [[false, true]])
     console.log('[C] 下載狀態機與兩種安裝路徑 ✓')
   }
 
@@ -166,7 +170,7 @@ async function main() {
       assert.ok(main.includes(`ipcMain.handle('${ch}'`), `main.js 少了 ${ch} 的 handler`)
       assert.ok(preload.includes(`'${ch}'`), `preload 少了 ${ch}`)
     }
-    assert.ok(/updater\.installOnQuit\(\)\s*\n\s*app\.exit\(0\)/.test(main),
+    assert.ok(/updater\.installOnQuit\(sessionEnding\)\s*\n\s*app\.exit\(0\)/.test(main),
       'before-quit 要在 app.exit(0) 之前安裝（exit 不發 quit 事件，autoInstallOnAppQuit 沒用）')
     assert.ok(main.includes("'autoUpdate',"), 'autoUpdate 沒進 STORE_ALLOWLIST')
     assert.ok(Array.isArray(pkg.build.publish) && pkg.build.publish[0].provider === 'github',

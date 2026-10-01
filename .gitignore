@@ -80,3 +80,6 @@ dist-hud/
 
 # Claude Code 的工作區（worktrees 動輒好幾份，不進版控）
 .claude/
+
+# 宣傳影片的素材、腳本與成品（影片檔大，不進版控）
+designs/

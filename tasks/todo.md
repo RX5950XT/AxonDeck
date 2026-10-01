@@ -850,3 +850,14 @@ Review：
 - 深／淺色截圖在 `dist/qa/explorer-icon-fallback-{dark,light}.png`。背景 GPU 截圖曾有局部缺畫／逾時，最終探針用軟體繪製＋視埠更新，兩張已目視確認完整；全程隱藏視窗，只收本輪 PID，隔離資料已清理。
 - 既有無關失敗：`e2e-explorer-cdp.js:722` 仍斷言全域 tile 隨縮放改變，但目前寫進 folderViews（專用 probe 已驗過）；`test-temp-hygiene.js` 指出 HEAD 已存在的 `test-usage.js:824,844` 直接用 os.tmpdir。未擴大修改。
 - 已更新免安裝預覽，未替換使用中的安裝版、未發行；未取得使用者發生問題的特定檔案，App logo 情境用真的打包版 logo 模擬殼層回覆驗證。
+
+# 2026-10-02 — 主分支發行 v1.37.3
+
+- [x] 主分支回歸與 sidecar 建置
+- [x] 預覽包與隔離 CDP 驗證
+- [x] 正式安裝檔與 metadata 完整性驗證
+- [ ] commit／tag／push／GitHub Release 與遠端資產核對
+
+範圍：僅 master；保留 feat/native-media，不合併、不修改。
+
+Review：15 支主要回歸最終通過；build:shell、build:probe、Rust 25＋14 通過。electron:pack 248 支 src 相同，203 份套件資料無缺漏，designs 不在 asar；ASR CDP 8/0、quota CDP 7/0、icon CDP 六組 PASS、本機 LLM 翻譯 PASS。terminal CDP 前兩輪各一個間歇性失敗，最終單獨完整跑 59/0。electron:build -- --prepackaged dist/win-unpacked 通過，安裝檔 427329691 bytes，latest.yml 版本／大小／SHA-512／blockmap 正確；拆包的 app.asar、VoiceInk.exe、五支 sidecar 與驗證包 SHA-256 一致。未改使用中的安裝版、未執行安裝更新流程。

@@ -85,14 +85,17 @@ function applyCodexUsage(raw, auth, nowMs, resetList = null) {
   return normalizeAccount(account)
 }
 
-async function syncCodex({ homeDir, nowMs = Date.now(), fetchImpl, log = () => {} }) {
+async function syncCodex({ homeDir, env = process.env, nowMs = Date.now(), fetchImpl, log = () => {} }) {
   const account = createBaseAccount('codex', nowMs)
   let auth
   try {
-    auth = await readJsonFile(path.join(homeDir, '.codex', 'auth.json'))
-  } catch {
+    auth = await readJsonFile(path.join(path.resolve(env.CODEX_HOME || path.join(homeDir, '.codex')), 'auth.json'))
+  } catch (error) {
+    log(`codex: credentials unavailable ${error.code || 'unknown'}`)
     account.status = 'disconnected'
-    account.notes = '找不到 Codex ChatGPT 登入憑證。'
+    account.notes = error.code === 'FILE_NOT_FOUND'
+      ? '找不到 Codex ChatGPT 登入憑證。'
+      : '暫時無法讀取 Codex ChatGPT 登入憑證，稍後自動再試。'
     return normalizeAccount(account)
   }
 

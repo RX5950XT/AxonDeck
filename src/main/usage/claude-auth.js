@@ -35,12 +35,12 @@ const REFRESH_TIMEOUT_MS = 30_000
 /** 同一個 App 裡同時只會有一個續期在跑（額度同步本身已經合併，這裡再保險一次） */
 let inflight = null
 
-function credentialsPath(homeDir) {
-  return path.join(homeDir, '.claude', '.credentials.json')
+function configDirOf(homeDir, env = process.env) {
+  return path.resolve(env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude'))
 }
 
-async function readCredentials(homeDir) {
-  const raw = await fs.readFile(credentialsPath(homeDir), 'utf8')
+async function readCredentials(configDir) {
+  const raw = await fs.readFile(path.join(configDir, '.credentials.json'), 'utf8')
   const parsed = JSON.parse(raw)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('bad credentials')
   return parsed
@@ -84,11 +84,10 @@ async function tryLock(dir) {
  * 跟 Claude Code 同一個順序拿兩把鎖（新的先、舊版的後），拿不到舊版那把要把新的放掉。
  * ponytail: 持鎖期間不更新 mtime（proper-lockfile 每 5 秒刷一次）；整段續期有 30 秒逾時，
  * 遠低於 60 秒的 stale 門檻。哪天續期要做更久的事再補刷新計時器。
- * @param {string} homeDir
+ * @param {string} configDir
  * @returns {Promise<() => Promise<void>>} 放鎖
  */
-async function acquireLocks(homeDir) {
-  const configDir = path.join(homeDir, '.claude')
+async function acquireLocks(configDir) {
   const real = await fs.realpath(configDir).catch(() => configDir)
   const locks = [path.join(configDir, '.oauth_refresh.lock'), `${real}.lock`]
   for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt++) {
@@ -159,9 +158,9 @@ async function postRefresh(oauth, { fetchImpl = globalThis.fetch } = {}) {
  * CAS 寫回：檔案裡的 refresh token 還是我們送出去那顆才寫。
  * @returns {Promise<boolean>} 有沒有寫
  */
-async function writeBack(homeDir, postedRefreshToken, update) {
-  const file = credentialsPath(homeDir)
-  const current = await readCredentials(homeDir)
+async function writeBack(configDir, postedRefreshToken, update) {
+  const file = path.join(configDir, '.credentials.json')
+  const current = await readCredentials(configDir)
   const onDisk = current.claudeAiOauth?.refreshToken
   if (!current.claudeAiOauth || (onDisk !== '' && onDisk !== postedRefreshToken)) return false
   const next = { ...current, claudeAiOauth: { ...current.claudeAiOauth, ...update } }
@@ -177,21 +176,21 @@ async function writeBack(homeDir, postedRefreshToken, update) {
 }
 
 /**
- * @param {string} homeDir
+ * @param {string} configDir
  * @param {string} usedToken 呼叫端手上那顆（用來判斷「別人已經續好了」）
  * @param {{ fetchImpl?: Function, force?: boolean, log?: Function }} options
  */
-async function refreshLocked(homeDir, usedToken, options) {
-  const release = await acquireLocks(homeDir)
+async function refreshLocked(configDir, usedToken, options) {
+  const release = await acquireLocks(configDir)
   try {
-    const creds = await readCredentials(homeDir)
+    const creds = await readCredentials(configDir)
     const oauth = creds.claudeAiOauth
     if (!oauth?.accessToken) throw new UsageError('NOT_LOGGED_IN', 'Claude Code 目前未登入 OAuth')
     if (oauth.accessToken !== usedToken) return oauth.accessToken
     if (!options.force && !isExpiring(oauth, Date.now())) return oauth.accessToken
     if (!oauth.refreshToken) throw new UsageError('NO_REFRESH_TOKEN', 'Claude Code 登入已過期，請重新登入')
     const update = await postRefresh(oauth, options)
-    const wrote = await writeBack(homeDir, oauth.refreshToken, update)
+    const wrote = await writeBack(configDir, oauth.refreshToken, update)
     options.log?.(`claude: token refreshed${wrote ? '' : ' (file changed meanwhile, not written)'}`)
     return update.accessToken
   } finally {
@@ -202,27 +201,29 @@ async function refreshLocked(homeDir, usedToken, options) {
 /**
  * 取一顆可用的 access token：快過期就先續。
  * @param {string} homeDir
- * @param {{ fetchImpl?: Function, force?: boolean, usedToken?: string, log?: Function, nowMs?: number }} [options]
+ * @param {{ fetchImpl?: Function, force?: boolean, usedToken?: string, log?: Function, nowMs?: number, env?: object }} [options]
  * @returns {Promise<{ token: string, credentials: object }>}
  */
 async function ensureFreshToken(homeDir, options = {}) {
-  const creds = await readCredentials(homeDir)
+  const configDir = configDirOf(homeDir, options.env)
+  const creds = await readCredentials(configDir)
   const oauth = creds.claudeAiOauth
   const token = typeof oauth?.accessToken === 'string' ? oauth.accessToken : ''
   if (!token) return { token: '', credentials: creds }
   const needs = options.force || isExpiring(oauth, options.nowMs ?? Date.now())
   if (!needs || !oauth.refreshToken) return { token, credentials: creds }
   if (!inflight) {
-    inflight = refreshLocked(homeDir, options.usedToken || token, options).finally(() => { inflight = null })
+    inflight = refreshLocked(configDir, options.usedToken || token, options).finally(() => { inflight = null })
   }
   const fresh = await inflight
-  return { token: fresh, credentials: await readCredentials(homeDir).catch(() => creds) }
+  return { token: fresh, credentials: await readCredentials(configDir).catch(() => creds) }
 }
 
 module.exports = {
   CLIENT_ID,
   TOKEN_URL,
   LOCK_STALE_MS,
+  configDirOf,
   ensureFreshToken,
   isExpiring,
   _resetForTests: () => { inflight = null }

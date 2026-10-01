@@ -12,6 +12,7 @@
  */
 
 const path = require('path')
+const { FILE_MAX_BYTES } = require('./constants')
 const { readJsonFile } = require('./shared')
 
 /**
@@ -19,16 +20,26 @@ const { readJsonFile } = require('./shared')
  * OpenCode 自己的金鑰與使用者加進去的第三方金鑰（ollama-cloud、xai…）都住在裡面。
  * @param {string} homeDir
  * @param {string} serviceId
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {Promise<string>}
  */
-async function readOpenCodeAuthKey(homeDir, serviceId) {
+async function readOpenCodeAuthKey(homeDir, serviceId, env = process.env) {
   let auth
+  const content = env.OPENCODE_AUTH_CONTENT
+  if (typeof content === 'string' && content) {
+    if (Buffer.byteLength(content, 'utf8') > FILE_MAX_BYTES) return ''
+    try { auth = JSON.parse(content) } catch { /* 跟 CLI 一樣：壞 JSON 退回登入檔 */ }
+  }
+  const dataDir = typeof env.XDG_DATA_HOME === 'string' && path.isAbsolute(env.XDG_DATA_HOME)
+    ? env.XDG_DATA_HOME
+    : path.join(homeDir, '.local', 'share')
   try {
-    auth = await readJsonFile(path.join(homeDir, '.local', 'share', 'opencode', 'auth.json'))
+    if (auth === undefined) auth = await readJsonFile(path.join(dataDir, 'opencode', 'auth.json'))
   } catch {
     return ''
   }
-  const entry = auth?.[serviceId]
+  if (!auth || typeof auth !== 'object' || Array.isArray(auth)) return ''
+  const entry = auth[serviceId]
   const key = typeof entry?.key === 'string' ? entry.key.trim() : ''
   return key.length <= 400 ? key : ''
 }
@@ -56,7 +67,7 @@ async function readCcSwitchKey(presetId) {
 async function resolveApiKey({ homeDir, envVar, serviceId, presetId, env = process.env }) {
   const fromEnv = typeof env?.[envVar] === 'string' ? env[envVar].trim() : ''
   if (fromEnv) return { key: fromEnv, source: 'env' }
-  const fromAuth = await readOpenCodeAuthKey(homeDir, serviceId)
+  const fromAuth = await readOpenCodeAuthKey(homeDir, serviceId, env)
   if (fromAuth) return { key: fromAuth, source: 'opencode-auth' }
   const fromStore = await readCcSwitchKey(presetId)
   if (fromStore) return { key: fromStore, source: 'ccswitch' }

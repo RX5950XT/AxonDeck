@@ -58,7 +58,7 @@ const BAR_TOGGLES = [
   ['showReset', '重置倒數'],
   ['showPlan', '方案名稱'],
   ['compact', '只顯示用得最多的那一條'],
-  ['hideDisconnected', '隱藏未連線的工具'],
+  ['hideDisconnected', '隱藏從未連線的工具'],
   ['showLastSync', '上次同步時間']
 ]
 const DEFAULT_BAR = Object.freeze({
@@ -387,7 +387,7 @@ function visibleAccounts() {
   return state.settings.providerOrder
     .filter((provider) => visible.has(provider))
     .map((provider) => accountByProvider.get(provider))
-    .filter((account) => account && !(hideDisconnected && account.status === 'disconnected'))
+    .filter((account) => account && !(hideDisconnected && account.status === 'disconnected' && !account.hasConnected))
 }
 
 // ===== 排序 =====

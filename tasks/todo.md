@@ -810,3 +810,27 @@ Review：
 - [x] 詳細資訊：影音（ffmpeg）、文字（編碼／換行／行數）、其他走 Windows 屬性系統（sidecar `props`）
 - [x] 體驗：大照片右側預覽、影片第一格縮圖（不抓著檔案）、詳細資訊兩欄排版、首頁容量讀取中
 - Review：`test-explorer-details` 5 段全過（含真 ffmpeg）、`test-explorer` 309、zip 35、shell 44、zoom 22、clipboard 3、browse／wiring 過；`electron:pack` 比對 248 支 src；`probe-explorer-menu-target-cdp` 11 項全 PASS；`e2e-explorer-cdp`／dual／files-plan／zip 全過。
+# 2026-10-02 — Claude Code 額度卡片消失
+
+- [x] 重現登入來源改變／未連線時，已勾選卡片消失
+- [x] 跟隨 Claude 登入資料夾，保留曾連線工具並顯示失敗原因
+- [x] 回歸、更新免安裝預覽、隔離背景 CDP 驗證
+
+Review：
+- 確認條上預設隱藏 disconnected；登入檔讀不到會讓曾連線的 Claude 消失。新增 `hasConnected` 保存曾連線狀態，仍回報未連線且不保留假額度；明確取消勾選仍隱藏。
+- 登入讀取與續期的檔案／兩把鎖／CAS 寫回共同跟隨 `CLAUDE_CONFIG_DIR`，不誤用預設資料夾的另一個帳號。
+- `node scripts/test-quota-disconnect.js` 修前 1/4、修後 4/4；`test-usage` 40/40、`test-claude-auth` 7/7、`test-usage-state-race` PASS、`test-error-hygiene` 85/85。
+- `npm run electron:pack` 成功，asar 248 支 src 相同；`node scripts/probe-quota-disconnect-cdp.js` 4/4（消失、明確隱藏、重開、恢復來源）。隔離 userData／假憑證／假 HTTP／隱藏視窗，不改使用者的登入或安裝版。
+- 未取得另一臺電腦的版本與診斷，不能斷言它的實際觸發原因；未發行、未替換另一臺電腦。
+# 2026-10-02 — 額度工具同類問題檢查
+
+- [x] 檢查七家工具的登入位置、未連線與同步設定
+- [x] 為確認問題補先失敗的回歸，最小修復
+- [x] 相關回歸、打包與隔離背景 CDP 驗收
+
+Review：
+- 確認並修復：Codex 額度忽略 `CODEX_HOME`；OpenCode／Ollama 金鑰忽略 `XDG_DATA_HOME` 與 `OPENCODE_AUTH_CONTENT`。只跟隨選用來源，不回讀預設帳號；Codex 憑證仍只讀。
+- 原有七家共用 `hasConnected` 已涵蓋登入檔消失／401／403／provider 失敗後保留卡片；明確取消勾選仍隱藏，從未連線仍可隱藏，不回填失效帳號的舊額度。
+- `node scripts/test-quota-disconnect.js` 擴充後修前 5/8（3 個來源缺陷），修後 8/8，含真 provider 呼叫流程、環境內容格式／容量邊界；`test-usage` 40/40、`test-usage-state-race` PASS、`test-error-hygiene` 85/85。
+- `npm run electron:pack` 成功，asar 248 支 src 與原始碼相同；`node scripts/probe-quota-disconnect-cdp.js` 7/7，新增真 IPC 的 Codex／OpenCode／Ollama 自訂來源、環境登入、來源消失與金鑰拒絕驗收。
+- 本輪假憑證／假 HTTP／隔離 userData／隱藏視窗，未發出真額度重置、未改使用者登入；未發行，未驗另一臺電腦或 Codex 作業系統憑證庫登入。

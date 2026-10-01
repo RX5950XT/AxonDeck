@@ -46,6 +46,7 @@ function mergeAccountState(currentRaw, previousRaw, nowMs = Date.now()) {
   const current = normalizeAccount(currentRaw)
   let previous = null
   try { previous = previousRaw ? normalizeAccount(previousRaw) : null } catch { /* invalid cache */ }
+  current.hasConnected = current.hasConnected || previous?.hasConnected === true
 
   let restoredAntigravity = false
   // 只在上游真的回了至少一個視窗時才補齊缺槽。空陣列代表 API 失敗或沒給額度，

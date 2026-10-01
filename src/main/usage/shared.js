@@ -127,6 +127,7 @@ function normalizeAccount(raw) {
     accountName: safeString(raw.accountName, fallback.accountName, 160),
     planName: safeString(raw.planName, fallback.planName, 160),
     status: STATUS_SET.has(raw.status) ? raw.status : fallback.status,
+    hasConnected: raw.hasConnected === true || (STATUS_SET.has(raw.status) && raw.status !== 'disconnected'),
     accuracy: ACCURACY_SET.has(raw.accuracy) ? raw.accuracy : fallback.accuracy,
     lastUpdated: Number.isFinite(Date.parse(lastRaw)) ? lastRaw : fallback.lastUpdated,
     windows,

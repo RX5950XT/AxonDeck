@@ -1,7 +1,7 @@
 'use strict'
 
 const path = require('path')
-const { ensureFreshToken } = require('./claude-auth')
+const { configDirOf, ensureFreshToken } = require('./claude-auth')
 const { ENDPOINTS } = require('./constants')
 const {
   createBaseAccount,
@@ -71,17 +71,20 @@ function applyClaudeUsage(raw, nowMs, subscriptionType = '') {
 }
 
 /**
- * @param {{ homeDir: string, nowMs?: number, fetchImpl?: Function, authFetchImpl?: Function, log?: Function }} args
+ * @param {{ homeDir: string, env?: object, nowMs?: number, fetchImpl?: Function, authFetchImpl?: Function, log?: Function }} args
  *   `authFetchImpl` 是續期那條（`claude-auth.js`）用的，測試要 mock 就兩個都給
  */
-async function syncClaude({ homeDir, nowMs = Date.now(), fetchImpl, authFetchImpl, log = () => {} }) {
+async function syncClaude({ homeDir, env = process.env, nowMs = Date.now(), fetchImpl, authFetchImpl, log = () => {} }) {
   const account = createBaseAccount('claude-code', nowMs)
   let credentials
   try {
-    credentials = await readJsonFile(path.join(homeDir, '.claude', '.credentials.json'))
-  } catch {
+    credentials = await readJsonFile(path.join(configDirOf(homeDir, env), '.credentials.json'))
+  } catch (error) {
+    log(`claude: credentials unavailable ${error.code || 'unknown'}`)
     account.status = 'disconnected'
-    account.notes = '找不到 Claude Code OAuth 登入憑證。'
+    account.notes = error.code === 'FILE_NOT_FOUND'
+      ? '找不到 Claude Code OAuth 登入憑證。'
+      : '暫時無法讀取 Claude Code OAuth 登入憑證，稍後自動再試。'
     return normalizeAccount(account)
   }
 
@@ -96,7 +99,7 @@ async function syncClaude({ homeDir, nowMs = Date.now(), fetchImpl, authFetchImp
   // 真的不能用會在下面的 401 再續一次
   const refresh = async (extra) => {
     try {
-      const fresh = await ensureFreshToken(homeDir, { fetchImpl: authFetchImpl, log, nowMs, ...extra })
+      const fresh = await ensureFreshToken(homeDir, { env, fetchImpl: authFetchImpl, log, nowMs, ...extra })
       if (fresh.token) {
         token = fresh.token
         credentials = fresh.credentials

@@ -856,8 +856,10 @@ Review：
 - [x] 主分支回歸與 sidecar 建置
 - [x] 預覽包與隔離 CDP 驗證
 - [x] 正式安裝檔與 metadata 完整性驗證
-- [ ] commit／tag／push／GitHub Release 與遠端資產核對
+- [x] commit／tag／push／GitHub Release 與遠端資產核對
 
 範圍：僅 master；保留 feat/native-media，不合併、不修改。
 
 Review：15 支主要回歸最終通過；build:shell、build:probe、Rust 25＋14 通過。electron:pack 248 支 src 相同，203 份套件資料無缺漏，designs 不在 asar；ASR CDP 8/0、quota CDP 7/0、icon CDP 六組 PASS、本機 LLM 翻譯 PASS。terminal CDP 前兩輪各一個間歇性失敗，最終單獨完整跑 59/0。electron:build -- --prepackaged dist/win-unpacked 通過，安裝檔 427329691 bytes，latest.yml 版本／大小／SHA-512／blockmap 正確；拆包的 app.asar、VoiceInk.exe、五支 sidecar 與驗證包 SHA-256 一致。未改使用中的安裝版、未執行安裝更新流程。
+
+發布驗收：v1.37.3 tag 與發行提交 c1c42f3 一致，GitHub 為 Latest／非 draft／非 prerelease；三個遠端資產大小與 SHA-256 全 MATCH。feat/native-media 維持 2a16919，未合併或修改。

@@ -12,7 +12,7 @@ import { createListReorder } from './list-reorder.js'
 import { paintDetail as paintDetailPane } from './explorer-detail.js'
 import { paintHomePane } from './explorer-home.js'
 import { paintTabStrip } from './explorer-tabs.js'
-import { clearFileIconWork, paintFileIcons } from './explorer-icons.js'
+import { clearFileIconWork, paintFileIcons, paintDefaultFileIcon } from './explorer-icons.js'
 import { openImageViewer, imageViewerOpen } from './image-viewer.js'
 import { openPreview as openFilePreview, closePreview as closeFilePreview, previewKind, previewOpen } from './explorer-preview.js'
 import { mountExplorerOperations } from './explorer-operations.js'
@@ -310,13 +310,6 @@ function formatTime(ms) {
   } catch {
     return '—'
   }
-}
-
-function iconFor(entry) {
-  if (entry.dir) return '📁'
-  const ext = (entry.ext || '').toLowerCase()
-  if (IMAGE_EXT.has(ext)) return '🖼'
-  return '📄'
 }
 
 function searchQuery() {
@@ -1582,7 +1575,7 @@ function secondRowEl(entry) {
   name.className = 'ex-row-name'
   const icon = document.createElement('span')
   icon.className = 'ex-row-icon'
-  icon.textContent = iconFor(entry)
+  paintDefaultFileIcon(icon, entry)
   icon.setAttribute('aria-hidden', 'true')
   icon.classList.toggle('is-shortcut', entry.ext === 'lnk')
   // 跟左欄一樣跟殼層要真的縮圖／類型圖示，方格檢視才不會只剩 emoji。
@@ -2004,7 +1997,7 @@ function rowEl(entry) {
   name.className = 'ex-row-name'
   const icon = document.createElement('span')
   icon.className = 'ex-row-icon'
-  icon.textContent = iconFor(entry)
+  paintDefaultFileIcon(icon, entry)
   icon.setAttribute('aria-hidden', 'true')
   icon.classList.toggle('is-shortcut', entry.ext === 'lnk')
   if (!inRecycle() && entry.path) {

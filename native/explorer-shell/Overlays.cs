@@ -152,12 +152,14 @@ namespace VoiceInkShell
         }
 
         /// <summary>這個路徑在檔案總管裡實際長的樣子（32×32，含疊上去的同步標記）。</summary>
-        public static Bgra IconOf(string path)
+        public static Bgra IconOf(string path, bool generic = false)
         {
             if (string.IsNullOrEmpty(path)) return null;
             SHFILEINFOW info = new SHFILEINFOW();
             uint flags = Native.SHGFI_ICON | Native.SHGFI_ADDOVERLAYS | Native.SHGFI_LARGEICON;
-            IntPtr result = Native.SHGetFileInfoW(path, 0, ref info,
+            // USEFILEATTRIBUTES：只問未註冊副檔名的通用圖示，不讀取或建立任何檔案。
+            if (generic) flags = Native.SHGFI_ICON | Native.SHGFI_LARGEICON | 0x10;
+            IntPtr result = Native.SHGetFileInfoW(path, generic ? 0x80u : 0, ref info,
                 (uint)Marshal.SizeOf<SHFILEINFOW>(), flags);
             if (result == IntPtr.Zero || info.hIcon == IntPtr.Zero) return null;
             try

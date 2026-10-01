@@ -834,3 +834,19 @@ Review：
 - `node scripts/test-quota-disconnect.js` 擴充後修前 5/8（3 個來源缺陷），修後 8/8，含真 provider 呼叫流程、環境內容格式／容量邊界；`test-usage` 40/40、`test-usage-state-race` PASS、`test-error-hygiene` 85/85。
 - `npm run electron:pack` 成功，asar 248 支 src 與原始碼相同；`node scripts/probe-quota-disconnect-cdp.js` 7/7，新增真 IPC 的 Codex／OpenCode／Ollama 自訂來源、環境登入、來源消失與金鑰拒絕驗收。
 - 本輪假憑證／假 HTTP／隔離 userData／隱藏視窗，未發出真額度重置、未改使用者登入；未發行，未驗另一臺電腦或 Codex 作業系統憑證庫登入。
+
+# 2026-10-02 — 檔案圖示誤用 VoiceInk logo
+
+- [x] 查證清單／方格圖示來源與所有呼叫點
+- [x] 補先失敗的回歸，排除誤回的 App 圖示並加入類型預設圖
+- [x] 相關回歸、重建免安裝預覽、隔離背景 CDP 與截圖驗收
+
+Review：
+- 共用 `fileIcon` 過濾一般檔案誤回的 App logo，以及 Windows 通用空白文件圖；`.exe` 保留自己的 logo，真縮圖即使內容是 logo 也保留。圖示讀取失敗回傳 fallback，pending 重試與同步標記照常。
+- 左／右欄與虛擬清單共用折角 SVG 預設圖，依文件、程式碼、圖片、影音、壓縮、表格、模型、字型等 14 類區分；未知類型標副檔名，外部字串不直接拼進 SVG。相同 pending 圖不重建 img。
+- `node scripts/test-explorer-icon-fallback.js` 修前於「一般檔案不能拿 App logo 當圖示」失敗，修後兩組 PASS（來源、執行檔、空白圖、真縮圖、pending／overlay、12 種類型、安全字串、相同圖不重建）。
+- `test-explorer.js` 313/0、`test-explorer-shell.js` 44/0、`test-explorer-icons-state.js` 3/0；shortcuts、page-state、browse-wiring PASS，`git diff --check` 通過。
+- `npm run build:shell` 與 `npm run electron:pack` 成功，248 支 src 與 asar 相同；`node scripts/probe-explorer-icon-fallback-cdp.js` 六組 PASS（真 Windows／真 IPC／清單／方格／右欄／主題與例外），`e2e-explorer-dual-cdp.js` 51/0、`probe-explorer-folder-views-cdp.js` 全過（含 Drive 綠勾）。
+- 深／淺色截圖在 `dist/qa/explorer-icon-fallback-{dark,light}.png`。背景 GPU 截圖曾有局部缺畫／逾時，最終探針用軟體繪製＋視埠更新，兩張已目視確認完整；全程隱藏視窗，只收本輪 PID，隔離資料已清理。
+- 既有無關失敗：`e2e-explorer-cdp.js:722` 仍斷言全域 tile 隨縮放改變，但目前寫進 folderViews（專用 probe 已驗過）；`test-temp-hygiene.js` 指出 HEAD 已存在的 `test-usage.js:824,844` 直接用 os.tmpdir。未擴大修改。
+- 已更新免安裝預覽，未替換使用中的安裝版、未發行；未取得使用者發生問題的特定檔案，App logo 情境用真的打包版 logo 模擬殼層回覆驗證。

@@ -382,19 +382,39 @@ async function openPath(target) {
   return true
 }
 
+// 同一來源的 PNG 才能直接比：殼層與 Electron 各留一張 App 圖示，不逐檔重讀。
+const appIconReferences = new Map()
+let genericIconReference
+
+async function usableIcon(url, target, readIcon, source) {
+  if (!url) return false
+  if (path.extname(target).toLowerCase() === '.exe' || target === process.execPath) return true
+  if (!appIconReferences.has(source)) {
+    appIconReferences.set(source, Promise.resolve().then(() => readIcon(process.execPath)).catch(() => ''))
+  }
+  return url !== await appIconReferences.get(source)
+}
+
+async function electronIcon(target) {
+  const icon = await app.getFileIcon(target, { size: 'normal' })
+  return icon.isEmpty() ? '' : icon.toDataURL()
+}
+
 async function fileIcon(target, opts) {
   const full = paths.resolveExisting(target)
   const resolved = resolveLocal(full)
   const wantThumb = Boolean(opts && typeof opts === 'object' && opts.thumb === true)
+  let interim = {}
+  let pendingThumb
   if (wantThumb) {
     try {
       const thumb = await shellExt.thumbOf(resolved.path, opts.size)
       if (thumb && thumb.url) {
-        return {
-          url: thumb.url,
-          ...(thumb.pending === true ? { pending: true } : {}),
-          ...(thumb.overlay ? { overlay: thumb.overlay } : {})
-        }
+        interim = { ...(thumb.overlay ? { overlay: thumb.overlay } : {}) }
+        // 真縮圖即使內容是 App logo 也要保留；暫時圖改問類型圖示，避免把 logo／空白圖放大。
+        if (thumb.pending !== true || resolved.dir) return { ...thumb }
+        pendingThumb = thumb
+        interim = { ...interim, pending: true }
       }
     } catch (error) {
       console.error('[explorer] 殼層縮圖失敗:', error?.message || error)
@@ -402,18 +422,27 @@ async function fileIcon(target, opts) {
   }
   try {
     const url = await shellExt.iconOf(resolved.path)
-    if (url) return { url }
+    if (url) {
+      genericIconReference ||= shellExt.genericIconOf().catch(() => '')
+      const generic = await genericIconReference
+      const valid = url !== generic && await usableIcon(url, resolved.path, shellExt.iconOf, 'shell')
+      if (!valid) return { fallback: true, ...interim }
+      const edge = Number.isInteger(opts?.size) && opts.size >= 16 ? Math.min(opts.size, 256) : 96
+      const readThumb = async target => (await shellExt.thumbOf(target, edge))?.url || ''
+      const large = pendingThumb && await usableIcon(pendingThumb.url, resolved.path, readThumb, `thumb:${edge}`)
+      return { url: large ? pendingThumb.url : url, ...interim }
+    }
   } catch (error) {
     console.error('[explorer] 殼層圖示失敗:', error?.message || error)
   }
-  if (resolved.dir) return { folder: true }
+  if (resolved.dir) return { folder: true, ...interim }
   try {
-    const icon = await app.getFileIcon(resolved.path, { size: 'normal' })
-    if (icon.isEmpty()) throw new Error('empty icon')
-    return { url: icon.toDataURL() }
+    const url = await electronIcon(resolved.path)
+    if (await usableIcon(url, resolved.path, electronIcon, 'electron')) return { url, ...interim }
   } catch {
-    throw paths.fail('ICON_FAILED', '讀不到檔案圖示')
+    // 圖示讀不到仍保留依類型畫的預設圖，不讓整列空白。
   }
+  return { fallback: true, ...interim }
 }
 
 /** 拿不到檔案圖示時的保底圖（1x1 透明 PNG）：`startDrag` 的 icon 是空的就直接丟例外。 */

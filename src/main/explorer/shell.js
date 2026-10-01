@@ -222,6 +222,14 @@ async function iconOf(full) {
   }
 }
 
+/** Windows 的通用空白文件圖；用來判斷是否需要依類型畫預設圖。 */
+async function genericIconOf() {
+  const s = await ensure()
+  if (!s) return ''
+  const result = await s.send({ op: 'genericIcon' })
+  return result.ok && result.data ? toPng(result.data.icon) : ''
+}
+
 /**
  * 這個路徑的縮圖（照片／影片／PDF 預覽）。問不到回空 url，呼叫端再退回類型圖示。
  * pending ＝殼層還在現生，這張只是暫時的。
@@ -281,6 +289,7 @@ module.exports = {
   invoke,
   release,
   iconOf,
+  genericIconOf,
   thumbOf,
   attrsOf,
   propsOf,

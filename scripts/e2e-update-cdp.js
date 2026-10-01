@@ -5,12 +5,8 @@
  * 「檢查更新」按下去會真的連到 GitHub 讀 latest.yml 並回一個**非 error** 的狀態、
  * 以及自動更新開關寫得進 store。
  *
- * `electron:pack`（`--win dir`）產出的預覽版**不會有 `resources/app-update.yml`**
- * ——electron-builder 只在 nsis／appx 這類真正的安裝目標才寫那一份（`PublishManager`
- * 的 `isSuitableWindowsTarget`）。沒有它 electron-updater 一律回 ENOENT，
- * 於是「檢查更新失敗」，看起來像功能壞掉其實是預覽版少一個檔案。
- * 所以這支測試自己補一份再跑，跑完把自己補的刪掉；**不要把 error 當成通過**，
- * 那會讓 publish 設定被拿掉時測試還是綠的。
+ * 必須使用正式 NSIS 產物（`npm run electron:build`），缺 app-update.yml 就失敗。
+ * 驗收不得自行補檔：v1.37.3 用預覽包 --prepackaged 發版漏了它，先前測試補檔掩蓋了問題。
  *
  * 用暫存 user-data-dir，不碰使用者的設定；收尾只殺自己 spawn 出來的 pid。
  */
@@ -25,28 +21,6 @@ const PORT = 9243
 const USER_DATA_DIR = tempDir('voiceink-update-')
 const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
 const APP_UPDATE_YML = path.join(path.dirname(EXE), 'resources', 'app-update.yml')
-
-/**
- * 預覽版（dir target）沒有 app-update.yml，補一份才測得到真實的檢查更新路徑。
- * 內容跟 electron-builder 從 `build.publish` 產的那份一樣。
- * @returns {boolean} 這一輪是不是我們自己建的（是的話收尾要刪掉）
- */
-function ensureAppUpdateYml() {
-  if (fs.existsSync(APP_UPDATE_YML)) return false
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))
-  const cfg = (pkg.build.publish || [])[0]
-  if (!cfg) throw new Error('package.json 的 build.publish 不見了 → 打包不會產出 latest.yml，更新永遠檢查不到')
-  fs.writeFileSync(
-    APP_UPDATE_YML,
-    `provider: ${cfg.provider}
-owner: ${cfg.owner}
-repo: ${cfg.repo}
-updaterCacheDirName: ${pkg.name}-updater
-`,
-    'utf8'
-  )
-  return true
-}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -104,8 +78,11 @@ async function waitTargets(timeoutMs = 30000) {
 }
 
 async function main() {
-  const madeYml = ensureAppUpdateYml()
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: 'ignore' })
+  if (!fs.existsSync(APP_UPDATE_YML)) throw new Error('正式產物缺少 resources/app-update.yml；驗收不會自行補檔')
+  fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({
+    autoUpdate: false, sysmonSensors: false, dictationEnabled: false, closeToTray: false
+  }))
+  const child = spawn(EXE, ['--hidden', `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: 'ignore' })
   const results = []
   const ok = (name, pass, detail = '') => {
     results.push(!!pass)
@@ -192,8 +169,6 @@ async function main() {
     // 只殺自己 spawn 的那棵樹，不可以用 /IM（會關掉使用者的安裝版）
     try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
     await sleep(1500)
-    // 只刪自己補的那份，正式安裝版本來就有的不要動
-    if (madeYml) { try { fs.unlinkSync(APP_UPDATE_YML) } catch {} }
     for (let i = 0; i < 5; i++) {
       try { removeTree(USER_DATA_DIR); break } catch { await sleep(800) }
     }

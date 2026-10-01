@@ -878,3 +878,20 @@ Review：
 - 新 CDP 案例先對使用者同版安裝包（隔離 userData／假憑證／隱藏視窗）重現「舊卡片等待逾時」。`npm run electron:pack` 成功，248 支 src 相同；`node scripts/probe-quota-disconnect-cdp.js` 7 passed, 0 failed，卡片以 offsetHeight 驗證實際佔位，含未登入說明、重開、明確隱藏與恢復額度。
 - 本機 usage.json 已備份到 `dist/qa/usage-before-claude-repair-20261001185952697.json`，比對未被同步改動後原子替換，僅 Claude hasConnected 改為 true；Claude 登入檔 SHA-256 不變。使用中的安裝版後續同步已保留此旗標。
 - 未改使用中的安裝程式、未發行；使用者後續授權提交並推送本次修補。真實 Claude 登入資料已清空，無可用 token，未發出真續期或額度 API；真實額度數字仍待本人完成登入。
+
+# 2026-10-02 — v1.37.4 正式發版與修復安裝版缺更新設定
+
+- [x] 查明 v1.37.3 安裝版缺 app-update.yml 的原因
+- [x] 先重現失敗，修正正式打包與不得補檔的更新驗收
+- [x] 完整 NSIS 建置、拆包核對更新設定與雜湊、背景 runtime 驗收
+- [ ] 提交／tag／push、正式 GitHub Release、遠端資產核對；修復本機舊版更新設定
+
+根因：前次 `electron:build -- --prepackaged dist/win-unpacked` 沿用 dir 預覽包，electron-builder 的 doPack 在 prepackaged 時提早返回，未發出 afterPack，PublishManager 因此沒寫 app-update.yml。GitHub v1.37.3 的 latest.yml／exe／blockmap 都存在，但本機 v1.37.3 安裝目錄確實缺 app-update.yml。舊 e2e-update-cdp 自行補檔，掩蓋了實際安裝包缺檔。
+
+Review：
+- 改後的 `e2e-update-cdp` 先對本機 v1.37.3 失敗「正式產物缺少 resources/app-update.yml」，`test-updater.js --release` 也先在原預覽包缺檔失敗。正式更新 CDP 不補任何產物檔案，改用隱藏視窗與隔離 userData；開測前關掉測試實例的自動下載與提權功能。
+- `electron:build` 共用 pack-preview 的外部輸出／清理與 asar 查核，原生 NSIS 產生 app-update.yml，正式模式阻擋 --prepackaged，驗證更新來源、版本、latest.yml／exe 大小與 SHA-512 後同步回 dist。
+- 發現本機 resources 比已安裝 v1.37.3 舊；`git diff v1.37.3 -- native scripts/copy-probe.js` 為空，因此沿用已安裝正式版的五顆元件（逐檔 SHA-256 相同），原本的建置快取備份在 dist/qa/native-before-release-1.37.4。最終 NSIS 也逐檔確認這五顆沒有退版。
+- `npm run electron:build` 成功；`node scripts/test-updater.js --release` 全過；usage 40/40、quota 9/9、taskbar identity [A]～[F] 全過。正式安裝檔 427321753 bytes，blockmap 444929 bytes；latest.yml 版本／大小／SHA-512 相符。
+- 7-Zip 直接拆正式 exe：224 個檔案與 dist/win-unpacked SHA-256 全相同，含 app-update.yml；248 支 src 與原始碼相同。以拆出的 VoiceInk.exe 跑更新 CDP 7/7（真 GitHub，state=none，沒有補檔），quota CDP 7/7。詳細雜湊在 dist/qa/release-verification-1.37.4.json。
+- 本機 v1.37.3 已補入拆包驗過的 app-update.yml，未替換使用中的 exe／asar（前後 SHA-256 相同），未重啟使用者的程序；發布後另驗舊版能偵測新版。GitHub 發布與遠端資產核對待接續執行。

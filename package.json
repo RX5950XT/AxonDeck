@@ -1,6 +1,6 @@
 {
   "name": "voiceink",
-  "version": "1.37.3",
+  "version": "1.37.4",
   "description": "VoiceInk - Windows Desktop Speech-to-Text Application",
   "main": "src/main/main.js",
   "scripts": {
@@ -9,7 +9,7 @@
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:pack": "node scripts/pack-preview.js",
     "dev:sandbox": "node scripts/dev-sandbox.js",
-    "electron:build": "vite build && electron-builder --publish never",
+    "electron:build": "node scripts/pack-preview.js --release",
     "start": "electron .",
     "test:sysmon": "node scripts/test-sysmon.js",
     "build:sensors": "dotnet publish native/sysmon-sensors -c Release -o resources/sensors",

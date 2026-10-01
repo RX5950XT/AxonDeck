@@ -244,6 +244,13 @@ async function main() {
     console.log('[F] 安裝檔鏡像順序與回退 ✓')
   }
 
+  // 正式發版時直接驗產物，禁止替它補檔，避免假 updater 掩蓋缺更新設定。
+  if (process.argv.includes('--release')) {
+    const { verifyRelease } = require('./pack-preview')
+    verifyRelease(path.join(ROOT, 'dist', 'win-unpacked'), path.join(ROOT, 'dist'))
+    console.log('[G] 正式產物的更新來源、版本、安裝檔大小與 SHA-512 正確 ✓')
+  }
+
   console.log('\n全部通過')
 
 }

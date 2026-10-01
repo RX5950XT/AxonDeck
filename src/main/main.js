@@ -701,14 +701,12 @@ function migrateTranslateProvider() {
 }
 
 /**
- * 雲端 ASR 多組設定的起點：`asrClouds` 還沒有值時，把舊的單組
- * （asrApiUrl／asrApiKey／asrModelId）搬成「預設」那筆。舊 key **不刪**——
- * readConfig 對 asrClouds 空清單仍會退回舊 key 保底（手改設定檔、測試 mock 都靠它），
- * 而三個字串留在設定檔的成本是零。
+ * 雲端 ASR 多組設定的起點：還沒有 `asrClouds` 時才搬舊的單組設定。
+ * 已存在的空清單代表使用者刪光了，不可再搬回舊 Key。
  */
 function migrateAsrClouds(asrCloudMod) {
   const existing = asrCloudMod.sanitizeAsrClouds(store.get('asrClouds', []))
-  if (existing.length) {
+  if (store.has('asrClouds')) {
     // 已經有清單了，但可能還是舊形狀（單一 `modelId`）。sanitize 會把它讀成只有一顆的
     // `models` 陣列，這裡寫回去——不寫的話 renderer 直接讀 store 會看到沒有 models 的列，
     // 功能頁的雲端選項就整個不見了（實測踩過）
@@ -1689,7 +1687,9 @@ ipcMain.handle('chat:providerOptions', async () => {
       name: p.name,
       models: p.models,
       imageModels: p.imageModels,
-      local: p.id === chat.LOCAL_PROVIDER_ID
+      local: p.id === chat.LOCAL_PROVIDER_ID,
+      hasApiUrl: Boolean(p.apiUrl),
+      hasKey: Boolean(p.apiKey)
     })),
     providerId: String(store.get('chatProviderId', '') || ''),
     modelId: String(store.get('chatModelId', '') || '')

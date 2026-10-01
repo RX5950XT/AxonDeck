@@ -6,7 +6,7 @@
  */
 
 import { showToast, getSettings, electronAPI, cleanIpcError, ASR_MODEL_KEY, resolveTranslateModelKey } from './app.js'
-import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud } from './model-picker.js'
+import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
 
 // ===== DOM 元素 =====
 let dropZone
@@ -407,8 +407,8 @@ async function startTranscription() {
         throw new Error(`還缺「${runtimeLabel}」，請到設定 → 本地模型下載`)
       }
     }
-    if (useCloudAsr && !settings.asrApiKey) {
-      throw new Error('雲端語音轉文字需要 API Key，請到設定填寫')
+    if (useCloudAsr && !asrOptions(status.models, settings).find((o) => o.value === scope.asr)?.ready) {
+      throw new Error('目前選用的雲端轉錄設定缺少 API URL 或 API Key，請到設定 → 雲端模型確認')
     }
 
     const language = outputLanguage.value

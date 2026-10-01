@@ -13,6 +13,7 @@
 import { electronAPI, showToast, getSettings } from './app.js'
 import { syncCustomSelects } from './custom-select.js'
 import { askConfirm } from './app-dialog.js'
+import { cloudSetupHint } from './model-picker.js'
 
 /** 可以拿來整理文字的本地模型。LinguaForge 是翻譯專用的 SFT 模型，餵它整理只會得到譯文。 */
 const LOCAL_CLEANUP_KEYS = ['qwen35translate', 'qwen354b']
@@ -51,7 +52,7 @@ function cleanupOptions(modelsMap, settings) {
     for (const model of provider?.models || []) {
       options.push({
         value: `cloud:${provider.id}:${model}`,
-        label: `雲端 · ${provider.name || '未命名'} / ${model}${ready ? '' : '（缺 API Key）'}`,
+        label: `雲端 · ${provider.name || '未命名'} / ${model}${cloudSetupHint(provider)}`,
         ready
       })
     }
@@ -341,7 +342,7 @@ function updateHint() {
   const option = select.selectedOptions[0]
   const notReady = option?.dataset.notReady === '1'
   hint.textContent = notReady
-    ? '模型還沒準備好：本地到設定下載，雲端補上 API Key。'
+    ? '模型還沒準備好：本地到設定下載，雲端確認 API URL 與 API Key。'
     : ''
   hint.classList.toggle('is-warning', notReady)
   hint.classList.toggle('hidden', !notReady)

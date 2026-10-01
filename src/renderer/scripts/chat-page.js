@@ -1233,15 +1233,12 @@ async function savePromptDraft() {
 
 async function refreshBanner() {
   if (!bannerEl) return
-  const [providers, activeId] = await Promise.all([
-    electronAPI.store.get('chatProviders', []),
-    electronAPI.store.get('chatProviderId', '')
-  ])
+  const { providers, providerId: activeId } = await electronAPI.chat.providerOptions()
   const active = providers.find((p) => p.id === activeId) || providers[0] || null
   let message = ''
   if (!providers.length) message = '尚未設定聊天供應商，請到設定新增'
-  else if (!active?.apiUrl) message = `供應商「${active?.name || '?'}」的 API URL 不正確`
-  else if (!String(active.apiKey || '').trim()) message = `供應商「${active.name}」尚未填 API Key`
+  else if (!active?.hasApiUrl) message = `供應商「${active?.name || '?'}」的 API URL 不正確`
+  else if (!active.hasKey) message = `供應商「${active.name}」尚未填 API Key`
   else if (!active.models?.length) message = `供應商「${active.name}」沒有任何模型`
   bannerEl.classList.toggle('hidden', !message)
   if (message && bannerTextEl) bannerTextEl.textContent = message

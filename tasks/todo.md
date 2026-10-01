@@ -1,3 +1,31 @@
+# 2026-10-02 — 修復其餘四類設定不一致
+
+- [x] 為 LLM 預載設定、ASR 刪除後復活、本機聊天提示、URL／Key 提示留下先失敗的回歸
+- [x] 修復共用初始化與設定判斷，保留舊版設定升級
+- [x] 跑相關回歸、重新打包，再以隔離 CDP 驗證畫面與重開設定
+
+## Review
+
+- `engine.setStore` 同時交給 ASR／LLM；ASR 只在清單欄位不存在時升級舊設定，刪空後不復活、不使用舊 Key；聊天提示與選單共用 main 的供應商清單，僅回傳 URL／Key 是否存在；轉錄／翻譯／整理選單共用精確缺欄位提示。
+- `node scripts/test-settings-consistency.js`：修復前 4 passed, 7 failed，修復後 11 passed, 0 failed；保留真正舊版與單模型格式升級回歸。
+- `node scripts/probe-asr-key-cdp.js`：四類舊包 4 passed, 4 failed，新包 8 passed, 0 failed；真 IPC／ffmpeg／本機假上游驗證選用 Key、模型 ID，背景 CDP 驗證本機聊天、缺 URL 提示、刪光後重開。
+- `npm run electron:pack` 成功，248 支 src 檔案與 asar 相同；`npx electron scripts/e2e-chat.js` 195/0、`node scripts/e2e-chat-cdp.js` 62/0、`test-model-scope.js` 31/0、`test-error-hygiene.js` 85/0、`test-file-transcribe-cancel.js` PASS；語法與 `git diff --check` 通過，隔離測試程序已收完。
+- 已更新 `dist/win-unpacked`，未替換正在使用的安裝版；GPU 僅驗設定傳遞，未載真模型；字幕僅驗啟動檢查，未擷取麥克風／系統音訊。既有無關 `test-temp-hygiene.js` 問題仍如下一節所列。
+
+# 2026-10-02 — 雲端轉錄誤報缺 API Key
+
+- [x] 追查設定儲存與檔案轉錄／即時字幕的檢查，先跑失敗回歸（初版舊包 1 passed, 3 failed；完善初始化等待與早期阻擋斷言後，安裝版 0 passed, 4 failed）
+- [x] 重用模型選單的 ready 判斷，檢查當頁選用的雲端設定
+- [x] 打包後用隔離 CDP 驗證轉錄、正確金鑰與真正缺金鑰的阻擋
+
+## Review
+
+- 根因：設定頁存 `asrClouds[].apiKey`，檔案轉錄／即時字幕仍以舊 `asrApiKey` 擋空；改為重用 `asrOptions`，依當頁選用值檢查 ready。
+- `node scripts/probe-asr-key-cdp.js`：新打包版 4 passed, 0 failed；本機假上游收到選用那組的 Key 與含冒號模型 ID；真正缺 Key 會在送出前擋住。字幕僅驗啟動前檢查，音訊擷取刻意取消。
+- `npm run electron:pack` 成功，asar 248 支 src 與原始碼相同；`test-model-scope.js` 31/0、`test-error-hygiene.js` 85/0、`test-file-transcribe-cancel.js` PASS；語法與 diff 檢查通過。
+- 既有無關問題：`test-temp-hygiene.js` 指出 `test-usage.js:824,844` 使用 `os.tmpdir()`，本次未修改。
+- 已更新 `dist/win-unpacked`，未替換正在使用的安裝版，未呼叫真正雲端供應商、未 commit／push。
+
 # 2026-09-29 — 檔案頁 Google Drive 綠勾＋每個資料夾各自記檢視
 
 - [x] 方格縮圖不帶同步標記：sidecar `thumb` 多回 `overlay`（問 ShellIconOverlayIdentifiers 處理常式），renderer 疊在左下

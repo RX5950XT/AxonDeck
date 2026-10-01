@@ -317,7 +317,7 @@ async function refreshUiState() {
     const cloud = resolveCloudTranslate(settings)
     statusLabel = cloud.modelId ? `翻譯：雲端 · ${cloud.modelId}` : '翻譯：雲端 LLM'
     if (!cloud.ready) {
-      bannerMsg = '雲端翻譯需要一組 API Key，請到設定 → 雲端模型。'
+      bannerMsg = '雲端翻譯尚未設定完整，請到設定 → 雲端模型確認 API URL、API Key 與模型。'
       statusLabel = '翻譯：雲端 LLM（未設定）'
     } else {
       canTranslate = true

@@ -17,7 +17,7 @@ import {
   ASR_MODEL_KEY,
   resolveTranslateModelKey
 } from './app.js'
-import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud } from './model-picker.js'
+import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
 import { newTranscriptId, logTranscript, refreshLiveHistory } from './live-history.js'
 
 // ===== DOM 元素 =====
@@ -229,8 +229,8 @@ async function startCapture() {
         return
       }
     }
-    if (asrChoice.engine === 'cloud' && !settings.asrApiKey) {
-      showToast('雲端語音轉文字需要 API Key，請到設定填寫', 'error')
+    if (asrChoice.engine === 'cloud' && !asrOptions(status.models, settings).find((o) => o.value === scope.asr)?.ready) {
+      showToast('目前選用的雲端轉錄設定缺少 API URL 或 API Key，請到設定 → 雲端模型確認', 'error')
       return
     }
     if (needsTranslationBackend && llmChoice.mode === 'local') {

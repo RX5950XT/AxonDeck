@@ -131,8 +131,8 @@ function asrCloudsFromLegacy(apiUrl, apiKey, modelId) {
  * 目前生效的雲端 ASR 設定。
  *
  * 有 scope 就用那一頁自己選的（`<scope>Asr` 存 `cloud:<設定 id>:<模型 id>`）；
- * 沒有就退回 `asrCloudId`／第一組。都沒有清單（舊版 config、手改設定檔、測試 mock）
- * 才讀舊的單組 key。
+ * 沒有就退回 `asrCloudId`／第一組。沒有清單欄位（舊版 config、測試 mock）
+ * 才讀舊的單組 key；空清單代表已刪除，不可再使用舊 Key。
  *
  * @param {unknown} store
  * @param {string} [scope] `file`／`live`／`dictation`
@@ -154,6 +154,9 @@ function readConfig(store, scope) {
       apiKey: cur.apiKey,
       modelId
     }
+  }
+  if (Array.isArray(store.get('asrClouds'))) {
+    return { apiUrl: DEFAULT_ASR_API_URL, apiKey: '', modelId: DEFAULT_ASR_MODEL }
   }
   const apiUrl = String(store.get('asrApiUrl', DEFAULT_ASR_API_URL) || DEFAULT_ASR_API_URL).trim()
   const apiKey = String(store.get('asrApiKey', '') || '').trim()

@@ -55,6 +55,12 @@ function buildOptions(modelsMap, keys, cloudLabel) {
   return options
 }
 
+/** @param {{ apiUrl?: string, apiKey?: string }} provider */
+export function cloudSetupHint(provider) {
+  const missing = [!provider?.apiUrl && 'API URL', !provider?.apiKey && 'API Key'].filter(Boolean)
+  return missing.length ? `（缺 ${missing.join('、')}）` : ''
+}
+
 /**
  * 本地兩顆 ＋ 每一組雲端設定底下的每一顆模型。
  *
@@ -73,7 +79,7 @@ export function asrOptions(modelsMap, settings) {
     for (const model of list) {
       options.push({
         value: `${CLOUD_VALUE}:${cloud.id}:${model}`,
-        label: `雲端 · ${cloud.name || '未命名'} / ${model}${ready ? '' : '（缺 API Key）'}`,
+        label: `雲端 · ${cloud.name || '未命名'} / ${model}${cloudSetupHint(cloud)}`,
         ready
       })
     }
@@ -98,7 +104,7 @@ export function translateOptions(modelsMap, settings, opts = {}) {
     for (const model of provider?.models || []) {
       options.push({
         value: `${CLOUD_VALUE}:${provider.id}:${model}`,
-        label: `雲端 · ${provider.name || '未命名'} / ${model}${ready ? '' : '（缺 API Key）'}`,
+        label: `雲端 · ${provider.name || '未命名'} / ${model}${cloudSetupHint(provider)}`,
         ready
       })
     }

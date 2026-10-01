@@ -154,6 +154,7 @@ function status() {
 function setStore(store) {
   storeRef = /** @type {{ get: (k: string, d?: unknown) => unknown }} */ (store)
   localAsr.setStore(store)
+  localLlm.setStore(store)
 }
 
 module.exports = { setStore, acquire, release, unloadAll, status }

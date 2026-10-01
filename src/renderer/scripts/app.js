@@ -1651,7 +1651,7 @@ async function saveSettings() {
   const ttsRate = normalizeTtsRate(ttsRateInput ? Number(ttsRateInput.value) : 0)
 
   await Promise.all([
-    // 舊的 asrApiUrl／asrApiKey／asrModelId 不再寫入；readConfig 對空清單仍退回它們保底
+    // 舊的 asrApiUrl／asrApiKey／asrModelId 不再寫入；空清單代表刪除，不再使用舊 Key
     electronAPI.store.set('asrClouds', asrCloudsDraft),
     electronAPI.store.set('asrCloudId', asrCloudDraftId),
     electronAPI.store.set('ttsVoices', readTtsVoicesFromForm()),

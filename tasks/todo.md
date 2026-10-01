@@ -884,7 +884,7 @@ Review：
 - [x] 查明 v1.37.3 安裝版缺 app-update.yml 的原因
 - [x] 先重現失敗，修正正式打包與不得補檔的更新驗收
 - [x] 完整 NSIS 建置、拆包核對更新設定與雜湊、背景 runtime 驗收
-- [ ] 提交／tag／push、正式 GitHub Release、遠端資產核對；修復本機舊版更新設定
+- [x] 提交／tag／push、正式 GitHub Release、遠端資產核對；修復本機舊版更新設定
 
 根因：前次 `electron:build -- --prepackaged dist/win-unpacked` 沿用 dir 預覽包，electron-builder 的 doPack 在 prepackaged 時提早返回，未發出 afterPack，PublishManager 因此沒寫 app-update.yml。GitHub v1.37.3 的 latest.yml／exe／blockmap 都存在，但本機 v1.37.3 安裝目錄確實缺 app-update.yml。舊 e2e-update-cdp 自行補檔，掩蓋了實際安裝包缺檔。
 
@@ -894,4 +894,5 @@ Review：
 - 發現本機 resources 比已安裝 v1.37.3 舊；`git diff v1.37.3 -- native scripts/copy-probe.js` 為空，因此沿用已安裝正式版的五顆元件（逐檔 SHA-256 相同），原本的建置快取備份在 dist/qa/native-before-release-1.37.4。最終 NSIS 也逐檔確認這五顆沒有退版。
 - `npm run electron:build` 成功；`node scripts/test-updater.js --release` 全過；usage 40/40、quota 9/9、taskbar identity [A]～[F] 全過。正式安裝檔 427321753 bytes，blockmap 444929 bytes；latest.yml 版本／大小／SHA-512 相符。
 - 7-Zip 直接拆正式 exe：224 個檔案與 dist/win-unpacked SHA-256 全相同，含 app-update.yml；248 支 src 與原始碼相同。以拆出的 VoiceInk.exe 跑更新 CDP 7/7（真 GitHub，state=none，沒有補檔），quota CDP 7/7。詳細雜湊在 dist/qa/release-verification-1.37.4.json。
-- 本機 v1.37.3 已補入拆包驗過的 app-update.yml，未替換使用中的 exe／asar（前後 SHA-256 相同），未重啟使用者的程序；發布後另驗舊版能偵測新版。GitHub 發布與遠端資產核對待接續執行。
+- 本機 v1.37.3 已補入拆包驗過的 app-update.yml，未替換使用中的 exe／asar（前後 SHA-256 相同），未重啟使用者的程序。發布後以安裝目錄的 VoiceInk.exe 跑隱藏／隔離 CDP：7/7，currentVersion=1.37.3、state=available、version=1.37.4。
+- v1.37.4 tag 指向 c8ad8359dd7d237c9e67fc4e1ad3c0633ec23de8，已推送 master 與 tag。GitHub 正式 Latest（非 draft／prerelease），三個遠端資產的大小與 SHA-256 全相符；直接讀官方下載網址的 latest.yml 與本機逐位元組相同，tag 的 package.json 版本也一致。Release：https://github.com/RX5950XT/VoiceInk/releases/tag/v1.37.4。

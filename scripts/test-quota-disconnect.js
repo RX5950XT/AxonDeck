@@ -45,6 +45,34 @@ test('從未連線的工具仍可隱藏；關閉隱藏時全部顯示', () => {
   assert.equal(visibleProviders(all).length, 7)
 })
 
+test('升級前已失去 Claude 登入，依成功診斷恢復曾連線狀態而不補假額度', async () => {
+  const homeDir = tempDir('quota-upgrade-')
+  fs.mkdirSync(path.join(homeDir, '.claude'))
+  fs.writeFileSync(path.join(homeDir, '.claude', '.credentials.json'), JSON.stringify({
+    claudeAiOauth: { accessToken: '', refreshToken: '', expiresAt: 0, subscriptionType: 'pro' }
+  }))
+  const disconnected = await syncClaude({ homeDir, env: {}, fetchImpl: async () => { throw new Error('未登入不能打 API') } })
+  for (const hasConnected of [undefined, false]) {
+    const raw = { accounts: [{ ...disconnected, hasConnected }], diagnostics: [
+      '[2026-09-29T07:18:27.383Z] claude: API OK windows=2'
+    ] }
+    const before = JSON.stringify(raw)
+    const saved = sanitizeState(raw)
+    assert.equal(JSON.stringify(raw), before, '不修改輸入資料')
+    assert.equal(saved.accounts[0].hasConnected, true)
+    assert.equal(saved.accounts[0].status, 'disconnected')
+    assert.deepEqual(saved.accounts[0].windows, [])
+    assert.deepEqual(visibleProviders(saved), ['claude-code'])
+    const next = sanitizeState({ ...saved, accounts: [mergeAccountState(disconnected, saved.accounts[0])], diagnostics: [] })
+    assert.deepEqual(visibleProviders(next), ['claude-code'], '診斷輪替後仍保留卡片')
+    assert.deepEqual(visibleProviders({ ...next, settings: { ...next.settings, visibleProviders: [] } }), [])
+  }
+  for (const diagnostics of [null, [123], ['[2026-09-29] claude: API failed HTTP 401'], ['[2026-09-29] codex: API OK windows=2']]) {
+    const saved = sanitizeState({ accounts: [disconnected], diagnostics })
+    assert.deepEqual(visibleProviders(saved), [], '失敗或其他工具的診斷不能算 Claude 曾連線')
+  }
+})
+
 test('七家工具登入失效後都保留卡片，明確取消勾選仍隱藏', () => {
   const accounts = createInitialAccounts().map(account => mergeAccountState(account, { ...account, status: 'available' }))
   const saved = sanitizeState({ accounts })

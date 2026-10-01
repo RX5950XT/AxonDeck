@@ -78,12 +78,17 @@ function sanitizeDiagnostics(raw) {
 
 function sanitizeState(raw, nowMs = Date.now()) {
   const settings = sanitizeSettings(raw?.settings)
+  const diagnostics = sanitizeDiagnostics(raw?.diagnostics)
+  // 升級前已斷線的舊資料沒有 hasConnected，從成功診斷補回；只恢復卡片，不恢復額度。
+  const claudeHasConnected = diagnostics.some((line) => /^\[[^\]]+\] claude: API OK\b/.test(line))
   const byProvider = new Map()
   if (Array.isArray(raw?.accounts)) {
     for (const account of raw.accounts) {
       try {
         const normalized = normalizeAccount(account)
-        if (!byProvider.has(normalized.provider)) byProvider.set(normalized.provider, normalized)
+        const migrated = normalized.provider === 'claude-code' && claudeHasConnected
+          ? { ...normalized, hasConnected: true } : normalized
+        if (!byProvider.has(normalized.provider)) byProvider.set(normalized.provider, migrated)
       } catch { /* invalid stored account */ }
     }
   }
@@ -94,7 +99,7 @@ function sanitizeState(raw, nowMs = Date.now()) {
     accounts,
     settings,
     lastSyncedAt: Number.isFinite(lastSyncedAt) && lastSyncedAt > 0 ? lastSyncedAt : null,
-    diagnostics: sanitizeDiagnostics(raw?.diagnostics)
+    diagnostics
   }
 }
 

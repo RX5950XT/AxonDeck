@@ -863,3 +863,18 @@ Review：
 Review：15 支主要回歸最終通過；build:shell、build:probe、Rust 25＋14 通過。electron:pack 248 支 src 相同，203 份套件資料無缺漏，designs 不在 asar；ASR CDP 8/0、quota CDP 7/0、icon CDP 六組 PASS、本機 LLM 翻譯 PASS。terminal CDP 前兩輪各一個間歇性失敗，最終單獨完整跑 59/0。electron:build -- --prepackaged dist/win-unpacked 通過，安裝檔 427329691 bytes，latest.yml 版本／大小／SHA-512／blockmap 正確；拆包的 app.asar、VoiceInk.exe、五支 sidecar 與驗證包 SHA-256 一致。未改使用中的安裝版、未執行安裝更新流程。
 
 發布驗收：v1.37.3 tag 與發行提交 c1c42f3 一致，GitHub 為 Latest／非 draft／非 prerelease；三個遠端資產大小與 SHA-256 全 MATCH。feat/native-media 維持 2a16919，未合併或修改。
+
+# 2026-10-02 — 本機升級後 Claude 額度仍消失
+
+- [x] 比對安裝版、真實登入與舊額度資料
+- [x] 用本機舊資料形狀補先失敗的回歸，再修復曾連線狀態的遷移
+- [x] 相關回歸、免安裝打包與背景 CDP 驗證；備份後修復本機額度顯示資料
+
+查證：安裝版 v1.37.3 的相關程式與 HEAD 相同（僅換行不同）。Claude 2.1.287 的 auth status 回 loggedIn=false；憑證 accessToken／refreshToken 已空，沒有可續期的登入。usage.json 保有 claude: API OK 的歷史，但目前 disconnected／hasConnected=false；先前驗收只涵蓋升級時仍連線的快取，漏掉升級前已失效的舊資料。
+
+Review：
+- `usage/store.js` 依既存 Claude API 成功診斷補回 hasConnected；仍保留 disconnected 與空額度，不改輸入物件。已勾選的舊卡片可顯示原因，取消勾選仍隱藏；沒有成功證據的初始帳號不推定曾登入。
+- `node scripts/test-quota-disconnect.js` 修前 8/9、修後 9/9；`node scripts/test-usage.js` 40/40；`node scripts/test-usage-state-race.js` PASS。
+- 新 CDP 案例先對使用者同版安裝包（隔離 userData／假憑證／隱藏視窗）重現「舊卡片等待逾時」。`npm run electron:pack` 成功，248 支 src 相同；`node scripts/probe-quota-disconnect-cdp.js` 7 passed, 0 failed，卡片以 offsetHeight 驗證實際佔位，含未登入說明、重開、明確隱藏與恢復額度。
+- 本機 usage.json 已備份到 `dist/qa/usage-before-claude-repair-20261001185952697.json`，比對未被同步改動後原子替換，僅 Claude hasConnected 改為 true；Claude 登入檔 SHA-256 不變。使用中的安裝版後續同步已保留此旗標。
+- 未改使用中的安裝程式、未發行；使用者後續授權提交並推送本次修補。真實 Claude 登入資料已清空，無可用 token，未發出真續期或額度 API；真實額度數字仍待本人完成登入。

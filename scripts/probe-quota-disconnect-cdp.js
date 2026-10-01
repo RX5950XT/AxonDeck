@@ -53,9 +53,13 @@ async function main() {
   fs.mkdirSync(path.join(dir, 'project'))
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ sysmonSensors: false, dictationEnabled: false, closeToTray: false }))
   fs.writeFileSync(path.join(dir, 'workspaces.json'), JSON.stringify({ projects: [{ id: 'w_quota_test', name: '額度測試', path: path.join(dir, 'project'), createdAt: Date.now() }] }))
-  const state = sanitizeState({ accounts: [{ provider: 'claude-code', status: 'available', planName: 'Claude Pro', lastUpdated: new Date().toISOString(),
-    windows: [{ id: 'claude-5h', kind: 'rolling-5h', used: 25, limit: 100 }] }], lastSyncedAt: Date.now() + 3600_000 })
-  delete state.accounts[0].hasConnected // 模擬升級前的快取
+  fs.mkdirSync(path.join(homeDir, '.claude'))
+  fs.writeFileSync(path.join(homeDir, '.claude', '.credentials.json'), JSON.stringify({
+    claudeAiOauth: { accessToken: '', refreshToken: '', expiresAt: 0, subscriptionType: 'pro' }
+  }))
+  const state = sanitizeState({ accounts: [{ provider: 'claude-code', status: 'disconnected', lastUpdated: new Date().toISOString(), windows: [] }],
+    diagnostics: ['[2026-09-29T07:18:27.383Z] claude: API OK windows=2'], lastSyncedAt: Date.now() + 3600_000 })
+  state.accounts[0].hasConnected = false // 模擬本機：升級前已失效，舊版不知道曾經連線
   fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify({ state }))
   const exe = process.env.VOICEINK_EXE || path.join(__dirname, '../dist/win-unpacked/VoiceInk.exe')
   let child, renderer, mainCdp
@@ -106,21 +110,21 @@ async function main() {
     await renderer.eval(`document.querySelector('#projList [data-id="w_quota_test"] .chat-list-open').click()`)
   }
   const claudeState = () => renderer.eval(`(async () => (await window.electronAPI.usage.load()).data.accounts.find(a => a.provider === 'claude-code'))()`)
-  const hasChip = () => renderer.eval(`!!document.querySelector('#quotaItems .quota-item[data-id="claude-code"]')`)
+  const hasChip = () => renderer.eval(`(document.querySelector('#quotaItems .quota-item[data-id="claude-code"]')?.offsetHeight || 0) > 0`)
   const sync = async () => {
     await renderer.eval(`document.getElementById('quotaSyncBtn').click()`)
     await waitFor(() => renderer.eval(`!document.getElementById('quotaSyncBtn').hasAttribute('aria-busy')`), '同步完成')
   }
   try {
     await start()
-    await waitFor(hasChip, '舊版成功快取的卡片')
+    await waitFor(hasChip, '升級前已失去登入的舊卡片')
     await sync()
     const lost = await claudeState()
     assert.equal(lost.status, 'disconnected'); assert.equal(lost.hasConnected, true); assert.deepEqual(lost.windows, [])
     assert.equal(await hasChip(), true)
     await renderer.eval(`document.querySelector('#quotaItems .quota-item[data-id="claude-code"] .quota-item-open').click()`)
-    assert.match(await renderer.eval(`document.getElementById('quotaPopover').textContent`), /登入憑證/)
-    console.log('PASS 登入檔消失後卡片保留，詳情說明原因，沒有假額度')
+    assert.match(await renderer.eval(`document.getElementById('quotaPopover').textContent`), /未登入 OAuth/)
+    console.log('PASS 升級前登入已清空：依成功歷史恢復卡片、顯示未登入且沒有假額度')
     const toggle = async (enabled) => {
       await renderer.eval(`document.getElementById('quotaSettingsBtn').click(); document.querySelector('#usageProviderToggles input[value="claude-code"]').checked = ${enabled}; document.getElementById('usageSettingsSave').click()`)
       await waitFor(() => renderer.eval(`!document.getElementById('usageSettingsDialog').open`), '設定存檔')

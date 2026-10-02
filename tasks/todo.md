@@ -1121,6 +1121,7 @@ Review：
 
 - [x] 確認 master 與發行範圍，更新版本，完成受影響回歸與 native 建置。
 - [x] 正式 NSIS 打包，驗 asar／更新設定／安裝檔內容，再跑隔離 packaged 驗收。
-- [ ] Commit／tag／push，公開 GitHub Release，核對三份遠端 assets 與最終 Git state。
+- [x] Commit／tag／push，公開 GitHub Release，核對三份遠端 assets 與最終 Git state。
 
 - Review：14 支受影響 source 回歸全過，CC 258／gateway 53／HF 171／dictation 120／sysmon 188／scope 31／error hygiene 85，Electron 聊天 195/195；22 支 JS 語法與 diff 檢查通過。build:shell／build:probe／build:media 成功。完整 electron:build 驗 250 支 src 一致；正式 exe 拆出 254 檔 SHA-256 與 win-unpacked 一致，含 app-update.yml。packaged CC 134/134、拆包更新 CDP 7/7（真 GitHub）、HUD 冷啟動／reload 可見且未搶焦點，截圖已檢視。安裝檔 473030081 bytes，latest.yml 版本／大小／SHA-512 及非空 blockmap 全相符。QA 位於 dist/qa/release-1.38.1；不替換使用中的安裝版。
+- 發布驗收：v1.38.1 tag 指向 b3c57f502211ecd1095aa1379ffdc95bba51bd83，master／tag 已推送；GitHub Latest、非 draft／prerelease。三份遠端資產 size／SHA-256 與本機 MATCH，官方下載 latest.yml 逐位元組一致。使用已安裝 v1.37.5 的隔離背景實例驗更新 7/7，真 GitHub 回 available v1.38.1；未執行安裝或替換使用中的程式。feat/native-media 維持 326a3b0，沒有修改；解碼器來源沿用 v1.38.0 封存並附在 Release 說明。

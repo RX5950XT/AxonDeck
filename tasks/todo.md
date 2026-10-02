@@ -1160,10 +1160,11 @@ Review：
 - [x] 清理四個現場隱藏圖片播放器；其 mpv 已一併退出，使用中安裝版保留。
 - [x] 核對 master／分支與發行範圍、source 回歸、原生元件建置。
 - [x] 免安裝與正式 NSIS 打包；播放器可見、IPC、更新設定與安裝檔拆包驗收。
-- [ ] Commit／tag／push／公開 Release，核對遠端 assets 與舊版更新。
+- [x] Commit／tag／push／公開 Release，核對遠端 assets 與舊版更新。
 - 範圍：共用播放器啟動修正與正常／明確隱藏驗收；結束 App 自動更新保留靜默安裝，手動重啟安裝保留進度。feat/native-media 不合併、不修改；不替換使用中的安裝版。
 - 發行回歸：`test-media-player.js`／`test-updater.js` 全 PASS；`test-workspace.js` 283/0、`test-explorer.js` 313/0、`test-explorer-shell.js` 44/0、Rust media 14/0；`build:shell`／`build:media` 成功。免安裝包 251 支 src 一致，`probe-media-launch.js` 音樂／圖片／影片可見、明確隱藏不可見，四項均未搶焦點；`probe-media-packaged.js` 三組 PASS。首次正式建置成功；補齊 README 本版說明後完整重建，以最後產物拆包及遠端驗證為準。
 - Review（最終產物）：`node scripts/test-media-player.js` PASS；`node scripts/test-updater.js --release` 含 [G] PASS。正式安裝檔拆出 254 檔 SHA-256 與 `dist/win-unpacked` 全相符，251 支 src 與原始碼相同，9 支原生元件一致，含 `app-update.yml`。拆包後 `e2e-update-cdp.js` 7/7（目前版本 v1.38.3、GitHub `latest.yml` 狀態 none）；`probe-media-launch.js` 音樂／圖片／影片 visible=true、明確隱藏 visible=false，四次 foreground=false、offscreen=true。`probe-media-packaged.js` 對 win-unpacked 三組 PASS（與安裝檔逐檔相同）。沒有替換使用中的安裝版。
+- 發布驗收：v1.38.3 tag 指向 a440262dd1b8fd63227d4f0b52f8fdf226e9c039，master／tag 已推送；GitHub 公開 Release，非 draft／prerelease。三份遠端資產 size／SHA-256 與本機一致，下載回來的 latest.yml 逐位元組相同。使用已安裝 v1.38.1 的隔離背景實例驗更新 7/7，真 GitHub 回 available v1.38.3；未執行安裝或替換使用中的程式。現場沒有殘留的 voiceink-media／mpv。
 
 - [x] 實測正常啟動的 Win32 可見狀態，確認與語音膠囊是否有關；回歸先跑失敗。
 - [x] 修正共用媒體啟動入口，保留明確隱藏的背景驗收模式。

@@ -930,10 +930,14 @@ Review：
 - [x] 核對 master、版本與原生元件，保留 native-media
 - [x] 相關回歸、預覽包與背景 CDP 驗收
 - [x] 完整 NSIS 建置，拆包驗更新設定、來源與元件雜湊
-- [ ] 推送版本與 tag，發布三個資產並核對遠端與舊版更新
+- [x] 推送版本與 tag，發布三個資產並核對遠端與舊版更新
 
 Review：
 - `npm run build:shell`、`npm run electron:pack`、`npm run electron:build` 成功；完整 NSIS，未使用 --prepackaged。其餘四顆元件與目前正式安裝版 SHA-256 相同，沒有退版。
 - 圖示回歸四組 PASS、Explorer 313/0、shell 44/0、quota 9/9、taskbar identity 全過；預覽包圖示 CDP 十組、quota CDP 7/7、terminal restart continuity 全過。
 - 拆正式 installer 得到 224 檔，逐檔 SHA-256 與 win-unpacked 相同；248 支 src 相同，五顆元件與 resources 相同，無 designs/native/dist/tasks 混入。`test-updater.js --release` 全過；拆包更新 CDP 7/7，圖示 CDP 十組全過。安裝檔 427345924 bytes；latest.yml 版本、大小、SHA-512 正確。證據：dist/qa/release-verification-1.37.5.json。
 - 額外 `test-temp-hygiene.js` 有既有誤判：test-usage.js:824/844 的 no-such-local 只是注入與比對假路徑，不建立檔案；該檔與檢查腳本均未改，本次不擴大修改。遞迴 rmSync 檢查通過。
+- v1.37.5 tag 與 master 的版本提交 fb9d689 已推送；GitHub Latest、非 draft/prerelease，三個資產大小與官方 SHA-256 相同，直接下載的官方 latest.yml 逐位元組相同，遠端 tag package.json 為 1.37.5。
+- 從官方雜湊確認過的 v1.37.4 正式安裝包拆出 App，用隱藏／隔離更新 CDP：7/7，currentVersion=1.37.4、state=available、version=1.37.5。203 份依賴 metadata 未變，其餘四顆元件也與 v1.37.4 官方產物相同。
+- 本機目前使用的 v1.37.3 缺 app-update.yml，更新 CDP 因缺檔明確失敗；本次未補檔、替換或重啟該安裝版。新版預覽 PID 40436 已開回 X:\Music\ACG BGM；feat/native-media 維持 2a16919。已清掉本輪解壓與 restart QA 複本，保留雜湊／截圖／正式安裝檔。
+- Release：https://github.com/RX5950XT/VoiceInk/releases/tag/v1.37.5。

@@ -25,6 +25,8 @@ const MIN_GUARANTEED_DURATION_SEC = 2 * 60 * 60
 const CHUNK_SECONDS = 28
 /** 雲端 STT 片段秒數（避開上游 ~60s timeout） */
 const CLOUD_CHUNK_SECONDS = 50
+/** 單段客戶端等待。比 55 秒寬，慢一點的上游才不會在自己還沒回前被掐掉 */
+const CLOUD_CHUNK_TIMEOUT_MS = 90000
 const SAMPLE_RATE = 16000
 const CHUNK_SAMPLES = CHUNK_SECONDS * SAMPLE_RATE
 const BYTES_PER_SAMPLE = 4
@@ -430,10 +432,22 @@ function runFfmpeg(bin, args, opts = {}) {
 }
 
 /**
+ * 進度列上的重試原因。只對應我們自己的錯誤代碼，不帶上游原文。
+ * @param {string} code
+ * @returns {string}
+ */
+function cloudWaitLabel(code) {
+  if (code === 'RATE_LIMIT') return '這一段請求過於頻繁'
+  if (code === 'TIMEOUT') return '這一段逾時'
+  if (code === 'NETWORK') return '這一段連線中斷'
+  return '雲端暫時異常'
+}
+
+/**
  * 雲端：ffmpeg 切成 mp3 段 → 逐段 transcriptions
  * @param {{ filePath: string, lang: string, store: object }} req
  * @param {(p: object) => void} [onProgress]
- * @returns {Promise<{ text: string, durationSec: number|null, chunks: number }>}
+ * @returns {Promise<{ text: string, durationSec: number|null, chunks: number, warning?: string }>}
  */
 async function transcribeFileCloud(req, onProgress) {
   const filePath = req?.filePath
@@ -481,13 +495,20 @@ async function transcribeFileCloud(req, onProgress) {
   )
   await fsp.mkdir(tmpRoot, { recursive: true })
   const pattern = path.join(tmpRoot, 'seg_%03d.mp3')
+  /** @type {string[]} */
+  const parts = []
+  let durationSec = null
+  let failedChunk = 0
+  let filesCount = 0
+  /** 撞過限流之後，後面的段至少隔這麼久再送 */
+  let paceMs = 0
+  let lastAt = 0
 
   try {
     report(3, '準備切割音訊（雲端）…')
     const ffmpegBin = resolveFfmpegPath()
 
     // 先 probe 時長
-    let durationSec = null
     const probe = await runFfmpeg(
       ffmpegBin,
       ['-hide_banner', '-i', resolved, '-f', 'null', '-'],
@@ -550,29 +571,50 @@ async function transcribeFileCloud(req, onProgress) {
       throw new Error(`音訊過長，上限 ${formatDuration(MAX_DURATION_SEC)}`)
     }
 
-    const parts = []
+    filesCount = files.length
     for (let i = 0; i < files.length; i++) {
       if (killed || gen !== jobGen) throw new Error('轉錄已取消')
       const fp = path.join(tmpRoot, files[i])
       const buf = await fsp.readFile(fp)
+      const chunkMeta = {
+        chunk: i + 1,
+        totalChunks: files.length,
+        durationSec: durationSec ?? undefined
+      }
       report(
         10 + ((i + 0.5) / files.length) * 80,
         `雲端轉錄中… (${i + 1}/${files.length})`,
-        {
-          chunk: i + 1,
-          totalChunks: files.length,
-          durationSec: durationSec ?? undefined
-        }
+        chunkMeta
       )
       let text = ''
       try {
-        text = await cloudAsr.transcribeEncoded(
-          { buffer: buf, format: 'mp3', language: lang },
-          store,
-          // 檔案轉錄用「檔案轉錄」那一頁選的雲端設定與模型
-          'file'
+        const retried = await cloudAsr.retryTransient(
+          () => cloudAsr.transcribeEncoded(
+            { buffer: buf, format: 'mp3', language: lang, timeoutMs: CLOUD_CHUNK_TIMEOUT_MS },
+            store,
+            // 檔案轉錄用「檔案轉錄」那一頁選的雲端設定與模型
+            'file'
+          ),
+          {
+            isStopped: () => killed || gen !== jobGen,
+            paceMs,
+            lastAt,
+            onWait: (info) => {
+              const sec = Math.max(1, Math.round(info.delayMs / 1000))
+              const next = Math.min(info.limit, info.attempt + 1)
+              report(
+                10 + (i / files.length) * 80,
+                `${cloudWaitLabel(info.code)}，${sec} 秒後重試這一段（${next}/${info.limit}）…`,
+                chunkMeta
+              )
+            }
+          }
         )
+        paceMs = retried.paceMs
+        lastAt = retried.lastAt
+        text = retried.text
       } catch (e) {
+        failedChunk = i + 1
         throw e instanceof Error ? e : new Error(String(e))
       }
       if (killed || gen !== jobGen) throw new Error('轉錄已取消')
@@ -580,11 +622,7 @@ async function transcribeFileCloud(req, onProgress) {
       report(
         10 + ((i + 1) / files.length) * 80,
         `雲端轉錄中… (${i + 1}/${files.length})`,
-        {
-          chunk: i + 1,
-          totalChunks: files.length,
-          durationSec: durationSec ?? undefined
-        }
+        chunkMeta
       )
     }
 
@@ -602,6 +640,19 @@ async function transcribeFileCloud(req, onProgress) {
     }
   } catch (e) {
     if (activeJob && activeJob.gen === gen) activeJob = null
+    const err = e instanceof Error ? e : new Error(String(e))
+    const cancelled = killed || gen !== jobGen || err.message === '轉錄已取消'
+    // 限流或逾時把後面打斷時，前面轉好的段還在。取消是使用者叫停，不把半成品當成完成。
+    if (!cancelled && parts.length > 0) {
+      const where = failedChunk > 0 ? `第 ${failedChunk}/${filesCount} 段` : '中途'
+      return {
+        text: parts.join('\n'),
+        durationSec,
+        chunks: parts.length,
+        fileBytes: size,
+        warning: `雲端轉錄在${where}停住：${err.message}。已保留前面完成的內容。`
+      }
+    }
     throw e
   } finally {
     fsp.rm(tmpRoot, { recursive: true, force: true }).catch(() => {})
@@ -617,6 +668,7 @@ module.exports = {
   MIN_GUARANTEED_DURATION_SEC,
   CHUNK_SECONDS,
   CLOUD_CHUNK_SECONDS,
+  CLOUD_CHUNK_TIMEOUT_MS,
   SUPPORTED_EXT,
   resolveFfmpegPath,
   validateFilePath,

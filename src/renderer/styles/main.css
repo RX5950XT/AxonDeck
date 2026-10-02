@@ -893,6 +893,13 @@ body.is-maximized .win-btn#winMax {
   gap: 8px;
 }
 
+.result-warning {
+  margin: 0 0 12px;
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .result-text {
   padding: 16px;
   background-color: var(--bg-tertiary);

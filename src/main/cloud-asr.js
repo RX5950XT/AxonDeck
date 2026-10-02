@@ -9,6 +9,12 @@ const DEFAULT_ASR_API_URL = 'https://openrouter.ai/api/v1'
 const DEFAULT_ASR_MODEL = 'openai/whisper-1'
 const REQUEST_TIMEOUT_MS = 55000
 const MAX_AUDIO_BYTES = 24 * 1024 * 1024
+/** 檔案轉錄一段失敗後再試的次數；逾時每次已經等滿客戶端時限，少試兩次 */
+const CLOUD_RETRY_ATTEMPTS = 5
+const CLOUD_TIMEOUT_ATTEMPTS = 3
+const RETRY_BASE_MS = 3000
+const RETRY_MAX_MS = 60000
+const TRANSIENT_CODES = new Set(['RATE_LIMIT', 'TIMEOUT', 'UPSTREAM', 'NETWORK'])
 
 /**
  * 正規化 samples（與 local-asr 對齊）
@@ -178,6 +184,129 @@ function toWhisperLang(lang) {
 }
 
 /**
+ * @param {string} message
+ * @param {string} code
+ * @returns {Error}
+ */
+function cloudAsrError(message, code) {
+  const err = new Error(message)
+  err.code = code
+  return err
+}
+
+/**
+ * 429／逾時／5xx／斷線可以等一下再送。401／403／404 再送也不會好。
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isTransientCloudAsrError(err) {
+  return Boolean(err && typeof err === 'object' && TRANSIENT_CODES.has(/** @type {{ code?: string }} */ (err).code))
+}
+
+/**
+ * Retry-After 可能是秒數或 HTTP-date。0、解析不了、或超過 60 秒都交給自己的退避。
+ * @param {unknown} header
+ * @returns {number}
+ */
+function parseRetryAfterMs(header) {
+  if (typeof header !== 'string' || !header.trim()) return 0
+  const trimmed = header.trim()
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const sec = Number(trimmed)
+    if (!Number.isFinite(sec) || sec <= 0) return 0
+    return Math.min(RETRY_MAX_MS, Math.round(sec * 1000))
+  }
+  const when = Date.parse(trimmed)
+  if (!Number.isFinite(when)) return 0
+  return Math.min(RETRY_MAX_MS, Math.max(0, when - Date.now()))
+}
+
+/**
+ * @param {{ retryAfterMs?: number }} err
+ * @param {number} attempt 這一段已經失敗幾次（從 1 起）
+ * @returns {number}
+ */
+function cloudRetryDelayMs(err, attempt) {
+  const hinted = Number(err?.retryAfterMs) || 0
+  if (hinted > 0) return Math.min(RETRY_MAX_MS, hinted)
+  const n = Number.isFinite(attempt) && attempt > 0 ? attempt : 1
+  return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** (n - 1)))
+}
+
+/**
+ * 每 200ms 看一次是否已取消，避免一段 60 秒的等待把取消卡住。
+ * @param {number} ms
+ * @param {(() => boolean)|undefined} isStopped
+ * @returns {Promise<boolean>} false＝途中被取消
+ */
+function interruptibleSleep(ms, isStopped) {
+  return new Promise((resolve) => {
+    let left = ms
+    const tick = () => {
+      if (isStopped?.()) {
+        resolve(false)
+        return
+      }
+      if (left <= 0) {
+        resolve(true)
+        return
+      }
+      const slice = Math.min(200, left)
+      left -= slice
+      setTimeout(tick, slice)
+    }
+    tick()
+  })
+}
+
+/**
+ * 檔案轉錄的一段。暫時性失敗就等了再送，並把這次等到的間隔留給後面的段，
+ * 避免一成功就立刻再撞上同一條限流。
+ * @param {() => Promise<string>} run
+ * @param {{ isStopped?: () => boolean, paceMs?: number, lastAt?: number, sleep?: typeof interruptibleSleep, onWait?: (info: { attempt: number, limit: number, delayMs: number, code: string, message: string }) => void }} [hooks]
+ * @returns {Promise<{ text: string, paceMs: number, lastAt: number }>}
+ */
+async function retryTransient(run, hooks = {}) {
+  const sleep = hooks.sleep || interruptibleSleep
+  let paceMs = Math.max(0, Number(hooks.paceMs) || 0)
+  let lastAt = Number(hooks.lastAt) || 0
+  let attempt = 0
+  for (;;) {
+    if (hooks.isStopped?.()) throw new Error('轉錄已取消')
+    const gap = paceMs > 0 ? lastAt + paceMs - Date.now() : 0
+    if (gap > 0) {
+      const paced = await sleep(gap, hooks.isStopped)
+      if (!paced || hooks.isStopped?.()) throw new Error('轉錄已取消')
+    }
+    attempt += 1
+    try {
+      const text = await run()
+      if (hooks.isStopped?.()) throw new Error('轉錄已取消')
+      return { text: typeof text === 'string' ? text : '', paceMs, lastAt: Date.now() }
+    } catch (error) {
+      if (error instanceof Error && error.message === '轉錄已取消') throw error
+      const last = error instanceof Error ? error : new Error(String(error))
+      const limit = last.code === 'TIMEOUT' ? CLOUD_TIMEOUT_ATTEMPTS : CLOUD_RETRY_ATTEMPTS
+      if (!isTransientCloudAsrError(last) || attempt >= limit) throw last
+      // 只有限流要拉長後面每一段的間隔。逾時或斷線是這一小段的事，不拖慢整份。
+      const delay = last.code === 'RATE_LIMIT'
+        ? Math.max(cloudRetryDelayMs(last, attempt), paceMs)
+        : cloudRetryDelayMs(last, attempt)
+      if (last.code === 'RATE_LIMIT') paceMs = Math.min(RETRY_MAX_MS, Math.max(paceMs, delay))
+      hooks.onWait?.({
+        attempt,
+        limit,
+        delayMs: delay,
+        code: last.code || '',
+        message: last.message
+      })
+      const waited = await sleep(delay, hooks.isStopped)
+      if (!waited || hooks.isStopped?.()) throw new Error('轉錄已取消')
+    }
+  }
+}
+
+/**
  * 分類雲端錯誤。
  * 只看狀態碼，**不把上游 body 放進訊息**：這個字串會直接顯示在使用者介面上，
  * 而 body 可能夾帶請求回音（含 Authorization）、代理插入的內容，
@@ -204,11 +333,14 @@ function classifyHttpError(status, modelId = '') {
   if (status === 404) {
     return new Error(`找不到雲端語音辨識端點或模型${named}，請檢查 API URL 與模型 ID`)
   }
+  if (status === 408) {
+    return cloudAsrError('雲端 ASR 逾時，請稍後再試或縮短音訊', 'TIMEOUT')
+  }
   if (status === 429) {
-    return new Error('雲端語音辨識請求過於頻繁，請稍後再試')
+    return cloudAsrError('雲端語音辨識請求過於頻繁，請稍後再試', 'RATE_LIMIT')
   }
   if (status >= 500) {
-    return new Error(`雲端語音辨識服務異常（HTTP ${status}）`)
+    return cloudAsrError(`雲端語音辨識服務異常（HTTP ${status}）`, 'UPSTREAM')
   }
   return new Error(`雲端語音辨識失敗（HTTP ${status}），請檢查模型${named}是否為轉錄模型`)
 }
@@ -242,8 +374,12 @@ async function transcribeAudio(opts) {
   const lang = toWhisperLang(language)
   if (lang) body.language = lang
 
+  const requested = Number(opts.timeoutMs)
+  const timeoutMs = Number.isFinite(requested) && requested >= 1000 && requested <= 180000
+    ? requested
+    : REQUEST_TIMEOUT_MS
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   let res
   let raw
   try {
@@ -259,16 +395,21 @@ async function transcribeAudio(opts) {
     raw = await res.text()
   } catch (e) {
     if (e && /** @type {{ name?: string }} */ (e).name === 'AbortError') {
-      throw new Error('雲端 ASR 逾時，請稍後再試或縮短音訊')
+      throw cloudAsrError('雲端 ASR 逾時，請稍後再試或縮短音訊', 'TIMEOUT')
     }
-    throw new Error('雲端 ASR 連線失敗，請檢查 API URL 與網路狀態')
+    throw cloudAsrError('雲端 ASR 連線失敗，請檢查 API URL 與網路狀態', 'NETWORK')
   } finally {
     clearTimeout(timer)
   }
 
   if (!res.ok) {
     console.error(`[cloud-asr] API error: HTTP ${res.status}`)
-    throw classifyHttpError(res.status, cfg.modelId)
+    const err = classifyHttpError(res.status, cfg.modelId)
+    if (res.status === 429) {
+      const retryAfterMs = parseRetryAfterMs(res.headers?.get?.('retry-after'))
+      if (retryAfterMs > 0) err.retryAfterMs = retryAfterMs
+    }
+    throw err
   }
 
   let json
@@ -329,6 +470,10 @@ async function transcribeEncoded(req, store, scope) {
 
 module.exports = {
   classifyHttpError,
+  cloudRetryDelayMs,
+  isTransientCloudAsrError,
+  parseRetryAfterMs,
+  retryTransient,
   DEFAULT_ASR_API_URL,
   DEFAULT_ASR_MODEL,
   asrCloudsFromLegacy,

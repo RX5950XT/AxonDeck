@@ -23,6 +23,7 @@ let progressFill
 let progressText
 let progressPercent
 let transcribeResult
+let resultWarning
 let resultText
 let copyResultBtn
 let saveResultBtn
@@ -82,6 +83,7 @@ export function initTranscribe() {
   progressText = transcribeProgress.querySelector('.progress-text')
   progressPercent = transcribeProgress.querySelector('.progress-percent')
   transcribeResult = document.getElementById('transcribeResult')
+  resultWarning = document.getElementById('resultWarning')
   resultText = document.getElementById('resultText')
   copyResultBtn = document.getElementById('copyResultBtn')
   saveResultBtn = document.getElementById('saveResultBtn')
@@ -286,6 +288,10 @@ function clearFile() {
   transcribeOptions.classList.add('hidden')
   transcribeProgress.classList.add('hidden')
   transcribeResult.classList.add('hidden')
+  if (resultWarning) {
+    resultWarning.textContent = ''
+    resultWarning.classList.add('hidden')
+  }
 }
 
 /**
@@ -455,31 +461,36 @@ async function startTranscription() {
     if (epoch !== transcribeEpoch) return
 
     let result = (asrResult && asrResult.text) || ''
+    let warning = typeof asrResult?.warning === 'string' ? asrResult.warning : ''
 
     if (result && willTranslate) {
-      if (llmChoice.mode === 'local') {
-        updateProgress(90, '載入翻譯模型…')
-        await waitForPaint()
-        const warmLlm = await electronAPI.engine.acquire('file', {
-          asr: !useCloudAsr,
-          llm: true
-        })
-        if (!warmLlm.ok) {
-          throw new Error((warmLlm.warnings && warmLlm.warnings[0]) || '翻譯模型載入失敗')
+      try {
+        if (llmChoice.mode === 'local') {
+          updateProgress(90, '載入翻譯模型…')
+          await waitForPaint()
+          const warmLlm = await electronAPI.engine.acquire('file', {
+            asr: !useCloudAsr,
+            llm: true
+          })
+          if (!warmLlm.ok) {
+            throw new Error((warmLlm.warnings && warmLlm.warnings[0]) || '翻譯模型載入失敗')
+          }
         }
+        updateProgress(92, '正在翻譯…')
+        result = await translateLong(result, language)
+      } catch (error) {
+        const note = `翻譯沒有完成：${cleanIpcError(error)}`
+        warning = warning ? `${warning} ${note}` : note
       }
-      updateProgress(92, '正在翻譯…')
-      result = await translateLong(result, language)
     }
 
     if (epoch !== transcribeEpoch) return
 
-    updateProgress(100, '轉錄完成！')
+    updateProgress(100, warning ? '已保留完成的部分' : '轉錄完成！')
     await new Promise((r) => setTimeout(r, 350))
     if (epoch !== transcribeEpoch) return
-    transcribeProgress.classList.add('hidden')
-    transcribeResult.classList.remove('hidden')
-    resultText.textContent = result || '（未辨識到語音內容）'
+    showTranscript(result, warning)
+    if (warning) showToast(warning, 'error')
   } catch (error) {
     console.error('轉錄失敗:', error)
     if (epoch === transcribeEpoch) {
@@ -540,6 +551,20 @@ async function translateLong(text, targetLang) {
     }
   }
   return results.join('\n')
+}
+
+/**
+ * 顯示逐字稿。warning 留在結果上面，不寫進可複製的正文。
+ * @param {string} text
+ * @param {string} [warning]
+ */
+function showTranscript(text, warning) {
+  transcribeProgress.classList.add('hidden')
+  transcribeResult.classList.remove('hidden')
+  resultText.textContent = text || '（未辨識到語音內容）'
+  if (!resultWarning) return
+  resultWarning.textContent = warning || ''
+  resultWarning.classList.toggle('hidden', !warning)
 }
 
 /**

@@ -13,13 +13,17 @@ async function main() {
   const context = {
     path, os: { tmpdir: () => 'unused' }, process, randomBytes: () => 'test',
     activeJob: null, jobGen: 0, MAX_DURATION_SEC: 14400, CLOUD_CHUNK_SECONDS: 50,
+    CLOUD_CHUNK_TIMEOUT_MS: 90000,
     cancel() { context.activeJob?.kill(); context.activeJob = null },
     validateFilePath: () => ({ size: 1 }), resolveFfmpegPath: () => 'unused',
     parseDurationSec: () => 1, formatDuration: () => '1 秒',
     runFfmpeg: async () => ({ code: 0, stderr: '' }),
     fsp: { mkdir: async () => {}, readdir: async () => ['seg_000.mp3'],
       readFile: async () => Buffer.from('audio'), rm: async () => {} },
-    cloudAsr: { transcribeEncoded: () => new Promise(resolve => { finishAsr = resolve; enteredAsr() }) }
+    cloudAsr: {
+      transcribeEncoded: () => new Promise(resolve => { finishAsr = resolve; enteredAsr() }),
+      retryTransient: async (run) => ({ text: await run(), paceMs: 0, lastAt: 0 })
+    }
   }
   vm.createContext(context)
   vm.runInContext(source.slice(start, source.indexOf('\n}', start) + 2), context)

@@ -17,6 +17,8 @@ const agents = require('./agents')
 const search = require('./search')
 const ports = require('./ports')
 const watch = require('./watch')
+const mediaPlayer = require('../media-player')
+const fsp = require('../raw-fs').promises
 
 /**
  * @param {string} code
@@ -71,9 +73,17 @@ async function listDir(projectId, relPath) {
 }
 
 async function readFile(projectId, relPath) {
-  const file = await files.readFile(await rootOf(projectId), relPath)
+  const root = await rootOf(projectId)
+  const full = files.resolveExisting(root, relPath)
+  const nativeMedia = mediaPlayer.mediaKind(full)
+  // SVG 仍保留原始碼，避免吃掉既有的編輯草稿；其他媒體只讀檔頭資訊。
+  if (nativeMedia && !full.toLowerCase().endsWith('.svg')) {
+    const stats = await fsp.stat(full)
+    return { nativeMedia, rel: relPath, size: stats.size, mtimeMs: stats.mtimeMs, binary: true }
+  }
+  const file = await files.readFile(root, relPath)
   // 圖片／PDF／影音不讀內容，給一個串流網址（`image`／`pdf`／`audio`／`video` 其中一個欄位）
-  return file.media ? { ...file, [file.media]: media.urlFor(projectId, file.rel) } : file
+  return file.media ? { ...file, nativeMedia, [file.media]: media.urlFor(projectId, file.rel) } : file
 }
 
 async function writeFile(projectId, relPath, content, expectedMtimeMs) {
@@ -144,7 +154,7 @@ async function reveal(projectId, relPath) {
 async function openEntry(projectId, relPath) {
   const full = files.resolveExisting(await rootOf(projectId), relPath)
   // 回傳字串＝失敗原因（Electron 的 API 就是這樣設計的），空字串才是成功
-  const error = await shell.openPath(full)
+  const error = await mediaPlayer.openPath(full)
   if (error) throw fail('OPEN_FAILED', '這個檔案打不開')
   return { opened: true }
 }

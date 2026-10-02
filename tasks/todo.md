@@ -778,6 +778,77 @@ Review：
 - Review：`test-workspace-ui` 185、`test-workspace` 276、`e2e-workspace-cdp` 183、`e2e-terminal-cdp` 59 全過；打包版截圖確認標題無截斷、按鈕不壓字
 - [x] 對話記錄工具列加「複製路徑」：main 的 `sessionDetail` 多回 `file`（`findSessionFile` 驗過屬於這個專案）；工具列按鈕不折行、標題與附註改省略號並放 `title`
 
+# 2026-10-02 — 自繪媒體選單與播放清單
+
+## 短清單空白區與拖曳閃白修正
+
+### 拖曳流暢度與時間條閃爍
+- [x] 補驗 State 借用期間的時間條回呼／繪圖與相同寬度重畫，先確認失敗。
+- [x] 合併控制項移動、略過沒有變化的位置；時間條改成獨立且完整的緩衝繪圖。
+- [x] 背景驗證進度拖曳、鍵盤、深淺色與短／長清單，打包更新目前入口。
+- Review：擴充 `probe-media-queue-resize.js` 修復前 FAIL（slider callback/frame/erase 三項 false、duplicateNoRedraw=false）；額外真測發現 `TBM_SETPOS(false)` 的 thumb 命中區仍在舊位置，改用共用 `position()` 的 redraw=true 後，畫出的圓點與 `TBM_GETTHUMBRECT` 一致。
+
+| Before | After | Why |
+| --- | --- | --- |
+| 每次拖曳逐個移動、重畫所有控制項、反覆 EnableWindow | DeferWindowPos 合併移動，略過未變位置／啟用狀態／相同寬度 | 減少重複工作；放開 State 借用後即時畫完整一格 |
+| 時間條自繪依賴 State，底色與圓點逐步畫到畫面 | 固定主題資料留在控制項；回呼先於借用，GDI 記憶體完整繪圖再 BitBlt | 同步重入保持自繪，清除背景不會先留下空白格 |
+
+- Review：`build:media`、Rust 14/14、`test-media-player.js` PASS；最終 source 深淺色各 84 frames，slider callback/frame/erase/hit 四項 true、duplicateNoRedraw=true、whitePixels=0；同一機器的孤立樣本 layout p95 約 8.16ms（修復前 12.55ms，非整體 FPS 保證）。`probe-media-window.ps1 -ExerciseResize` 深淺色各 44 個真正 WM_MOUSEMOVE 的完整畫面通過，使用本輪 offscreen HWND 與 QA 拖曳旗標，不呼叫 SetCapture；短／空清單底色與時間條保持正確、ownFocusAbsent=true（47 次採樣）。
+- Review：`-ExerciseUi -ExerciseMenu` 的進度預覽／放開跳轉／方向與 Page 鍵／自繪選單／控制項版面 PASS；50 筆清單的搜尋／移除／原生捲動與快捷鍵 PASS。焦點驗證另外記錄原視窗是否變動，僅在本輪播放器或 decoder 取得前景時失敗，允許使用者繼續切換自己的視窗。
+- Review：`npm run electron:pack` PASS（250 支 src 位元組相同）；packaged `probe-media-ui.js` 8 groups、`probe-media-packaged.js` 3 groups、深淺色各 84 frames 的時間條／清單檢查 PASS。實際安裝版深淺色各 44 張連續拖曳畫面、各 84 frames 的原生繪圖／命中區檢查、進度／選單／鍵盤與 50 筆清單的 10 項操作全過；本輪視窗未取得前景，沒有程序殘留。
+- Review：持久開檔入口已更新，manifest 30/30、Windows 關聯 API 150/150 PASS；source／packaged／installed SHA-256 `630c6610fd61cfa7d69ab5eb80aee7ab0c828cfdc616646587d829f5dc58ecbc` 相同。備份 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/drag-smooth-20261002-084413/`；`git diff --check` PASS，外部打包輸出已移除。仍在 `feat/native-media`，未提交／未發布；實體滑鼠與高 DPI 螢幕的前景手感未驗證。
+
+- [x] 重現四筆清單的空白區及連續調整側欄寬度，補先紅後綠的背景像素驗證。
+- [x] 修正重入時的清單底色與重畫順序，保留原生鍵盤／可見列繪圖。
+- [x] 建置、打包並更新目前開檔入口，驗證深淺色、短／空／長清單與焦點。
+- Review：新 `probe-media-queue-resize.js` 修復前 FAIL（84 frames、160 whitePixels、callbackDark=false）；固定深色回呼排在 State 借用前、清單自行填滿背景、版面移動延後同步清除及略過重複 ShowWindow。修復後深淺色各 84 frames、4/0 items、whitePixels=0、blankDark/callbackDark/eraseDark=true。
+- Review：release build、Rust 14/14、`test-media-player.js` PASS；`probe-media-window.ps1 -ExerciseUi -ExerciseMenu` 深淺色四筆清單空白區各 476 點全為 #1c2123，文字與列繪圖完整；50 筆清單捲動、自繪選單、搜尋、Enter、移除及清除全過，focusKept=true。
+- Review：`npm run electron:pack` PASS（250 支 src 位元組相同）；packaged 與 installed 的 `probe-media-queue-resize.js` 各深淺色 168 frames 全過；packaged `probe-media-ui.js` 8 groups、`probe-media-packaged.js` 3 groups PASS。實際安裝版深淺色短清單各 476 點深色、選單／進度／鍵盤與焦點全過；全程畫面外 HWND，未操作前景滑鼠。
+- Review：持久開檔入口已更新，30/30 manifest hash PASS；source／packaged／installed exe SHA-256 `10d6cefc2af6abde6e9ddd19a7b763454b04c31950867b7b73ee43dca72b1caf` 相同。備份 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/queue-repaint-20261002-074522/`；Windows 關聯 API 150/150 回讀仍指向持久播放器。仍在 `feat/native-media`，未提交／未發布。
+
+## 檢查後改善
+
+- [x] 修正選單捲動／返回後可見選取、清單與滑桿翻頁快捷鍵，增加先紅後綠的背景驗證。
+- [x] 深色清單新增搜尋／加入／移除、完整檔名提示、可調寬度與文字對比；保留原生鍵盤與可見列繪圖。
+- [x] 背景保存音量／視窗尺寸／清單寬度，依檔案識別保存續播；多視窗寫入合併。
+- [x] 首次安裝／舊版首次更新背景初始化預設關聯；成功才記標記，後續更新保留自選。
+- [x] release build／packaged／目前使用入口驗證；安裝掛勾僅背景編譯與隔離驗證，不執行桌面安裝。
+- Review（來源）：舊 installed binary 的 queuePageKeys／sliderPageKeys／menuScrollSelection 全 false；新 source 全 true，搜尋／篩選 Enter／移除／清除／focusKept 全 true。`probe-media-ui.js` 7 組通過，影片與音樂各自實測關閉重開後音量 37、820×540、側欄 344、精準續播 6 秒；使用隔離設定且靜音。Rust 14/14、JS 初始化重試／once／有界標記 PASS；設定 history 寫入也限制 512KiB，跨程序鎖與多視窗合併通過。
+- Review（最終）：`cargo build --release --locked --manifest-path native/voiceink-probe/Cargo.toml --bin voiceink-media` PASS；同 scope `cargo test` 14/14。`node scripts/test-media-player.js` PASS；`npm run electron:pack` PASS（250 支 src 相同）；packaged `node scripts/probe-media-ui.js` 8/8、`node scripts/probe-media-packaged.js` 3 段 PASS。新增背景工作關閉前完成的回歸先紅後綠，模擬工作不寫登錄檔；播放器視窗與 decoder 先關閉。
+- Review（最終）：source／packaged／installed `probe-media-improvements.ps1 -Features` 的 10 項全 true，包含搜尋自繪右鍵與全選；installed 淺色 640×430／50 檔 `probe-media-window.ps1 -ExerciseMenu -ExerciseUi` 的繪圖／鍵盤／捲動／bounds／focusKept 全過。進度 PageUp 真跳轉、選取附註色值對比 5.79；packaged WebP 2/2（12 格真畫面）、損壞檔 4/4 通過。修正 probe 對相對 fixture 路徑未正規化而誤判的問題。
+- Review（入口）：source／packaged／installed player SHA-256 `29829ee3ee4e9c69a12d89147215d0e6ebc20368594b7ac64dec53e8aa6a4674` 相同；manifest 30/30、`probe-media-defaults.ps1` Windows API 150/150。最後備份 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/search-menu-20261002-032432/`；`probe-media-installer.js` NSIS 掛勾與三項產物編譯 PASS，未實際安裝。打包暫存已清除，本輪媒體程序無殘留；未搶焦點／未開設定或 UAC。仍在 `feat/native-media`，未提交／發行；新電腦實裝、實體拖曳與讀屏未驗證。
+
+- [x] 側邊播放清單固定深灰底，即使主視窗淺色；同步容器／列／原生空白 brush／hover／捲軸／收起按鈕與文字對比。
+- Review（背景色修正）：舊 installed 截圖色值 `#F8F9F6` 為紅燈；release build、`npm run electron:pack`（250 支 src 相同）PASS。source／installed `probe-media-window.ps1 -Theme light -Width 640 -Height 430 -ExerciseMenu -ExerciseUi` 的 50 檔清單／捲動／hover／Enter／收起／子選單／純畫面／bounds／focusKept 全過，實際 installed 側欄像素為 `#1C2123`。三份 player SHA-256 `ebe719818dabf3a9ff28be66f3e668cfe929a5d25ed27b97af7c786090a9e14a` 相同，manifest 30/30；舊版與 manifest 備份 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/dark-queue-20261002-014646/`。僅改清單配色，未提交／發行。
+
+- [x] 將更多／右鍵與子選單改成 Rust／GDI 自繪浮窗，保留名稱、鍵盤、深淺色及畫面邊界
+- [x] 重設播放清單的標頭、圓角選取／hover、播放狀態與細捲軸，保留大量項目的原生虛擬繪圖
+- [x] 背景驗證真繪圖／子選單／操作／小視窗，打包並更新實際點檔案的播放器
+- Review：舊 binary 在 customMenu 斷言失敗；新 subclass 初版所有訊息查 LB_* 造成 stack overflow，限定攔截後修復。`npm run build:media`／release build PASS；Rust 4/4；`npm run electron:pack` PASS（250 支 src 相同）。沒有新增依賴、WebView、頁面或系統關聯修改。
+- Review：packaged `node scripts/probe-media-ui.js` 圖片／影片／音樂／全螢幕四組 PASS；原生 `probe-media-window.ps1 -ExerciseMenu -ExerciseUi` 深色 640×430 影片、淺色 640×430／50 張圖片、音樂通過。自繪主選單／子選單、Enter 進入／Esc 返回／操作後關閉、倍速／輪播間隔、queueHover／queueWheel／queueEnter／queueClose、原進度／純畫面、bounds／focusKept 通過。PrintWindow 旗標 2 曾漏畫選單列（像素斷言 60 個黑點），自繪 WM_PRINT／WM_PRINTCLIENT 與標準旗標 0 捕捉完整畫面；未使用前景鍵鼠驗收，實體拖曳／讀屏／跨螢幕 DPI 仍未驗證。
+- Review：最後淺色捲軸提高對比後重新 release build／pack；更新持久關聯入口並在該 binary 重驗淺色小視窗／50 檔／選單全部通過。source／packaged／installed SHA-256 `b9e37cef99e48864fd9f50a1acd93b675e9a13bdfc87d865666cc5d42bb39999` 相同，manifest 30/30、Windows API 預設 150/150；備份 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/menus-20261002-012316/`。仍在 `feat/native-media`，未提交／發行；主 worktree 的其他改動保留。
+
+# 2026-10-01 — 原生媒體 UI、操作與快捷鍵改善
+
+## 第二輪：縮窄邊框與操作區
+
+- [x] 移除重複標頭與畫面側邊留白，壓低底部工具列，簡化按鈕外觀
+- [x] 改善進度拖曳預覽／放開跳轉，加入 Ctrl+H 純畫面與清楚的選取狀態
+- [x] 背景驗證深淺色／小視窗／鍵盤與真 decoder，打包並更新實際關聯入口
+- Review：舊已安裝 binary 在 edgeToEdge 斷言失敗；進度滑桿原生步長回讀為 1／2000，修正後 12 秒 fixture 換算為 4167／10000。`npm run build:media` PASS；Rust 4/4、`node scripts/test-media-player.js` PASS。
+- Review：`probe-media-window.ps1 -ExerciseUi` 深色影片、淺色 640×430 圖片、音樂通過；畫面貼齊邊緣，工具列實測 80／56 DIP；scrubPreview／seekCommitted／seekKeyboardSteps／cleanView／controlsFit／controlsSeparate／focusKept 通過。純畫面收起並恢復原清單；窄窗 F1 上下排列；播放清單同步暫停狀態。
+- Review：`npm run electron:pack` PASS（250 支 src 相同）；packaged `probe-media-ui.js` 四組真操作全過，WebP 2/2（12 格動畫）、損壞檔 4/4、SVG 真轉圖與畫面外繪圖通過。沒有前景鍵鼠／設定頁／UAC；高 DPI 實體螢幕與前景拖曳手感仍未驗證。
+- Review：目前預設關聯入口已更新，30/30 manifest hash 通過；source／packaged／installed player SHA-256 `69da96e7f21037c353aaba87e883e7cc6f8c9ddfb60506a76459c3314431b155` 相同。舊版與 manifest 備份 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/slim-ui-20261001-231732/`；已安裝版 640×430 真繪圖／操作回讀通過，Windows 關聯 150/150。仍在 `feat/native-media` 未提交／未發布。
+
+- [x] 參考 ImageGlass／mpv.net／常用播放器，確認原生 UI 與鍵盤的完整資料流
+- [x] 精簡 Aurora 工具列、置中播放控制、圖片工具、音樂資訊與清單；保留深淺色、DPI、鍵盤與讀屏
+- [x] 統一畫面與控制項快捷鍵，加入說明、圖片輪播、靜音、倍速、截圖與全螢幕收起控制列
+- [x] 背景驗證原生操作／真格式／焦點、更新 preview 與目前系統關聯使用的播放器
+- Review：`npm run build:media` PASS；Rust 4/4、`test-media-player.js` PASS；`probe-media-ui.js` 的圖片／影片／音樂／全螢幕四組真 decoder 操作在 source、packaged、已安裝 runtime 通過（輪播、動畫暫停、精準跳秒、倍速、逐格、旋轉、截圖、字幕偏移、清單／說明）。
+- Review：`probe-media-window.ps1 -ExerciseUi` 深／淺色、640×430 小窗、真 F1、清單與繪圖通過；`focusKept`／`offscreen`／`controlsFit` 為 true。缺少專輯標籤的音樂原先繪圖 access violation，修復後通過；滑桿 25→75 截圖像素檢查在舊 binary 為紅燈，修復後深淺色與已安裝版 `sliderMoves=true`。
+- Review：`npm run electron:pack` PASS（250 支 src 逐位元組相同）；`probe-media-packaged.js` 三段 PASS；packaged WebP 2/2（12 格動畫）與損壞檔 4/4。最後 build／pack／持久安裝 player SHA-256 相同，安裝 manifest 30/30 PASS；Windows 實際預設 150/150 維持不變。原 binary 與 manifest 備份在 `%LOCALAPPDATA%/VoiceInk Media/binary-backups/ui-20261001-174945/`。
+- Review：全程背景／靜音、沒有前景鍵鼠／設定頁／UAC；source 仍在 `feat/native-media` 未提交、未發行。未新增音樂庫管理、全域媒體鍵、快捷鍵編輯器；高 DPI 螢幕的實際前景手感未驗證。
+
 # 2026-09-26 — VoiceInk 啟動 Codex CLI 彈出外部終端機
 
 - [x] 查明 Codex CLI 0.157.1 的 Windows daemon 行為，確認 `--no-daemon` 可用
@@ -941,3 +1012,80 @@ Review：
 - 從官方雜湊確認過的 v1.37.4 正式安裝包拆出 App，用隱藏／隔離更新 CDP：7/7，currentVersion=1.37.4、state=available、version=1.37.5。203 份依賴 metadata 未變，其餘四顆元件也與 v1.37.4 官方產物相同。
 - 本機目前使用的 v1.37.3 缺 app-update.yml，更新 CDP 因缺檔明確失敗；本次未補檔、替換或重啟該安裝版。新版預覽 PID 40436 已開回 X:\Music\ACG BGM；feat/native-media 維持 2a16919。已清掉本輪解壓與 restart QA 複本，保留雜湊／截圖／正式安裝檔。
 - Release：https://github.com/RX5950XT/VoiceInk/releases/tag/v1.37.5。
+
+## 原生媒體彈窗（2026-10-01，feat/native-media）
+- [x] Win32/Rust 獨立彈窗＋mpv 解碼子程序；不新增導航頁
+- [x] 圖片／動畫／影片／音樂依類型切換控制、播放清單、字幕與基本快捷鍵
+- [x] Explorer／工作區／ZIP／MTP 開啟接線、Windows 開啟方式註冊與解除
+- [x] 固定解碼器版本及 hash、打包攜帶 runtime
+- [x] 真格式矩陣、隱藏視窗操作、兩層當機隔離、資源量測與 packaged 驗收
+- [x] 系統預設全面切換：150/150 Windows 關聯 API 回讀指向持久安裝的獨立播放器；全程背景、無設定頁／UAC。
+- [x] 預設關聯續作：新舊 Hash 同步、完整備份與還原；還原原本程式 150/150（AssocQueryString，Unknown 表示未設定），再套用 150/150。
+- [x] 背景補驗冷門格式、真 RAW、播放清單與損壞檔案；修正 RAW 轉圖期間被誤判已載入，圖片 probe 要等實際畫面尺寸。
+- [x] 補驗後更新預覽與獨立播放器，26 檔 hash 回讀相符；建置／同步子程序加 `windowsHide: true`。
+- Review：`build:media`、Rust 2 tests、`test-media-player` 全過；既有 workspace 283、UI 183、state 全過，Explorer 313 全過。最終 packaged runtime 真格式／操作矩陣 32/32（含 12 格畫面確認 WebP／GIF／MNG 循環、HEIC／JXL／PSD／SVG、H.264／HEVC／AV1／ProRes 等）；首個 file-loaded 327–563ms（小型 fixture，非第一個像素／跨播放器比較）。
+- Review：深淺色與音樂 Win32 背景視窗截圖／清單／縮放／暫停通過、沒有搶焦點；靜態圖片 UI 約 12.5MiB＋decoder 約 108–114MiB，閒置 2 秒樣本 CPU 為 0（每核心）。`electron:pack` src 250 支逐位元組比對；packaged CDP 的 workspace／Explorer／ZIP、文字編輯、路徑守衛、無新增 nav、decoder／UI 當機隔離與主 App 強制結束後仍播放全過。修正 QA readiness 等到頁面與 light theme 初始化後才點按。
+- Review：NSIS 安裝／解除掛勾編譯與 exe／blockmap／latest.yml 通過；未執行完整 VoiceInk 安裝、未發布。播放器已獨立安裝至 `%LOCALAPPDATA%/VoiceInk Media/`，26 個檔案 hash 回讀相符；HKCU 註冊→解除→重新註冊實測成功。Windows UserChoice 仍需系統確認；未驗證所有 RAW 變種、實體 MTP、全機安裝模式與 GPL 對外散布完整 source bundle。
+- 既有無關失敗：`test-temp-hygiene` 指出未修改的 `test-usage.js:824,844` 兩處 `os.tmpdir()`，主工作樹同樣重現；遞迴 rmSync 守門通過。保留未改。
+- 背景續作 Review：`raw:3fr` 修正前因「loaded=true、video=null、仍在轉圖」失敗；修正後六種真 RAW 全過（DNG／CR2／CR3／NEF／ARW／3FR，固定 SHA-256 的 CC0 樣本）。3FR 原圖 7247×5444 成功顯示；該次冷門大圖開啟約 15.5 秒，不宣稱所有格式瞬開。
+- 背景續作 Review：`probe-native-media.js` 在最終 packaged runtime 50/50（另加 RAW 6/6）；`probe-media-packaged.js` 三段全過；`electron:pack` 250 支 src 比對通過，原生 exe 的 build／pack hash 相同。全程隱藏、靜音，未重新開啟系統設定。
+- 背景續作收尾：Rust 2/2、`test-media-player.js`、`git diff --check` 通過；獨立播放器 26 檔 hash 再次回讀通過，沒有本輪播放器／解碼器／轉圖程序殘留，打包暫存輸出已清除。
+
+- 預設關聯最終 Review：Windows `QueryCurrentDefault`／`AssocQueryString` 與實際 exe 路徑 150/150；新 Hash 150/150；原設定還原 150/150；解除登記還原／移除自身 handler 150/150；最後重新套用 150/150。備份在 `%LOCALAPPDATA%/VoiceInk Media/association-backups/`，最初完整備份 `1790841607894-348` 保留。
+- 收尾驗收：`build:media` 通過；Rust 3/3、`test-media-player.js` PASS；`electron:pack` 250 支 src 比對 PASS；`probe-media-packaged.js` 三段 PASS；packaged WebP 2/2（動畫 12 格實際畫面）與損壞檔 4/4；`probe-media-installer.js` NSIS 編譯／三項產物 PASS，未執行前景安裝。build／pack／持久安裝的兩支原生 exe SHA256 相同，持久安裝 30/30 檔 hash PASS，沒有本輪程序殘留。
+
+### 按鈕即時更新與拖曳重畫（2026-10-02）
+- [x] 重現狀態更新後未留下按鈕重畫，確認拖動的實際繪圖路徑。
+- [x] 修正共用按鈕更新與拖曳繪圖，保留原生鍵盤操作。
+- [x] 背景驗證、打包、更新持久播放器，記錄未涵蓋邊界。
+- Review：修復前 `probe-media-queue-resize.js` 確實失敗（buttonRefresh=false）；修復後深淺色各 84 格通過，按鈕補畫／時間條／空清單底色通過。`cargo test ... --bin voiceink-media` 14/14；`node scripts/test-media-player.js` PASS。
+
+| Before | After | Why |
+| --- | --- | --- |
+| 按鈕更新文字時同步繪圖被 State 借用擋住 | 原生訊息處理完後重新標記按鈕重畫 | 不再等滑鼠離開才換圖示 |
+| 清單逐列直接畫到畫面 | 清單與捲軸先在記憶體完成，再一次顯示 | 不露出逐列清空的中間畫面 |
+| 視窗縮放後只排隊重畫 | 放開 State 後立即畫完本格 | 連續縮放不延後更新控制列 |
+
+- Review：`probe-media-window.ps1 -ExerciseResize` 深淺色各 44 次側欄拖曳＋4 次視窗縮放 PASS；播放／暫停切換不送任何滑鼠事件、不先截圖，讀取真正 WM_DRAWITEM 完成記號，兩方向都 PASS。`-ExerciseUi -ExerciseMenu` 與長清單 `probe-media-improvements.ps1 -Features` 10 項通過；本輪所有視窗均在畫面外，沒有搶焦點。
+- 收尾：`npm run electron:pack` 250 支 src 比對通過；packaged 深淺色各 84 格通過。持久安裝版 `-ExerciseResize`：pausePaintWithoutMouse／resizeSliderStable／windowResizePainted／ownFocusAbsent 全 true，44 次拖曳＋4 次視窗縮放。manifest 30/30 hash 通過，播放器 SHA-256 `1ffa9d5e8748a8a29d38ad72e4049f0a9b6b47323198baeb17ccf2db46d421aa`；備份 `binary-backups/button-drag-2026-10-02T05-23-18-874Z`。
+- 驗證邊界：未操作使用者的實體滑鼠；背景繪圖與操作通過，不代表已驗證前景拖動手感。此次「拖動」依既有問題先涵蓋側欄寬度與視窗縮放，未更動圖片平移或視窗標題列原生拖動。分支仍為 feat/native-media，未提交、未發布。
+
+### 播放速度滑桿（2026-10-02）
+- [x] 倍速按鈕與更多選單改開同一個自繪滑桿浮窗。
+- [x] 0.25–4×、0.05× 步長、即時顯示、恢復 1×，保留鍵盤操作。
+- [x] 背景驗證真解碼器與深淺色，打包並更新持久播放器。
+- Review：修復前 `probe-media-window.ps1 -ExerciseMenu` 明確失敗「播放速度仍是固定選單，沒有滑桿」。修復後深淺色在真正 mpv 回報中確認 0.25／1.35／2.75／4／1×，76 次連續滑動停在最後位置；方向鍵 0.05×、恢復 1×、兩個入口、Esc 通過。`-ExerciseUi` 進度／快捷鍵通過；圖片子選單通過；`probe-media-queue-resize.js` 深淺色各 84 格通過；Rust 14/14、`test-media-player.js` PASS。
+- QA 調整：合併 `-ExerciseResize -ExerciseMenu` 會先清空 QA ListBox 再驗 hover，因此該次失敗屬腳本操作順序；分開執行後通過，未據此改產品功能。
+
+| Before | After | Why |
+| --- | --- | --- |
+| 固定倍速選項、工具列循環切換 | 同一個滑桿浮窗，拖動即調整 | 能連續選到所需倍速 |
+| 只提供少數預設值 | 0.25–4×、0.05× 步長、恢復 1× | 細調與還原都直接可用 |
+| 解碼器較早回報可能移動圓點 | 最新拖曳值待回報確認 | 快速拖動不被舊回報拉回 |
+- 收尾：`npm run electron:pack` 250 支 src 比對 PASS；packaged 淺色、持久安裝深色 `probe-media-window.ps1 -ExerciseMenu`：speedSliderLive／speedSliderBurst／speedSliderKeyboard／speedSliderReset 全 true，未搶焦點。持久播放器已更新，manifest 30/30 SHA-256 PASS；備份 `binary-backups/speed-slider-2026-10-02T06-08-35-224Z`。驗證僅使用本輪畫面外 HWND，實體滑鼠手感未驗證；分支仍 feat/native-media，未提交／未發布。
+- 視覺補驗：新增滑桿圓點像素斷言後先失敗（倍速／鍵盤功能雖通過，滑桿被白色覆蓋）。移除速度浮窗新增的 SetWindowRgn 後相同斷言通過；保留既有 DWM 圓角設定。未採用直接繪圖／WM_PRINT 攔截等試驗修法。
+- 最終收尾（取代先前中間產物）：打包 250 支 src PASS；最終 installed 深色與 packaged 淺色 `-ExerciseMenu` 全 PASS，滑桿圓點像素斷言通過，已人工檢視背景截圖。安裝 manifest 30/30 PASS；source／packaged／installed SHA-256 `f82baf755dfa98571af42642f9811db2b1fd46dbb9ae3442f0c89ba65fb14192` 三份相同；最終備份 `binary-backups/speed-slider-final-2026-10-02T06-17-53-781Z`。未操作實體滑鼠、未提交、未發布。
+
+### 滑桿拖曳抖動與局部重畫（2026-10-02）
+- [x] 重現局部 WM_PAINT 是否裁掉自繪圓點，涵蓋長進度／音量／倍速。
+- [x] 在共用滑桿修正重畫範圍與形狀，提升倍速拖曳解析度。
+- [x] 背景驗證拖曳、鍵盤與真解碼器，打包並更新實際入口。
+
+| Before | After |
+| --- | --- |
+| 原生局部重畫會裁掉自繪圓點，長滑桿拖動留下破碎邊緣 | 共用 subclass 在 BeginPaint 前擴大重畫範圍；保留原生命中區與既有一次 BitBlt |
+| 倍速 75 格、0.05× 拖動會跳格 | 375 格、0.01× 拖動；方向鍵維持 0.05× |
+
+- Source review：`probe-media-queue-resize.js` 修前斷言 fullSliderPaint=false，修後深／淺色各 120 次局部重畫及 84 格縮放 PASS、白點 0；`probe-media-window.ps1 -ExerciseMenu -ExerciseUi` 真 mpv 倍速相鄰 1.35/1.36×、連續 375 格、鍵盤／重設／seek PASS；Rust 14/14、`test-media-player.js` PASS。未操作實體滑鼠。
+- Final review：`npm run electron:pack` PASS、250 支 src 逐位元組比對；installed 深／淺色各 120 次局部重畫 PASS；packaged 淺色倍速／鍵盤／seek PASS，背景截圖已檢視。ownFocusAbsent=true；focusKept=false 只代表本輪開始與結束的其他前景視窗不同。source／packaged／installed SHA-256 `911886f17db7f60b97c626a77266c91b5c02a5cb7f8f2d1603049b05bb685610` 相同、manifest 30/30。備份 `binary-backups/slider-damage-2026-10-02T06-41-43-141Z`；本輪程序及外部打包暫存已收尾。未操作實體滑鼠、未提交或發布。
+
+### 移除點擊虛線框（2026-10-02）
+- [x] 找到按鈕、清單、滑桿與倍速重設的 DrawFocusRect；移除虛線，保留現有顏色及圓點大小提示。
+- [x] 背景確認滑桿重畫、快捷鍵與倍速。
+- [x] 打包並更新實際檔案關聯入口，核對 hash。
+
+| Before | After |
+| --- | --- |
+| 點擊後出現虛線焦點框 | 移除虛線；按鈕與清單沿用顏色提示，滑桿圓點放大提示焦點 |
+
+- Review：`rg DrawFocusRect native/voiceink-probe/src/bin/voiceink-media` 無匹配；release build PASS；`probe-media-window.ps1 -ExerciseMenu -ExerciseUi` 深色倍速／重設／方向鍵／清單／seek 全 PASS、focusKept=true、ownFocusAbsent=true；實際 installed `probe-media-queue-resize.js` 深／淺色各 120 次局部重畫、84 格縮放 PASS，白點 0。`electron:pack` PASS、250 支 src 一致；source／packaged／installed SHA-256 `0a053ebf6769e587c7f5952811ed0fb2dfcd6ba264251e73a9fe861f85324228` 一致、manifest 30/30。備份 `binary-backups/no-dotted-focus-2026-10-02T06-53-55-721Z`；未操作實體滑鼠、未提交或發布。

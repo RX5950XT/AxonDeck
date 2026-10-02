@@ -1,0 +1,21 @@
+VoiceInk 原生媒體播放器
+
+介面：VoiceInk 原生 Win32/Rust 程式；未嵌入 Electron、WebView 或 libmpv。
+解碼器以獨立程序執行，未修改上游 binary。
+
+mpv：mpv-player 與各上游作者，GPL。授權全文 mpv-LICENSE-GPL.txt。
+Binary：shinchiro/mpv-winbuild-cmake，20260928，mpv e470f8986e。
+https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260928
+mpv 原始碼：https://github.com/mpv-player/mpv/tree/e470f8986e
+建置與相依套件：https://github.com/shinchiro/mpv-winbuild-cmake
+說明書：mpv-docs/manual.pdf。
+對外散布安裝檔時，須一併提供該 binary 完整對應原始碼與建置資料；上游連結不取代此要求。
+
+ImageMagick：ImageMagick Studio LLC，7.1.2-32，ImageMagick License。
+授權全文 imagemagick-LICENSE.txt、NOTICE.txt。
+https://github.com/ImageMagick/ImageMagick/tree/7.1.2-32
+
+精確下載來源、版本與 SHA-256：runtime.json。
+
+預設關聯計算：UserChoiceLatestHash，Copyright (c) 2026 cssxn，MIT；固定 commit 662070e5cdea4496bc474f4bdfd81f77d4cabab3。來源 https://github.com/cssxn/UserChoiceLatestHash ，授權 UserChoiceLatestHash-LICENSE.txt。
+Classic.cpp 改編自 Mozilla WindowsUserChoice.cpp，MPL 2.0；原始碼 Classic.cpp 與授權 Classic-MPL-2.0.txt 隨 binary 提供。來源 https://github.com/mozilla/gecko-dev/blob/master/browser/components/shell/WindowsUserChoice.cpp 。

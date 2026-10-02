@@ -19,6 +19,27 @@ AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定�
 - v1.37.3 曾把 dir 預覽包用 `--prepackaged` 包成 NSIS，跳過 afterPack，安裝目錄沒有 app-update.yml；舊更新 CDP 自行補檔，未發現這個缺陷。
 - `electron:build` 改走既有 `pack-preview.js --release`，完整 NSIS 打到磁碟根目錄，驗 asar、更新來源、版本、latest.yml 的大小／SHA-512 後同步安裝檔與 win-unpacked 回 dist，最後清理外部輸出。正式更新 CDP 不補檔、用隱藏視窗與隔離 userData；發版要另拆安裝檔驗其內容。
 - Claude 在升級前已失去登入的舊資料，依既存 API 成功診斷補回 hasConnected；卡片顯示未登入原因，不恢復假額度。實際登入仍以該機 CLI 與憑證為準。
+### 原生媒體彈窗（2026-10-01，feat/native-media，尚未發行）
+
+- `native/voiceink-probe/src/bin/voiceink-media/`：Rust＋Win32 原生視窗；沒有 Electron／WebView。圖片、影片、音樂共用外殼但依類型顯示控制；原生清單、字幕／音軌、縮放／拖曳／旋轉、播放速度與快捷鍵。使用 Aurora 深淺色及 Windows 字體；不新增 nav。
+- UI 改善：`ui.rs` 原生圖示按鈕與 hover／focus／tooltip、`view.rs` 精簡工具列／置中播放控制／音樂封面與標籤／雙行清單；窄窗收起次要工具。`actions.rs` 統一 Win32 與 mpv 畫面快捷鍵，F1 直接顯示說明；圖片 Space 輪播、P 暫停動畫、0 適合／1 原始大小；影音 M 靜音、方向鍵精準跳 5 秒、Shift 30 秒、[／] 倍速、.／, 逐格、J／K 字幕偏移；S 儲存畫面、Ctrl+T 置頂。全螢幕 2.5 秒後收起控制列，移動滑鼠／操作／暫停後顯示。
+- 新 UI 驗收 `node scripts/probe-media-ui.js`（原始／packaged runtime）；`probe-media-window.ps1 -ExerciseUi -Width 640 -Height 430` 可在畫面外捕捉清單與真 F1 鍵。`--probe` 計時使用視窗生命週期，輪播換圖不重設 QA deadline；hidden／offscreen 的全螢幕測試維持隱藏／畫面外。GDI 的空字串不得送進 DrawTextW（省略號處理可能 access violation）。
+- 第二輪 UI：保留 Windows 標題／拖曳／縮放，移除重複標頭與畫面側邊 padding；底部圖片 56／影音 80 DIP，普通圖示無常駐底框，清單／靜音／適合／1:1 顯示選取狀態。Ctrl+H 純畫面暫時收起工具列／清單，再按恢復；Esc 返回，Ctrl+L 可直接打開清單。窄窗 F1 說明改上下排列，清單暫停狀態同步。
+- `scrub_time` 在 TB_THUMBTRACK 保留目標時間與滑桿，TB_THUMBPOSITION（或最後 ENDTRACK）精準跳轉；拖曳時不自動收工具列。進度原生鍵盤步長按 duration 換算 5／30 秒，音量 5／10%。原生 UI probe 使用 12 秒 fixture，驗 edgeToEdge／scrubPreview／seekCommitted／seekKeyboardSteps／cleanView；音樂封面不適用 edgeToEdge。
+- 第三輪 UI（2026-10-02）：`menu.rs` 自繪圓角浮窗取代所有應用程式 HMENU；更多／右鍵共用，字幕／音軌／倍速／輪播間隔在同一浮窗進入／返回，↑↓／Tab／Enter／Esc／滾輪操作。BUTTON 只保留鍵盤與讀屏名稱；正常離開視窗會關閉，QA hidden／offscreen 不啟用焦點。清單改成 62 DIP 圓角雙行列、格式＋播放狀態、hover、收起按鈕；固定深灰底／淺色文字，不跟隨淺色主題變白。保留原生 ListBox 鍵盤及可見列繪圖，移除系統捲軸，GDI 細捲軸支援滾輪／拖曳。`probe-media-window.ps1 -ExerciseMenu` 驗自繪浮窗／子選單鍵盤／操作／關閉、hover／長清單捲動／Enter 播放，並檢查選單截圖空白列。
+- 拖曳重畫：控制項合併用 DeferWindowPos／NOREDRAW，略過未變位置與狀態；清單底色及滑桿自繪回呼排在 State 借用前。滑桿固定主題存在控制項，GDI 記憶體完成整條後一次 BitBlt；TBM_SETPOS 的 redraw=true 保持原生 thumb 命中區同步。側欄拖曳在放開 State 借用後即時畫完整一格；進度預覽只重畫時間列。背景 QA 的 `probe-media-window.ps1 -ExerciseResize` 走真正 WM_MOUSEMOVE，但僅對 --probe/offscreen 設 QA 拖曳旗標，不捕捉滑鼠。
+- `media-player.js` 是唯一開啟分流；Explorer（含 ZIP／MTP）及 workspace 先走既有路徑守衛。媒體點擊不開 editor tab；既有 SVG 草稿與 PDF 編輯／預覽保留。開發／打包的 exe 搜尋共用 `native-probe.js`。
+- `voiceink-media.exe` 與主 App 完全分開，mpv／ImageMagick 再放到 Windows Job object。主 App 結束仍可播放；播放器結束會收掉自己的 decoder。decoder 停止可從更多重新開啟。
+- 解碼：mpv 原生 GPU／FFmpeg；不支援的圖片用 ImageMagick 有界轉圖。WebP demuxer 倒帶會空轉，改用 mpv 原生 playlist 循環重新讀檔；轉圖退路保留 GIF／WebP／MNG／APNG／AVIF 動畫。只開本機檔案、不讀使用者 mpv scripts、不跟遠端 playlist。
+- `npm run build:media` 固定 runtime 版本及 SHA-256；`resources/media-runtime.json`／`media-policy.xml`；產物 `resources/media/` 不進版控、extraResources 打包一次。7-Zip、Visual Studio C++ build tools 是建置必要工具。GPL／第三方授權見 `resources/media-NOTICE.txt`；對外散布前仍須提供 binary 完整對應原始碼。
+- 預設關聯：原生 `--defaults` 備份後同步寫入 UserChoice 與 UserChoiceLatest 的有效 Hash，再用 Windows API 驗證；全程無設定視窗、不改 ACL／系統服務。原生 hash helper 只在切換時執行，不常駐；固定 MIT 上游與 MPL 經典算法在 `native/voiceink-probe/user-choice/`。備份 `%LOCALAPPDATA%/VoiceInk Media/association-backups/*/report.json`，`--restore-defaults=<report.json>` 還原並驗證；不覆寫後來自選的程式。
+- 清單改善（2026-10-02）：`queue.rs` 搜尋檔名（Ctrl+F）、自繪文字右鍵選單、加入／拖入追加與去重、移除不刪原檔、完整路徑提示、可拖拉側欄寬度；清單／滑桿 PageUp／PageDown 保留原生操作。選單捲動與返回保持選取可見；深灰底不跟主題變白，選取列附註對比提高至 5.79。
+- 倍速改成共用自繪滑桿浮窗（工具列／更多皆可開）：0.25–4×、拖動每格 0.01×、方向鍵每格 0.05×、恢復 1×；保留原生 PageUp／PageDown／Home／End、Tab／Esc／Backspace。共用滑桿在原生 BeginPaint 前擴大更新區，避免局部重畫裁掉圓點；較早的解碼器回報不蓋過最新拖曳位置。
+- `preferences.rs` 背景保存至 `%LOCALAPPDATA%/VoiceInk Media/preferences.json`；記音量／視窗大小／側欄寬度與影音續播，5 秒內開頭及結尾不續播。檔案大小／修改時間變更即失效；最多 100 筆、512KiB；多視窗鎖定合併、損毀原檔保留備份。`--probe` 只在明確傳入隔離 `--settings-dir` 時才使用設定。
+- `--initialize` 成功才記 HKCU 初始化標記；新安裝與舊版首次更新會背景套用預設，之後只登記，保留使用者自選。安裝版主 App 補執行一次，開發／預覽／CDP 不執行；選單的預設切換也在背景工作，跨程序鎖防止同時改關聯。解除安裝先還原自身仍持有的預設關聯；全機 `--machine` 只登記全機開啟方式。系統關聯啟動不需要主 App。
+- 格式清單是開啟方式白名單，不代表每個變種都已驗證。RAW／損毀檔／專有格式視 decoder 能力；DRM、MIDI 合成不支援；CUE 目前開整個來源音檔，尚無曲目分段。沒有整套 MusicBee 音樂庫／標籤編輯。
+- 驗收：`node scripts/test-media-player.js`、`cargo test --locked --manifest-path native/voiceink-probe/Cargo.toml --bin voiceink-media`；真格式 `probe-native-media.js`；背景原生視窗 `probe-media-window.ps1`；打包 CDP `probe-media-packaged.js`。QA profile／fixture 與自己 PID 隔離；`VOICEINK_MEDIA_HIDDEN=1` 只用於背景 packaged QA，`--probe` 自動靜音。
+- 背景補驗：`probe-native-media.js raw` 下載六種固定 hash、CC0 相機原檔（DNG／CR2／CR3／NEF／ARW／3FR）；`rare`／`playlist`／`broken` 可分別驗冷門格式、清單與損壞檔。RAW 轉圖期間不標記載入完成，圖片 probe 要等到實際畫面尺寸；PNG 中繼檔使用較快的無損壓縮。`pack-preview.js` 的建置與同步子程序也使用 `windowsHide: true`。
 
 ### 更新不再「App 直接消失」、終端機不再繼承 Claude 標記（2026-09-29）
 
@@ -834,3 +855,8 @@ AGY 設定、終端機、聊天、語音輸入紀錄**刻意不進** `STORE_ALLO
 2. **宣告完成前一定要跑驗證並貼輸出**；UI／功能改動還要 `npm run electron:pack` 更新免安裝預覽。
 3. **這個 repo 的測試跑在使用者的真實資料上**：要手動開一份來玩走 `npm run dev:sandbox`；
    CDP 只殺自己 spawn 的 PID、只用 `[data-id]` 指涉自己建的東西、語音輸入測試一定要把 `insert` 換成 stub。
+
+### 原生媒體預設關聯收尾（2026-10-01）
+
+- 持久播放器 `%LOCALAPPDATA%/VoiceInk Media/voiceink-media.exe`；150 種格式的 Windows 實際 handler 與有效新 Hash 全數驗證，備份與解除登記還原也通過。切換／還原未開設定頁或 UAC。原安裝版 VoiceInk 未被覆寫。
+- `probe-media-defaults.ps1 -ExpectedExe <完整 exe 路徑>` 以 COM 查預設 ProgId，再查命令對應的 exe；未設定類型在 COM 回空字串、AssocQueryString 回 Unknown，驗證需區分。經典鍵同一 handle 寫完兩值，避免 Windows 中途鎖鍵。最終 packaged CDP、WebP 真動畫、損壞檔及 NSIS 編譯已通過；全機安裝的跨帳戶 default 不自動改，完整安裝未在使用者桌面執行。

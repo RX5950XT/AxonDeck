@@ -15,7 +15,8 @@
     "build:sensors": "dotnet publish native/sysmon-sensors -c Release -o resources/sensors",
     "build:hook": "dotnet publish native/dictation-hook -c Release -o resources/hook",
     "build:shell": "dotnet publish native/explorer-shell -c Release -o resources/shell",
-    "build:probe": "cargo build --release --manifest-path native/voiceink-probe/Cargo.toml && node scripts/copy-probe.js"
+    "build:probe": "cargo build --release --manifest-path native/voiceink-probe/Cargo.toml && node scripts/copy-probe.js",
+    "build:media": "node scripts/build-media.js"
   },
   "author": "",
   "license": "MIT",
@@ -82,7 +83,9 @@
       "!dist/**",
       "!dist-*/**",
       "!designs/**",
+      "!binary-backups/**",
       "!tasks/**",
+      "!resources/media/**",
       "!native/**"
     ],
     "publish": [
@@ -102,6 +105,11 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "extraResources": [
+      {
+        "from": "resources/media",
+        "to": "media",
+        "filter": ["**/*"]
+      },
       {
         "from": "resources/sensors",
         "to": "sensors",

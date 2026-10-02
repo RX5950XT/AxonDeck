@@ -3,7 +3,7 @@
 - [x] 更新版本與說明，確認相關差異、回歸與 shell sidecar；保留 native-media worktree。
 - [x] 預覽包 source／asar、CC 頁面與真模型分組驗收。
 - [x] 完整 NSIS 建置、更新 CDP、拆安裝檔與 metadata／hash 驗收。
-- [ ] 精確提交、tag／push、GitHub Release、遠端三份 assets 與最終 Git state 驗收。
+- [x] 精確提交、tag／push、GitHub Release、遠端三份 assets 與最終 Git state 驗收。
 
 ## Review
 
@@ -11,7 +11,8 @@
 - `electron:pack`／完整 `electron:build` 均驗證 251 支 src；203 份 node_modules metadata 與已安裝 v1.38.1 一致，八支未重建 native binary 相同、重建的 shell 與 resources 相同（ProductVersion 的 Git revision 更新）；asar 502871292 bytes，未混入大型素材。
 - CC 打包 CDP 134/0，五家真模型掃描 10／4／85／17／43 全過；三家多 lab 清單的完整性、世代、四格一致、既有設定、深淺色及跨組鍵盤全過。`test-updater.js --release` 全過，正式更新 CDP 7/7。
 - 安裝檔已拆包核對版本 1.38.2、app-update.yml、asar、主程式與九支 native binary；安裝檔 473047590 bytes，latest.yml 的 SHA-512／size 與非空 blockmap 一致。SHA-256：`a855c698e4798d586af1f7428ca8ec989ada2342ba10dce9081aabeacb296d65`。
-- 待推送與遠端 asset 回讀；使用中的安裝版與 native-media worktree 未修改。
+- 發行 commit `302f723` 與 tag `v1.38.2` 已推送；[GitHub Release](https://github.com/RX5950XT/VoiceInk/releases/tag/v1.38.2) 為 Latest、非 draft／prerelease。遠端 exe（473047590 bytes）／blockmap（492040 bytes）／latest.yml（348 bytes）的 size／SHA-256 全部 MATCH，官方下載的 latest.yml bytes 亦相同。
+- 使用安裝版 v1.38.1 的隔離更新 CDP 7/7，確實看到 `available`／v1.38.2。測試程序與外部建置輸出已收完；使用中的安裝版與 native-media worktree 未修改。
 
 # 2026-10-02 — 修復其餘四類設定不一致
 

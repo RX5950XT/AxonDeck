@@ -1100,3 +1100,27 @@ Review：
 - Review：Rust 53/53；工作區 283、檔案總管 313、殼層 44、額度 9、設定 11 均通過。packaged 媒體 50/50、終端機 59/59、圖示重跑 10/10；圖示首輪資料夾預覽逾時已保留紀錄。深／淺滑桿重畫與原生選單 PASS。完整 electron:build 通過，拆包 254 檔案 SHA-256 一致、250 支 src 一致、app-update.yml 由正式建置產生；拆包更新 CDP 7/7。解碼器來源共 91 份封存，mpv 部分相依版本依建置時間凍結，未宣稱逐位元組重建。
 
 - 發布驗收：v1.38.0 為 GitHub Latest、非 draft／prerelease；四份遠端資產 size／SHA-256 與本機一致，latest.yml 下載內容一致。安裝檔 472985749 bytes，SHA-256 c8ddf319f1df85f26f40c6ae959c9aa141e06ad05c8b02e142ce892abeebcd85。從官方 v1.37.5 安裝檔拆出的隔離實例，更新 CDP 7/7 且回 available v1.38.0。未執行前景安裝或替換使用者正在使用的程式。QA 紀錄保留於 dist/qa/release-1.38.0。
+
+# 2026-10-02 — 模型同步、下載加速與語音膠囊
+
+- 使用者調整：CC代理改每天更新一次，保存掃描時間避免重開或開編輯窗額外掃描；保留手動刷新。
+- [x] 每日限制／重啟／手動刷新回歸與預覽打包驗收。
+- 調整驗收：每日間隔斷言修復前失敗（300000 ≠ 86400000），修後 `node scripts/test-ccswitch-model-refresh.js` PASS（每日／重啟／手動）；`node scripts/test-ccswitch.js` 258 passed, 0 failed；`npm run electron:pack` PASS（250 支 src 一致）；`node scripts/e2e-ccswitch-cdp.js` 134 checks ALL PASS，包含開編輯窗不額外掃描與手動按鈕立即打真本機 HTTP。本輪測試程序已收完，安裝版未替換。
+
+- [x] CC代理各供應商自動掃描並以最新成功清單取代，下架模型不再留在選單。
+- [x] 盤點檔案下載入口，共用續傳／分段下載，更新鏡像實測排序；保留完整性與取消檢查。
+- [x] 重現語音膠囊重載透明／同螢幕解析度變動後失位，修正狀態補送與定位。
+- [x] source 回歸、真網路測速、免安裝打包及隔離背景驗收。
+
+- Review：`test-ccswitch-model-refresh.js`、`test-dictation-hud.js` 新回歸先紅後綠；`test-download-speed.js` 先紅在未併行、現八項 PASS（四連線／慢線自動切換／取消／續傳／退回單連線／大小上限／測速排序／同大小壞鏡像 SHA-256 阻擋）。`test-download-callers.js` 先紅在中斷刪除 .part、修後 PASS。既有 CC 258/0、聊天 Electron 195/0、HF 171/0、dictation 120/0、sysmon 188/0；HF 下載錯誤五項／安裝互斥／updater 全 PASS。22 支本次 JS `node --check` 零失敗；`git diff --check` PASS。
+- Product：`npm run electron:pack` PASS，250 支 src 逐位元組一致；`node scripts/e2e-ccswitch-cdp.js` 132/132（含真本機 HTTP 的自動更新／下架／503／空清單）；`VOICEINK_EXE=dist/win-unpacked/VoiceInk.exe`＋Electron `probe-dictation-hud.js` 冷啟動、reload、opacity、未搶焦點 PASS，截圖已檢視，位於 `dist/qa/dictation-hud/`，本輪 profile 已精準收尾。
+- 真網路：`probe-download-speed.js` source／packaged 模組各取 HF／CUDA 前 32MB，單連線與 auto SHA-256 一致。packaged llama runtime 官方直連 5.011 秒 261043 bytes，鏡像完整 34478547 bytes 2.369 秒（13.88MiB/s），官方 GitHub digest 驗證通過。HF/CUDA 此機已快，auto 保留單連線；同檔二次下載受 CDN 暖快取影響，不把相對測速當永久提升倍數。
+- 真供應商唯讀掃描：OpenRouter 464、Command Code 85、OpenCode Go 43、Ollama Cloud 17、Codex 6 模型成功；Grok 自有帳號 token 過期，未更動現場登入，因此該家實際掃描未驗。官方 Claude OAuth 沒有模型清單端點；自訂供應商依已存端點掃描。
+- 邊界：使用者當次 HUD 消失觸發原因沒有 log 可證；修正涵蓋兩個已重現問題。App 自管檔案下載已共用加速；CLI 更新／winget／webview 由原工具或 Chromium 處理，沒有改全域下載設定。尚未提交或發版，使用中的安裝版 v1.37.5 未替換。既有 `test-temp-hygiene.js` 因 `test-usage.js:824/844` 的 `os.tmpdir()` 兩行失敗，本次未擴改。
+# 2026-10-02 — 發行 v1.38.1
+
+- [x] 確認 master 與發行範圍，更新版本，完成受影響回歸與 native 建置。
+- [x] 正式 NSIS 打包，驗 asar／更新設定／安裝檔內容，再跑隔離 packaged 驗收。
+- [ ] Commit／tag／push，公開 GitHub Release，核對三份遠端 assets 與最終 Git state。
+
+- Review：14 支受影響 source 回歸全過，CC 258／gateway 53／HF 171／dictation 120／sysmon 188／scope 31／error hygiene 85，Electron 聊天 195/195；22 支 JS 語法與 diff 檢查通過。build:shell／build:probe／build:media 成功。完整 electron:build 驗 250 支 src 一致；正式 exe 拆出 254 檔 SHA-256 與 win-unpacked 一致，含 app-update.yml。packaged CC 134/134、拆包更新 CDP 7/7（真 GitHub）、HUD 冷啟動／reload 可見且未搶焦點，截圖已檢視。安裝檔 473030081 bytes，latest.yml 版本／大小／SHA-512 及非空 blockmap 全相符。QA 位於 dist/qa/release-1.38.1；不替換使用中的安裝版。

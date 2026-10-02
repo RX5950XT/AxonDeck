@@ -40,8 +40,6 @@ const MAX_ERROR_CHARS = 90
 let win = null
 /** @type {NodeJS.Timeout | null} */
 let hideTimer = null
-/** 只有換螢幕才 setBounds：level 事件每秒 8 次，每次都動視窗是白費工 */
-let lastDisplayId = -1
 let devMode = false
 let preloadPath = ''
 /** 頁面載好之前先把最後一次狀態存著，載好再補送（不然開窗那一瞬間的事件會掉） */
@@ -82,14 +80,16 @@ function hudBounds(workArea, size) {
 /**
  * 把視窗擺到「滑鼠所在那一面螢幕」的底部中央。
  * 這就是「跟著滑鼠換螢幕」的全部實作：每次狀態更新都問一次游標在哪面螢幕，
- * 換了才動視窗。錄音中 level 每秒來 8 次，反應夠即時，也不必另外開輪詢計時器。
+ * 位置變了才動視窗；同一螢幕改解析度或工作區也要重新定位。
  */
 function place() {
   if (!win || win.isDestroyed()) return
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-  if (display.id === lastDisplayId) return
-  lastDisplayId = display.id
-  win.setBounds(hudBounds(display.workArea, SIZE))
+  const bounds = hudBounds(display.workArea, SIZE)
+  const current = win.getBounds()
+  // DPI 轉換會差一個 DIP，避免每個音訊 frame 都重移一次。
+  if (Math.abs(current.x - bounds.x) <= 1 && Math.abs(current.y - bounds.y) <= 1) return
+  win.setBounds(bounds)
 }
 
 function create() {
@@ -125,14 +125,14 @@ function create() {
   win.webContents.on('will-navigate', (event) => event.preventDefault())
 
   ready = false
-  win.webContents.once('did-finish-load', () => {
+  win.webContents.on('did-start-loading', () => { ready = false })
+  win.webContents.on('did-finish-load', () => {
     ready = true
     if (pending) send(pending)
   })
   win.on('closed', () => {
     win = null
     ready = false
-    lastDisplayId = -1
   })
 
   if (devMode) {

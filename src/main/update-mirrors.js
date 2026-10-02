@@ -41,12 +41,48 @@ function downloadUrls(url) {
   return [...MIRRORS.map((prefix) => new URL(prefix + href)), new URL(href)]
 }
 
+/** 每次下載前取最多 256KB 實測兩條鏡像；最多等 3 秒，官方仍保留最後退路。 */
+async function rankDownloadUrls(urls, options = {}) {
+  if (urls.length < 2) return urls
+  const fetchImpl = options.fetchImpl || globalThis.fetch
+  const mirrors = urls.slice(0, -1)
+  const scores = await Promise.all(mirrors.map(async (url) => {
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    options.signal?.addEventListener('abort', abort, { once: true })
+    if (options.signal?.aborted) controller.abort()
+    const timer = setTimeout(abort, 3000)
+    const started = Date.now()
+    let bytes = 0
+    let response
+    try {
+      response = await fetchImpl(String(url), {
+        headers: { range: 'bytes=0-262143' }, signal: controller.signal
+      })
+      if (response.ok && response.body) {
+        for await (const chunk of response.body) {
+          bytes += Math.min(chunk.length, 262144 - bytes)
+          if (bytes >= 262144) break
+        }
+      }
+    } catch { /* 測速失敗仍留作後續退路 */ }
+    finally {
+      clearTimeout(timer)
+      controller.abort()
+      options.signal?.removeEventListener('abort', abort)
+    }
+    return { url, speed: bytes / Math.max(1, Date.now() - started) }
+  }))
+  scores.sort((a, b) => b.speed - a.speed)
+  return [...scores.map(row => row.url), urls[urls.length - 1]]
+}
+
 /** 包住 electron-updater 的 download：前一跳失敗就刪半截檔再試下一個。 */
-function downloadWithFallback(executor) {
+function downloadWithFallback(executor, deps = {}) {
   if (!executor || typeof executor.download !== 'function') return executor
   const orig = executor.download.bind(executor)
   executor.download = async (url, destination, options) => {
-    const urls = downloadUrls(url)
+    const urls = await rankDownloadUrls(downloadUrls(url), deps)
     let lastErr
     for (const next of urls) {
       try {
@@ -61,4 +97,4 @@ function downloadWithFallback(executor) {
   return executor
 }
 
-module.exports = { OWNER, REPO, MIRRORS, downloadUrls, downloadWithFallback }
+module.exports = { OWNER, REPO, MIRRORS, downloadUrls, rankDownloadUrls, downloadWithFallback }

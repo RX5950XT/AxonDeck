@@ -232,7 +232,7 @@ async function main() {
         return destination
       }
     }
-    mirrors.downloadWithFallback(failing)
+    mirrors.downloadWithFallback(failing, { fetchImpl: async () => new Response(null, { status: 503 }) })
     await failing.download(new URL(exe), dest, {})
     assert.ok(calls[0].startsWith(mirrors.MIRRORS[0]), '實際下載第一跳要走代理')
     assert.strictEqual(calls[calls.length - 1], exe, '代理失敗要落到官方')

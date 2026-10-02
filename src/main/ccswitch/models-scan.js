@@ -230,13 +230,15 @@ async function scanProviderModels(provider, options = {}) {
       if (target.codex) {
         headers['chatgpt-account-id'] = accountId || ''
         headers.originator = 'codex_cli_rs'
+      } else {
+        headers['x-grok-client-version'] = GROK_CLI_VERSION
       }
     } catch (error) {
       return { ok: false, code: error?.code || 'NO_CREDENTIAL', error: error?.userMessage || '取不到登入憑證' }
     }
   }
 
-  const result = await fetchModels({ url: target.url, apiKey, headers, fetchImpl: options.fetchImpl })
+  const result = await fetchModels({ url: target.url, apiKey, headers, fetchImpl: options.fetchImpl, allowEmpty: true })
   // cli 那兩家沒有「API Key」，401／403 只會是登入或額度的問題，提示不能照搬金鑰那套
   if (!result.ok && target.auth === 'cli' && /^HTTP_(401|403)$/.test(result.code)) {
     return { ok: false, code: result.code, error: '上游拒絕了登入憑證（可能需要重新登入，或訂閱額度用完）' }

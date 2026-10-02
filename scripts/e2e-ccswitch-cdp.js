@@ -156,6 +156,16 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
+  let modelIds = ['retired-cdp', 'fresh-cdp']
+  let modelStatus = 200
+  let modelRequests = 0
+  const upstream = http.createServer((request, response) => {
+    modelRequests++
+    response.writeHead(modelStatus, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ data: modelIds.map((id) => ({ id })) }))
+  })
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+  const modelUrl = `http://127.0.0.1:${upstream.address().port}/v1`
   const child = spawn(EXE, [
     `--remote-debugging-port=${PORT}`,
     `--user-data-dir=${USER_DATA_DIR}`,
@@ -275,6 +285,50 @@ async function main() {
     assert(tiles.codexDelete === 0, '內建 tile 沒有刪除鈕', JSON.stringify(tiles))
     // 卡片上不放金鑰與模型細節（要看就進編輯彈窗），完整金鑰永遠不出 main
     assert(!JSON.stringify(before.data).includes('sk-'), '清單 IPC 不含完整金鑰')
+
+    // 真 HTTP 流量走 packaged main；未開編輯窗也必須自動掃，移除舊模型後四格不能殘留。
+    const automatic = await cdp.eval(`window.electronAPI.ccswitch.createProvider({
+      presetId: 'custom', name: 'CDP 自動模型', baseUrl: ${JSON.stringify(modelUrl)},
+      apiFormat: 'openai_chat', apiKey: 'isolated-cdp-key', model: 'retired-cdp'
+    })`)
+    const automaticId = automatic?.data?.id
+    assert(Boolean(automaticId), '建立隔離模型端點供應商')
+    await cdp.eval('window.electronAPI.ccswitch.listProviders()')
+    await waitFor(async () => {
+      const result = await cdp.eval('window.electronAPI.ccswitch.listProviders()')
+      return result.data.providers.find((item) => item.id === automaticId)?.availableModels?.includes('fresh-cdp')
+    }, 10_000, '自動模型清單')
+    assert(modelRequests > 0, '未開編輯窗就自動掃模型（真 HTTP）')
+    modelIds = ['fresh-cdp', 'new-cdp']
+    await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+    await waitFor(() => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${automaticId}"]'))`), 5000, '自動供應商 tile')
+    await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${automaticId}"] .cc-tile-edit').click()`)
+    const requestsBeforeManual = modelRequests
+    await sleep(500)
+    assert(modelRequests === requestsBeforeManual, '開編輯窗不會額外自動掃模型')
+    await cdp.eval("document.getElementById('ccScanModelsBtn').click()")
+    await waitFor(() => cdp.eval("!document.getElementById('ccScanModelsBtn').disabled"), 10_000, '手動模型刷新完成')
+    assert(modelRequests > requestsBeforeManual, '手動刷新按鈕立即讀取模型（真 HTTP）')
+    const modelChoices = () => cdp.eval(`['ccModelSelect', 'ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect']
+      .map((id) => [...document.getElementById(id).options].map((option) => option.value))`)
+    await waitFor(async () => (await modelChoices()).every((ids) => ids.includes('new-cdp')), 10_000, '更新後模型下拉')
+    assert((await modelChoices()).every((ids) => !ids.includes('retired-cdp')), '四個模型下拉移除下架模型')
+    assert(await cdp.eval("document.getElementById('ccModelInput').value === 'retired-cdp' && document.getElementById('ccManualModelsBtn').textContent === '改用下拉'"), '清單外原設定保留在手動欄位')
+    // 手動欄位切回下拉選新的，再掃不能把原來存檔的舊模型塞回來。
+    await cdp.eval("document.getElementById('ccManualModelsBtn').click()")
+    await cdp.eval(pickSelect('ccModelSelect', 'new-cdp'))
+    await cdp.eval("document.getElementById('ccProviderCancelBtn').click()")
+    modelStatus = 503
+    const offline = await cdp.eval(`window.electronAPI.ccswitch.scanModels(${JSON.stringify(automaticId)})`)
+    assert(offline.ok && !offline.data.ok, 'HTTP 503 回報掃描失敗')
+    const preserved = await cdp.eval('window.electronAPI.ccswitch.listProviders()')
+    assert(preserved.data.providers.find((item) => item.id === automaticId).availableModels.join(',') === modelIds.join(','), 'HTTP 503 保留最後成功清單')
+    modelStatus = 200
+    modelIds = []
+    const empty = await cdp.eval(`window.electronAPI.ccswitch.scanModels(${JSON.stringify(automaticId)})`)
+    assert(empty.ok && empty.data.ok && empty.data.models.length === 0, '合法空清單可清掉全部舊模型')
+    await cdp.eval(`window.electronAPI.ccswitch.deleteProvider(${JSON.stringify(automaticId)})`)
+    await cdp.eval("document.getElementById('ccRefreshBtn').click()")
 
     // ===== tile 拖曳排序（跟額度卡片一樣可以自由換位置）=====
     // 拖曳的最後一步跟鍵盤搬動走同一條 onCommit，所以用 Alt+↓ 驗（模擬 pointer 事件
@@ -923,6 +977,7 @@ async function main() {
     }
     cdp?.close()
     stopTestApp(child)
+    await new Promise((resolve) => upstream.close(resolve))
     removeTree(USER_DATA_DIR)
   }
 }

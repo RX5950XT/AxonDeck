@@ -13,6 +13,7 @@
 
 const presets = require('./presets')
 const claudeSettings = require('./claude-settings')
+const { extractIds } = require('../chat-models')
 
 const MAX_PROVIDERS = 30
 const MAX_NAME = 60
@@ -265,6 +266,8 @@ function sanitizeAll(raw) {
       haikuModel: legacy ? model : text(item.haikuModel, MAX_MODEL),
       sonnetModel: legacy ? model : text(item.sonnetModel, MAX_MODEL),
       opusModel: legacy ? model : text(item.opusModel, MAX_MODEL),
+      availableModels: Array.isArray(item.availableModels) ? extractIds(item.availableModels) : null,
+      modelsCheckedAt: Number.isFinite(item.modelsCheckedAt) && item.modelsCheckedAt > 0 ? item.modelsCheckedAt : 0,
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now()
     })
     if (out.length >= MAX_PROVIDERS) break
@@ -513,6 +516,7 @@ function list(options = {}) {
         haikuModel: item.haikuModel,
         sonnetModel: item.sonnetModel,
         opusModel: item.opusModel,
+        availableModels: item.availableModels,
         hasKey: Boolean(item.apiKey),
         keyTail: item.apiKey ? item.apiKey.slice(-4) : '',
         createdAt: item.createdAt
@@ -605,6 +609,10 @@ function update(id, patch) {
       for (const field of Object.keys(MODEL_FIELDS)) {
         if (typeof patch?.[field] === 'string') next[field] = text(patch[field], MAX_MODEL)
       }
+      if (scanIdentity(next) !== scanIdentity(item)) {
+        next.availableModels = null
+        next.modelsCheckedAt = 0
+      }
       return next
     })
     if (!found) {
@@ -614,6 +622,25 @@ function update(id, patch) {
       throw error
     }
     await writeAll(next)
+    return true
+  })
+}
+
+/** 掃描只跟端點與認證綁定；改名稱或模型草稿不會讓清單失效。 */
+function scanIdentity(item) {
+  return JSON.stringify(['id', 'presetId', 'baseUrl', 'apiFormat', 'authField', 'apiKey', 'oauthAccountId']
+    .map((field) => item?.[field] || ''))
+}
+
+/** 舊請求晚到時不可蓋掉另一組認證的清單；不改使用者四個等級的模型設定。 */
+function saveModelScan(provider, result) {
+  return withStore(async () => {
+    const items = await readAll()
+    const current = items.find((item) => item.id === provider.id)
+    if (!current || scanIdentity(current) !== scanIdentity(provider)) return false
+    await writeAll(items.map((item) => item.id === provider.id
+      ? { ...item, modelsCheckedAt: Date.now(),
+        availableModels: result.ok ? extractIds(result.models) : item.availableModels } : item))
     return true
   })
 }
@@ -796,6 +823,8 @@ module.exports = {
   configure,
   list,
   getRaw,
+  scanIdentity,
+  saveModelScan,
   create,
   update,
   remove,

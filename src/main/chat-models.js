@@ -85,10 +85,10 @@ async function readBounded(response) {
  * `url` 是完整端點時直接用它（ccswitch 的 `modelsUrl` 連 query 參數都帶）；
  * 只給 `apiUrl` 時沿用 `{apiUrl}/models`。`headers` 疊在最上層——
  * 要自己帶 `x-api-key` 的家（Anthropic 形狀）會用它蓋掉 Bearer。
- * @param {{ apiUrl?: string, url?: string, apiKey?: string, headers?: Record<string, string>, fetchImpl?: typeof fetch }} options
+ * @param {{ apiUrl?: string, url?: string, apiKey?: string, headers?: Record<string, string>, fetchImpl?: typeof fetch, allowEmpty?: boolean }} options
  * @returns {Promise<{ ok: true, models: string[] } | { ok: false, code: string, error: string }>}
  */
-async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl }) {
+async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty = false }) {
   const target = String(url || modelsUrl(apiUrl)).trim()
   if (!/^https?:\/\//i.test(target)) {
     return { ok: false, code: 'BAD_URL', error: '這個供應商的 API URL 不正確' }
@@ -127,6 +127,9 @@ async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl }) {
     }
 
     const models = extractIds(payload)
+    // 只有明確的空陣列可以清掉 CC 的舊清單；HTTP 200 的錯誤物件不能當成「模型全下架」。
+    const rows = Array.isArray(payload) ? payload : (payload?.data ?? payload?.models)
+    if (allowEmpty && Array.isArray(rows) && rows.length === 0) return { ok: true, models: [] }
     if (!models.length) return { ok: false, code: 'EMPTY', error: '這個端點沒有回傳任何模型' }
     return { ok: true, models }
   } catch (error) {

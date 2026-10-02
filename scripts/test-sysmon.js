@@ -602,7 +602,7 @@ async function testPawnIo() {
     }
     return child
   }
-  const fakeFetch = async () => ({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array(64).buffer })
+  const fakeFetch = async () => new Response(new Uint8Array(64))
   const tmp = tempDir('voiceink-pawnio-test-')
   try {
     // isInstalledFn 固定回 false，測試機本來就裝了 PawnIO 也走得到驗簽那一段

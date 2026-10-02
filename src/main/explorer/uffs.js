@@ -13,7 +13,7 @@ const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
-const { pipeline } = require('stream/promises')
+const { downloadFile } = require('../hfmodels/download')
 const { fail, realOf } = require('./paths')
 const { sanitizeSearchFilters, matchesSearchFilters } = require('./search-filter')
 
@@ -518,59 +518,38 @@ function verifyZipHash(file, sumsText, fileName) {
 async function download(onProgress) {
   const destDir = installDir()
   if (!destDir) throw fail('UFFS_INSTALL', '找不到安裝位置')
+  if (downloadCtl) throw fail('UFFS_INSTALL', '下載進行中')
   fs.mkdirSync(destDir, { recursive: true })
-  if (downloadCtl) downloadCtl.abort()
-  downloadCtl = new AbortController()
+  const controller = new AbortController()
+  downloadCtl = controller
   const zipPath = path.join(destDir, ZIP_NAME)
-  const tmp = `${zipPath}.part`
-  const res = await fetch(ZIP_URL, { signal: downloadCtl.signal, redirect: 'follow' })
-  if (!res.ok || !res.body) throw fail('UFFS_INSTALL', '下載失敗')
-  const total = Number(res.headers.get('content-length')) || 0
-  if (total > MAX_ZIP_BYTES) throw fail('UFFS_INSTALL', '下載失敗')
-  let received = 0
   try {
-    await pipeline(res.body, async function* (source) {
-      for await (const value of source) {
-        received += value.length
-        if (received > MAX_ZIP_BYTES) throw fail('UFFS_INSTALL', '下載失敗')
-        if (onProgress) onProgress({ received, total })
-        yield value
-      }
-    }, fs.createWriteStream(tmp))
+    await downloadFile({ url: ZIP_URL, dest: zipPath, signal: controller.signal, onProgress, maxBytes: MAX_ZIP_BYTES })
+    // checksum 是信任來源，只向官方取；ZIP 才可使用下載加速節點。
+    const sums = await fetch(SUMS_URL, { signal: controller.signal, redirect: 'follow' })
+    verifyZipHash(zipPath, sums.ok ? await sums.text() : '', ZIP_NAME)
+    if (controller.signal.aborted) throw fail('UFFS_INSTALL', '下載已取消')
+    await unzip(zipPath, destDir)
+    const exe = findExeIn(destDir)
+    if (!exe) throw fail('UFFS_INSTALL', '解壓後找不到 uffs')
+    const destReal = path.resolve(destDir).toLowerCase()
+    const exeReal = (realOf(exe) || path.resolve(exe)).toLowerCase()
+    if (exeReal !== destReal && !exeReal.startsWith(destReal + path.sep)) {
+      throw fail('UFFS_INSTALL', '解壓後找不到 uffs')
+    }
+    return status()
   } catch (error) {
-    try { fs.unlinkSync(tmp) } catch { /* 清掉半套 */ }
-    throw error && error.code === 'UFFS_INSTALL' ? error : fail('UFFS_INSTALL', '下載失敗')
+    throw error?.code === 'UFFS_INSTALL' ? error : fail('UFFS_INSTALL', '下載失敗')
+  } finally {
+    for (const file of [zipPath, `${zipPath}.part`]) {
+      try { fs.unlinkSync(file) } catch { /* 清掉 ZIP 與半套；已刪除或仍鎖住則略過 */ }
+    }
+    if (downloadCtl === controller) downloadCtl = null
   }
-  let sumsText = ''
-  try {
-    const sums = await fetch(SUMS_URL, { signal: downloadCtl.signal, redirect: 'follow' })
-    if (sums.ok) sumsText = await sums.text()
-  } catch {
-    sumsText = ''
-  }
-  try {
-    verifyZipHash(tmp, sumsText, ZIP_NAME)
-  } catch (error) {
-    try { fs.unlinkSync(tmp) } catch { /* 清掉壞檔 */ }
-    throw error
-  }
-  fs.renameSync(tmp, zipPath)
-  await unzip(zipPath, destDir)
-  try { fs.unlinkSync(zipPath) } catch { /* 留著也沒關係 */ }
-  const exe = findExeIn(destDir)
-  if (!exe) throw fail('UFFS_INSTALL', '解壓後找不到 uffs')
-  const destReal = path.resolve(destDir).toLowerCase()
-  const exeReal = (realOf(exe) || path.resolve(exe)).toLowerCase()
-  if (exeReal !== destReal && !exeReal.startsWith(destReal + path.sep)) {
-    throw fail('UFFS_INSTALL', '解壓後找不到 uffs')
-  }
-  downloadCtl = null
-  return status()
 }
 
 function cancelDownload() {
   if (downloadCtl) downloadCtl.abort()
-  downloadCtl = null
   return true
 }
 

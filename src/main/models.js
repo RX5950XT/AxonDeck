@@ -6,8 +6,7 @@ const { app } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs/promises')
-const { Readable } = require('stream')
-const { pipeline } = require('stream/promises')
+const { downloadFile } = require('./hfmodels/download')
 const { spawn } = require('child_process')
 
 /**
@@ -288,23 +287,17 @@ async function download(key, onProgress) {
         continue
       }
 
-      const res = await fetch(def.base + file, { signal: controller.signal })
-      if (!res.ok) throw new Error(`下載失敗 (HTTP ${res.status}): ${file}`)
-
-      const partPath = dest + '.part'
-      const counter = new (require('stream').Transform)({
-        transform(chunk, _enc, cb) {
-          received += chunk.length
+      const completed = received
+      const result = await downloadFile({
+        url: def.base + file,
+        dest,
+        signal: controller.signal,
+        onProgress: (info) => {
+          received = completed + info.received
           emit()
-          cb(null, chunk)
         }
       })
-      await pipeline(
-        Readable.fromWeb(res.body),
-        counter,
-        fs.createWriteStream(partPath)
-      )
-      await fsp.rename(partPath, dest)
+      received = completed + result.bytes
       emit(true)
     }
 
@@ -318,11 +311,7 @@ async function download(key, onProgress) {
       if (!isDownloaded(key)) throw new Error('解壓完成但缺少必要檔案')
     }
   } catch (err) {
-    // 清理半成品 .part 檔
-    for (const file of def.files) {
-      const part = path.join(modelDir(key), file + '.part')
-      await fsp.rm(part, { force: true }).catch(() => {})
-    }
+    // .part 留給下次續傳；只有明確移除模型時才一併刪掉。
     if (err.name === 'AbortError') throw new Error('下載已取消')
     throw err
   } finally {

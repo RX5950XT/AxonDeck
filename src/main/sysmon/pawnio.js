@@ -24,6 +24,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
+const { downloadFile } = require('../hfmodels/download')
 
 /** 官方安裝頁（給使用者自己看的） */
 const PAWNIO_URL = 'https://pawnio.eu/'
@@ -111,29 +112,18 @@ async function verifySignature(file, spawnFn) {
 }
 
 /**
- * 下載安裝檔。用 fetch 是因為 GitHub releases 會 302 到 objects.githubusercontent.com，
- * 自己接 https.get 得手動追轉址。
- * @returns {Promise<Buffer>}
+ * 共用有上限的下載與鏡像驗證，執行前仍另外驗 Authenticode。
  */
-async function download(url, fetchFn) {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS)
+async function download(url, fetchFn, dest) {
   try {
-    const response = await fetchFn(url, { signal: controller.signal, redirect: 'follow' })
-    if (!response.ok) {
-      // 只留狀態碼：body 的內容由對方決定，不進訊息也不進 log
-      throw makeError('PAWNIO_DOWNLOAD_FAILED', `下載 PawnIO 安裝檔失敗（HTTP ${response.status}），請檢查網路後再試一次。`)
-    }
-    const buffer = Buffer.from(await response.arrayBuffer())
-    if (!buffer.length || buffer.length > MAX_SETUP_BYTES) {
+    const result = await downloadFile({ url, dest, fetchImpl: fetchFn,
+      maxBytes: MAX_SETUP_BYTES, signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+    if (!result.bytes) {
       throw makeError('PAWNIO_BAD_SETUP', '下載到的安裝檔大小不正常，已中止安裝。')
     }
-    return buffer
   } catch (error) {
     if (error.userMessage) throw error
     throw makeError('PAWNIO_DOWNLOAD_FAILED', '下載 PawnIO 安裝檔失敗，請檢查網路後再試一次。')
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -144,7 +134,6 @@ async function download(url, fetchFn) {
  * @returns {Promise<{ installed: boolean, already: boolean }>}
  */
 async function install(deps = {}) {
-  const fetchFn = deps.fetchFn || globalThis.fetch
   const spawnFn = deps.spawnFn || spawn
   const installedFn = deps.isInstalledFn || isInstalled
   if (installedFn()) return { installed: true, already: true }
@@ -152,7 +141,7 @@ async function install(deps = {}) {
   const tmpDir = deps.tmpDir || os.tmpdir()
   const file = path.join(tmpDir, `voiceink-pawnio-${process.pid}.exe`)
   try {
-    fs.writeFileSync(file, await download(SETUP_URL, fetchFn), { mode: 0o600 })
+    await download(SETUP_URL, deps.fetchFn, file)
 
     if (!await verifySignature(file, spawnFn)) {
       throw makeError('PAWNIO_BAD_SIGNATURE', '下載到的安裝檔簽章不符，已中止安裝。請改由官方網站手動安裝。')
@@ -173,6 +162,7 @@ async function install(deps = {}) {
     return { installed: true, already: false }
   } finally {
     try { fs.unlinkSync(file) } catch { /* 檔案沒建起來或已被清掉 */ }
+    try { fs.unlinkSync(`${file}.part`) } catch { /* 不留下驅動安裝半成品 */ }
   }
 }
 

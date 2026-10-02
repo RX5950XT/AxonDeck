@@ -9,8 +9,7 @@ const { promisify } = require('util')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs/promises')
-const { Readable } = require('stream')
-const { pipeline } = require('stream/promises')
+const { downloadFile } = require('./hfmodels/download')
 
 const execFileAsync = promisify(execFile)
 
@@ -177,15 +176,11 @@ async function downloadInstaller(onProgress) {
     }
   }
   onProgress({ phase: 'download', message: '正在下載 CUDA Toolkit 安裝包…', percent: 0 })
-  const res = await fetch(CUDA_INSTALLER.url)
-  if (!res.ok) throw new Error(`下載失敗 HTTP ${res.status}`)
-  const total = Number(res.headers.get('content-length') || 0)
-  let received = 0
   let lastEmit = 0
-  const part = dest + '.part'
-  const counter = new (require('stream').Transform)({
-    transform(chunk, _enc, cb) {
-      received += chunk.length
+  await downloadFile({
+    url: CUDA_INSTALLER.url,
+    dest,
+    onProgress: ({ received, total }) => {
       const now = Date.now()
       if (now - lastEmit > 400) {
         lastEmit = now
@@ -198,11 +193,8 @@ async function downloadInstaller(onProgress) {
           percent
         })
       }
-      cb(null, chunk)
     }
   })
-  await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(part))
-  await fsp.rename(part, dest)
   onProgress({ phase: 'download', message: '下載完成', percent: 100 })
   return dest
 }

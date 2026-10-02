@@ -30,6 +30,7 @@ let mcpServers = []
 let versions = []
 /** 目前正在編輯哪一筆（空字串＝新增） */
 let editingProviderId = ''
+let providerDialogGeneration = 0
 let editingMcpId = ''
 /** 這次彈窗存檔後要不要再套用一次（編輯的是使用中那家，或從「啟用」帶來填金鑰） */
 let applyOnSave = false
@@ -268,6 +269,24 @@ async function reloadProviders() {
   renderProviders()
 }
 
+/** 網路掃描由 main 常駐更新；畫面只讀最新清單，不改正在填的表單。 */
+async function refreshModelSnapshot() {
+  if (document.hidden || !document.getElementById('page-ccswitch')?.classList.contains('active')) return
+  try {
+    const result = await electronAPI.ccswitch.listProviders()
+    if (!result?.ok || !Array.isArray(result.data?.providers)) return
+    const latest = new Map(result.data.providers.map((item) => [item.id, item.availableModels]))
+    const previous = providers.find((item) => item.id === editingProviderId)?.availableModels
+    providers = providers.map((item) => latest.has(item.id) ? { ...item, availableModels: latest.get(item.id) } : item)
+    const models = providers.find((item) => item.id === editingProviderId)?.availableModels
+    if (document.getElementById('ccProviderDialog')?.open && JSON.stringify(previous) !== JSON.stringify(models)) {
+      rebuildModelSelects(models)
+    }
+  } catch {
+    // 網路失敗保留上次成功清單；手動掃描會顯示原因。
+  }
+}
+
 function renderProviders() {
   const list = document.getElementById('ccProviderList')
   if (!list) return
@@ -473,6 +492,7 @@ function openProviderDialog(id = '', { activateOnSave = false } = {}) {
   const dialog = /** @type {HTMLDialogElement} */ (document.getElementById('ccProviderDialog'))
   if (!dialog || !catalog) return
   editingProviderId = id
+  providerDialogGeneration++
   // 編輯使用中那家（或從「啟用」被帶來填金鑰）存檔後要再套用一次，不然 settings.json 還是舊的
   applyOnSave = activateOnSave || (id !== '' && id === activeId)
   clearDialogMessages(dialog)
@@ -511,8 +531,6 @@ function openProviderDialog(id = '', { activateOnSave = false } = {}) {
     accountSelect.value = item?.oauthAccountId || ''
     syncCustomSelects()
   })
-  // 編輯時順手掃一次模型清單；失敗不吵，手動按鈕會講原因
-  void autoScanModels()
 }
 
 /** 「宣告支援 1M 上下文」那顆勾（模型四格下面） */
@@ -566,10 +584,9 @@ function toggleModelMode() {
     const selectEl = /** @type {HTMLSelectElement} */ (document.getElementById(cell.select))
     const inputEl = field(cell.input)
     if (modelManual) {
-      inputEl.value = selectEl.value
+      selectEl.value = [...selectEl.options].some((option) => option.value === inputEl.value) ? inputEl.value : ''
     } else {
-      ensureModelOption(selectEl, inputEl.value)
-      selectEl.value = inputEl.value
+      inputEl.value = selectEl.value
     }
   }
   modelManual = !modelManual
@@ -577,34 +594,26 @@ function toggleModelMode() {
   syncCustomSelects()
 }
 
-/** select 沒有這個值的選項就補一個，手動填的字不能因為切回下拉就消失 */
-function ensureModelOption(selectEl, value) {
-  if (!value) return
-  if ([...selectEl.options].some((option) => option.value === value)) return
-  const option = document.createElement('option')
-  option.value = value
-  option.textContent = value
-  selectEl.append(option)
-}
-
 /**
- * 重建四個模型下拉的選項：現值＋這家的預設＋（掃描後）整份模型清單。
+ * 成功掃描後以下架後的清單為準；清單外的既有設定／草稿留在手動欄位。
  * @param {string[] | null} models
  */
 function rebuildModelSelects(models) {
   const item = editingProviderId ? providers.find((entry) => entry.id === editingProviderId) : null
   const preset = dialogPreset()
+  const available = Array.isArray(models) ? models : item?.availableModels
+  let missing = false
   for (const cell of MODEL_FIELDS) {
     const selectEl = /** @type {HTMLSelectElement} */ (document.getElementById(cell.select))
-    const current = item?.[cell.key] || ''
+    const current = document.getElementById('ccProviderDialog')?.open ? modelValue(cell) : field(cell.input).value
     const def = preset?.defaults?.[cell.key] || ''
     selectEl.replaceChildren()
     const empty = document.createElement('option')
     empty.value = ''
-    empty.textContent = def ? `（預設：${def}）` : '（沿用上游預設）'
+    empty.textContent = def && (!Array.isArray(available) || available.includes(def)) ? `（預設：${def}）` : '（沿用上游預設）'
     selectEl.append(empty)
     const seen = new Set([''])
-    for (const value of [current, ...(Array.isArray(models) ? models : []), def]) {
+    for (const value of Array.isArray(available) ? available : [current, def]) {
       if (!value || seen.has(value)) continue
       seen.add(value)
       const option = document.createElement('option')
@@ -612,8 +621,16 @@ function rebuildModelSelects(models) {
       option.textContent = value
       selectEl.append(option)
     }
-    selectEl.value = current
+    selectEl.value = seen.has(current) ? current : ''
+    field(cell.input).value = current
+    if (current && !seen.has(current)) missing = true
   }
+  if (missing) {
+    modelManual = true
+    document.getElementById('ccScanHint').textContent = '清單外的設定已保留在手動欄位；按「改用下拉」選最新模型。'
+  }
+  applyModelMode()
+  syncCustomSelects()
 }
 
 /**
@@ -941,6 +958,7 @@ async function saveProvider() {
  * 掃描結果填滿四個下拉；失敗把原因講在 hint，彈窗不關。
  */
 async function loadModels() {
+  const generation = providerDialogGeneration
   const btn = /** @type {HTMLButtonElement} */ (document.getElementById('ccScanModelsBtn'))
   const hint = document.getElementById('ccScanHint')
   if (!btn || !hint) return
@@ -964,37 +982,17 @@ async function loadModels() {
     await reloadProviders()
     const result = await electronAPI.ccswitch.scanModels(id)
     const scan = result?.ok ? result.data : null
+    if (generation !== providerDialogGeneration || id !== editingProviderId || !document.getElementById('ccProviderDialog')?.open) return
     if (scan?.ok) {
+      providers = providers.map((item) => item.id === id ? { ...item, availableModels: scan.models } : item)
       rebuildModelSelects(scan.models)
-      hint.textContent = `已先儲存並載入 ${scan.models.length} 個模型，直接從下拉挑。`
+      hint.textContent = `已先儲存並載入 ${scan.models.length} 個模型。${modelManual ? '手動設定已保留；按「改用下拉」選最新模型。' : '直接從下拉挑。'}`
     } else {
       hint.textContent = `已先儲存；${scan?.error || '掃描失敗，改用手動輸入。'}`
     }
   } finally {
     btn.disabled = false
     btn.textContent = label
-  }
-}
-
-/** 開彈窗時順手掃一次；失敗不吵——手動按鈕會講原因 */
-async function autoScanModels() {
-  const id = editingProviderId
-  if (!id) return
-  const preset = dialogPreset()
-  // 內建沒有 modelsUrl 的家（現在沒有，留著守）與沒填端點的自訂都跳過
-  if (preset?.id !== 'custom' && !preset?.modelsUrl) return
-  try {
-    const result = await electronAPI.ccswitch.scanModels(id)
-    const scan = result?.ok ? result.data : null
-    // 回來時彈窗可能已關掉或換成別家，舊結果不能塞進新那家的下拉
-    const dialog = /** @type {HTMLDialogElement|null} */ (document.getElementById('ccProviderDialog'))
-    if (id !== editingProviderId || !dialog?.open) return
-    if (scan?.ok) {
-      rebuildModelSelects(scan.models)
-      document.getElementById('ccScanHint').textContent = `已載入 ${scan.models.length} 個模型，直接從下拉挑。`
-    }
-  } catch {
-    // 靜默：自動掃描失敗不算錯
   }
 }
 
@@ -1267,6 +1265,8 @@ async function runUpdate(tool) {
 function bindOnce() {
   if (bound) return
   bound = true
+  window.setInterval(() => void refreshModelSnapshot(), 30_000)
+  document.addEventListener('visibilitychange', () => void refreshModelSnapshot())
 
   document.querySelectorAll('#ccSubtabs .subtab').forEach((btn) => {
     btn.addEventListener('click', () => showSubtab(
@@ -1313,6 +1313,7 @@ export function refreshCcSwitchPage() {
     try {
       if (!catalog) catalog = await call(electronAPI.ccswitch.catalog(), '讀取供應商預設失敗')
       await reloadProviders()
+      window.setTimeout(() => void refreshModelSnapshot(), 1000)
       // 回到頁面時停在別的子分頁（例如去終端機更新完 CLI 回來）也要重查那一頁，不然還掛著「有新版」
       if (activeSubtab === 'version' && versions.length) void reloadVersions()
       else if (activeSubtab === 'mcp') void reloadMcp()

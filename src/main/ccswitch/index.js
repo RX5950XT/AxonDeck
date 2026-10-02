@@ -23,6 +23,10 @@ const modelsScan = require('./models-scan')
 const DEFAULT_GATEWAY_PORT = 8791
 
 let configured = false
+const MODEL_REFRESH_MS = 24 * 60 * 60_000
+const modelScans = new Map()
+const modelAttempts = new Map()
+let modelRefreshTimer = null
 
 /**
  * @param {{ userDataPath: string, openExternal?: (url: string) => unknown }} options
@@ -126,8 +130,32 @@ function catalog() {
   }
 }
 
-function listProviders() {
-  return providers.list({ gateway: gatewayInfo() || undefined })
+async function listProviders() {
+  const result = await providers.list({ gateway: gatewayInfo() || undefined })
+  void refreshProviderModels()
+  if (!modelRefreshTimer) {
+    modelRefreshTimer = setInterval(() => void refreshProviderModels(), MODEL_REFRESH_MS)
+    modelRefreshTimer.unref?.()
+  }
+  return result
+}
+
+/** 每天掃一次；重開 App 沿用上次掃描時間，手動刷新不受此限制。 */
+async function refreshProviderModels() {
+  try {
+    const { providers: items } = await providers.list({ gateway: gatewayInfo() || undefined })
+    await Promise.all(items.map(async ({ id }) => {
+      const provider = await providers.getRaw(id)
+      if (!provider || !modelsScan.resolveScanTarget(provider)) return
+      const previous = modelAttempts.get(id)
+      const lastAttempt = Math.max(provider.modelsCheckedAt || 0,
+        previous?.identity === providers.scanIdentity(provider) ? previous.at : 0)
+      if (Date.now() - lastAttempt < MODEL_REFRESH_MS) return
+      await scanProviderModels(id)
+    }))
+  } catch {
+    console.warn('[ccswitch] 自動更新模型清單失敗')
+  }
 }
 
 /** @param {object} req */
@@ -183,7 +211,23 @@ async function scanProviderModels(id) {
     error.userMessage = '找不到這個供應商'
     throw error
   }
-  return modelsScan.scanProviderModels(provider)
+  const identity = providers.scanIdentity(provider)
+  const pending = modelScans.get(id)
+  if (pending?.identity === identity) return pending.promise
+  modelAttempts.set(id, { identity, at: Date.now() })
+  const promise = (async () => {
+    const result = await modelsScan.scanProviderModels(provider)
+    if (!await providers.saveModelScan(provider, result)) {
+      return { ok: false, code: 'STALE', error: '供應商已變更，請重新掃描模型' }
+    }
+    return result
+  })()
+  modelScans.set(id, { identity, promise })
+  try {
+    return await promise
+  } finally {
+    if (modelScans.get(id)?.promise === promise) modelScans.delete(id)
+  }
 }
 
 // ===== MCP =====

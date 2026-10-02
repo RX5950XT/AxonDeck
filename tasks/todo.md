@@ -924,3 +924,16 @@ Review：
 - `npm run build:shell`、`npm run electron:pack` 成功，248 支 src 與 asar 相同；Explorer 313/0、shell 44/0、icons-state 3/0，shortcuts／page-state／browse-wiring／preview-lifecycle PASS；真殼層 probe 14/0（E_PENDING 未出現的情境 SKIP），dual CDP 51/0、folder-views CDP 全過（含真的 Drive 標記）。語法與 `git diff --check` 通過。
 - 深／淺色截圖 `dist/qa/explorer-folder-preview-{dark,light}.png` 已目視確認；真實資料夾修前／修後圖 `dist/qa/explorer-folder-{before,after}.png`。已重新開啟可見預覽（隔離 `voiceink-dev`，PID 53360），確認原本音樂目錄前六個資料夾的內容圖載入；視窗被遮住時曾暫時取消背景節流以驗證，已恢復。安裝版 PID 31148 保留，未 commit／push／發行。
 - 使用者授權推送後，rebase 到遠端 v1.37.4；僅 `tasks/todo.md` 追加紀錄衝突，兩邊內容均保留，圖示程式與測試內容不變。整合後圖示回歸四組、Explorer 313/0、quota 9/9、updater 全過；重建預覽包 248 支 src 相同，圖示 CDP 十組、quota CDP 7/7 全過。未發行本次圖示修正的新版本，`feat/native-media` 保留在 2a16919。
+
+# 2026-10-02 — v1.37.5 正式發行
+
+- [x] 核對 master、版本與原生元件，保留 native-media
+- [x] 相關回歸、預覽包與背景 CDP 驗收
+- [x] 完整 NSIS 建置，拆包驗更新設定、來源與元件雜湊
+- [ ] 推送版本與 tag，發布三個資產並核對遠端與舊版更新
+
+Review：
+- `npm run build:shell`、`npm run electron:pack`、`npm run electron:build` 成功；完整 NSIS，未使用 --prepackaged。其餘四顆元件與目前正式安裝版 SHA-256 相同，沒有退版。
+- 圖示回歸四組 PASS、Explorer 313/0、shell 44/0、quota 9/9、taskbar identity 全過；預覽包圖示 CDP 十組、quota CDP 7/7、terminal restart continuity 全過。
+- 拆正式 installer 得到 224 檔，逐檔 SHA-256 與 win-unpacked 相同；248 支 src 相同，五顆元件與 resources 相同，無 designs/native/dist/tasks 混入。`test-updater.js --release` 全過；拆包更新 CDP 7/7，圖示 CDP 十組全過。安裝檔 427345924 bytes；latest.yml 版本、大小、SHA-512 正確。證據：dist/qa/release-verification-1.37.5.json。
+- 額外 `test-temp-hygiene.js` 有既有誤判：test-usage.js:824/844 的 no-such-local 只是注入與比對假路徑，不建立檔案；該檔與檢查腳本均未改，本次不擴大修改。遞迴 rmSync 檢查通過。

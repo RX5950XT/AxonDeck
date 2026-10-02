@@ -1089,3 +1089,12 @@ Review：
 | 點擊後出現虛線焦點框 | 移除虛線；按鈕與清單沿用顏色提示，滑桿圓點放大提示焦點 |
 
 - Review：`rg DrawFocusRect native/voiceink-probe/src/bin/voiceink-media` 無匹配；release build PASS；`probe-media-window.ps1 -ExerciseMenu -ExerciseUi` 深色倍速／重設／方向鍵／清單／seek 全 PASS、focusKept=true、ownFocusAbsent=true；實際 installed `probe-media-queue-resize.js` 深／淺色各 120 次局部重畫、84 格縮放 PASS，白點 0。`electron:pack` PASS、250 支 src 一致；source／packaged／installed SHA-256 `0a053ebf6769e587c7f5952811ed0fb2dfcd6ba264251e73a9fe861f85324228` 一致、manifest 30/30。備份 `binary-backups/no-dotted-focus-2026-10-02T06-53-55-721Z`；未操作實體滑鼠、未提交或發布。
+
+# 2026-10-02 — v1.38.0 原生媒體正式發行
+
+- [x] 精準提交播放器變更，rebase 保留 v1.37.5 修正後合併 master。
+- [x] 整合回歸、重建原生元件與 packaged 背景驗收。
+- [x] 解碼器原始碼與建置資料、完整 NSIS 及拆包更新驗收。
+- [ ] 推送 tag／Release 並核對遠端資產與舊版更新。
+
+- Review：Rust 53/53；工作區 283、檔案總管 313、殼層 44、額度 9、設定 11 均通過。packaged 媒體 50/50、终端機 59/59、圖示重跑 10/10；圖示首輪資料夾預覽逾時已保留紀錄。深／淺滑桿重畫與原生選單 PASS。完整 electron:build 通過，拆包 254 檔案 SHA-256 一致、250 支 src 一致、app-update.yml 由正式建置產生；拆包更新 CDP 7/7。解碼器來源共 91 份封存，mpv 部分相依版本依建置時間凍結，未宣稱逐位元組重建。

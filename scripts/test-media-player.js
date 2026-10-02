@@ -73,8 +73,17 @@ async function main() {
   assert.equal(launch.args[0], '--theme=light')
   assert.equal(launch.options.shell, false)
   assert.equal(launch.options.detached, true)
+  assert.equal(launch.options.windowsHide, false, '正常開啟不可隱藏播放器視窗')
   assert.equal(launch.options.stdio, 'ignore')
   assert.ok(launch.exe.endsWith(path.join('resources', 'media', 'voiceink-media.exe')))
+  await api.openMedia(file, { hidden: true })
+  assert.equal(calls.at(-1).options.windowsHide, true)
+  assert.ok(calls.at(-1).args.includes('--hidden'))
+  context.process.env.VOICEINK_MEDIA_HIDDEN = '1'
+  await api.openMedia(file)
+  assert.equal(calls.at(-1).options.windowsHide, true)
+  assert.ok(calls.at(-1).args.includes('--hidden'))
+  delete context.process.env.VOICEINK_MEDIA_HIDDEN
   await assert.rejects(api.openMedia('relative.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')
   await assert.rejects(api.openMedia(path.resolve('missing.png')), (error) => error.code === 'MEDIA_OPEN_FAILED')
   await assert.rejects(api.openMedia('https://example.com/image.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')

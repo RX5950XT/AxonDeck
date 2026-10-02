@@ -1153,6 +1153,26 @@ Review：
 - [x] 新回歸先紅後綠，完成受影響測試、真 API、免安裝打包與隔離背景驗收。
 - Review：`test-ccswitch-cli-models.js` 修前 1 passed／6 failed，修後 7/7；每日同步回歸 PASS、CC 258/258、gateway 53/53、gateway E2E 40/40、error hygiene 85/85。`build:shell` 成功（既有 CA1416 警告），6 支 JS 語法／diff 檢查 PASS；`electron:pack` 驗 250 支 src 一致。背景 `e2e-ccswitch-cdp.js` 134/134，`probe-ccswitch-scan-ui.js` 以已存認證的隔離副本驗五家每日自動更新與四格下拉：Codex 10、Grok 4、Command Code 85、Ollama Cloud 17、OpenCode Go 43。日頻率保留；QA logs 在 dist/qa-ccswitch-cli-*.log。沒有提交、發版或替換使用中安裝版；新 Grok device 登入的實際互動授權未重跑，現有同帳號 CLI 相容路徑已對真 API／packaged 驗證。
 
+# 2026-10-03 — 播放器有聲音卻沒有視窗
+
+## v1.38.3 發行
+
+- [x] 清理四個現場隱藏圖片播放器；其 mpv 已一併退出，使用中安裝版保留。
+- [x] 核對 master／分支與發行範圍、source 回歸、原生元件建置。
+- [x] 免安裝與正式 NSIS 打包；播放器可見、IPC、更新設定與安裝檔拆包驗收。
+- [ ] Commit／tag／push／公開 Release，核對遠端 assets 與舊版更新。
+- 範圍：共用播放器啟動修正與正常／明確隱藏驗收；結束 App 自動更新保留靜默安裝，手動重啟安裝保留進度。feat/native-media 不合併、不修改；不替換使用中的安裝版。
+- 發行回歸：`test-media-player.js`／`test-updater.js` 全 PASS；`test-workspace.js` 283/0、`test-explorer.js` 313/0、`test-explorer-shell.js` 44/0、Rust media 14/0；`build:shell`／`build:media` 成功。免安裝包 251 支 src 一致，`probe-media-launch.js` 音樂／圖片／影片可見、明確隱藏不可見，四項均未搶焦點；`probe-media-packaged.js` 三組 PASS。首次正式建置成功；補齊 README 本版說明後完整重建，以最後產物拆包及遠端驗證為準。
+- Review（最終產物）：`node scripts/test-media-player.js` PASS；`node scripts/test-updater.js --release` 含 [G] PASS。正式安裝檔拆出 254 檔 SHA-256 與 `dist/win-unpacked` 全相符，251 支 src 與原始碼相同，9 支原生元件一致，含 `app-update.yml`。拆包後 `e2e-update-cdp.js` 7/7（目前版本 v1.38.3、GitHub `latest.yml` 狀態 none）；`probe-media-launch.js` 音樂／圖片／影片 visible=true、明確隱藏 visible=false，四次 foreground=false、offscreen=true。`probe-media-packaged.js` 對 win-unpacked 三組 PASS（與安裝檔逐檔相同）。沒有替換使用中的安裝版。
+
+- [x] 實測正常啟動的 Win32 可見狀態，確認與語音膠囊是否有關；回歸先跑失敗。
+- [x] 修正共用媒體啟動入口，保留明確隱藏的背景驗收模式。
+- [x] 免安裝打包與真播放器背景驗收；恢復現有隱藏視窗，不中斷音樂。
+- 範圍：使用者已確認檔案右鍵恢復正常，這部分不修改。
+- 修前真程序 visible=false、foreground=false；單元回歸與啟動選項回歸先紅。修後 source 單元／真播放器正常可見及明確隱藏均 PASS。現場音樂 PID 24524 已用 SW_SHOWNA 恢復：beforeVisible=false、afterVisible=true、foregroundKept=true；未中斷播放。
+- Review：`node scripts/test-media-player.js` PASS；`npm run build:media` PASS；`npm run electron:pack` PASS（251 支 src 與 asar 一致）。`VOICEINK_EXE=dist/win-unpacked/VoiceInk.exe` 的 `probe-media-launch.js`：正常 visible=true、明確隱藏 visible=false，兩次 foreground=false、offscreen=true；`probe-media-packaged.js` 工作區／Explorer／ZIP／decoder 收尾／主 App 結束後播放器獨立運行三組 PASS。`test-dictation-hud.js` 兩項 PASS；語法／diff 檢查 PASS。背景驗收不等於實體滑鼠驗收；安裝版程式未替換，本次修正尚未提交或發版。
+- 既有無關問題：`test-temp-hygiene.js` 仍在 `test-usage.js:824/844` 的兩行 os.tmpdir() 失敗；本輪新增探針使用 test-temp，未擴改用量測試。
+
 # 2026-10-02 — 發行 v1.38.1
 
 - [x] 確認 master 與發行範圍，更新版本，完成受影響回歸與 native 建置。

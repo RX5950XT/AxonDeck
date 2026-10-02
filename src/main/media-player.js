@@ -81,7 +81,7 @@ async function openMedia(file, options = {}) {
   const hidden = options.hidden || process.env.VOICEINK_MEDIA_HIDDEN === '1'
   const args = [`--theme=${theme() === 'light' ? 'light' : 'dark'}`, ...(hidden ? ['--hidden'] : []), '--', file]
   await new Promise((resolve, reject) => {
-    const child = spawn(exe, args, { detached: true, windowsHide: true, stdio: 'ignore', shell: false })
+    const child = spawn(exe, args, { detached: true, windowsHide: Boolean(hidden), stdio: 'ignore', shell: false })
     child.once('error', () => reject(fail('無法啟動原生播放器')))
     child.once('spawn', () => { child.unref(); resolve() })
   })

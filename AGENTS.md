@@ -136,7 +136,7 @@ tag 要與 `package.json` 的 version 一致。
   回歸 `test-updater.js` 的 [F]；代理還活著、而且比官方快，跑 `probe-updater-mirrors.js`。
 - **`electron:pack`（dir target）的預覽版永遠檢查不到更新，那不是 bug**（只有 nsis／appx 才寫 `app-update.yml`）；**不可以把 error 當成測試通過**。`autoInstallOnAppQuit` 在本 App 無效——`installOnQuit()` 要在 `app.exit(0)` 前一行。
 - **正式發版禁止用 `--prepackaged` 沿用 dir 預覽包**：它跳過 afterPack，不會產生 `resources/app-update.yml`，裝完永遠說「此預覽版未附更新資訊」（v1.37.3 實際發生）。`npm run electron:build` 現在由 pack-preview 的 `--release` 走磁碟根目錄的完整 NSIS 建置，驗 asar、app-update.yml、latest.yml／exe 的版本大小與雜湊後同步回 dist 並清理。正式更新驗收 `node scripts/test-updater.js --release`＋`node scripts/e2e-update-cdp.js` **絕對不可自行補 app-update.yml**，還要拆安裝檔確認裡面真的有它。
-- **應用程式內更新不可以改回 `/S` 靜默安裝**：App 一關就兩三分鐘沒畫面，使用者會以為壞了去重開機，把安裝砍在「舊版已刪、新版沒裝完」＝App 整個消失（實際發生過）。`installOnQuit` 在 Windows 關機／登出時也不能開安裝程式。動 `build/installer.nsh` 或 `quitAndInstall` 後，拿 `dist/VoiceInk-Setup-*.exe --updated --force-run` 真的跑一次：要看到進度視窗、裝完自己開回來。
+- **手動「重新啟動並安裝」不可以改回 `/S` 靜默安裝**：App 一關就兩三分鐘沒畫面，使用者會以為壞了去重開機，把安裝砍在「舊版已刪、新版沒裝完」＝App 整個消失（實際發生過）。使用者於 2026-10-03 確認，結束 App 時的 `installOnQuit` 保留靜默安裝；Windows 關機／登出時仍不能開安裝程式。動 `build/installer.nsh` 或 `quitAndInstall` 後，拿 `dist/VoiceInk-Setup-*.exe --updated --force-run` 真的跑一次：要看到進度視窗、裝完自己開回來。
 - **終端機的環境不可以沿用宿主繼承來的**：宿主繼承「開 App 的那個程序」的環境，從 Claude Code／Windows Terminal 開 App 時會帶著 `NO_COLOR=1`（Claude 整片白）、`CLAUDE_CODE_CHILD_SESSION`（不存對話）、`WT_SESSION`。Rust 宿主用 `CreateEnvironmentBlock`（`shell.rs` 的 `user_environment`）；Electron 退路版只有 `CLAUDE_SESSION_VARS` 黑名單。
 - CDP 腳本都吃 `VOICEINK_EXE` 環境變數。
 

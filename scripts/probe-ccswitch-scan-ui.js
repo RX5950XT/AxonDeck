@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 打包版「從 API 載入模型」的實機 probe（CDP）
+ * VoiceInk — 打包版五家模型每日自動更新的實機 probe（背景 CDP）
  *
- * 這是 UI 層的端到端驗證：點 Codex tile 的編輯 → 模型下拉自動掃一次（真的打
- * ChatGPT 後端的 GET /models，會用 ~/.codex/auth.json 的憑證，不花對話額度）→
- * 確認四個下拉真的裝了模型。main 層的路徑由 `probe-ccswitch-models.js` 驗，
- * 這支只補「按鈕 → IPC → 下拉」那一段。
+ * 唯讀複製已存供應商到隔離 profile，清掉副本掃描時間；進 CC代理後讓 main 自動
+ * 打真實 GET /models，再逐家開編輯窗確認四格下拉保留完整清單、lab 分組與排序。不啟用供應商、
+ * 不改 ~/.claude/settings.json、不改使用中的 profile。暫存憑證隨 profile 收掉。
  *
  *     node scripts/probe-ccswitch-scan-ui.js
  */
@@ -18,6 +17,7 @@ const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
+const assert = require('assert/strict')
 
 const PORT = 9253
 const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
@@ -97,65 +97,111 @@ function stopTestApp(child) {
   } catch { /* 沒有殘留 */ }
 }
 
-async function main() {
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], {
-    stdio: 'ignore', detached: false
-  })
-
-  let targets = null
-  for (let i = 0; i < 60; i += 1) {
-    await sleep(500)
-    try {
-      const list = await getJson(`http://127.0.0.1:${PORT}/json/list`)
-      targets = list.filter((t) => t.type === 'page' && t.url.includes('index.html'))
-      if (targets.length) break
-    } catch { /* 還沒起來 */ }
+async function checkGroups(cdp, item, models) {
+  const snapshot = await cdp.eval(`(() => {
+    const ids = ['ccModelSelect', 'ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect'];
+    return { values: ids.map(id => [...document.getElementById(id).options].map(option => option.value).filter(Boolean)),
+      drafts: ['ccModelInput', 'ccHaikuInput', 'ccSonnetInput', 'ccOpusInput'].map(id => document.getElementById(id).value),
+      groups: [...document.getElementById('ccModelSelect').querySelectorAll('optgroup')]
+        .map(group => ({ label: group.label, values: [...group.children].map(option => option.value) })) };
+  })()`)
+  for (const values of snapshot.values) {
+    assert.deepEqual([...values].sort(), [...models].sort(), `${item.presetId} 保留全部 API 模型 ID`)
+    assert.deepEqual(values, snapshot.values[0], '四格順序一致')
   }
-  if (!targets?.length) throw new Error('等不到主視窗')
+  assert.deepEqual(snapshot.drafts, ['model', 'haikuModel', 'sonnetModel', 'opusModel'].map(key => item[key] || ''), '保留原本設定')
+  if (!['commandcode', 'ollama-cloud', 'opencode-go'].includes(item.presetId)) return
+  assert(snapshot.groups.length > 1, '多 lab 清單必須分組')
+  assert.equal(snapshot.groups[0].label, item.presetId === 'commandcode' ? 'Anthropic' : 'OpenAI', '主流 lab 在前')
+  for (const [newer, older] of [['gpt-6.1-sol', 'gpt-5.6-luna'], ['claude-sonnet-5-5', 'claude-opus-4-8'],
+    ['Qwen/Qwen3.8-Max', 'Qwen/Qwen3.7-Max'], ['qwen3.8-max', 'qwen3.7-max'], ['kimi-k3', 'kimi-k2.6'],
+    ['moonshotai/Kimi-K3', 'moonshotai/Kimi-K2.6'], ['minimax-m3', 'minimax-m2.7'], ['glm-5.3', 'glm-5.2']]) {
+    if (models.includes(newer) && models.includes(older)) assert(snapshot.values[0].indexOf(newer) < snapshot.values[0].indexOf(older), `${newer} 在 ${older} 前面`)
+  }
+  await checkMenu(cdp, item.presetId, snapshot.groups)
+  console.log(`PASS ${item.presetId}: ${snapshot.groups.length} 個 lab 分組、世代排序、深淺色、跨組鍵盤選取`)
+}
 
-  const cdp = new Cdp(targets[0].webSocketDebuggerUrl)
-  await cdp.connect()
+async function checkMenu(cdp, presetId, groups) {
+  await cdp.eval(`(() => {
+    if (document.querySelector('.custom-select[data-select-id="ccModelSelect"]').classList.contains('hidden')) document.getElementById('ccManualModelsBtn').click();
+    const select = document.getElementById('ccModelSelect'); select.value = ''; select.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('.custom-select-trigger[data-select-id="ccModelSelect"]').click();
+  })()`)
+  const menu = await cdp.eval(`(() => {
+    const menu = document.getElementById('ccModelSelectMenu'); const rect = menu.getBoundingClientRect();
+    return { labels: [...menu.querySelectorAll('[role="group"]')].map(group => group.getAttribute('aria-label')),
+      values: [...menu.querySelectorAll('[role="option"]')].map(option => option.dataset.value).filter(Boolean),
+      inside: !menu.hidden && rect.width > 0 && rect.top >= 0 && rect.bottom <= innerHeight };
+  })()`)
+  assert.deepEqual(menu.labels, groups.map(group => group.label), '畫面分組與原生 optgroup 相同')
+  assert.deepEqual(menu.values, groups.flatMap(group => group.values), '畫面模型順序完整')
+  assert(menu.inside, '選單可見且未超出視窗')
+  const output = path.join(__dirname, '..', 'dist', 'qa')
+  fs.mkdirSync(output, { recursive: true })
+  for (const theme of ['dark', 'light']) {
+    await cdp.eval(`document.documentElement.setAttribute('data-theme', '${theme}')`)
+    await sleep(200)
+    const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(path.join(output, `cc-model-groups-${presetId}-${theme}.png`), Buffer.from(screenshot.data, 'base64'))
+  }
+  const selected = await cdp.eval(`(() => {
+    const trigger = document.querySelector('.custom-select-trigger[data-select-id="ccModelSelect"]');
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const select = document.getElementById('ccModelSelect'); select.value = ${JSON.stringify(groups[0].values.at(-1))};
+    select.dispatchEvent(new Event('change', { bubbles: true })); trigger.click();
+    for (const key of ['ArrowDown', 'Enter']) trigger.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    return select.value;
+  })()`)
+  assert.equal(selected, groups[1].values[0], '鍵盤跳過分組標題，選到下一組第一個模型')
+}
+
+async function main() {
+  const saved = JSON.parse(fs.readFileSync(path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'voiceink', 'cc-providers.json'), 'utf8'))
+  const ids = ['codex', 'grok-build', 'commandcode', 'ollama-cloud', 'opencode-go']
+  const providers = saved.providers.filter((item) => ids.includes(item.presetId))
+    .map((item) => ({ ...item, availableModels: null, modelsCheckedAt: 0 }))
+  if (!ids.every((id) => providers.some((item) => item.presetId === id))) throw new Error('已存供應商缺少待驗證項目')
+  fs.writeFileSync(path.join(USER_DATA_DIR, 'cc-providers.json'), JSON.stringify({ providers, oauthAccounts: saved.oauthAccounts }))
+  const child = spawn(EXE, ['--hidden', `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], {
+    stdio: 'ignore', detached: false, windowsHide: true
+  })
+  let cdp = null
   try {
-    await cdp.eval('document.querySelector(\'[data-page="ccswitch"]\').click()')
-    for (let i = 0; i < 40; i += 1) {
-      if (await cdp.eval("document.querySelectorAll('#ccProviderList .cc-tile').length >= 6")) break
-      await sleep(250)
+    let target
+    for (let i = 0; i < 60; i++) {
+      await sleep(500)
+      const list = await getJson(`http://127.0.0.1:${PORT}/json/list`).catch(() => [])
+      target = list.find((item) => item.type === 'page' && item.url.includes('index.html'))
+      if (target) break
     }
-
-    const codexTile = await cdp.eval(`(() => {
-      // 找 Codex 那張 tile 的編輯鈕
-      return window.electronAPI.ccswitch.listProviders().then((r) => {
-        const codex = (r.data?.providers || []).find((p) => p.presetId === 'codex')
-        return codex?.id || ''
-      })
-    })()`)
-    if (!codexTile) throw new Error('找不到 Codex tile')
-    await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${codexTile}"] .cc-tile-edit').click()`)
-
-    // 開彈窗會自動掃一次；等到下拉長出模型或逾時
-    let loaded = null
-    for (let i = 0; i < 40; i += 1) {
-      loaded = await cdp.eval(`(() => {
-        const select = document.getElementById('ccModelSelect')
-        return {
-          options: select ? [...select.options].map((o) => o.value) : [],
-          hint: document.getElementById('ccScanHint')?.textContent || ''
-        }
-      })()`)
-      // 「（預設：…）」那格不算掃到
-      if (loaded.options.filter(Boolean).length > 1) break
+    if (!target) throw new Error('等不到主視窗')
+    cdp = new Cdp(target.webSocketDebuggerUrl)
+    await cdp.connect()
+    await cdp.eval('document.querySelector(\'[data-page="ccswitch"]\').click()')
+    let snapshot = []
+    for (let i = 0; i < 80; i++) {
+      const result = await cdp.eval('window.electronAPI.ccswitch.listProviders()')
+      snapshot = result.data?.providers || []
+      if (providers.every((item) => snapshot.find((entry) => entry.id === item.id)?.availableModels?.length > 0)) break
       await sleep(500)
     }
-
-    const models = loaded.options.filter(Boolean)
-    console.log(`模型下拉選項：${models.length} 顆`)
-    console.log(`前 5 顆：${models.slice(0, 5).join(', ')}`)
-    console.log(`hint：${loaded.hint}`)
-    const ok = models.length > 1 && loaded.hint.includes('已載入')
-    console.log(ok ? '\n=> 自動掃描有把模型裝進下拉' : '\n=> 沒掃到（憑證沒登入或上游失敗）')
-    process.exitCode = ok ? 0 : 1
+    // 等 renderer 自己讀到更新，不用手動掃描補救；poll 僅在記憶體裡比對。
+    await cdp.eval('document.querySelector(\'[data-page="chat"]\').click()')
+    await cdp.eval('document.querySelector(\'[data-page="ccswitch"]\').click()')
+    await sleep(1000)
+    for (const item of providers) {
+      const models = snapshot.find((entry) => entry.id === item.id)?.availableModels
+      if (!models?.length) throw new Error(`${item.presetId} 自動更新未成功`)
+      if (item.presetId === 'codex' && !models.includes('gpt-6.1-sol')) throw new Error('Codex 仍被舊版本過濾')
+      await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${item.id}"] .cc-tile-edit').click()`)
+      await checkGroups(cdp, item, models)
+      console.log(`PASS ${item.presetId}: 自動更新 ${models.length} 個模型，四格下拉一致`)
+      await cdp.eval("document.getElementById('ccProviderDialog').close()")
+    }
+    console.log('PASS 五家真實 API → 每日自動更新 → 打包版下拉；三家多 lab 分組；隔離 profile')
   } finally {
-    cdp.close()
+    cdp?.close()
     stopTestApp(child)
     try { removeTree(USER_DATA_DIR) } catch { /* 慢慢釋放 */ }
   }

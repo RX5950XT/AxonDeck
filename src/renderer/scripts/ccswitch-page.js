@@ -10,6 +10,7 @@
 
 import { syncCustomSelects } from './custom-select.js'
 import { createGridReorder } from './grid-reorder.js'
+import { groupCcModels } from './cc-model-groups.js'
 
 const electronAPI = window.electronAPI
 
@@ -602,6 +603,7 @@ function rebuildModelSelects(models) {
   const item = editingProviderId ? providers.find((entry) => entry.id === editingProviderId) : null
   const preset = dialogPreset()
   const available = Array.isArray(models) ? models : item?.availableModels
+  const groups = Array.isArray(available) ? groupCcModels(available) : null
   let missing = false
   for (const cell of MODEL_FIELDS) {
     const selectEl = /** @type {HTMLSelectElement} */ (document.getElementById(cell.select))
@@ -613,13 +615,18 @@ function rebuildModelSelects(models) {
     empty.textContent = def && (!Array.isArray(available) || available.includes(def)) ? `（預設：${def}）` : '（沿用上游預設）'
     selectEl.append(empty)
     const seen = new Set([''])
-    for (const value of Array.isArray(available) ? available : [current, def]) {
-      if (!value || seen.has(value)) continue
-      seen.add(value)
-      const option = document.createElement('option')
-      option.value = value
-      option.textContent = value
-      selectEl.append(option)
+    for (const group of groups || [{ models: [current, def] }]) {
+      const parent = groups ? document.createElement('optgroup') : selectEl
+      if (groups) parent.label = group.label
+      for (const value of group.models) {
+        if (!value || seen.has(value)) continue
+        seen.add(value)
+        const option = document.createElement('option')
+        option.value = value
+        option.textContent = value
+        parent.append(option)
+      }
+      if (groups) selectEl.append(parent)
     }
     selectEl.value = seen.has(current) ? current : ''
     field(cell.input).value = current

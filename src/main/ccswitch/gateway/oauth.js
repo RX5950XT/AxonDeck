@@ -58,7 +58,7 @@ const FLOWS = Object.freeze({
     clientId: 'b1a00492-073a-47ea-816f-4c329264a828',
     deviceUrl: 'https://auth.x.ai/oauth2/device/code',
     tokenUrl: 'https://auth.x.ai/oauth2/token',
-    scope: 'openid profile email offline_access'
+    scope: 'openid profile email offline_access grok-cli:access api:access conversations:read conversations:write'
   })
 })
 

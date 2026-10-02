@@ -1,3 +1,18 @@
+# 2026-10-03 — 發行 v1.38.2 CC 模型掃描與 lab 分組
+
+- [x] 更新版本與說明，確認相關差異、回歸與 shell sidecar；保留 native-media worktree。
+- [x] 預覽包 source／asar、CC 頁面與真模型分組驗收。
+- [x] 完整 NSIS 建置、更新 CDP、拆安裝檔與 metadata／hash 驗收。
+- [ ] 精確提交、tag／push、GitHub Release、遠端三份 assets 與最終 Git state 驗收。
+
+## Review
+
+- `test-ccswitch-model-refresh.js` PASS、CLI 模型 7/0、CC 258/0、gateway 53/0、gateway e2e 40/0、error hygiene 85/0、explorer shell 44/0；`build:shell` 成功，打包 sidecar 的 READY／32×32 圖示 RPC 實測通過。
+- `electron:pack`／完整 `electron:build` 均驗證 251 支 src；203 份 node_modules metadata 與已安裝 v1.38.1 一致，八支未重建 native binary 相同、重建的 shell 與 resources 相同（ProductVersion 的 Git revision 更新）；asar 502871292 bytes，未混入大型素材。
+- CC 打包 CDP 134/0，五家真模型掃描 10／4／85／17／43 全過；三家多 lab 清單的完整性、世代、四格一致、既有設定、深淺色及跨組鍵盤全過。`test-updater.js --release` 全過，正式更新 CDP 7/7。
+- 安裝檔已拆包核對版本 1.38.2、app-update.yml、asar、主程式與九支 native binary；安裝檔 473047590 bytes，latest.yml 的 SHA-512／size 與非空 blockmap 一致。SHA-256：`a855c698e4798d586af1f7428ca8ec989ada2342ba10dce9081aabeacb296d65`。
+- 待推送與遠端 asset 回讀；使用中的安裝版與 native-media worktree 未修改。
+
 # 2026-10-02 — 修復其餘四類設定不一致
 
 - [x] 為 LLM 預載設定、ASR 刪除後復活、本機聊天提示、URL／Key 提示留下先失敗的回歸
@@ -1117,6 +1132,26 @@ Review：
 - 真網路：`probe-download-speed.js` source／packaged 模組各取 HF／CUDA 前 32MB，單連線與 auto SHA-256 一致。packaged llama runtime 官方直連 5.011 秒 261043 bytes，鏡像完整 34478547 bytes 2.369 秒（13.88MiB/s），官方 GitHub digest 驗證通過。HF/CUDA 此機已快，auto 保留單連線；同檔二次下載受 CDN 暖快取影響，不把相對測速當永久提升倍數。
 - 真供應商唯讀掃描：OpenRouter 464、Command Code 85、OpenCode Go 43、Ollama Cloud 17、Codex 6 模型成功；Grok 自有帳號 token 過期，未更動現場登入，因此該家實際掃描未驗。官方 Claude OAuth 沒有模型清單端點；自訂供應商依已存端點掃描。
 - 邊界：使用者當次 HUD 消失觸發原因沒有 log 可證；修正涵蓋兩個已重現問題。App 自管檔案下載已共用加速；CLI 更新／winget／webview 由原工具或 Chromium 處理，沒有改全域下載設定。尚未提交或發版，使用中的安裝版 v1.37.5 未替換。既有 `test-temp-hygiene.js` 因 `test-usage.js:824/844` 的 `os.tmpdir()` 兩行失敗，本次未擴改。
+# 2026-10-02 — CC 模型依 AI lab 分組與新舊排序
+
+- [x] 確認真實清單命名與既有 optgroup，補分類／世代／選擇保留回歸並先跑失敗。
+- [x] 四格模型下拉依 AI lab 分組，主流 lab 優先、同組較新世代優先，保留全部模型與原 ID。
+- [x] source 回歸、免安裝打包、三家真清單的背景分組／鍵盤／深淺色驗收。
+
+## Review
+
+- 四格 CC 模型選單共用 lab 分組；同組世代由新到舊，同代正式版在 preview 前。保留上游原 ID、未知模型、既有選擇與清單外草稿；只重用 optgroup／既有 custom-select，沒有新增依賴或樣式。
+- `node scripts/test-ccswitch-model-refresh.js`：修復前分組斷言失敗，修復後 PASS；包含 3.10 > 3.9、日期／參數量不當世代、去重、四格一致、原選擇與輸入清單不變。`test-ccswitch-cli-models.js` 7/0，`test-ccswitch.js` 258/0；語法與 diff 檢查通過。
+- `npm run electron:pack` 成功，251 支 src 與 asar 一致；`node scripts/e2e-ccswitch-cdp.js` 134/0。`node scripts/probe-ccswitch-scan-ui.js` 五家真 API 全過：Codex 10、Grok 4、Command Code 85（20 lab）、Ollama Cloud 17（8 lab）、OpenCode Go 43（12 lab）。三家四格保留完整清單與原設定，分組／新舊／跨組鍵盤驗收通過；六張深淺色截圖已查看，位於 `dist/qa/cc-model-groups-*.png`。
+- 已更新 `dist/win-unpacked`；隔離測試程序與外部打包輸出已收完。未 commit／push／發版，未替換使用中的安裝版。
+
+# 2026-10-02 — Codex／Grok 模型清單修正
+
+- [x] 查證五家真實模型端點，重現 Codex 舊版本過濾與 Grok 登入權限不足。
+- [x] Codex 掃描沿用目前 CLI 版本；Grok 修正登入權限、同帳號舊登入相容與 CLI 自動續期。
+- [x] 新回歸先紅後綠，完成受影響測試、真 API、免安裝打包與隔離背景驗收。
+- Review：`test-ccswitch-cli-models.js` 修前 1 passed／6 failed，修後 7/7；每日同步回歸 PASS、CC 258/258、gateway 53/53、gateway E2E 40/40、error hygiene 85/85。`build:shell` 成功（既有 CA1416 警告），6 支 JS 語法／diff 檢查 PASS；`electron:pack` 驗 250 支 src 一致。背景 `e2e-ccswitch-cdp.js` 134/134，`probe-ccswitch-scan-ui.js` 以已存認證的隔離副本驗五家每日自動更新與四格下拉：Codex 10、Grok 4、Command Code 85、Ollama Cloud 17、OpenCode Go 43。日頻率保留；QA logs 在 dist/qa-ccswitch-cli-*.log。沒有提交、發版或替換使用中安裝版；新 Grok device 登入的實際互動授權未重跑，現有同帳號 CLI 相容路徑已對真 API／packaged 驗證。
+
 # 2026-10-02 — 發行 v1.38.1
 
 - [x] 確認 master 與發行範圍，更新版本，完成受影響回歸與 native 建置。

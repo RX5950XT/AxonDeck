@@ -91,7 +91,7 @@ const PRESETS = [
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     wireBaseUrl: 'https://chatgpt.com/backend-api/codex',
     // 沒帶 client_version 會回 400 missing field；帶舊版（0.55.0）會拿到空清單
-    modelsUrl: 'https://chatgpt.com/backend-api/codex/models?client_version=0.151.0',
+    modelsUrl: 'https://chatgpt.com/backend-api/codex/models?client_version=0.160.0',
     modelsAuth: 'cli',
     env: {
       ANTHROPIC_MODEL: 'gpt-5.6-sol',

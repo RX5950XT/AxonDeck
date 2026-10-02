@@ -107,13 +107,13 @@ async function main() {
   assert.equal(grokHeaders['x-grok-client-version'], '1.0.13', 'Grok 模型掃描帶 CLI 版本標頭')
 
   checkDropdown()
-  console.log('PASS CC 模型：每天更新、重啟保留時間、手動即時刷新、清單與草稿保護')
+  console.log('PASS CC 模型：每天更新、重啟保留時間、lab 分組、世代排序、四格一致、清單與草稿保護')
 }
 
 function checkDropdown() {
   class Element {
-    constructor() { this.children = []; this.value = ''; this.textContent = ''; this.classList = { toggle() {} } }
-    get options() { return this.children }
+    constructor(tagName = '') { this.tagName = tagName; this.children = []; this.value = ''; this.textContent = ''; this.classList = { toggle() {} } }
+    get options() { return this.children.flatMap((child) => child.tagName === 'optgroup' ? child.options : [child]) }
     append(node) { this.children.push(node) }
     replaceChildren() { this.children = [] }
     closest() { return null }
@@ -126,12 +126,13 @@ function checkDropdown() {
   get('ccProviderDialog').open = true
   const source = fs.readFileSync(path.join(__dirname, '../src/renderer/scripts/ccswitch-page.js'), 'utf8')
     .replace(/^import .*$/gm, '').replace(/^export /gm, '')
+  const grouping = fs.readFileSync(path.join(__dirname, '../src/renderer/scripts/cc-model-groups.js'), 'utf8').replace(/^export /gm, '')
   const context = vm.createContext({
     window: { electronAPI: {} },
-    document: { getElementById: get, createElement: () => new Element() },
+    document: { getElementById: get, createElement: (tag) => new Element(tag) },
     syncCustomSelects() {}, createGridReorder: () => ({})
   })
-  vm.runInContext(source + `\nproviders = [{ id: 'p', presetId: 'codex', model: 'retired', availableModels: ['fresh'] }];
+  vm.runInContext(grouping + '\n' + source + `\nproviders = [{ id: 'p', presetId: 'codex', model: 'retired', availableModels: ['fresh'] }];
     editingProviderId = 'p'; catalog = { presets: [{ id: 'codex', defaults: { model: 'retired' } }] };
     field('ccModelInput').value = 'draft'; field('ccModelSelect').value = 'draft';
     rebuildModelSelects(['fresh']);`, context)
@@ -141,6 +142,44 @@ function checkDropdown() {
   vm.runInContext('toggleModelMode()', context)
   assert.equal(vm.runInContext('modelManual', context), false)
   assert(!get('ccModelSelect').options.some((option) => option.value === 'draft'), '切回下拉不能把清單外模型補回去')
+  checkGroups(context, get)
+  checkGeneration(context)
+}
+
+function checkGeneration(context) {
+  const samples = ['Qwen/Qwen3.9-235B', 'Qwen/Qwen3.10-Max-0902', 'Qwen/Qwen3.10-Max',
+    'Qwen/Qwen3.10-Max-Preview', 'gpt-oss:120b', 'gpt-6-luna', 'gemma4:31b', 'gemma3:270b',
+    'claude-haiku-4-5-20251001', 'claude-opus-5', 'deepseek/deepseek-v4.1-flash',
+    'deepseek/deepseek-v4-pro', 'qwen3.8-max', 'openai/o3', 'mystery-99', 'qwen3.8-max', null, '']
+  const original = [...samples]
+  const groups = JSON.parse(vm.runInContext(`JSON.stringify(groupCcModels(${JSON.stringify(samples)}))`, context))
+  const values = (label) => groups.find((group) => group.label === label).models
+  assert.deepEqual(values('Alibaba · Qwen'), ['Qwen/Qwen3.10-Max', 'Qwen/Qwen3.10-Max-0902', 'Qwen/Qwen3.10-Max-Preview', 'Qwen/Qwen3.9-235B', 'qwen3.8-max'], '3.10 比 3.9 新，同代正式版在 preview 前面')
+  assert.deepEqual(values('OpenAI'), ['gpt-6-luna', 'openai/o3', 'gpt-oss:120b'], '參數量不能當世代')
+  assert.deepEqual(values('Google'), ['gemma4:31b', 'gemma3:270b'])
+  assert.deepEqual(values('Anthropic'), ['claude-opus-5', 'claude-haiku-4-5-20251001'], '日期不能當世代')
+  assert.deepEqual(values('DeepSeek'), ['deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4-pro'])
+  assert.deepEqual(samples, original, '不改輸入清單')
+  assert.equal(groups.flatMap((group) => group.models).length, 15, '只去重與排除無效值，不丟陌生模型')
+}
+
+function checkGroups(context, get) {
+  const models = ['mystery-99', 'gpt-5.6-luna', 'moonshotai/Kimi-K2.6', 'Qwen/Qwen3.7-Max',
+    'claude-opus-4-8', 'z-ai/glm-5.2', 'MiniMaxAI/MiniMax-M2.7', 'Qwen/Qwen3.8-Max',
+    'claude-sonnet-5-5', 'gpt-6.1-sol', 'moonshotai/Kimi-K3', 'MiniMaxAI/MiniMax-M3', 'zai-org/GLM-5.3']
+  vm.runInContext(`modelManual = false; field('ccModelSelect').value = 'gpt-5.6-luna'; rebuildModelSelects(${JSON.stringify(models)});`, context)
+  const groups = get('ccModelSelect').children.filter((child) => child.tagName === 'optgroup')
+  assert.deepEqual(groups.map((group) => group.label), ['Anthropic', 'OpenAI', 'Alibaba · Qwen', 'Moonshot AI · Kimi', 'Z.ai · GLM', 'MiniMax', '其他／未分類'], '主流 AI lab 分組在前，未知模型在最後')
+  assert.deepEqual(groups[0].options.map((item) => item.value), ['claude-sonnet-5-5', 'claude-opus-4-8'], 'Claude 世代排序不能受 Sonnet／Opus 字母影響')
+  for (const [index, newest] of [[1, 'gpt-6.1-sol'], [2, 'Qwen/Qwen3.8-Max'], [3, 'moonshotai/Kimi-K3'], [4, 'zai-org/GLM-5.3'], [5, 'MiniMaxAI/MiniMax-M3']]) {
+    assert.equal(groups[index].options[0].value, newest, '各家較新世代在上面')
+  }
+  assert.equal(get('ccModelSelect').value, 'gpt-5.6-luna', '分類不改原本選擇')
+  assert.deepEqual(get('ccModelSelect').options.map((item) => item.value).filter(Boolean).sort(), [...models].sort(), '分類不增刪或改寫上游 ID')
+  assert.equal(vm.runInContext('modelManual', context), false)
+  for (const id of ['ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect']) {
+    assert.deepEqual(get(id).options.map((item) => item.value), get('ccModelSelect').options.map((item) => item.value), '四格下拉分類一致')
+  }
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1 }).finally(() => {

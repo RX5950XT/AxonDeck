@@ -4,7 +4,7 @@
  * Codex／Grok 的憑證讀取（Main Process）。
  *
  * **只讀不寫**：憑證由各自的 CLI 維護，我們去動它只會把使用者的登入弄壞。
- * access token 過期時就地用 refresh token 換一顆新的，**只留在記憶體**，不寫回檔案——
+ * Grok 過期交給 CLI 續期；Codex 用 refresh token 換一顆新的，**只留在記憶體**，不寫回檔案——
  * 寫回去等於跟 CLI 搶同一份狀態，兩邊各自 refresh 會互相作廢對方的 refresh token。
  *
  * 用到的 `client_id` 是各家**公開的桌面應用 client**（沒有 secret，CLI 自己也是用同一個）。
@@ -14,6 +14,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { runCliRefresh } = require('../../usage/shared')
 
 /** access token 剩不到這麼久就先去換一顆（提前量，不是「已經不能用了」） */
 const STALE_MS = 5 * 60 * 1000
@@ -23,11 +24,9 @@ const REFRESH_TIMEOUT_MS = 20000
 /** OpenAI 的公開桌面 client（Codex CLI 用的同一個，沒有 secret） */
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token'
-/** xAI 的 token 端點；client_id 直接從使用者的憑證檔讀，不寫死 */
-const XAI_TOKEN_URL = 'https://auth.x.ai/oauth2/token'
-
 /** @type {{ homeDir: string }} */
 const paths = { homeDir: '' }
+let refreshCli = runCliRefresh
 
 /** @type {Map<string, { token: string, expiresAt: number, accountId: string }>} */
 const cache = new Map()
@@ -35,10 +34,11 @@ const cache = new Map()
 const inflight = new Map()
 
 /**
- * @param {{ homeDir?: string }} options
+ * @param {{ homeDir?: string, refreshCli?: Function }} options
  */
 function configure(options = {}) {
   if (typeof options.homeDir === 'string') paths.homeDir = options.homeDir
+  if (typeof options.refreshCli === 'function') refreshCli = options.refreshCli
 }
 
 function homeDir() {
@@ -212,7 +212,24 @@ async function exchange(url, form, options = {}) {
  */
 async function acquire(provider, options = {}) {
   const oauthAccountId = typeof options.oauthAccountId === 'string' ? options.oauthAccountId : ''
-  if (oauthAccountId) return require('./oauth').tokenFor(oauthAccountId, options)
+  if (oauthAccountId) {
+    const oauth = require('./oauth')
+    if (provider === 'grok-build') {
+      const account = (await oauth.readAccounts()).find((item) => item.id === oauthAccountId)
+      const claims = jwtClaims(account?.accessToken)
+      if (account?.provider === provider && !String(claims.scope || '').split(/\s+/).includes('grok-cli:access')) {
+        const cliClaims = jwtClaims(readGrokFile()?.accessToken)
+        if (claims.sub && cliClaims.sub === claims.sub && cliClaims.iss === claims.iss && cliClaims.aud === claims.aud &&
+          String(cliClaims.scope || '').split(/\s+/).includes('grok-cli:access')) {
+          invalidate(provider)
+          const cli = await acquire(provider, { ...options, oauthAccountId: '' })
+          if (jwtClaims(cli.token).sub === claims.sub) return cli
+        }
+        throw credentialError('OAUTH_SCOPE_REQUIRED', 'Grok 舊登入缺少模型存取權限，請重新登入 Grok')
+      }
+    }
+    return oauth.tokenFor(oauthAccountId, options)
+  }
 
   const cached = cache.get(provider)
   if (!options.force && cached && cached.expiresAt - Date.now() > STALE_MS) {
@@ -256,17 +273,23 @@ async function refresh(provider, options) {
     )
   }
 
-  const fresh = provider === 'codex'
-    ? await exchange(CODEX_TOKEN_URL, {
+  let fresh
+  if (provider === 'grok-build') {
+    const exe = path.join(path.dirname(grokAuthPath()), 'bin', process.platform === 'win32' ? 'grok.exe' : 'grok')
+    await refreshCli(exe, ['models'])
+    const next = readGrokFile()
+    if (!next || next.accessToken === file.accessToken || next.expiresAt <= Date.now() ||
+      jwtClaims(next.accessToken).sub !== jwtClaims(file.accessToken).sub) {
+      throw credentialError('TOKEN_REFRESH_FAILED', 'Grok CLI 未能續期登入，請重新登入 Grok')
+    }
+    fresh = { accessToken: next.accessToken, expiresAt: next.expiresAt }
+  } else {
+    fresh = await exchange(CODEX_TOKEN_URL, {
       grant_type: 'refresh_token',
       refresh_token: file.refreshToken,
       client_id: CODEX_CLIENT_ID
     }, options)
-    : await exchange(XAI_TOKEN_URL, {
-      grant_type: 'refresh_token',
-      refresh_token: file.refreshToken,
-      client_id: file.clientId
-    }, options)
+  }
 
   cache.set(provider, {
     token: fresh.accessToken,
@@ -299,7 +322,6 @@ module.exports = {
   STALE_MS,
   CODEX_CLIENT_ID,
   CODEX_TOKEN_URL,
-  XAI_TOKEN_URL,
   configure,
   jwtClaims,
   codexAuthPath,

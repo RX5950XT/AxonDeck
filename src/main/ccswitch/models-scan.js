@@ -11,6 +11,7 @@
 const presets = require('./presets')
 const convert = require('./gateway/convert')
 const { fetchModels } = require('../chat-models')
+const cliVersion = require('./cli-version')
 
 const API_FORMATS = new Set(['anthropic', 'openai_chat', 'openai_responses'])
 const TEST_TIMEOUT_MS = 15_000
@@ -206,7 +207,7 @@ async function testProvider(provider, options = {}) {
  * `fetchImpl` 只給測試換掉網路層（跟 `chat-models.fetchModels` 同一個注入點）。
  *
  * @param {{ presetId: string, apiFormat?: string, baseUrl?: string, apiKey?: string, oauthAccountId?: string }} provider 完整實例
- * @param {{ fetchImpl?: typeof fetch }} [options]
+ * @param {{ fetchImpl?: typeof fetch, force?: boolean }} [options]
  * @returns {Promise<{ ok: true, models: string[] } | { ok: false, code: string, error: string }>}
  */
 async function scanProviderModels(provider, options = {}) {
@@ -224,7 +225,7 @@ async function scanProviderModels(provider, options = {}) {
   } else if (target.auth === 'cli') {
     try {
       const { token, accountId } = await acquireFn()(provider.presetId, {
-        oauthAccountId: String(provider?.oauthAccountId || '')
+        oauthAccountId: String(provider?.oauthAccountId || ''), force: Boolean(options.force)
       })
       headers.authorization = `Bearer ${token}`
       if (target.codex) {
@@ -238,7 +239,17 @@ async function scanProviderModels(provider, options = {}) {
     }
   }
 
-  const result = await fetchModels({ url: target.url, apiKey, headers, fetchImpl: options.fetchImpl, allowEmpty: true })
+  let url = target.url
+  if (target.codex) {
+    const version = await cliVersion.runVersion('codex')
+    const parsed = new URL(url)
+    if (version) parsed.searchParams.set('client_version', version)
+    url = parsed.href
+  }
+  const result = await fetchModels({ url, apiKey, headers, fetchImpl: options.fetchImpl, allowEmpty: true })
+  if (!result.ok && result.code === 'HTTP_401' && target.auth === 'cli' && !options.force) {
+    return scanProviderModels(provider, { ...options, force: true })
+  }
   // cli 那兩家沒有「API Key」，401／403 只會是登入或額度的問題，提示不能照搬金鑰那套
   if (!result.ok && target.auth === 'cli' && /^HTTP_(401|403)$/.test(result.code)) {
     return { ok: false, code: result.code, error: '上游拒絕了登入憑證（可能需要重新登入，或訂閱額度用完）' }

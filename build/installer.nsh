@@ -24,6 +24,14 @@
 !macroend
 
 !macro customInstall
+  ${if} ${FileExists} "$INSTDIR\resources\media\voiceink-media.exe"
+    ${if} $installMode == "all"
+      nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --register --machine'
+    ${else}
+      nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --initialize'
+    ${endIf}
+    Pop $0
+  ${endIf}
   !insertmacro voiceInkRefreshShortcut "$newStartMenuLink"
   !insertmacro voiceInkRefreshShortcut "$newDesktopLink"
 
@@ -32,6 +40,19 @@
 
   ; SHCNE_ASSOCCHANGED：叫檔案總管重讀圖示
   System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
+!macroend
+
+!macro customUnInstall
+  ${ifNot} ${isUpdated}
+    ${if} ${FileExists} "$INSTDIR\resources\media\voiceink-media.exe"
+      ${if} $installMode == "all"
+        nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --unregister --machine'
+      ${else}
+        nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --unregister'
+      ${endIf}
+      Pop $0
+    ${endIf}
+  ${endIf}
 !macroend
 
 ; ── 應用程式內更新走「看得到進度」的安裝（updater.js 的 quitAndInstall 不再 /S）──

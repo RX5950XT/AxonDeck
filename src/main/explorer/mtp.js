@@ -22,6 +22,7 @@ const files = require('./fs')
 const shellExt = require('./shell')
 const host = require('./shell-host')
 const zip = require('./zip')
+const mediaPlayer = require('../media-player')
 
 const PREFIX = 'mtp:'
 /** 相機資料夾幾百張要列 3～4 秒，幾千張會更久 */
@@ -247,7 +248,7 @@ async function realPath(target) {
 async function openPath(target) {
   const info = await resolve(target)
   if (info.dir) return info
-  const err = await shell.openPath(await realPath(target))
+  const err = await mediaPlayer.openPath(await realPath(target))
   if (err) throw paths.fail('OPEN_FAILED', '打不開')
   return true
 }

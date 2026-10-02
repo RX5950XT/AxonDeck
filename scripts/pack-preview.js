@@ -29,7 +29,7 @@ const BUILD_TMP = tempDir('pack-tmp-')
 
 function run(command, args) {
   const env = { ...process.env, TEMP: BUILD_TMP, TMP: BUILD_TMP }
-  const result = spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', shell: true, env })
+  const result = spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', shell: true, windowsHide: true, env })
   if (result.status !== 0) throw new Error(`${command} ${args[0] || ''} 失敗（exit ${result.status}）`)
 }
 
@@ -71,7 +71,7 @@ function overwriteInPlace(from, to) {
 function syncPreview(built) {
   fs.mkdirSync(PREVIEW, { recursive: true })
   // robocopy：0–7 是成功（有沒有複製到東西），8 以上才是失敗
-  const copy = spawnSync('robocopy', [built, PREVIEW, '/MIR', '/XF', 'app.asar', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit' })
+  const copy = spawnSync('robocopy', [built, PREVIEW, '/MIR', '/XF', 'app.asar', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit', windowsHide: true })
   if (copy.status === null || copy.status >= 8) throw new Error(`同步 dist/win-unpacked 失敗（robocopy exit ${copy.status}）；預覽版還開著的話先關掉`)
   const from = path.join(built, 'resources', 'app.asar')
   const to = path.join(PREVIEW, 'resources', 'app.asar')

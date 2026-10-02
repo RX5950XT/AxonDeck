@@ -17,6 +17,7 @@ nav：聊天（預設，**工作區與終端機同一頁**）｜Telegram（官�
 | 終端機 | `@lydell/node-pty` ConPTY ＋ xterm.js，開在工作區的分頁列上；PTY 由 userData 裡的獨立宿主持有（更新／關 App 只斷線）；可用管理員身分（提權 host 代開）|
 | 專案工作區 | `src/main/workspace/`：專案＝本機資料夾（`workspaces.json`）；中間分頁列（終端機／Monaco 編輯器／`<webview>` 瀏覽器），右側欄＝檔案總管／Git／AI 記錄／監聽埠 |
 | 檔案 | 整機檔案總管（`src/main/explorer/`）；瀏覽本機資料夾；檔名搜尋走 UFFS（MFT），不自己 walk 整碟 |
+| 原生媒體 | `media-player.js` 分流本機圖片／影音至獨立 Rust/Win32 彈窗；mpv 與 ImageMagick 子程序由 Windows Job object 收尾；首次安裝背景備份並初始化關聯，後續更新保留使用者自選 |
 | HF模型 | 在 HF 搜 GGUF → 下載 → llama-server **router 模式** 一顆程序管全部模型 → 出現在聊天選單 |
 | CC代理 | `src/main/ccswitch/`：供應商 tile 改 `~/.claude/settings.json` 的 `env`／MCP／CLI 版本／用量統計；非 Anthropic 格式經本機閘道轉協議 |
 | 系統監控 | `probe.ps1` 常駐取樣器＋`nvidia-smi`；七子頁（總覽／使用時長／處理程序／壓力測試／風扇控制／效能調整／磁碟空間），感測器走提權 sidecar |
@@ -41,6 +42,7 @@ npm run build:sensors    # 系統監控提權感測器 sidecar（需 .NET 8 SDK�
 npm run build:hook       # 語音輸入熱鍵的 .NET 退路（需 .NET 8 SDK）→ resources/hook/；平常跑 voiceink-probe.exe hook
 npm run build:shell      # 檔案總管殼層 sidecar（需 .NET 8 SDK）→ resources/shell/
 npm run build:probe      # Rust（需 cargo）：voiceink-probe.exe（系統監控／使用時長／用量掃描／資料夾大小／熱鍵）＋ voiceink-term.exe（終端機宿主）→ resources/probe/
+npm run build:media      # Rust＋7-Zip：原生媒體彈窗與固定版本 decoder → resources/media/（媒體功能打包前必跑）
 ```
 
 `resources/sensors/`、`resources/hook/`、`resources/shell/`、`resources/probe/` 不進版控（沒建置也打得起來，只是那兩個功能降級；shell 沒建＝右鍵少 7-Zip／WinRAR、沒有 Drive 綠勾；probe 沒建＝退回兩支 PowerShell，常駐多吃約 250MB）。

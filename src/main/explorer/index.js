@@ -27,6 +27,7 @@ const zipOps = require('./zip-ops')
 const zip = require('./zip')
 const mtp = require('./mtp')
 const fileDetails = require('./details')
+const mediaPlayer = require('../media-player')
 
 /** 壓縮檔／手機裡的檔案要先複製到暫存才讀得到詳細資訊，只做這個大小以下（手機影片動輒幾 GB） */
 const DETAILS_COPY_LIMIT = 64 * 1024 * 1024
@@ -370,14 +371,14 @@ async function openPath(target) {
     // 點 .zip 或壓縮檔裡的資料夾＝走進去；裡面的檔案解到暫存再用預設程式開
     const st = zipped.inner ? await zip.stat(zipped.archive, zipped.inner) : { dir: true }
     if (st.dir) return { path: zipped.full, dir: true, parent: zipped.full }
-    const err = await shell.openPath(await zipOps.realPath(zipped))
+    const err = await mediaPlayer.openPath(await zipOps.realPath(zipped))
     if (err) throw paths.fail('OPEN_FAILED', '打不開')
     return true
   }
   const full = paths.resolveExisting(target)
   const resolved = resolveLocal(full)
   if (resolved.dir) return resolved
-  const err = await shell.openPath(full)
+  const err = await mediaPlayer.openPath(resolved.path)
   if (err) throw paths.fail('OPEN_FAILED', '打不開')
   return true
 }

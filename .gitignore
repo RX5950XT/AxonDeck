@@ -71,6 +71,9 @@ resources/shell/
 # 打包前跑 `npm run build:probe` 產生；沒建置會退回 PowerShell
 native/voiceink-probe/target/
 resources/probe/
+resources/media/
+dist-media-qa/
+binary-backups/
 
 # 指示器外觀檢查的截圖（scripts/probe-dictation-hud.js）
 .tmp-hud/

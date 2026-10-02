@@ -115,6 +115,8 @@ let subtitleWindow = null
 let tray = null
 // 設定儲存實例（延遲初始化）
 let store = null
+const mediaPlayer = require('./media-player')
+mediaPlayer.setThemeGetter(() => store?.get('theme') || 'dark')
 /** 正在執行 before-quit 卸載 */
 let isQuitting = false
 /** Windows 正在關機／重新開機／登出 */
@@ -2170,6 +2172,14 @@ app.whenReady().then(() => {
 
   createMainWindow()
   bootLog('window created')
+  setImmediate(() => {
+    mediaPlayer.initializeAssociations({
+      isPackaged: app.isPackaged,
+      isPreview: Boolean(userDataDir),
+      resourcesPath: process.resourcesPath,
+      userDataPath: app.getPath('userData')
+    }).catch((err) => console.warn('[media] association initialization failed:', err?.code || 'INIT_FAILED'))
+  })
   // Claude hooks：複製執行檔、寫 settings、補處理 App 關著時積下的事件。不擋視窗出來。
   // 帶 --user-data-dir 的（預覽／CDP／e2e）不寫真的 ~/.claude/settings.json：
   // 寫進去的 command 指向暫存 userData，測完一刪，使用者每次開 claude 都會報 hook 錯誤。

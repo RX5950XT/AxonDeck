@@ -1178,6 +1178,10 @@ export async function openEditorTab(proj, relPath, line = 0) {
   const id = `e:${proj.id}:${relPath}`
   const existing = findTab(id)
   if (existing) {
+    if (line === 0 && !existing.dirty && (existing.image || existing.audio || existing.video)) {
+      await openWithSystem(proj.id, relPath)
+      return
+    }
     // 停在「變更」那一面時點這個檔案＝要看檔案本身，換回編輯那一面
     if (existing.diffView) await backToEditorTab(existing)
     else await activate(id)
@@ -1195,6 +1199,10 @@ export async function openEditorTab(proj, relPath, line = 0) {
     return
   }
   if (staleOpen(gen, proj.id)) return
+  if (file.nativeMedia && line === 0) {
+    await openWithSystem(proj.id, relPath)
+    return
+  }
   // 連點兩下：第二趟讀檔回來時第一趟已經把分頁建好了，不可以再推一份
   if (findTab(id)) {
     await activate(id)
@@ -2933,6 +2941,7 @@ async function restoreProjectTabs(proj, generation) {
         try {
           const file = await call(electronAPI.workspace.readFile(proj.id, item.relPath), '')
           if (generation !== projectSwitch) return
+          if (file.nativeMedia && !item.dirty) continue
           const hasDraft = typeof item.draftContent === 'string'
             && (item.dirty === true || Boolean(item.draftContent)) && item.draftContent !== file.content
           const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.audio && !file.video) || file.tooLarge)

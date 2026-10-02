@@ -386,18 +386,51 @@ async function openPath(target) {
 const appIconReferences = new Map()
 let genericIconReference
 
+// Windows 對同一張圖的 alpha 換算會有些微色差，PNG 字串不一定相同。
+function sameIcon(left, right) {
+  if (left === right) return true
+  if (!left || !right) return false
+  const a = nativeImage.createFromDataURL(left)
+  const b = nativeImage.createFromDataURL(right)
+  if (a.isEmpty() || b.isEmpty()) return false
+  const size = a.getSize()
+  if (size.width !== b.getSize().width || size.height !== b.getSize().height) return false
+  const pixels = a.toBitmap()
+  const reference = b.toBitmap()
+  return pixels.every((value, i) =>
+    (i % 4 !== 3 && pixels[i - i % 4 + 3] === 0 && reference[i - i % 4 + 3] === 0)
+    || Math.abs(value - reference[i]) <= 4)
+}
+
 async function usableIcon(url, target, readIcon, source) {
   if (!url) return false
   if (path.extname(target).toLowerCase() === '.exe' || target === process.execPath) return true
   if (!appIconReferences.has(source)) {
     appIconReferences.set(source, Promise.resolve().then(() => readIcon(process.execPath)).catch(() => ''))
   }
-  return url !== await appIconReferences.get(source)
+  return !sameIcon(url, await appIconReferences.get(source))
 }
 
 async function electronIcon(target) {
   const icon = await app.getFileIcon(target, { size: 'normal' })
   return icon.isEmpty() ? '' : icon.toDataURL()
+}
+
+async function folderThumb(full, size) {
+  const { entries = [], ...thumb } = await shellExt.thumbOf(full, size, true)
+  if (!thumb.url) return { folder: true }
+  const previews = (await Promise.all(entries.map(async entry => {
+    try {
+      // 子資料夾／資料夾捷徑只拿圖示，不繼續往內展開。
+      const data = await fileIcon(path.join(full, entry.name), {
+        thumb: !entry.dir && path.extname(entry.name).toLowerCase() !== '.lnk', size
+      })
+      return { ...entry, ...data }
+    } catch {
+      return null // 剛刪掉或讀不到的內容略過，保留資料夾外框。
+    }
+  }))).filter(Boolean)
+  return { ...thumb, previews, ...(previews.some(item => item.pending) ? { pending: true } : {}) }
 }
 
 async function fileIcon(target, opts) {
@@ -408,11 +441,12 @@ async function fileIcon(target, opts) {
   let pendingThumb
   if (wantThumb) {
     try {
+      if (resolved.dir) return await folderThumb(resolved.path, opts.size)
       const thumb = await shellExt.thumbOf(resolved.path, opts.size)
       if (thumb && thumb.url) {
         interim = { ...(thumb.overlay ? { overlay: thumb.overlay } : {}) }
         // 真縮圖即使內容是 App logo 也要保留；暫時圖改問類型圖示，避免把 logo／空白圖放大。
-        if (thumb.pending !== true || resolved.dir) return { ...thumb }
+        if (thumb.pending !== true) return { ...thumb }
         pendingThumb = thumb
         interim = { ...interim, pending: true }
       }
@@ -421,12 +455,13 @@ async function fileIcon(target, opts) {
     }
   }
   try {
-    const url = await shellExt.iconOf(resolved.path)
+    const { url, baseUrl, overlay } = await shellExt.iconInfoOf(resolved.path)
     if (url) {
       genericIconReference ||= shellExt.genericIconOf().catch(() => '')
       const generic = await genericIconReference
-      const valid = url !== generic && await usableIcon(url, resolved.path, shellExt.iconOf, 'shell')
-      if (!valid) return { fallback: true, ...interim }
+      const valid = !sameIcon(baseUrl, generic)
+        && await usableIcon(baseUrl, resolved.path, shellExt.iconOf, 'shell')
+      if (!valid) return { fallback: true, ...(overlay ? { overlay } : {}), ...interim }
       const edge = Number.isInteger(opts?.size) && opts.size >= 16 ? Math.min(opts.size, 256) : 96
       const readThumb = async target => (await shellExt.thumbOf(target, edge))?.url || ''
       const large = pendingThumb && await usableIcon(pendingThumb.url, resolved.path, readThumb, `thumb:${edge}`)
@@ -459,12 +494,6 @@ async function dragIcon(target) {
     }
   } catch {
     // 殼層圖示是裝飾，拿不到就往下走
-  }
-  try {
-    const image = await app.getFileIcon(target, { size: 'normal' })
-    if (!image.isEmpty()) return image
-  } catch {
-    // 同上
   }
   return nativeImage.createFromDataURL(FALLBACK_DRAG_ICON)
 }

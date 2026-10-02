@@ -12606,6 +12606,29 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   pointer-events: none;
 }
 
+.ex-folder-preview {
+  position: absolute;
+  left: 20%;
+  top: 0;
+  width: 45%;
+  height: 60%;
+  clip-path: inset(0 0 15%);
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+
+.ex-folder-preview + .ex-folder-preview {
+  left: 38%;
+  transform: rotate(10deg);
+}
+
+.ex-row-icon img.ex-folder-front {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(53% 0 0);
+  pointer-events: none;
+}
+
 .ex-row-icon.is-shortcut::after {
   content: '↗';
   position: absolute;

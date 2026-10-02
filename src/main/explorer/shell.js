@@ -222,6 +222,20 @@ async function iconOf(full) {
   }
 }
 
+/** 圖示本身與同步標記分開，比對 logo 時不受綠勾／雲朵影響。 */
+async function iconInfoOf(full) {
+  const s = await ensure()
+  if (!s || !full) return { url: '', baseUrl: '' }
+  try {
+    const result = await s.send({ op: 'icon', path: full, details: true })
+    if (!result.ok || !result.data) return { url: '', baseUrl: '' }
+    const url = toPng(result.data.icon)
+    return { url, baseUrl: toPng(result.data.base) || url, overlay: toPng(result.data.overlay) }
+  } catch {
+    return { url: '', baseUrl: '' }
+  }
+}
+
 /** Windows 的通用空白文件圖；用來判斷是否需要依類型畫預設圖。 */
 async function genericIconOf() {
   const s = await ensure()
@@ -235,22 +249,28 @@ async function genericIconOf() {
  * pending ＝殼層還在現生，這張只是暫時的。
  * @param {string} full
  * @param {unknown} [size]
+ * @param {boolean} [folderPreview] 空資料夾外框與最多兩個內容名稱，避免殼層的合成圖混入 App logo
  * @returns {Promise<{ url: string, pending?: boolean, overlay?: string }>}
  */
-async function thumbOf(full, size) {
+async function thumbOf(full, size, folderPreview = false) {
   const s = await ensure()
   if (!s || !full) return { url: '' }
   const px = Number(size)
   const edge = Number.isInteger(px) && px >= 16 ? Math.min(px, 256) : 96
   try {
-    const result = await s.send({ op: 'thumb', path: full, size: edge })
+    const result = await s.send({ op: 'thumb', path: full, size: edge, ...(folderPreview ? { folderPreview: true } : {}) })
     if (!result.ok || !result.data) return { url: '' }
     const url = toPng(result.data.thumb)
     if (!url) return { url: '' }
     // 同步標記（Google Drive 綠勾／雲朵）：縮圖本身不帶，另外疊
     const overlay = toPng(result.data.overlay)
+    if (result.data.previewError) console.error('[explorer] 讀不到資料夾預覽內容:', result.data.previewError)
+    const entries = (Array.isArray(result.data.entries) ? result.data.entries : [])
+      .filter(item => typeof item?.name === 'string' && item.name && !/[\\/]/.test(item.name) && !['.', '..'].includes(item.name))
+      .slice(0, 2).map(item => ({ name: item.name, dir: item.dir === true }))
     return {
       url,
+      ...(folderPreview ? { entries } : {}),
       ...(result.data.thumb && result.data.thumb.pending === true ? { pending: true } : {}),
       ...(overlay ? { overlay } : {})
     }
@@ -289,6 +309,7 @@ module.exports = {
   invoke,
   release,
   iconOf,
+  iconInfoOf,
   genericIconOf,
   thumbOf,
   attrsOf,

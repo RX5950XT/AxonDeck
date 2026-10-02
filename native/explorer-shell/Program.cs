@@ -123,15 +123,23 @@ namespace VoiceInkShell
 
         private static void Icon(JsonElement root, Utf8JsonWriter w)
         {
-            WriteImage(w, "icon", Overlays.IconOf(Str(root, "path")));
+            string path = Str(root, "path");
+            WriteImage(w, "icon", Overlays.IconOf(path));
+            if (root.TryGetProperty("details", out JsonElement details) && details.ValueKind == JsonValueKind.True)
+            {
+                WriteImage(w, "base", Overlays.IconOf(path, overlays: false));
+                WriteImage(w, "overlay", Overlays.BadgeOf(path, Directory.Exists(path), 16));
+            }
         }
 
         private static void Thumb(JsonElement root, Utf8JsonWriter w)
         {
             int size = Thumbnails.ClampSize(Num(root, "size", Thumbnails.DefaultSize));
             string path = Str(root, "path");
-            Bgra thumb = Thumbnails.Of(path, size);
+            bool folderPreview = root.TryGetProperty("folderPreview", out JsonElement preview) && preview.ValueKind == JsonValueKind.True;
+            Bgra thumb = Thumbnails.Of(path, size, folderPreview);
             WriteImage(w, "thumb", thumb);
+            if (folderPreview) Thumbnails.WriteEntries(path, w);
             // 縮圖不帶同步標記（Google Drive 綠勾），另外給一顆讓 renderer 疊在左下角
             if (thumb != null) WriteImage(w, "overlay", Overlays.BadgeOf(path, Directory.Exists(path), Math.Clamp(size / 2, 16, 128)));
         }

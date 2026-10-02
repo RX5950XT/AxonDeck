@@ -193,6 +193,23 @@ function pump(host, readIcon) {
   }
 }
 
+function folderContents(data) {
+  if (!data.previews?.length) return []
+  const cards = data.previews.slice(0, 2).map(entry => {
+    const card = document.createElement('span')
+    card.className = 'ex-folder-preview'
+    paintDefaultFileIcon(card, entry)
+    showIcon(card, entry)
+    return card
+  })
+  const front = document.createElement('img')
+  front.className = 'ex-folder-front'
+  front.src = data.url
+  front.alt = ''
+  front.draggable = false
+  return [...cards, front]
+}
+
 function showIcon(el, data) {
   if (data.folder) {
     el.textContent = '📁'
@@ -200,8 +217,12 @@ function showIcon(el, data) {
   }
   const src = data.fallback ? el.dataset.fallbackUrl : data.url
   const overlay = /^data:image\/png;base64,/.test(data.overlay || '') ? data.overlay : ''
+  const previewKey = JSON.stringify(data.previews || [])
+  const badgeSrc = el.children?.[el.children.length - 1]?.className === 'ex-row-overlay'
+    ? el.children[el.children.length - 1].src : ''
   // pending 重試常回同一張圖，保留已解碼的 img，避免反覆重畫 SVG。
-  if (el.firstElementChild?.src === src && (el.children?.[1]?.src || '') === overlay) return
+  if (el.firstElementChild?.src === src && badgeSrc === overlay && (el.dataset.previewKey || '[]') === previewKey) return
+  el.dataset.previewKey = previewKey
   const image = document.createElement('img')
   image.src = src
   image.alt = ''
@@ -210,7 +231,7 @@ function showIcon(el, data) {
     image.onerror = () => { image.onerror = null; image.src = el.dataset.fallbackUrl }
   }
   if (!overlay) {
-    el.replaceChildren(image)
+    el.replaceChildren(image, ...folderContents(data))
     return
   }
   // 縮圖不帶同步標記（Google Drive 綠勾），殼層另給一張 overlay 畫布蓋在左下
@@ -219,5 +240,5 @@ function showIcon(el, data) {
   badge.src = overlay
   badge.alt = ''
   badge.draggable = false
-  el.replaceChildren(image, badge)
+  el.replaceChildren(image, ...folderContents(data), badge)
 }

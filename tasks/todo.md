@@ -896,3 +896,31 @@ Review：
 - 7-Zip 直接拆正式 exe：224 個檔案與 dist/win-unpacked SHA-256 全相同，含 app-update.yml；248 支 src 與原始碼相同。以拆出的 VoiceInk.exe 跑更新 CDP 7/7（真 GitHub，state=none，沒有補檔），quota CDP 7/7。詳細雜湊在 dist/qa/release-verification-1.37.4.json。
 - 本機 v1.37.3 已補入拆包驗過的 app-update.yml，未替換使用中的 exe／asar（前後 SHA-256 相同），未重啟使用者的程序。發布後以安裝目錄的 VoiceInk.exe 跑隱藏／隔離 CDP：7/7，currentVersion=1.37.3、state=available、version=1.37.4。
 - v1.37.4 tag 指向 c8ad8359dd7d237c9e67fc4e1ad3c0633ec23de8，已推送 master 與 tag。GitHub 正式 Latest（非 draft／prerelease），三個遠端資產的大小與 SHA-256 全相符；直接讀官方下載網址的 latest.yml 與本機逐位元組相同，tag 的 package.json 版本也一致。Release：https://github.com/RX5950XT/VoiceInk/releases/tag/v1.37.4。
+
+# 2026-10-02 — 檔案圖示仍出現 VoiceInk logo
+
+- [x] 用真實 WAV 圖示檢查漏網原因，補先失敗的回歸
+- [x] 修正共用圖示比對，保留執行檔、真縮圖與同步標記
+- [x] 驗證相關回歸、重新打包，背景 CDP 驗真檔案與清單／方格／雙欄
+
+## Review
+
+- Windows 回傳的 WAV／App 圖示肉眼相同，原始 BGRA 有 1–4 的色差；原先只比 PNG 字串，對像素稍有差異的 logo 會漏過。改為比同尺寸像素（容許 4 的誤差，忽略完全透明像素的 RGB）。殼層另回不帶標記的底圖，比對時不受綠勾影響；替換預設圖仍保留標記，正常清單圖不重複疊圖。拖曳刪掉繞過共用過濾的第二次 Electron 取圖。
+- `node scripts/test-explorer-icon-fallback.js`：色差、拖曳備用圖與重複標記回歸各先失敗，再全部 PASS；涵蓋全部 15 種圖示類型／19 種副檔名、正常 Windows 圖示、執行檔、真縮圖、暫時縮圖、同步標記與外部字串。
+- `node scripts/probe-explorer-icon-fallback-cdp.js`：舊包在真正有一像素差異的 PNG 失敗，新包八組 PASS；包含本機真 Windows 圖示、使用者上次資料夾的真 WAV（`VOICEINK_ICON_TARGET`，唯讀）、8 種縮圖尺寸、真 IPC 的色差／標記、清單／方格／雙欄與深淺色截圖。WAV 與類型矩陣本身在舊包也通過，漏網情境以真 logo 修改一個像素重現，未指定的原始故障檔案無法逐一對照。
+- `npm run build:shell`、`npm run electron:pack` 成功，248 支 src 與 asar 相同；`test-explorer.js` 313/0、shell 44/0、icons-state 3/0、shortcuts／page-state／browse-wiring／preview-lifecycle PASS；真殼層 probe 14/0（本機未出現 E_PENDING 的情境 SKIP）、拖曳 12/0、雙欄 CDP 51/0、folder-views CDP 全過（含真的 Drive 標記）。語法與 `git diff --check` 通過。
+- 已更新 `dist/win-unpacked`；背景實例與外部打包輸出均已收完。深／淺色截圖在 `dist/qa/explorer-icon-fallback-{dark,light}.png`，已目視確認。未替換使用中的安裝版，未 commit／push／發行。
+
+# 2026-10-02 — 資料夾內容縮圖仍帶 VoiceInk logo
+
+- [x] 重現使用者目前資料夾的合成縮圖，補先失敗的回歸
+- [x] 保留資料夾內容預覽，讓裡面的圖示共用既有過濾
+- [x] 重建殼層與預覽包，驗證真資料夾、照片、空資料夾及雙欄，重開可見預覽
+
+Review：
+- 已在使用者預覽的 `X:\Music\ACG BGM\Qualidea Code` 取得含 logo 的資料夾縮圖。根因是 Windows 把外框與內容合成一張圖，先前的整圖比對無法過濾裡面的圖示。
+- 資料夾改取 `ICONONLY` 外框，內容透過既有 `fileIcon` 過濾後疊圖；保留真照片／影音縮圖與同步標記，最多兩張，不遞迴子資料夾或捷徑，略過 hidden／system／reparse 項目。殼層最多查看 64 個項目，讀不到時保留外框並回報 `READ_FAILED`。
+- `node scripts/test-explorer-icon-fallback.js`：資料夾外框與內容繪製斷言各先失敗，修後四組 PASS；`node scripts/probe-explorer-icon-fallback-cdp.js` 的資料夾斷言也先在舊包失敗，新包十組 PASS（含 `VOICEINK_FOLDER_TARGET` 的真資料夾、兩張內容圖、隱藏檔、照片、空資料夾、左右欄、深淺色與原有檔案類型驗收）。
+- `npm run build:shell`、`npm run electron:pack` 成功，248 支 src 與 asar 相同；Explorer 313/0、shell 44/0、icons-state 3/0，shortcuts／page-state／browse-wiring／preview-lifecycle PASS；真殼層 probe 14/0（E_PENDING 未出現的情境 SKIP），dual CDP 51/0、folder-views CDP 全過（含真的 Drive 標記）。語法與 `git diff --check` 通過。
+- 深／淺色截圖 `dist/qa/explorer-folder-preview-{dark,light}.png` 已目視確認；真實資料夾修前／修後圖 `dist/qa/explorer-folder-{before,after}.png`。已重新開啟可見預覽（隔離 `voiceink-dev`，PID 53360），確認原本音樂目錄前六個資料夾的內容圖載入；視窗被遮住時曾暫時取消背景節流以驗證，已恢復。安裝版 PID 31148 保留，未 commit／push／發行。
+- 使用者授權推送後，rebase 到遠端 v1.37.4；僅 `tasks/todo.md` 追加紀錄衝突，兩邊內容均保留，圖示程式與測試內容不變。整合後圖示回歸四組、Explorer 313/0、quota 9/9、updater 全過；重建預覽包 248 支 src 相同，圖示 CDP 十組、quota CDP 7/7 全過。未發行本次圖示修正的新版本，`feat/native-media` 保留在 2a16919。

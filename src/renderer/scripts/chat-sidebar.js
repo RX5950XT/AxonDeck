@@ -11,21 +11,15 @@ import { createListReorder } from './list-reorder.js'
 import { askConfirm, askInput } from './app-dialog.js'
 import { openChatMenu } from './chat-menu.js'
 
-/** 刪除鈕按下後等待二次確認的時間，逾時自動復原 */
-const DELETE_ARM_MS = 3000
-
-/** 側欄圖示：跟 composer 的按鈕同一套線條風格，不用 emoji（Segoe 下的 🗑 會縮成一條細線） */
-const ICON_PENCIL = ['M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z', 'M14.5 6.5l3 3']
-const ICON_TRASH = ['M5 7h14', 'M10 5h4', 'M7 7l1 12h8l1-12', 'M10.5 10.5v6', 'M13.5 10.5v6']
-const ICON_CHECK = ['M5 12.5l4.5 4.5L19 7.5']
-const ICON_MORE = ['M6 12h.01', 'M12 12h.01', 'M18 12h.01']
+/** 側欄圖示：跟 composer 的按鈕同一套線條風格 */
 const ICON_CHEVRON = ['M9 6l6 6-6 6']
 const SVG_NS = 'http://www.w3.org/2000/svg'
+const WEB_NAMES = /** @type {Record<string, string>} */ ({ chatgpt: 'ChatGPT', gemini: 'Gemini', claude: 'Claude', grok: 'Grok' })
 
 const STATUS_TEXT = Object.freeze({ running: '回應中', done: '已完成', error: '失敗' })
 
 /**
- * @typedef {{ id: string, title: string, updatedAt: number, folderId: string, messageCount: number, streaming?: boolean }} ConvSummary
+ * @typedef {{ id: string, title: string, updatedAt: number, folderId: string, messageCount: number, streaming?: boolean, web?: string }} ConvSummary
  * @typedef {{ id: string, name: string, collapsed: boolean }} Folder
  * @typedef {'running'|'done'|'error'|''} Status
  */
@@ -50,8 +44,6 @@ export function createChatSidebar(deps) {
   let searchTerm = ''
   /** 改名輸入框開著時不重畫（會把輸入框換掉），等它結束再補 */
   let renderPending = false
-  /** @type {HTMLButtonElement | null} */
-  let armedDeleteBtn = null
 
   const reorder = createListReorder({
     getList: () => listEl,
@@ -97,8 +89,6 @@ export function createChatSidebar(deps) {
       return
     }
     renderPending = false
-    // 重畫會把待確認的刪除鈕整顆換掉，計時器得先收乾淨
-    disarmDelete()
     const visible = searchTerm
       ? conversations.filter((c) => c.title.toLowerCase().includes(searchTerm))
       : conversations
@@ -158,11 +148,8 @@ export function createChatSidebar(deps) {
     toggle.addEventListener('click', () => {
       if (!justDraggedFolder) void setCollapsed(folder, expanded)
     })
-
-    const more = listActionButton(ICON_MORE, '資料夾選項', () => openFolderMenu(more, folder, name))
-    more.classList.add('is-persistent')
-    more.setAttribute('aria-haspopup', 'menu')
-    head.append(toggle, more)
+    head.append(toggle)
+    bindRowMenu(head, (point) => openFolderMenu(head, folder, name, point))
 
     const body = document.createElement('div')
     body.className = 'chat-folder-body'
@@ -200,7 +187,7 @@ export function createChatSidebar(deps) {
   }
 
   /**
-   * 側欄的一列：開啟鈕 ＋ 改名／刪除／更多，整列可拖曳排序
+   * 側欄的一列：開啟鈕，右鍵叫出選單，整列可拖曳排序
    * @param {ConvSummary} conv
    */
   function buildListItem(conv) {
@@ -219,26 +206,10 @@ export function createChatSidebar(deps) {
     fillMeta(meta, conv)
     open.append(title, meta)
     open.addEventListener('click', () => deps.onOpen(conv.id))
-
-    const actions = document.createElement('span')
-    actions.className = 'chat-list-actions'
-    const rename = listActionButton(ICON_PENCIL, '重新命名', () => {
-      startRename(title, conv.title, 60, async (next) => {
-        await electronAPI.chat.rename(conv.id, next)
-        await reload()
-      })
-    })
-    rename.dataset.action = 'rename'
-    const trash = listActionButton(ICON_TRASH, '刪除對話', () => armDelete(trash, conv))
-    trash.dataset.action = 'delete'
-    const more = listActionButton(ICON_MORE, '更多', () => openConversationMenu(more, conv))
-    more.dataset.action = 'more'
-    more.setAttribute('aria-haspopup', 'menu')
-    actions.append(rename, trash, more)
-
-    item.append(open, actions)
+    item.append(open)
     item.addEventListener('pointerdown', reorder.onPointerDown)
     item.addEventListener('keydown', reorder.onKeydown)
+    bindRowMenu(item, (point) => openConversationMenu(item, conv, title, point))
     return item
   }
 
@@ -254,7 +225,8 @@ export function createChatSidebar(deps) {
       badge.append(document.createTextNode(STATUS_TEXT[state]))
       meta.append(badge, document.createTextNode(' · '))
     }
-    meta.append(document.createTextNode(`${conv.messageCount} 則`))
+    // 網頁版 AI 對話的訊息在官方網站上，這裡只標是哪一家
+    meta.append(document.createTextNode(conv.web ? `${WEB_NAMES[conv.web] || conv.web} 網頁版` : `${conv.messageCount} 則`))
   }
 
   /**
@@ -270,7 +242,7 @@ export function createChatSidebar(deps) {
   }
 
   /**
-   * 狀態變動只就地改那一列（整份重畫會把改名輸入框與待確認的刪除鈕換掉）
+   * 狀態變動只就地改那一列（整份重畫會把改名輸入框換掉）
    * @param {string} id
    */
   function paintStatus(id) {
@@ -285,23 +257,34 @@ export function createChatSidebar(deps) {
   /**
    * @param {HTMLElement} anchor
    * @param {ConvSummary} conv
+   * @param {HTMLElement} titleEl
+   * @param {{ x: number, y: number }} point
    */
-  function openConversationMenu(anchor, conv) {
+  function openConversationMenu(anchor, conv, titleEl, point) {
     openChatMenu(anchor, [
-      { label: '匯出 Markdown…', onSelect: () => void exportConversation(conv) },
+      {
+        label: '重新命名',
+        onSelect: () => startRename(titleEl, conv.title, 60, async (next) => {
+          await electronAPI.chat.rename(conv.id, next)
+          await reload()
+        })
+      },
+      { label: '刪除對話', danger: true, onSelect: () => void deleteConversation(conv) },
       { separator: true },
+      ...(conv.web ? [] : [{ label: '匯出 Markdown…', onSelect: () => void exportConversation(conv) }, { separator: true }]),
       { label: '未分類', checked: !conv.folderId, onSelect: () => void moveTo(conv, '') },
       ...folders.map((f) => ({ label: f.name, checked: conv.folderId === f.id, onSelect: () => void moveTo(conv, f.id) })),
       { label: '＋ 新資料夾並移入…', onSelect: () => void createFolder(conv) }
-    ])
+    ], point)
   }
 
   /**
    * @param {HTMLElement} anchor
    * @param {Folder} folder
    * @param {HTMLElement} nameEl
+   * @param {{ x: number, y: number }} point
    */
-  function openFolderMenu(anchor, folder, nameEl) {
+  function openFolderMenu(anchor, folder, nameEl, point) {
     openChatMenu(anchor, [
       { label: '在這裡新增對話', onSelect: () => deps.onNew(folder.id) },
       {
@@ -313,7 +296,7 @@ export function createChatSidebar(deps) {
       },
       { separator: true },
       { label: '刪除資料夾', danger: true, onSelect: () => void deleteFolder(folder) }
-    ])
+    ], point)
   }
 
   /**
@@ -414,42 +397,15 @@ export function createChatSidebar(deps) {
   }
 
   /**
-   * 刪除的二次確認：按鈕就地變成紅色的勾，再按一次才真的刪，逾時自動復原。
-   * @param {HTMLButtonElement} btn
+   * 刪除要先確認。回應中的對話也可以刪：main 會先把那條串流停掉。
    * @param {ConvSummary} conv
    */
-  function armDelete(btn, conv) {
-    if (btn.dataset.armed === '1') {
-      disarmDelete()
-      void deleteConversation(conv)
-      return
-    }
-    disarmDelete()
-    btn.dataset.armed = '1'
-    btn.classList.add('is-armed')
-    btn.title = '再按一次確認刪除'
-    btn.setAttribute('aria-label', `再按一次確認刪除「${conv.title}」`)
-    setIconPaths(btn, ICON_CHECK)
-    btn.dataset.timer = String(setTimeout(disarmDelete, DELETE_ARM_MS))
-    armedDeleteBtn = btn
-  }
-
-  function disarmDelete() {
-    const btn = armedDeleteBtn
-    armedDeleteBtn = null
-    if (!btn) return
-    clearTimeout(Number(btn.dataset.timer))
-    delete btn.dataset.armed
-    delete btn.dataset.timer
-    btn.classList.remove('is-armed')
-    btn.title = '刪除對話'
-    btn.setAttribute('aria-label', '刪除對話')
-    setIconPaths(btn, ICON_TRASH)
-  }
-
-  /** @param {ConvSummary} conv */
   async function deleteConversation(conv) {
-    // 回應中的對話也可以刪：main 會先把那條串流停掉
+    const yes = await askConfirm(`刪除對話「${conv.title}」？`, {
+      confirmText: '刪除',
+      danger: true
+    })
+    if (!yes) return
     await electronAPI.chat.delete(conv.id)
     await deps.onDeleted(conv.id)
   }
@@ -514,21 +470,43 @@ function setIconPaths(el, paths) {
 }
 
 /**
- * @param {string[]} paths
- * @param {string} label
- * @param {() => void} onClick
- * @returns {HTMLButtonElement}
+ * 整列右鍵、選單鍵或 Shift+F10 叫出選單。右鍵不冒泡，避免被當成開啟對話或收合資料夾。
+ * @param {HTMLElement} row
+ * @param {(point: { x: number, y: number }) => void} openMenu
  */
-function listActionButton(paths, label, onClick) {
-  const btn = document.createElement('button')
-  btn.type = 'button'
-  btn.className = 'chat-list-btn'
-  btn.title = label
-  btn.setAttribute('aria-label', label)
-  setIconPaths(btn, paths)
-  btn.addEventListener('click', (event) => {
+function bindRowMenu(row, openMenu) {
+  row.tabIndex = -1
+  row.addEventListener('contextmenu', (event) => {
+    if (isRenameField(event)) return
+    event.preventDefault()
     event.stopPropagation()
-    onClick()
+    const point = event.button === 2
+      ? { x: event.clientX, y: event.clientY }
+      : rowMenuPoint(row)
+    openMenu(point)
   })
-  return btn
+  row.addEventListener('keydown', (event) => {
+    if (isRenameField(event) || !isRowMenuKey(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    openMenu(rowMenuPoint(row))
+  })
+}
+
+/** @param {Event} event */
+function isRenameField(event) {
+  const target = /** @type {HTMLElement | null} */ (event.target)
+  return Boolean(target?.closest?.('.chat-list-rename'))
+}
+
+/** @param {KeyboardEvent} event */
+function isRowMenuKey(event) {
+  if (event.altKey || event.ctrlKey || event.metaKey) return false
+  return event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)
+}
+
+/** 鍵盤沒有游標時，選單貼在那一列的左下。 @param {HTMLElement} row */
+function rowMenuPoint(row) {
+  const rect = row.getBoundingClientRect()
+  return { x: rect.left + 8, y: rect.bottom }
 }

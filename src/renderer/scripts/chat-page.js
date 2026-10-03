@@ -97,6 +97,8 @@ let promptContentInput = null
 
 // ===== 狀態 =====
 let currentId = ''
+/** 目前打開的是網頁版 AI 對話（主區是 webview，composer 不能送到這一則） */
+let currentIsWeb = false
 /** @type {ReturnType<typeof createChatSidebar> | null} */
 let sidebar = null
 /**
@@ -117,6 +119,9 @@ let openSeq = 0
 let attachments = []
 /** 圖片檔名 → data URL，避免每次重畫都跟 main 要一次 */
 const imageCache = new Map()
+// 只留最近約 16MB（以 UTF-16 上限計）；歷史附件仍在磁碟，不跟瀏覽過的對話一起累積。
+const IMAGE_CACHE_MAX_CHARS = 8 * 1024 * 1024
+let imageCacheChars = 0
 /** 提示管理彈窗的草稿 @type {Array<{ id: string, name: string, content: string }>} */
 let promptDraft = []
 let promptDraftId = ''
@@ -179,6 +184,10 @@ export function initChatPage() {
 
   sendBtn?.addEventListener('click', handleSend)
   newBtn?.addEventListener('click', () => void handleNew())
+  // ChatGPT／Gemini／Claude／Grok：跟 Local 一樣，每按一次在側欄新增一則
+  document.querySelectorAll('.ai-web-btn').forEach((btn) => {
+    btn.addEventListener('click', () => void handleNew('', /** @type {HTMLElement} */ (btn).dataset.aiWeb))
+  })
   document.getElementById('chatNewFolderBtn')?.addEventListener('click', () => void sidebar.createFolder())
   paramsBtn?.addEventListener('click', () => void handleParams())
   modelSelect?.addEventListener('change', handleModelChange)
@@ -251,6 +260,7 @@ function statusOf(id, conv) {
  */
 async function onDeleted(id) {
   finished.delete(id)
+  import('./ai-web-page.js').then((m) => m.releaseAiWeb(id))
   if (id !== currentId) {
     await sidebar.reload()
     return
@@ -264,8 +274,6 @@ async function onDeleted(id) {
  * @param {string} id
  */
 async function openConversation(id) {
-  // 聊天與終端機同頁：點對話就是切回對話主區
-  setChatPaneMode('chat')
   const seq = ++openSeq
   const conv = await electronAPI.chat.get(id)
   if (seq !== openSeq) return
@@ -274,6 +282,16 @@ async function openConversation(id) {
     return
   }
   currentId = conv.id
+  currentIsWeb = !!conv.web
+  if (conv.web) {
+    hideError()
+    sidebar.render()
+    const m = await import('./ai-web-page.js')
+    if (seq === openSeq) m.openAiWeb(conv, () => void sidebar.reload())
+    return
+  }
+  // 聊天與終端機同頁：點對話就是切回對話主區
+  setChatPaneMode('chat')
   showConversation(conv)
   const seen = finished.get(conv.id)
   finished.delete(conv.id)
@@ -306,12 +324,20 @@ function withoutTrailingAssistant(messages) {
 
 /**
  * @param {string} [folderId] 從資料夾選單開的就放進那個資料夾
+ * @param {string} [site] chatgpt／gemini／claude／grok＝新增網頁版 AI 對話
  */
-async function handleNew(folderId = '') {
+async function handleNew(folderId = '', site = '') {
+  if (site) {
+    const conv = await electronAPI.chat.create(folderId, site)
+    await sidebar.reload()
+    await openConversation(conv.id)
+    return
+  }
   setChatPaneMode('chat')
   openSeq += 1
   const conv = await electronAPI.chat.create(folderId)
   currentId = conv.id
+  currentIsWeb = false
   showConversation(conv)
   hideError()
   await sidebar.reload()
@@ -420,6 +446,7 @@ function buildImageRow(urls, names) {
     const img = buildImage(imageCache.get(name) || '')
     if (!imageCache.has(name)) {
       loadImage(name).then((dataUrl) => {
+        if (!img.isConnected) return
         if (dataUrl) img.src = dataUrl
         else img.remove()
       })
@@ -462,7 +489,18 @@ async function loadImage(name) {
   } catch {
     url = ''
   }
-  imageCache.set(name, url)
+  if (url && url.length <= IMAGE_CACHE_MAX_CHARS) {
+    // 同一張圖可能有兩個同時完成的讀取，替換前先扣掉原值。
+    imageCacheChars -= imageCache.get(name)?.length || 0
+    imageCache.delete(name)
+    while (imageCacheChars + url.length > IMAGE_CACHE_MAX_CHARS && imageCache.size) {
+      const oldest = imageCache.keys().next().value
+      imageCacheChars -= imageCache.get(oldest).length
+      imageCache.delete(oldest)
+    }
+    imageCache.set(name, url)
+    imageCacheChars += url.length
+  }
   return url
 }
 
@@ -745,6 +783,11 @@ function initComposer() {
  */
 function insertIntoComposer(text) {
   if (!inputEl || !text) return
+  // 開著的是網頁版對話：輸入框屬於 Local，先開一則新的再放進去
+  if (currentIsWeb) {
+    void handleNew().then(() => insertIntoComposer(text))
+    return
+  }
   setChatPaneMode('chat')
   const current = inputEl.value.replace(/\s+$/, '')
   inputEl.value = current ? `${current}\n\n${text}` : text
@@ -909,6 +952,7 @@ async function refreshThinkToggle() {
 // ===== 送出與串流 =====
 
 async function handleSend() {
+  if (currentIsWeb) return
   const running = streams.get(currentId)
   if (running) {
     await electronAPI.chat.abort(running.reqId)

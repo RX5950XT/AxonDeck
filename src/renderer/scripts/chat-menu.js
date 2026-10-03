@@ -1,8 +1,9 @@
 /**
- * 聊天側欄的小選單（「⋯」按下去那一塊）。
- *
- * 掛在 `document.body` 上：側欄有 `backdrop-filter`，會偷走 `position: fixed` 的定位基準。
+ * 聊天側欄的選單。掛在 `document.body`：側欄有 `backdrop-filter`，會偷走 `position: fixed` 的定位基準。
  * 全程 createElement + textContent（選項裡有資料夾名稱與對話標題，都是使用者輸入）。
+ *
+ * 兩參數 `(anchor, items)` 維持貼在 anchor、再叫一次同一個 anchor 就收合。
+ * 第三參數 `point` 貼在游標或鍵盤列的座標，並夾在視窗內。
  */
 
 /** @typedef {{ label: string, onSelect: () => void, danger?: boolean, checked?: boolean, disabled?: boolean } | { separator: true }} MenuItem */
@@ -20,20 +21,21 @@ export function closeChatMenu() {
 }
 
 /**
- * @param {HTMLElement} anchor
+ * @param {HTMLElement} anchor 關閉（Escape）時把焦點還給它
  * @param {MenuItem[]} items
+ * @param {{ x: number, y: number } | null} [point] 省略則貼在 anchor
  */
-export function openChatMenu(anchor, items) {
-  const reopen = open?.anchor === anchor
+export function openChatMenu(anchor, items, point) {
+  const toggleOff = open?.anchor === anchor && point == null
   closeChatMenu()
-  if (reopen) return
+  if (toggleOff) return
 
   const el = document.createElement('div')
   el.className = 'chat-menu'
   el.setAttribute('role', 'menu')
   for (const item of items) el.appendChild(buildItem(item))
   document.body.appendChild(el)
-  place(el, anchor)
+  place(el, anchor, point)
   anchor.setAttribute('aria-expanded', 'true')
 
   const onPointer = (event) => {
@@ -92,19 +94,42 @@ function buildItem(item) {
 }
 
 /**
- * 預設貼在按鈕右下，超出視窗就往左／往上翻
+ * 沒給座標就貼在 anchor 右下，超出視窗就往左／往上翻。
+ * 有座標就以那個點為左上角，右邊或下邊不夠就整塊挪進視窗。
  * @param {HTMLElement} el
  * @param {HTMLElement} anchor
+ * @param {{ x: number, y: number } | null | undefined} point
  */
-function place(el, anchor) {
-  const r = anchor.getBoundingClientRect()
+function place(el, anchor, point) {
+  if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+    placeAtPoint(el, point.x, point.y)
+    return
+  }
+  const rect = anchor.getBoundingClientRect()
   const w = el.offsetWidth
   const h = el.offsetHeight
-  const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8))
-  const below = r.bottom + 4
-  const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 4) : below
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - w - 8))
+  const below = rect.bottom + 4
+  const top = below + h > window.innerHeight - 8 ? Math.max(8, rect.top - h - 4) : below
   el.style.left = `${Math.round(left)}px`
   el.style.top = `${Math.round(top)}px`
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} x
+ * @param {number} y
+ */
+function placeAtPoint(el, x, y) {
+  const margin = 8
+  const w = el.offsetWidth
+  const h = el.offsetHeight
+  let left = x
+  let top = y
+  if (left + w > window.innerWidth - margin) left = window.innerWidth - margin - w
+  if (top + h > window.innerHeight - margin) top = window.innerHeight - margin - h
+  el.style.left = `${Math.round(Math.max(margin, left))}px`
+  el.style.top = `${Math.round(Math.max(margin, top))}px`
 }
 
 /**

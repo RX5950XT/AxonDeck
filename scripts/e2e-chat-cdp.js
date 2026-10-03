@@ -225,7 +225,7 @@ async function checkConcurrentUi(cdp, fake, check) {
     const aText = await cdp.eval(`[...document.querySelectorAll('#chatMessages .chat-msg-assistant')].at(-1)?.textContent || ''`)
     check('甲在背景收到的回覆完整', aText.includes('字12'), aText)
 
-    // 資料夾：側欄按鈕開得出命名彈窗 → 從「⋯」選單把甲搬進去 → 收合
+    // 資料夾：側欄按鈕開得出命名彈窗 → 從右鍵選單把甲搬進去 → 收合
     // 命名彈窗靠 `close` 事件回結果，而視窗在背景時 Chromium 會延後派發它（見 e2e-app-dialog-cdp.js
     // 要叫到最前面的原因），所以這裡只驗「開得出來」，資料夾本身走 API 建
     await cdp.eval(`document.getElementById('chatNewFolderBtn').click()`)
@@ -248,12 +248,12 @@ async function checkConcurrentUi(cdp, fake, check) {
     })()`), 5_000, '資料夾出現在側欄')
     check('資料夾出現在側欄', !!folderId)
 
-    await cdp.eval(`document.querySelector('${row(made.a)} [data-action="more"]').click()`)
+    await cdp.eval(rightClick(row(made.a)))
     await waitFor(() => cdp.eval(`(() => {
       const item = [...document.querySelectorAll('.chat-menu .chat-menu-item')].find((b) => b.textContent === 'CDP-資料夾')
       item?.click()
       return !!item
-    })()`), 5_000, '更多選單出現資料夾')
+    })()`), 5_000, '右鍵選單出現資料夾')
     await waitFor(() => cdp.eval(
       `!!document.querySelector('#chatList .chat-folder[data-folder-id="${folderId}"] ${row(made.a).replace('#chatList ', '')}')`
     ), 5_000, '甲搬進資料夾')
@@ -685,16 +685,17 @@ async function main() {
       await cdp.eval(`document.querySelector('.nav-tab[data-page="ccswitch"]').click()`)
       await cdp.eval(`document.querySelector('.nav-tab[data-page="chat"]').click()`)
       await waitFor(() => cdp.eval(
-        `!!document.querySelector('.chat-list-item[data-id="${made.b}"] .chat-list-btn')`
+        `!!document.querySelector('.chat-list-item[data-id="${made.b}"]')`
       ), 15_000, '側欄列渲染')
 
       const buttons = await cdp.eval(
-        `document.querySelectorAll('.chat-list-item[data-id="${made.a}"] .chat-list-btn').length`
+        `document.querySelectorAll('#chatList .chat-list-btn').length`
       )
-      check('每一列都有改名、刪除、更多三顆按鈕', buttons === 3, String(buttons))
+      check('對話列不再有三點／改名／刪除小按鈕', buttons === 0, String(buttons))
 
-      // 改名：按 ✎ → 就地輸入框 → Enter
-      await cdp.eval(`document.querySelector('.chat-list-item[data-id="${made.a}"] .chat-list-btn').click()`)
+      // 改名：右鍵 → 重新命名 → 就地輸入框 → Enter
+      await cdp.eval(rightClick(`.chat-list-item[data-id="${made.a}"]`))
+      await cdp.eval(clickMenuItem('重新命名'))
       const renamed = await waitFor(async () => {
         const done = await cdp.eval(`(() => {
           const input = document.querySelector('.chat-list-item[data-id="${made.a}"] .chat-list-rename')
@@ -733,24 +734,18 @@ async function main() {
       check('拖曳排序會寫回 main', Array.isArray(persisted) && persisted[0] === made.a && persisted[1] === made.b,
         Array.isArray(persisted) ? persisted.slice(0, 2).join(',') : '未落盤')
 
-      // 刪除：二次確認在按鈕上，不開原生 confirm（原生彈窗會卡死整個 CDP session）
-      const armed = await cdp.eval(`(async () => {
-        const btn = document.querySelectorAll('.chat-list-item[data-id="${made.b}"] .chat-list-btn')[1]
-        btn.click()
-        await new Promise((r) => setTimeout(r, 200))
-        return {
-          armed: btn.classList.contains('is-armed'),
-          stillThere: !!(await window.electronAPI.chat.get('${made.b}'))
-        }
-      })()`)
-      check('第一次按刪除只進入待確認、不刪東西', armed.armed && armed.stillThere, JSON.stringify(armed))
-
-      const removed = await cdp.eval(`(async () => {
-        document.querySelectorAll('.chat-list-item[data-id="${made.b}"] .chat-list-btn')[1].click()
-        await new Promise((r) => setTimeout(r, 800))
-        return !(await window.electronAPI.chat.get('${made.b}'))
-      })()`)
-      check('再按一次才真的刪除', removed === true)
+      // 刪除：右鍵 → 刪除對話 → App 自己的確認彈窗（不是原生 confirm，原生彈窗會卡死 CDP）。
+      // 彈窗結果靠 close 事件，背景視窗會延後派發（見上面資料夾那段），這裡只驗「先問、不直接刪」
+      await cdp.eval(rightClick(`.chat-list-item[data-id="${made.b}"]`))
+      await cdp.eval(clickMenuItem('刪除對話'))
+      const asking = await waitFor(() => cdp.eval(`(async () => {
+        const dialog = document.querySelector('dialog.app-dialog[open]')
+        if (!dialog) return null
+        const stillThere = !!(await window.electronAPI.chat.get('${made.b}'))
+        dialog.close('')
+        return { stillThere }
+      })()`), 5_000, '刪除確認彈窗')
+      check('刪除先跳確認、不直接刪', asking.stillThere === true, JSON.stringify(asking))
     } finally {
       await cdp.eval(`(async () => {
         await window.electronAPI.chat.delete('${made.a}')
@@ -763,6 +758,7 @@ async function main() {
     check('測試用對話已清乾淨', leftovers === 0, String(leftovers))
 
     await checkConcurrentUi(cdp, fake, check)
+    await checkAiWeb(cdp, check)
 
     check('沒有未捕捉的例外', cdp.exceptions.length === 0, cdp.exceptions.join(' | '))
   } catch (error) {
@@ -797,3 +793,157 @@ main().catch((error) => {
   console.error(error)
   process.exit(1)
 })
+
+/** 對著那一列按右鍵（座標取列中心，跟真的滑鼠一樣帶 button 2） */
+function rightClick(selector) {
+  return `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)})
+    const r = el.getBoundingClientRect()
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2,
+      clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }))
+    return true
+  })()`
+}
+
+/** 點右鍵選單裡那一項 */
+function clickMenuItem(label) {
+  return `(() => {
+    const item = [...document.querySelectorAll('.chat-menu .chat-menu-item')].find((b) => b.textContent === ${JSON.stringify(label)})
+    item?.click()
+    return !!item
+  })()`
+}
+
+/**
+ * AI 頁：導覽列／側欄名稱、六顆按鈕；四家按鈕跟 Local 一樣每按一次新增一則（可多開），
+ * 每則記自己的網址、重點照那個網址開；切走 5 分鐘後收掉、再點照原網址接回。
+ * 只驗 webview 的分區與網址（會真的連各家網站，但不登入、不看載入結果）。
+ */
+async function checkAiWeb(cdp, check) {
+  console.log('\nAI 頁：網頁版 AI 對話')
+  const SAVED = 'https://claude.ai/chat/cdp-keep'
+  const labels = await cdp.eval(`(() => ({
+    nav: document.querySelector('.nav-tab[data-page="chat"] .nav-text').textContent.trim(),
+    modes: [...document.querySelectorAll('.sidebar-mode')].map((b) => b.textContent.trim()),
+    buttons: [...document.querySelectorAll('.chat-panel-actions .btn')].map((b) => b.textContent.trim()),
+    icons: document.querySelectorAll('.chat-panel-actions .ws-tool-icon').length
+  }))()`)
+  check('導覽列叫 AI、側欄叫 Agent／Chat', labels.nav === 'AI' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
+  check('六顆按鈕：Local、資料夾、ChatGPT、Gemini、Claude、Grok',
+    labels.buttons.join() === 'Local,資料夾,ChatGPT,Gemini,Claude,Grok' && labels.icons === 5, JSON.stringify(labels))
+
+  const before = await cdp.eval(`(async () => (await window.electronAPI.chat.list()).map((c) => c.id))()`)
+  const webRows = (site) => cdp.eval(`(async () => (await window.electronAPI.chat.list()).filter((c) => c.web === '${site}').map((c) => c.id))()`)
+  const viewOf = (id) => `document.querySelector('#aiWebMain .ai-web-pane[data-conv-id="${id}"] webview')`
+  try {
+    // 按兩次 ChatGPT：側欄多兩則、各自一個 webview（同一個登入分區），只顯示最新那則
+    await cdp.eval(`document.querySelector('.ai-web-btn[data-ai-web="chatgpt"]').click()`)
+    await waitFor(async () => (await webRows('chatgpt')).length === 1, 10_000, '第一則 ChatGPT')
+    await cdp.eval(`document.querySelector('.ai-web-btn[data-ai-web="chatgpt"]').click()`)
+    const gpt = await waitFor(async () => {
+      const ids = await webRows('chatgpt')
+      return ids.length === 2 ? ids : null
+    }, 10_000, '第二則 ChatGPT')
+    const two = await waitFor(() => cdp.eval(`(() => {
+      const a = ${viewOf(gpt[1])}
+      const b = ${viewOf(gpt[0])}
+      if (!a || !b) return null
+      return {
+        partitions: [a.getAttribute('partition'), b.getAttribute('partition')],
+        olderHidden: a.parentElement.hidden, newerShown: !b.parentElement.hidden,
+        webShown: !document.getElementById('aiWebMain').classList.contains('hidden'),
+        chatHidden: document.getElementById('chatMain').classList.contains('hidden'),
+        meta: document.querySelector('#chatList .chat-list-item[data-id="${gpt[0]}"] .chat-list-meta')?.textContent || '',
+        ua: b.getUserAgent()
+      }
+    })()`), 15_000, '兩則 ChatGPT webview')
+    check('ChatGPT 按兩次＝側欄兩則、各自 webview、只顯示最新那則',
+      two.partitions.every((p) => p === 'persist:ai-chatgpt') && two.olderHidden && two.newerShown && two.webShown && two.chatHidden,
+      JSON.stringify(two))
+    check('側欄標出是哪一家的網頁版', two.meta.includes('ChatGPT 網頁版'), two.meta)
+    check('網頁版 UA 跟真 Chrome 一樣（沒有 Electron 字樣、版本縮成 .0.0.0）', !/Electron\//.test(two.ua) && /Chrome\/\d+\.0\.0\.0 /.test(two.ua), two.ua)
+
+    // 每則記自己的網址：main 擋別的網域與登入頁，留下可接續的那頁；點那則就照它開
+    const claude = await cdp.eval(`(async () => {
+      const api = window.electronAPI.chat
+      const c = await api.create('', 'claude')
+      const ok = await api.setWebUrl(c.id, ${JSON.stringify(SAVED)})
+      const bad = await api.setWebUrl(c.id, 'https://evil.example/')
+      const login = await api.setWebUrl(c.id, 'https://claude.ai/login')
+      return { id: c.id, ok, bad, login, url: (await api.get(c.id)).web.url }
+    })()`)
+    check('每則存自己的網址，別的網域／登入頁不蓋掉', claude.ok && !claude.bad && !claude.login && claude.url === SAVED, JSON.stringify(claude))
+    const titled = await cdp.eval(`(async () => {
+      const api = window.electronAPI.chat
+      await api.setWebTitle('${claude.id}', 'Sign in - Claude', 'https://claude.ai/login')
+      const login = (await api.get('${claude.id}')).title
+      await api.setWebTitle('${claude.id}', '寫報告 - Claude', ${JSON.stringify(SAVED)})
+      const auto = (await api.get('${claude.id}')).title
+      await api.rename('${claude.id}', '我自己取的')
+      await api.setWebTitle('${claude.id}', '別的 - Claude', ${JSON.stringify(SAVED)})
+      return { login, auto, kept: (await api.get('${claude.id}')).title }
+    })()`)
+    check('對話頁的分頁標題當側欄標題（登入頁不算），自己改過名就不覆蓋',
+      titled.login === 'Claude' && titled.auto === '寫報告' && titled.kept === '我自己取的', JSON.stringify(titled))
+
+    await cdp.eval(`(async () => {
+      document.querySelector('.nav-tab[data-page="ccswitch"]').click()
+      document.querySelector('.nav-tab[data-page="chat"]').click()
+    })()`)
+    await waitFor(() => cdp.eval(`!!document.querySelector('#chatList .chat-list-item[data-id="${claude.id}"] .chat-list-open')`), 10_000, 'Claude 那則出現在側欄')
+    await cdp.eval(`document.querySelector('#chatList .chat-list-item[data-id="${claude.id}"] .chat-list-open').click()`)
+    const opened = await waitFor(() => cdp.eval(`${viewOf(claude.id)}?.getAttribute('src') || ''`), 10_000, 'Claude webview')
+    check('點側欄那則，照它存的網址開', opened === SAVED, opened)
+
+    const menu = await cdp.eval(`(async () => {
+      await ${rightClick(`#chatList .chat-list-item[data-id="${claude.id}"]`)}
+      await new Promise((r) => setTimeout(r, 200))
+      const items = [...document.querySelectorAll('.chat-menu .chat-menu-item')].map((b) => b.textContent)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      return items
+    })()`)
+    check('網頁版對話也有右鍵選單（改名、刪除、搬資料夾），沒有匯出', menu.includes('重新命名') && menu.includes('刪除對話') && !menu.some((t) => t.includes('匯出')), menu.join('、'))
+
+    await cdp.eval(`document.getElementById('chatNewBtn').click()`)
+    const back = await waitFor(() => cdp.eval(`document.getElementById('aiWebMain').classList.contains('hidden')
+      && !document.getElementById('chatMain').classList.contains('hidden')`), 10_000, 'Local 回對話主區')
+    check('點 Local 回到對話主區', back === true)
+
+    // 藏著超過 5 分鐘就收掉：等 sweep 先記下「開始藏」，再把時鐘撥快 6 分鐘等下一輪
+    await sleep(31_000)
+    const memBefore = appMemoryMb()
+    await cdp.eval(`(() => { const real = Date.now; window.__realNow = real; Date.now = () => real() + 6 * 60 * 1000; return true })()`)
+    const released = await waitFor(() => cdp.eval(`!document.querySelector('#aiWebMain webview')`), 40_000, '藏久的 webview 收掉')
+      .catch(() => false)
+    await cdp.eval(`(() => { if (window.__realNow) Date.now = window.__realNow; return true })()`)
+    check('藏超過 5 分鐘的網頁版 AI 會收掉', released === true)
+    await sleep(5_000) // guest 程序結束要一點時間
+    const memAfter = appMemoryMb()
+    console.log(`        App 記憶體：${memBefore.total}MB（${memBefore.count} 個程序）→ ${memAfter.total}MB（${memAfter.count} 個程序）`)
+    check('收掉後整個 App 的記憶體下降', memAfter.total < memBefore.total,
+      `${memBefore.total}MB（${memBefore.count} 個程序）→ ${memAfter.total}MB（${memAfter.count} 個程序）`)
+
+    await cdp.eval(`document.querySelector('#chatList .chat-list-item[data-id="${claude.id}"] .chat-list-open').click()`)
+    const again = await waitFor(() => cdp.eval(`${viewOf(claude.id)}?.getAttribute('src') || ''`), 10_000, '再開 Claude')
+    const last = await cdp.eval(`(async () => (await window.electronAPI.chat.get('${claude.id}')).web.url)()`)
+    check('收掉後再點，照這則最後記住的網址接回', again === last && again.startsWith('https://claude.ai/'), `${again} / ${last}`)
+  } finally {
+    await cdp.eval(`(async () => {
+      document.getElementById('chatNewBtn').click()
+      await new Promise((r) => setTimeout(r, 500))
+      const keep = new Set(${JSON.stringify(before)})
+      for (const c of await window.electronAPI.chat.list()) if (!keep.has(c.id)) await window.electronAPI.chat.delete(c.id)
+      return true
+    })()`)
+  }
+}
+
+/** 這次測試開的 App（用隔離的 user-data-dir 認）所有程序的 working set 合計，MB */
+function appMemoryMb() {
+  const tag = path.basename(USER_DATA_DIR).replace(/'/g, "''")
+  const out = execFileSync('powershell', ['-NoProfile', '-Command',
+    `$p = Get-CimInstance Win32_Process -Filter "Name='VoiceInk.exe'" | Where-Object { $_.CommandLine -like '*${tag}*' }; ` +
+    "'{0} {1}' -f @($p).Count, [math]::Round((($p | Measure-Object WorkingSetSize -Sum).Sum) / 1MB)"],
+  { encoding: 'utf8', windowsHide: true }).trim().split(/\s+/)
+  return { count: Number(out[0]), total: Number(out[1]) }
+}

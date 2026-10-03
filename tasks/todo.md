@@ -1,3 +1,22 @@
+# 2026-10-04 — AI 入口、網頁對話與記憶體
+
+- [x] 頂部 AI 圖示與 Agent／Chat 名稱；六顆按鈕兩欄排列。
+- [x] 四家 AI 網頁獨立登入分區、保存最後網址，切回及重開仍可接續；處理載入失敗。
+- [x] 對話／資料夾改右鍵選單，保留改名、刪除、移動與匯出及鍵盤操作（Grok 4.7 high）。
+- [x] 限制圖片快取及網頁背景資源；量測整個 App，檢查網址與資料不丟失。
+- [x] 跑回歸及免安裝打包；隔離背景 CDP 驗證畫面、持久化、記憶體，記錄實際限制。
+
+## Review
+
+- 導覽列「聊天」→「AI」（sparkles 圖示）；側欄「專案／對話」→「Agent／Chat」。六顆鈕兩欄三列：Local（原新對話）、資料夾、ChatGPT、Gemini、Claude、Grok，只亮目前所在那顆。
+- 網頁版 AI 放在 AI 頁主區（`setChatPaneMode('web')`＋`ai-web-page.js`），每家 `persist:ai-<id>` 分區、UA 去掉 Electron 字樣；最後網址存 store `aiWebUrls`，main 的 `ai-web.js` 擋別的網域／登入頁／帶授權碼，不合格沿用上次而不洗回首頁。
+- 記憶體：沒在看的網頁版 5 分鐘後整個收掉，再點照網址接回；打包 CDP 實測兩家收掉後 App 1318MB／9 程序 → 742MB／6 程序。聊天圖片快取限約 16MB（`test-chat-image-memory.js` 先紅後綠）。
+- 側欄三點與小按鈕改整列右鍵選單（Grok 4.7 high 實作，主代理審過）：改名、刪除（確認）、匯出、移動資料夾、新資料夾並移入；選單鍵／Shift+F10 可開。
+- 驗證：`test-chat-sidebar.js`、`test-ai-web.js`、`test-chat-image-memory.js`、error hygiene 85/0、IPC 11/0、workspace UI 183/0、window security 通過；`electron:pack` 255 支 src 與 asar 一致；打包 CDP：chat 71/0、smoke 22/0、workspace 192/0。`test-temp-hygiene.js` 仍只報既有的 `test-usage.js:824,844`。
+- 打包第一次失敗是把 log 導進專案內 `.tmp/`：`files: **/*` 會把邊寫邊長的檔案收進 asar，後面檔案全部錯位；log 改放專案外即通過。
+- 追加（使用者要求）：四家按鈕改成跟 Local 一樣每按一次新增一則，存在 chats.json 的 `web`，每則記自己的網址與自動標題；改名、刪除、搬資料夾沿用。
+- 登入：Google 原本在 webview 內被判「瀏覽器可能有安全疑慮」→ `accounts.google.com` 整頁導覽換非瀏覽器識別後走精簡版登入，實測 Gemini、ChatGPT 的 Google 登入走到「輸入密碼」；Claude 的 Google 登入改在 App 內開小視窗（實測有開出 Google 登入頁）；瀏覽器特徵補齊 `window.chrome`、UA 縮版號、權限不再全開。Grok 首頁的 Cloudflare 勾選框在自動化下點不進去，需真人點一次確認。未輸入任何密碼。
+- 驗證：test-ai-web／chat-sidebar／image-memory／error hygiene 85/0／IPC 11/0／workspace UI 183/0／window security 通過；打包 CDP chat 74/0（收掉網頁 App 1383MB→697MB）、smoke 22/0、workspace 192/0。
 # 2026-10-03 — 搜尋記憶體、五種 AI 紀錄與終端機接續
 
 - [x] 追查搜尋用量並保留功能，建立先失敗的回歸與前後記憶體量測。

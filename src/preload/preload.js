@@ -641,7 +641,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke('chat:list'),
     get: (id) => ipcRenderer.invoke('chat:get', id),
     /** @param {string} [folderId] 放進哪個資料夾（空＝未分類）；取樣參數由 main 帶預設值 */
-    create: (folderId) => ipcRenderer.invoke('chat:create', folderId),
+    create: (folderId, site) => ipcRenderer.invoke('chat:create', folderId, site),
+    setWebUrl: (id, url) => ipcRenderer.invoke('chat:setWebUrl', id, url),
+    setWebTitle: (id, title, url) => ipcRenderer.invoke('chat:setWebTitle', id, title, url),
     delete: (id) => ipcRenderer.invoke('chat:delete', id),
     rename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
     /** @param {Array<string | { id: string, folderId: string }>} items 側欄拖曳後的完整順序；main 只接受既有 id */

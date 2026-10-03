@@ -9,10 +9,18 @@ VoiceInk：Windows Electron AI 工作台。Vanilla JS + Vite（無前端框架�
 目前版本 **v1.38.4**（檔案轉錄遇到限流或逾時會重試並保留已完成內容；前版 v1.38.3：修復原生媒體有聲音卻沒有視窗；前版 v1.38.2：CC模型掃描修正與 lab 分組；前版 v1.38.1：CC模型每日同步、下載加速與語音膠囊修復；前版 v1.38.0：原生媒體彈窗、圖片動畫／影音與背景關聯；前版 v1.37.5：檔案與資料夾內容預覽排除 VoiceInk logo，保留真縮圖與同步標記；前版 v1.37.4：正式安裝包保留自動更新設定、Claude 舊資料卡片不再消失；前版 v1.37.3 修復檔案圖示與語音設定；前版 v1.37.2：終端機改用登錄檔裡的使用者環境，不再帶著開 App 那個程序的 `NO_COLOR`（Claude 整片白）／Claude 標記／`WT_SESSION`；前版 v1.37.1 應用程式內更新改成看得到進度、裝完自己開回來，關機時不再順手開安裝程式；終端機不再繼承 Claude 工作階段標記；前版 v1.37.0 檔案頁方格縮圖有 Google Drive 綠勾／雲朵、每個資料夾各自記住檢視／Ctrl+滾輪大小／排序；前版 v1.36.3 系統監控硬碟溫度不再把 LHM 的警告／危險門檻當讀數（偏高到 75 °C）、系統監控 e2e 收尾不再留 nvidia-smi 孤兒；前版 v1.36.2 感測器元件不再開機 8 秒就自己結束、風扇一直接得住；終端機 Claude 狀態不再閃、排隊訊息不再顯示閒置；前版 v1.36.1 系統監控感測器滿載不再掉線、風扇重連後接得回去、感測器上線 8 秒 → 1.5 秒；前版 v1.36.0 檔案頁右鍵對準選到的東西、首頁卡片有右鍵、詳細資訊依類型補齊（照片 EXIF、影音串流、程式版本、文字編碼）、大照片與影片縮圖；前版 v1.35.0 終端機新增 Claude Code 狀態與重開接回；檔案頁支援本機磁碟插拔更新與手機網頁瀏覽；前版 v1.34.0 工作區檔案可就地新增、改名並內建瀏覽器；Telegram 卡在「等待網路連線」或格子當掉會自己全部重載、當機原因記到 `crash.log`、Grok／Antigravity 額度 token 過期會代跑 CLI 自動續期、使用時長記得到 VoiceInk 自己；前版 v1.33.0 系統監控強制結束權限不足會跳 UAC、Telegram 多開一格一格載且 ✕ 會交棒；前版 v1.32.0 系統監控多「磁碟空間」子分頁（仿 disktree，Rust 平行掃描＋treemap）、檔案頁補齊內容視窗與 ZIP 瀏覽；前版 v1.31.0 最重的幾段改 Rust：終端機宿主 `voiceink-term.exe`、用量掃描、資料夾大小、語音輸入熱鍵；常駐 sidecar 不再掛 conhost；前版 v1.30.0 主程序同步 I/O 改非同步＋逾時修「沒有回應」、全專案 UX 稽核、檔案頁排序／範圍切換／欄寬、終端機快捷鍵；再前 v1.29.0 語音轉文字頁多了錄音機、即時字幕留逐字稿紀錄；再前 v1.28.1 Telegram 切回來不再卡；再前 v1.25.0：檔案總管雙欄右欄變成真的能用、操作中心收進狀態列且同名時可覆蓋、
 資料夾監看不再漏事件；前版終端機 PATH 不再被 Ctrl+G 橋接蓋掉；再前檢查更新改走鏡像）。
 
-nav 十頁：聊天（預設，**專案工作區與終端機都在同一頁**）｜Telegram（官方網頁版 `web.telegram.org/a` 放進 `<webview>`，可並排多開最多 4 格（沒存過開 2 格；每格卡 600px，Web A 一律手機版版面）、共用 `persist:telegram`，一格載完等 1.5 秒才載下一格（同時開會有好幾格拿同一把金鑰一起連），每格頂端細列 ✕ 關（先導到 `about:blank` 再拿掉：直接拿掉 webview 不觸發 beforeunload，關到 Web A 的主分頁其他格會全斷）／最右格 ＋ 再開，每格停的聊天室存 store `telegramPanes`（不用 localStorage：結束走 `app.exit()` 會掉最後幾秒的寫入）；`telegram-page.js`，第一次點才建）｜檔案｜CC代理（`data-page` 仍是 `ccswitch`）｜
+nav 十頁：AI（`data-page` 仍是 `chat`；預設，**Local 對話、網頁版 AI、專案工作區與終端機都在同一頁**）｜Telegram（官方網頁版 `web.telegram.org/a` 放進 `<webview>`，可並排多開最多 4 格（沒存過開 2 格；每格卡 600px，Web A 一律手機版版面）、共用 `persist:telegram`，一格載完等 1.5 秒才載下一格（同時開會有好幾格拿同一把金鑰一起連），每格頂端細列 ✕ 關（先導到 `about:blank` 再拿掉：直接拿掉 webview 不觸發 beforeunload，關到 Web A 的主分頁其他格會全斷）／最右格 ＋ 再開，每格停的聊天室存 store `telegramPanes`（不用 localStorage：結束走 `app.exit()` 會掉最後幾秒的寫入）；`telegram-page.js`，第一次點才建）｜檔案｜CC代理（`data-page` 仍是 `ccswitch`）｜
 AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定。額度不再是一頁：收成工作區主區最下面那條，用量統計在 CC代理。
 
 ## 架構
+
+### AI 頁：網頁版 AI、右鍵選單與記憶體（2026-10-04）
+
+- 側欄 Agent／Chat 兩分頁；Chat 上方六顆鈕都是「新增」：Local（本機／API 對話）、資料夾、ChatGPT、Gemini、Claude、Grok。主區三選一 `setChatPaneMode('chat'|'workspace'|'web')`，`#aiWebMain` 由 `ai-web-page.js` 管。
+- 網頁版 AI 對話跟 Local 存在同一份 chats.json，多一個 `web: { site, url, title }`：可多開、改名、刪除、搬資料夾、拖曳。webview 換頁回報 `chat:setWebUrl`、分頁標題回報 `chat:setWebTitle`（main `ai-web.js` 只收該站網域、擋登入／OAuth／授權碼；標題只收真正對話頁，使用者改過名就不覆蓋；Gemini 標題從頁面 DOM 讀）。第一次打開才建；藏超過 5 分鐘整個移除 webview，再點照存的網址重建。
+- 同一家共用 `persist:ai-<site>`（跟工作區瀏覽器 `persist:wsbrowser`、Telegram `persist:telegram` 都分開）。main `setupSession`：UA 縮成真 Chrome 格式、`ai-web-shim.js`（session frame preload，只補 `window.chrome.app/csi/loadTimes`）、權限只給剪貼簿／全螢幕／純麥克風；`accounts.google.com` 整頁導覽改送非瀏覽器識別走 Google 精簡版登入（不然被判「瀏覽器可能有安全疑慮」）；Google／Apple／X… 登入小視窗在 App 內開、共用同一分區。Edge 的 cookie 用 app-bound 加密，不做匯入。
+- 對話列／資料夾沒有三點與小按鈕，整列右鍵（或選單鍵／Shift+F10）叫 `chat-menu.js`；刪對話走 `askConfirm`。聊天圖片 data URL 快取以 LRU 限約 16MB。
+- 打包時不要把 log 寫進專案目錄：`build.files` 是 `**/*`，邊寫邊長的檔案會讓 asar 後面整串錯位，`pack-preview` 的比對會擋下。
 
 ### 搜尋記憶體、AI 紀錄與終端機接續（2026-10-03）
 

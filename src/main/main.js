@@ -1631,10 +1631,13 @@ ipcMain.handle('chat:list', async () => {
 })
 ipcMain.handle('chat:get', (event, id) => chatStore.get(id))
 // 新對話的取樣參數一律由 main 從預設值給，renderer 只能指定放哪個資料夾
-ipcMain.handle('chat:create', async (event, folderId) => {
+ipcMain.handle('chat:create', async (event, folderId, site) => {
   if (!store) await initStore()
-  return chatStore.create({ folderId, params: store.get('chatParams', {}) })
+  return chatStore.create({ folderId, site, params: store.get('chatParams', {}) })
 })
+// 網頁版 AI 對話：renderer 只回報 webview 換到哪、分頁標題是什麼，收不收由 chat-store／ai-web 把關
+ipcMain.handle('chat:setWebUrl', (event, id, url) => chatStore.setWebUrl(id, url))
+ipcMain.handle('chat:setWebTitle', (event, id, title, url) => chatStore.setWebTitle(id, title, url))
 ipcMain.handle('chat:delete', (event, id) => {
   chat.abortConversation(id)
   return chatStore.remove(id)
@@ -2130,8 +2133,21 @@ app.on('child-process-gone', (_event, details) => {
 
 // webview guest 的 popup 走不到主視窗那條 attachWindowSecurity（那是掛在
 // 主視窗 webContents 上），一律在 app 層補上：http(s) 交給系統瀏覽器，其餘擋掉。
+// 網頁版 AI 的登入分區（whenReady 時登記）：session → partition 名稱
+const aiWebPartitions = new Map()
 app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
+    const partition = aiWebPartitions.get(contents.session)
+    if (partition && require('./ai-web').isLoginPopup(url)) {
+      // 登入小視窗留在 App 裡、同一個分區，登完網站才收得到結果；一樣沙箱、沒有 preload
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520, height: 720, autoHideMenuBar: true, icon: APP_ICON,
+          webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false }
+        }
+      }
+    }
     try {
       const u = new URL(url)
       if (u.protocol === 'https:' || u.protocol === 'http:') {
@@ -2147,6 +2163,14 @@ app.whenReady().then(() => {
   // 沒搶到鎖的那份只負責把訊號送出去就結束，不可以建窗、更不可以 autoStart 反代（撞埠）
   if (!hasInstanceLock) return
   bootLog('whenReady')
+  // 網頁版 AI 的四個登入分區：瀏覽器特徵補成跟 Chrome 一樣（登入、hCaptcha、Cloudflare 才不會當成內嵌瀏覽器擋掉）、
+  // 權限只給用得到的
+  const aiWeb = require('./ai-web')
+  for (const site of Object.keys(aiWeb.SITES)) {
+    const ses = session.fromPartition(`persist:ai-${site}`)
+    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
+    aiWebPartitions.set(ses, `persist:ai-${site}`)
+  }
   // 第三個參數是檔案總管的大預覽：路徑一律過 `explorer/paths` 的 `resolveExisting`
   // （跟檔案總管讀檔同一個入口，沒有放寬任何範圍），拿不到就丟例外 → 協定回 404。
   workspaceMedia.register(

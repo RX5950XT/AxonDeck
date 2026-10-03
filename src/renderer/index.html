@@ -28,9 +28,9 @@
           <span class="logo-text">VoiceInk</span>
         </div>
         <nav class="header-nav">
-          <button class="nav-tab active" data-page="chat" title="聊天與終端機" aria-label="聊天與終端機" aria-current="page">
-            <span class="nav-icon" data-icon="chat"></span>
-            <span class="nav-text">聊天</span>
+          <button class="nav-tab active" data-page="chat" title="AI" aria-label="AI" aria-current="page">
+            <span class="nav-icon" data-icon="ai"></span>
+            <span class="nav-text">AI</span>
           </button>
           <button class="nav-tab" data-page="telegram" title="Telegram" aria-label="Telegram">
             <span class="nav-icon" data-icon="telegram"></span>
@@ -100,7 +100,7 @@
                     aria-controls="projPanel"
                     aria-selected="false"
                   >
-                    專案
+                    Agent
                   </button>
                   <button
                     type="button"
@@ -111,7 +111,7 @@
                     aria-controls="chatPanel"
                     aria-selected="true"
                   >
-                    對話
+                    Chat
                   </button>
                 </div>
 
@@ -127,22 +127,34 @@
                 </section>
 
                 <section class="sidebar-panel" id="chatPanel" role="tabpanel">
+                  <!-- 六顆都是「新增」：Local＝本機／API 對話，其餘四家＝網頁版 AI 對話（ai-web-page.js），都列在下面清單 -->
                   <div class="chat-panel-actions">
-                    <button type="button" id="chatNewBtn" class="btn btn-primary btn-sm chat-new-btn">
-                      ＋ 新對話
+                    <button type="button" id="chatNewBtn" class="btn btn-secondary btn-sm chat-new-btn" title="新對話（本機／API 模型）">
+                      <span class="nav-icon" data-icon="local"></span>Local
                     </button>
                     <button
                       type="button"
                       id="chatNewFolderBtn"
                       class="btn btn-secondary btn-sm chat-new-folder-btn"
                       title="新增資料夾"
-                      aria-label="新增資料夾"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 7.5h5l1.6 2H20v8.5H4Z" />
                         <path d="M12 12v4" />
                         <path d="M10 14h4" />
-                      </svg>
+                      </svg>資料夾
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm ai-web-btn" data-ai-web="chatgpt" title="新增 ChatGPT 網頁版對話">
+                      <span class="nav-icon" data-icon="openai"></span>ChatGPT
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm ai-web-btn" data-ai-web="gemini" title="新增 Gemini 網頁版對話">
+                      <span class="nav-icon" data-icon="gemini"></span>Gemini
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm ai-web-btn" data-ai-web="claude" title="新增 Claude 網頁版對話">
+                      <span class="nav-icon" data-icon="claude"></span>Claude
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm ai-web-btn" data-ai-web="grok" title="新增 Grok 網頁版對話">
+                      <span class="nav-icon" data-icon="grok"></span>Grok
                     </button>
                   </div>
                   <input
@@ -165,6 +177,9 @@
                 aria-label="調整側欄寬度"
                 tabindex="0"
               ></div>
+
+              <!-- 網頁版 AI 對話：webview 第一次打開才建，久沒看會收掉（網址存在那則對話，下次接著開） -->
+              <div class="ai-web-main hidden" id="aiWebMain"></div>
 
               <div class="chat-main" id="chatMain">
                 <div id="chatBanner" class="translate-banner hidden" role="status">

@@ -850,13 +850,19 @@ function initNavigation() {
     item.addEventListener('keydown', navReorder.onKeydown)
   })
   applyNavOrder()
+  // AI 頁側欄的 Local／ChatGPT／Gemini／Claude／Grok 也用同一套圖示
+  document.querySelectorAll('.chat-panel-actions .nav-icon[data-icon]').forEach((slot) => {
+    const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
+    if (icon) slot.appendChild(icon)
+  })
 }
 
 /**
  * 聊天與工作區共用同一頁：主區要顯示哪一個由最後點選的側欄項目決定。
- * 'chat'＝對話主區、'workspace'＝工作區主區（分頁列＋終端機／編輯器／瀏覽器）。
+ * 'chat'＝對話主區、'workspace'＝工作區主區（分頁列＋終端機／編輯器／瀏覽器）、
+ * 'web'＝AI 網頁版（ChatGPT／Gemini／Claude／Grok，見 ai-web-page.js）。
  * 切分頁時保持原樣，不重置。
- * @type {'chat' | 'workspace'}
+ * @type {'chat' | 'workspace' | 'web'}
  */
 let chatPaneMode = 'chat'
 
@@ -864,7 +870,7 @@ let chatPaneMode = 'chat'
  * 切換聊天頁的主區（對話／工作區）。
  * DOM 的切換是同步的——呼叫端（點側欄項目、ccswitch 的更新按鈕）要先切再操作，
  * xterm 的 fit 才量得到尺寸；模組載入與清單重讀是背景跑。
- * @param {'chat' | 'workspace'} mode
+ * @param {'chat' | 'workspace' | 'web'} mode
  */
 /** 側欄寬度可拖：終端機吃的是 term-host 的 ResizeObserver，不必另外通知 */
 
@@ -938,8 +944,10 @@ function initSidebarModes() {
 }
 
 export function setChatPaneMode(mode) {
-  if (mode !== 'chat' && mode !== 'workspace') return
+  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web') return
   chatPaneMode = mode
+  document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
+  if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
   const chatMain = document.getElementById('chatMain')
   const termMain = document.getElementById('termMain')
   const layout = document.querySelector('#page-chat .chat-layout')

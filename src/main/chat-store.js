@@ -10,6 +10,7 @@
 
 const chatImages = require('./chat-images')
 const chatParams = require('./chat-params')
+const aiWeb = require('./ai-web')
 
 /** 最多保留幾個會話（超過砍 updatedAt 最舊的） */
 const MAX_CONVERSATIONS = 100
@@ -106,7 +107,9 @@ function sanitizeFolderName(value) {
  * 讀檔後正規化：chats.json 可能被手動改壞或版本不符。
  * 舊版的 `projectId`（對話歸屬專案）已拿掉，讀到直接忽略，下次寫入就消失。
  * @typedef {{ id: string, title: string, createdAt: number, updatedAt: number, folderId: string,
- *   params: import('./chat-params').ChatParams, messages: Message[] }} Conversation
+ *   params: import('./chat-params').ChatParams, messages: Message[],
+ *   web: { site: string, url: string, title: string } | null }} Conversation
+ * `web` 有值＝網頁版 AI 對話（訊息在官方網站上，這裡只記站名、最後網址與自動標題）
  * @param {unknown} raw
  * @param {Set<string>} folderIds
  * @returns {Conversation[]}
@@ -128,7 +131,8 @@ function sanitizeAll(raw, folderIds) {
       updatedAt: Number.isFinite(item.updatedAt) ? item.updatedAt : Date.now(),
       folderId: folderIds.has(folderId) ? folderId : '',
       params: chatParams.sanitize(item.params),
-      messages: sanitizeMessages(item.messages)
+      messages: sanitizeMessages(item.messages),
+      web: aiWeb.sanitizeWeb(item.web)
     })
   }
   return out
@@ -230,7 +234,8 @@ async function list() {
       title: c.title,
       updatedAt: c.updatedAt,
       folderId: c.folderId,
-      messageCount: c.messages.length
+      messageCount: c.messages.length,
+      web: c.web?.site || ''
     }))
   })
 }
@@ -283,7 +288,8 @@ async function get(id) {
 }
 
 /**
- * @param {{ folderId?: unknown, params?: unknown }} [opts] folderId 由 renderer 給、params 由 main 從預設值給
+ * @param {{ folderId?: unknown, params?: unknown, site?: unknown }} [opts]
+ *   folderId／site 由 renderer 給、params 由 main 從預設值給；site 合法就是網頁版 AI 對話
  * @returns {Promise<Conversation>}
  */
 async function create(opts = {}) {
@@ -291,14 +297,16 @@ async function create(opts = {}) {
     const { folders, conversations: all } = await readState()
     const folderId = sanitizeId(opts?.folderId)
     const now = Date.now()
+    const site = aiWeb.isSite(opts?.site) ? opts.site : ''
     const conversation = {
       id: newId(),
-      title: DEFAULT_TITLE,
+      title: site ? aiWeb.SITES[site].name : DEFAULT_TITLE,
       createdAt: now,
       updatedAt: now,
       folderId: folders.some((f) => f.id === folderId) ? folderId : '',
       params: chatParams.sanitize(opts?.params),
-      messages: []
+      messages: [],
+      web: site ? { site, url: aiWeb.SITES[site].home, title: '' } : null
     }
     all.unshift(conversation)
     await writeAll(all)
@@ -394,6 +402,45 @@ async function replaceAutoTitle(id, expected, title) {
   await mutateConversation(id, (conv) => {
     if (conv.title !== expected) return false
     conv.title = sanitizeTitle(title)
+    ok = true
+    return true
+  })
+  return ok
+}
+
+/**
+ * 網頁版對話換頁：只收該站網域的網址（登入轉址、別的網站不記，留著上一個聊天室）
+ * @param {string} id
+ * @param {unknown} url
+ */
+async function setWebUrl(id, url) {
+  let ok = false
+  await mutateConversation(id, (conv) => {
+    const next = conv.web && aiWeb.safeUrl(conv.web.site, url)
+    if (!next || next === conv.web.url) return false
+    conv.web.url = next
+    conv.updatedAt = Date.now()
+    ok = true
+    return true
+  })
+  return ok
+}
+
+/**
+ * 網頁版對話的分頁標題 → 側欄標題；只收真正對話頁的標題（首頁、登入、驗證頁不算），
+ * 使用者自己改過名（標題不是站名也不是上次自動取的）就不動
+ * @param {string} id
+ * @param {unknown} pageTitle
+ * @param {unknown} pageUrl 標題出現時 webview 停的網址
+ */
+async function setWebTitle(id, pageTitle, pageUrl) {
+  let ok = false
+  await mutateConversation(id, (conv) => {
+    const title = conv.web && aiWeb.isChatUrl(conv.web.site, pageUrl) && aiWeb.titleFromPage(conv.web.site, pageTitle)
+    if (!title || conv.title === title) return false
+    if (conv.title !== aiWeb.SITES[conv.web.site].name && conv.title !== conv.web.title) return false
+    conv.title = sanitizeTitle(title)
+    conv.web.title = conv.title
     ok = true
     return true
   })
@@ -650,6 +697,8 @@ module.exports = {
   rename,
   reorder,
   setParams,
+  setWebUrl,
+  setWebTitle,
   appendMessage,
   dropTrailingAssistant,
   editUserMessage,

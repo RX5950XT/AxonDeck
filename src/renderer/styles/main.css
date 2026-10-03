@@ -1914,23 +1914,37 @@ option:disabled:checked {
   color: var(--text-primary);
 }
 
-/* ── 側欄：新對話＋新資料夾 ── */
+/* ── 側欄：Local／資料夾＋四家 AI 網頁版，兩欄三列 ── */
 .chat-panel-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
 
+.chat-panel-actions .btn {
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+
 .chat-panel-actions .chat-new-btn {
-  flex: 1;
   width: auto;
 }
 
-.chat-new-folder-btn {
-  flex-shrink: 0;
-  padding: 0 9px;
+.chat-panel-actions .nav-icon {
+  display: flex;
+}
+
+.chat-panel-actions .ws-tool-icon {
+  width: 15px;
+  height: 15px;
+  color: inherit;
 }
 
 .chat-new-folder-btn svg {
+  flex: none;
   width: 16px;
   height: 16px;
   fill: none;
@@ -11931,6 +11945,32 @@ h6.md-h { font-size: 14px; }
     gap: 6px;
     padding: 4px;
   }
+}
+
+/* ===== AI 頁：網頁版 AI（<webview> 填滿主區）===== */
+
+.ai-web-main {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ai-web-pane {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ai-web-pane[hidden] {
+  display: none;
+}
+
+.ai-web-pane webview {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* ===== Telegram（<webview> 滿版）===== */

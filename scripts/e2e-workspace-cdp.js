@@ -608,6 +608,24 @@ async function main() {
     ok('[F] webview 的 partition 是持久 session',
       await cdp.eval(`document.querySelector('#wsBrowserFrame webview').getAttribute('partition') === 'persist:wsbrowser'`))
 
+    // 背景分頁閒置 10 分鐘就拆 webview、分頁留著；點回去照原網址重建。
+    // 每分鐘掃一次：開第二個分頁讓第一個變背景，等一輪記下「開始藏」，再把時鐘撥快 11 分鐘等下一輪
+    const firstTab = await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active').dataset.id`)
+    await cdp.eval(`document.getElementById('wsNewBtn').click()`)
+    await waitInPage(cdp, `document.querySelector('.ws-new-menu')`, 5000)
+    await cdp.eval(`[...document.querySelectorAll('.ws-new-menu .ws-new-item')].find((b) => b.textContent === '瀏覽器').click()`)
+    ok('[F] 第二個瀏覽器分頁', await waitInPage(cdp, `document.querySelectorAll('#wsBrowserFrame webview').length === 2`, 8000))
+    await sleep(61_000)
+    await cdp.eval(`(() => { const real = Date.now; window.__realNow = real; Date.now = () => real() + 11 * 60 * 1000 })()`)
+    ok('[F] 背景分頁閒置 10 分鐘就拆掉 webview，看得到的那個留著',
+      await waitInPage(cdp, `document.querySelectorAll('#wsBrowserFrame webview').length === 1
+        && !document.querySelector('#wsBrowserFrame webview[data-tab-id="${firstTab}"]')
+        && !!document.querySelector('#wsTabStrip .ws-tab[data-id="${firstTab}"]')`, 70_000))
+    await cdp.eval(`(() => { Date.now = window.__realNow })()`)
+    await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab[data-id="${firstTab}"] .ws-tab-open').click()`)
+    ok('[F] 點回去照原網址重建',
+      await waitInPage(cdp, `String(document.querySelector('#wsBrowserFrame webview[data-tab-id="${firstTab}"]')?.dataset.src).startsWith('http://localhost:5173')`, 8000))
+
     // ===== [H] 專案內搜尋 =====
     await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="files"]').click()`)
     await cdp.eval(`document.getElementById('wsFilesSearchBtn').click()`)

@@ -825,11 +825,11 @@ async function checkAiWeb(cdp, check) {
   const labels = await cdp.eval(`(() => ({
     nav: document.querySelector('.nav-tab[data-page="chat"] .nav-text').textContent.trim(),
     modes: [...document.querySelectorAll('.sidebar-mode')].map((b) => b.textContent.trim()),
-    buttons: [...document.querySelectorAll('.chat-panel-actions .btn')].map((b) => b.textContent.trim()),
+    buttons: [...document.querySelectorAll('.chat-panel-actions .btn')].map((b) => b.textContent.trim() || b.getAttribute('aria-label')),
     icons: document.querySelectorAll('.chat-panel-actions .ws-tool-icon').length
   }))()`)
   check('導覽列叫 AI、側欄叫 Agent／Chat', labels.nav === 'AI' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
-  check('六顆按鈕：Local、資料夾、ChatGPT、Gemini、Claude、Grok',
+  check('六顆按鈕：Local、資料夾、ChatGPT、Gemini、Claude、Grok（四家只留圖示）',
     labels.buttons.join() === 'Local,資料夾,ChatGPT,Gemini,Claude,Grok' && labels.icons === 5, JSON.stringify(labels))
 
   const before = await cdp.eval(`(async () => (await window.electronAPI.chat.list()).map((c) => c.id))()`)
@@ -894,6 +894,15 @@ async function checkAiWeb(cdp, check) {
     await cdp.eval(`document.querySelector('#chatList .chat-list-item[data-id="${claude.id}"] .chat-list-open').click()`)
     const opened = await waitFor(() => cdp.eval(`${viewOf(claude.id)}?.getAttribute('src') || ''`), 10_000, 'Claude webview')
     check('點側欄那則，照它存的網址開', opened === SAVED, opened)
+
+    // 第四則：同時最多留 3 則，最久沒看的那則（第一則 ChatGPT）先收
+    await cdp.eval(`document.querySelector('.ai-web-btn[data-ai-web="grok"]').click()`)
+    const capped = await waitFor(() => cdp.eval(`(() => {
+      const n = document.querySelectorAll('#aiWebMain webview').length
+      return n === 3 && document.querySelector('#aiWebMain .ai-web-pane:not([hidden]) webview')?.getAttribute('partition') === 'persist:ai-grok'
+        ? { n, oldestGone: !${viewOf(gpt[1])}, claudeKept: !!${viewOf(claude.id)} } : null
+    })()`), 10_000, '第四則開好')
+    check('網頁版 AI 最多同時留 3 則，最久沒看的先收', capped.oldestGone && capped.claudeKept, JSON.stringify(capped))
 
     const menu = await cdp.eval(`(async () => {
       await ${rightClick(`#chatList .chat-list-item[data-id="${claude.id}"]`)}

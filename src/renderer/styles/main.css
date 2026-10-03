@@ -1917,8 +1917,19 @@ option:disabled:checked {
 /* ── 側欄：Local／資料夾＋四家 AI 網頁版，兩欄三列 ── */
 .chat-panel-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
+}
+
+/* Local、資料夾各佔半排；四家網頁版 AI 只留圖示，並排一排 */
+.chat-panel-actions .chat-new-btn,
+.chat-panel-actions .chat-new-folder-btn {
+  grid-column: span 2;
+}
+
+.chat-panel-actions .ai-web-btn .ws-tool-icon {
+  width: 17px;
+  height: 17px;
 }
 
 .chat-panel-actions .btn {

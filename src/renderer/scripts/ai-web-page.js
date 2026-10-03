@@ -7,7 +7,7 @@ import { electronAPI, setChatPaneMode } from './app.js'
  * - 同一家共用 `persist:ai-<site>` 登入分區：登入一次，該家每一則都是登入狀態。
  * - webview 換頁就回報 main 存成這則的網址（main 擋登入頁與別的網域），下次點、App 重開都回到原本那頁；
  *   分頁標題也回報，使用者沒改過名就拿來當側欄標題。
- * - 第一次打開才建；沒在看的過 RELEASE_MS 就整個收掉（一則約 200–400MB），再點照存的網址載回來。
+ * - 第一次打開才建；沒在看的過 RELEASE_MS 或超過 MAX_LIVE 則就整個收掉（一則約 200–400MB），再點照存的網址載回來。
  */
 
 const HOMES = /** @type {Record<string, string>} */ ({
@@ -16,9 +16,11 @@ const HOMES = /** @type {Record<string, string>} */ ({
   claude: 'https://claude.ai/new',
   grok: 'https://grok.com/'
 })
-// ponytail: 固定 5 分鐘、每 30 秒掃一次；要可調再進設定
+// ponytail: 固定 5 分鐘、每 30 秒掃一次、最多同時留 3 則；要可調再進設定
 const RELEASE_MS = 5 * 60 * 1000
 const SWEEP_EVERY_MS = 30 * 1000
+// 連點好幾則時不用等 5 分鐘：超過這個數量，最久沒看的那則先收
+const MAX_LIVE = 3
 
 // ponytail: 靠 Gemini 頁面的 class／屬性抓對話標題，改版就抓不到（退回不取標題，不會出錯）
 const GEMINI_TITLE = `(document.querySelector('[data-test-id="conversation-title"], .conversation-title-container, .conversation.selected .conversation-title')?.textContent
@@ -100,10 +102,19 @@ function release(id) {
   entry.pane.remove()
 }
 
+function isAudible(pane) {
+  try {
+    return !!pane.querySelector('webview')?.isCurrentlyAudible()
+  } catch {
+    return false // 還沒載入完的 webview 呼叫會丟錯
+  }
+}
+
 function sweep() {
   const now = Date.now()
   for (const [id, entry] of live) {
-    if (entry.pane.offsetParent !== null) entry.hiddenSince = 0
+    // 看得到或正在出聲（語音朗讀）的都不收
+    if (entry.pane.offsetParent !== null || isAudible(entry.pane)) entry.hiddenSince = 0
     else if (!entry.hiddenSince) entry.hiddenSince = now
     else if (now - entry.hiddenSince >= RELEASE_MS) release(id)
   }
@@ -120,6 +131,13 @@ export async function showAiWeb() {
   const entry = live.get(current.id) || build(current)
   entry.pane.hidden = false
   entry.hiddenSince = 0
+  // Map 的順序當成「最近看過」：目前這則移到最後，超量就從最前面（最久沒看）收
+  live.delete(current.id)
+  live.set(current.id, entry)
+  for (const id of live.keys()) {
+    if (live.size <= MAX_LIVE) break
+    if (id !== current.id && !isAudible(live.get(id).pane)) release(id)
+  }
   if (!sweepTimer) sweepTimer = window.setInterval(sweep, SWEEP_EVERY_MS)
 }
 

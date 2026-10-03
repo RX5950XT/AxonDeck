@@ -78,6 +78,13 @@ let persistTimer = 0
 let projectSwitch = 0
 /** 切走專案時停放的瀏覽器 webview，key = projectId::tabId */
 const parkedBrowsers = new Set()
+// 目前專案裡切到背景（hidden）的瀏覽器分頁，閒置超過這麼久就拆掉 webview（一顆約 100–300MB），
+// 分頁本身留著，點回來 paintBrowser 照 tab.url 重建。停放的別專案不碰：它們換頁不會寫回 tab.url。
+// ponytail: 固定 10 分鐘、每分鐘掃一次；要可調再進設定
+const BROWSER_IDLE_MS = 10 * 60 * 1000
+/** @type {WeakMap<Element, number>} */
+const browserHiddenSince = new WeakMap()
+let browserSweepTimer = 0
 
 /** 目前選定的專案（由 workspace-page 設定，用來決定新終端機的 cwd） */
 let project = null
@@ -2456,7 +2463,36 @@ function ensureBrowserGuest(tab) {
     if (activeId === target.id) paintBrowserChrome(target)
   })
   host.appendChild(guest)
+  if (!browserSweepTimer) browserSweepTimer = window.setInterval(sweepBrowserGuests, 60_000)
   return guest
+}
+
+function sweepBrowserGuests() {
+  const nodes = [...(el.browserFrame?.querySelectorAll('webview') || [])]
+  if (!nodes.length) {
+    clearInterval(browserSweepTimer)
+    browserSweepTimer = 0
+    return
+  }
+  const now = Date.now()
+  for (const node of nodes) {
+    const guest = /** @type {any} */ (node)
+    if (!guest.hidden || guest.dataset.projectId !== (project?.id || '') || isAudible(guest)) {
+      browserHiddenSince.delete(guest)
+    } else if (!browserHiddenSince.has(guest)) {
+      browserHiddenSince.set(guest, now)
+    } else if (now - browserHiddenSince.get(guest) >= BROWSER_IDLE_MS) {
+      guest.remove()
+    }
+  }
+}
+
+function isAudible(guest) {
+  try {
+    return !!guest.isCurrentlyAudible()
+  } catch {
+    return false // 還沒載入完的 webview 呼叫會丟錯
+  }
 }
 
 /**

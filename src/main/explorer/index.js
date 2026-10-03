@@ -556,7 +556,7 @@ function shutdown() {
   size.folderSizeCancel()
   watch.stop()
   shellExt.shutdown()
-  return true
+  return uffs.shutdown()
 }
 
 /**

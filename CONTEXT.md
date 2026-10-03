@@ -14,6 +14,13 @@ AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定�
 
 ## 架構
 
+### 搜尋記憶體、AI 紀錄與終端機接續（2026-10-03）
+
+- 專案全文搜尋以 64KB 區塊逐行讀取，新查詢停止舊查詢；保留 200 命中／8000 檔／單檔 1MB／15 秒四個上限。
+- 整機檔名搜尋仍用 UFFS；進檔案頁只準備授權，真正搜尋才載索引。搜尋閒置 60 秒或 App 結束時休眠本 App 用過的索引，保留磁碟快取，下次搜尋再載入。
+- AI 紀錄讀取 Claude Code／Codex JSONL、Grok session、OpenCode SQLite，以及 Antigravity CLI 的 SQLite／protobuf 對話。長對話與單則超長訊息分頁讀取，保留完整文字，避免累積整份紀錄到畫面；Antigravity CLI 部分工具結果不是明文，畫面會明示可讀範圍。
+- 終端機保留既有宿主與程序；程序不存在時，使用記住的 AI 類型與對話 ID 接續。Claude hook 保留，其他工具由啟動前紀錄基準辨認新對話；接續前重新確認紀錄屬於工作目錄。無法辨認同時建立的多段對話時不任意猜測。
+
 ### 檔案轉錄遇到限流或逾時會重試（2026-10-03，v1.38.4）
 
 - 雲端檔案轉錄一段遇到 429、逾時、5xx 或斷線時，同一段再送（限流最多 5 次並拉開後面的間隔，逾時最多 3 次，單段最多等 90 秒）。重試仍失敗則保留已完成的逐字稿；取消不把半成品當成完成。
@@ -34,6 +41,12 @@ AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定�
 - v1.37.3 曾把 dir 預覽包用 `--prepackaged` 包成 NSIS，跳過 afterPack，安裝目錄沒有 app-update.yml；舊更新 CDP 自行補檔，未發現這個缺陷。
 - `electron:build` 改走既有 `pack-preview.js --release`，完整 NSIS 打到磁碟根目錄，驗 asar、更新來源、版本、latest.yml 的大小／SHA-512 後同步安裝檔與 win-unpacked 回 dist，最後清理外部輸出。正式更新 CDP 不補檔、用隱藏視窗與隔離 userData；發版要另拆安裝檔驗其內容。
 - Claude 在升級前已失去登入的舊資料，依既存 API 成功診斷補回 hasConnected；卡片顯示未登入原因，不恢復假額度。實際登入仍以該機 CLI 與憑證為準。
+### 專案預覽與 GitHub 入口（2026-10-03）
+
+- 專案檔案樹的 PNG／JPEG／GIF／WebP／BMP／ICO／SVG 與 MP4／WebM 直接開工作區分頁，走既有 `vi-media://` 串流；其他原生格式與明確「用系統開啟」保留播放器。
+- Markdown `![文字](網址)` 支援 http(s) 圖片與專案相對路徑；`readFile` 提供 `imageBase`，以 Markdown 所在資料夾解析，`/` 起頭表示專案根目錄。改名、搬移、重載與分頁還原都維持圖片位置；main 仍擋路徑越界與 junction。
+- Git 狀態附上去除憑證的 `githubUrl`（origin 優先，其他 GitHub remote 作退路）；面板上方按鈕透過既有 `openExternal` 開系統瀏覽器，沒有 GitHub remote 時停用。
+
 ### 原生媒體彈窗（2026-10-01，v1.38.0）
 
 - `native/voiceink-probe/src/bin/voiceink-media/`：Rust＋Win32 原生視窗；沒有 Electron／WebView。圖片、影片、音樂共用外殼但依類型顯示控制；原生清單、字幕／音軌、縮放／拖曳／旋轉、播放速度與快捷鍵。使用 Aurora 深淺色及 Windows 字體；不新增 nav。

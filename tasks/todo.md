@@ -1,3 +1,20 @@
+# 2026-10-03 — 搜尋記憶體、五種 AI 紀錄與終端機接續
+
+- [x] 追查搜尋用量並保留功能，建立先失敗的回歸與前後記憶體量測。
+- [x] AI 紀錄支援 Claude Code／Codex／Antigravity CLI／Grok／OpenCode，長對話可讀到最後且文字不截短。
+- [x] 五種 AI 終端機在 App 重開時接回原程序，程序已結束時接續原對話。
+- [x] 跑相關回歸、更新免安裝預覽，以隔離背景 CDP 驗證完整流程並記錄限制。
+
+## Review
+
+- 專案搜尋改逐行讀取並停止舊查詢；20 個 900KB／45 萬行測試的三次中位數：RSS 峰值 204.9 → 118.4MB、heap 峰值 94.7 → 8.0MB、GC 後 21.6 → 4.4MB，1061 → 602ms。整機搜尋延後載索引，閒置 60 秒／App 結束時休眠；同時修復空白大小篩選被轉成 0 與冷啟動沒有自動重試。
+- 真 UFFS 約 385 萬筆索引：載入後 RSS 943MB → 休眠 2MB；再次搜尋命中相同 5 個檔案，關閉搜尋後 RSS 1787 → 3MB。首次載索引的峰值仍約 2.6GB，沒有宣稱消除搜尋當下的所有用量；private commit 回收會晚於 RSS。
+- 五種紀錄都可分頁讀到最後；同一則超長訊息也分段，切走分頁釋放畫面。`test-workspace-agents-full.js` 五家通過；`probe-workspace-agents-cdp.js` 真打包 IPC／畫面逐頁 SHA-256 與全文一致（Claude 75 輪與單則約 4.3MB、其他各 5 頁），前後頁、跨專案清理、接續 ID 與磁碟保存全部通過。
+- `test-terminal-agent-resume.js` 通過；真 ConPTY 的 `probe-terminal-agent-host.js` 在 Rust／Electron 宿主各三組通過，`probe-terminal-agent-shell.js` 的 PowerShell／cmd 特殊路徑與臨時 home 還原通過。`probe-terminal-agents-restart-cdp.js` 真打包 App 關閉／重開，五家原 PID、分頁與輸出皆還原，且不重送指令；宿主重建後五家都使用原 ID 接續。最初關閉探針被主程序 debugger 攔住退出，斷開觀察連線後通過。
+- `test-workspace.js` 283/0、UI 183/0、terminal 105/0、terminal UI 12/0、claude hooks 68/0、explorer 313/0、error hygiene 85/0、IPC 11/0；搜尋生命週期／UTF-8／取消／UFFS 契約、工作區 state／nav 通過。`e2e-workspace-cdp.js` 192/0，既有 `probe-terminal-restart.js` 亦通過原程序／替換 exe 與 asar／重開接回。
+- `build:probe`／`build:shell` 通過；`electron:pack` 驗過 253 支 src 與 asar 逐位元組一致，已更新 `dist/win-unpacked`。40 支修改／新增 JavaScript 語法與 `git diff --check` 通過。既有 `test-temp-hygiene.js` 仍只報 `test-usage.js:824,844` 的 `os.tmpdir()`，沒有本次新增問題。
+- 限制：Antigravity CLI 部分工具結果不是明文，畫面明示此限制，正文完整；沒有紀錄的操作無從還原。多個同工具新終端機同時產生對話時，無法判定歸屬便不亂接。真 CLI argv／ConPTY 以假工具驗證，未送登入 API，未跑 UAC。使用中的安裝版與既有工作均保留，沒有 commit／push／發布；本輪測試程序與大型複製安裝目錄已清理。
+
 # 2026-10-03 — 發行 v1.38.2 CC 模型掃描與 lab 分組
 
 - [x] 更新版本與說明，確認相關差異、回歸與 shell sidecar；保留 native-media worktree。
@@ -1182,3 +1199,13 @@ Review：
 
 - Review：14 支受影響 source 回歸全過，CC 258／gateway 53／HF 171／dictation 120／sysmon 188／scope 31／error hygiene 85，Electron 聊天 195/195；22 支 JS 語法與 diff 檢查通過。build:shell／build:probe／build:media 成功。完整 electron:build 驗 250 支 src 一致；正式 exe 拆出 254 檔 SHA-256 與 win-unpacked 一致，含 app-update.yml。packaged CC 134/134、拆包更新 CDP 7/7（真 GitHub）、HUD 冷啟動／reload 可見且未搶焦點，截圖已檢視。安裝檔 473030081 bytes，latest.yml 版本／大小／SHA-512 及非空 blockmap 全相符。QA 位於 dist/qa/release-1.38.1；不替換使用中的安裝版。
 - 發布驗收：v1.38.1 tag 指向 b3c57f502211ecd1095aa1379ffdc95bba51bd83，master／tag 已推送；GitHub Latest、非 draft／prerelease。三份遠端資產 size／SHA-256 與本機 MATCH，官方下載 latest.yml 逐位元組一致。使用已安裝 v1.37.5 的隔離背景實例驗更新 7/7，真 GitHub 回 available v1.38.1；未執行安裝或替換使用中的程式。feat/native-media 維持 326a3b0，沒有修改；解碼器來源沿用 v1.38.0 封存並附在 Release 說明。
+# 2026-10-03 — 專案圖片、媒體分頁與 GitHub 入口
+
+- [x] 重現 Markdown 圖片與媒體開檔，追完整資料流並補失敗回歸。
+- [x] 支援 Markdown 網路／專案相對圖片，專案圖片與影片開分頁，Git 面板加入 GitHub 按鈕。
+- [x] 量測專案全文搜尋與整機檔名搜尋的記憶體；完成 source、打包及隔離背景驗收。
+
+- Review：Markdown 新回歸修前 24/2、修後 26/0；GitHub HTTPS／SSH、去除憑證、origin／upstream 與非 GitHub remote 回歸 PASS。workspace 283/0、UI 183/0，state／nav／PDF lifecycle／media-player PASS、error hygiene 85/0。`electron:pack` 最終驗 251 支 src 一致，`e2e-workspace-cdp.js` 最終 192/0。
+- Product：`probe-workspace-preview.js` 實測相對／根目錄／中文空白括號／引用與 HTTP 圖片載入；Git 已修改的圖片與 MP4 由檔案樹直接開分頁、重複點圖不重開、影片解碼／Range 206、沒有 native player、GitHub 完整 IPC 到正確瀏覽器網址、非 Git 停用、切專案還原、Markdown 資料夾改名與關閉媒體 DOM 清理全部 PASS。`probe-media-packaged.js` 工作區分頁／Explorer ZIP 獨立播放器／關 App 後播放器仍運行三組 PASS；截圖已檢視，QA 在 dist/qa/workspace-preview-*。
+- 搜尋：未改搜尋行為。真 UFFS 0.6.40 索引兩顆磁碟共 3,848,728 筆；初次搜尋 resident 最高觀察 2727.5MiB／private 4148.4MiB，後續 resident 約 1363–1703MiB。打包版 main 連續三輪各掃 2137 檔，resident 157.5→248.1MiB、另一次 139.5→247.4MiB。獨立 source probe 的近 1MB／45 萬行檔案案例也會因轉小寫與切行暫增約 104MiB；這些量測不代表長期記憶體洩漏。
+- 邊界：只更新免安裝預覽，未 commit／push／發版；安裝版未替換。瀏覽器支援的圖片與 MP4／WebM 走分頁，其他 native 格式保留播放器。既有 `test-temp-hygiene.js` 仍在 `scripts/test-usage.js:824/844` 的 os.tmpdir() 兩行失敗。額外 `probe-workspace-perf.js` 15/18：舊探針仍假設點改過的程式碼先開編輯器、diff 另開一頁（HEAD 原本即預設進 diff），兩項因此失敗；另一項是未修改的終端機合成 compositionstart 對位斷言。實際大檔 model 復用／切專案清理與 renderer 零例外通過；未擴改這些無關項目。

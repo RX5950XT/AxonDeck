@@ -240,8 +240,36 @@ async function status(projectId) {
   // 不是 repo 不是錯誤，是一種正常狀態（使用者就是加了一個普通資料夾）
   if (res.code !== 0) return { repo: false }
   const parsed = parseStatus(res.stdout)
-  await attachLineCounts(cwd, parsed.files)
-  return { repo: true, ...parsed }
+  const [, url] = await Promise.all([attachLineCounts(cwd, parsed.files), githubUrl(cwd)])
+  return { repo: true, ...parsed, githubUrl: url }
+}
+
+/** 遠端只換成 GitHub 倉庫網址，憑證不送到 renderer 或瀏覽器。 */
+function githubUrlForRemote(raw) {
+  const value = String(raw || '').trim()
+  let url
+  try {
+    url = new URL(value.replace(/^git@github\.com:/i, 'https://github.com/'))
+  } catch { return '' }
+  if (!['https:', 'http:', 'ssh:'].includes(url.protocol)
+    || url.hostname.toLowerCase() !== 'github.com' || url.search || url.hash) return ''
+  const match = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)\/?$/.exec(url.pathname)
+  if (!match) return ''
+  const repo = match[2].replace(/\.git$/, '')
+  if (!repo || [match[1], repo].some((part) => part === '.' || part === '..')) return ''
+  return `https://github.com/${match[1]}/${repo}`
+}
+
+async function githubUrl(cwd) {
+  const res = await run(cwd, ['remote', '-v'])
+  if (res.code !== 0) return ''
+  const remotes = res.stdout.split('\n').map((line) => /^(\S+)\s+(\S+)\s+\(fetch\)$/.exec(line.trim()))
+    .filter(Boolean).sort((a, b) => Number(b[1] === 'origin') - Number(a[1] === 'origin'))
+  for (const remote of remotes) {
+    const url = githubUrlForRemote(remote[2])
+    if (url) return url
+  }
+  return ''
 }
 
 /**
@@ -819,6 +847,8 @@ async function fileVersionsAgainst(projectId, relPath, ref) {
 }
 
 module.exports = {
+  githubUrlForRemote,
+  githubUrl,
   MAX_FILES,
   MAX_LOG_FILES,
   MAX_BRANCHES,

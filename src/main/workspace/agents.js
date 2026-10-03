@@ -3,8 +3,7 @@
 /**
  * 「這個專案跑過哪些 AI CLI 對話」（Main Process）。
  *
- * 只讀不寫，只認 Claude Code 與 Codex 兩家——**它們的 session 檔本來就存著 cwd**，
- * 才對得回專案。其餘幾家（Grok／OpenCode）的記錄裡沒有可靠的工作目錄，先不列。
+ * 只讀不寫；Claude Code／Codex／Grok／OpenCode／Antigravity CLI 都以記錄的工作目錄對專案。
  *
  * **家目錄不是只有 `~/.claude`／`~/.codex` 一個**：CLI 認 `CLAUDE_CONFIG_DIR`／`CODEX_HOME`，
  * 而且被別的工作台（Orca）代跑時，記錄會整包落在它自己的 runtime home 底下
@@ -23,6 +22,7 @@ const fs = require('../raw-fs')
 const fsp = require('../raw-fs').promises
 const os = require('os')
 const path = require('path')
+const formats = require('./agent-formats')
 
 /** 最多回幾筆（側欄看得完的量） */
 const MAX_SESSIONS = 30
@@ -34,10 +34,10 @@ const MAX_SCAN_FILES = 600
 const HEAD_BYTES = 256 * 1024
 /** 標題長度：側欄整段攤開顯示；ponytail: 貼了整份 log 當第一句的話只留前面這麼多 */
 const MAX_TITLE = 500
-/** 檢視單一對話時最多讀多少（幾十 MB 的 log 整份讀進來會把 main 卡住） */
-const MAX_DETAIL_BYTES = 3 * 1024 * 1024
-/** 檢視單一對話時最多列幾輪 */
-const MAX_TURNS = 60
+/** 每頁只留有限內容；單一巨型訊息也分段，可繼續讀到最後。 */
+const PAGE_CHARS = 256 * 1024
+const TEXT_CHARS = 64 * 1024
+const PAGE_TURNS = 40
 /** 「改過／讀過」各列幾個檔案 */
 const MAX_FILE_LIST = 30
 
@@ -126,7 +126,10 @@ const EDIT_TOOLS = /^(edit|write|multiedit|notebookedit|apply_patch|str_replace(
  */
 const AGENTS = {
   claude: { label: 'Claude Code', resume: (id) => `claude --resume ${id}` },
-  codex: { label: 'Codex', resume: (id) => `codex resume ${id}` }
+  codex: { label: 'Codex', resume: (id) => `codex resume --no-daemon ${id}` },
+  grok: { label: 'Grok', resume: (id) => `grok --resume ${id}` },
+  opencode: { label: 'OpenCode', resume: (id) => `opencode --session ${id}` },
+  agy: { label: 'Antigravity', resume: (id) => `agy --conversation ${id}` }
 }
 
 /**
@@ -273,7 +276,7 @@ function codexHead(lines) {
  * @param {number} depth
  * @returns {Promise<void>} 非同步：Codex 的 sessions 一掃幾百份，同步 stat 會卡住主程序
  */
-async function collect(dir, sinceMs, out, depth = 0) {
+async function collect(dir, sinceMs, out, depth = 0, sessionId = '') {
   if (depth > 6 || out.length >= MAX_SCAN_FILES) return
   let entries
   try {
@@ -286,10 +289,10 @@ async function collect(dir, sinceMs, out, depth = 0) {
     if (entry.isSymbolicLink()) continue
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      await collect(full, sinceMs, out, depth + 1)
+      await collect(full, sinceMs, out, depth + 1, sessionId)
       continue
     }
-    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl') || (sessionId && !entry.name.includes(sessionId))) continue
     let stat
     try {
       stat = await fsp.stat(full)
@@ -412,6 +415,8 @@ async function sessions(projectPath) {
     }
   }
 
+  const extra = await formats.extraSessions(projectPath, samePath, ID_RE)
+  out.push(...extra.map(row => ({ ...row, agentLabel: AGENTS[row.agent].label, source: sourceLabel(row.home) })))
   return dedupeSessions(out).slice(0, MAX_SESSIONS)
 }
 
@@ -473,13 +478,13 @@ async function findSessionFile(projectPath, agent, sessionId) {
     for (const home of claudeHomes()) {
       take(path.join(home, 'projects', encodeClaudeDir(projectPath), `${sessionId}.jsonl`), home)
     }
-  } else {
+  } else if (agent === 'codex') {
     const sinceMs = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000
     for (const home of codexHomes()) {
       /** @type {Array<{ file: string, mtime: number }>} */
       const matches = []
       for (const root of ['sessions', 'archived_sessions']) {
-        await collect(path.join(home, root), sinceMs, matches)
+        await collect(path.join(home, root), 0, matches, 0, sessionId)
       }
       // 由新到舊，命中第一個就停。不停的話每按一次接續／檢視都要把這個家目錄底下
       // 最多 MAX_SCAN_FILES 份記錄各讀 HEAD_BYTES 的檔頭，只為了挑出同一份的最新版。
@@ -491,6 +496,10 @@ async function findSessionFile(projectPath, agent, sessionId) {
         break
       }
     }
+  }
+  if (!['claude', 'codex'].includes(agent)) {
+    const rows = await formats.extraSessions(projectPath, samePath, ID_RE, sessionId)
+    best = rows.filter(row => row.agent === agent && row.id === sessionId).sort((a, b) => b.mtime - a.mtime)[0] || null
   }
   if (!best) throw fail('SESSION_NOT_FOUND', '這個專案底下找不到那一段對話的記錄')
   return best
@@ -511,6 +520,7 @@ async function resume(projectPath, agent, sessionId) {
     agentLabel: AGENTS[agent].label,
     sessionId,
     command: resumeCommand(agent, sessionId),
+    home: found.home,
     source: sourceLabel(found.home)
   }
 }
@@ -521,156 +531,62 @@ async function resume(projectPath, agent, sessionId) {
  * @param {string} agent
  * @param {string} sessionId
  */
-async function sessionDetail(projectPath, agent, sessionId) {
+async function sessionDetail(projectPath, agent, sessionId, cursor = null) {
+  const pageCursor = validateCursor(cursor)
   const found = await findSessionFile(projectPath, agent, sessionId)
-  const targetFile = found.file
-
-  const stat = await fsp.stat(targetFile).catch(() => null)
-  // 最多讀取前 MAX_DETAIL_BYTES，防止幾十 MB 的巨型 log 卡住
-  const handle = await fsp.open(targetFile, 'r')
-  let content = ''
-  try {
-    const buf = Buffer.alloc(Math.min(stat ? stat.size : 1024 * 1024, MAX_DETAIL_BYTES))
-    const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
-    content = buf.subarray(0, bytesRead).toString('utf8')
-  } finally {
-    await handle.close().catch(() => {})
+  const stat = await fsp.stat(found.file)
+  const turns = [], toolUsage = {}, editedFiles = new Set(), readFiles = new Set()
+  let chars = 0, nextCursor = null
+  for await (const record of formats.records(found, agent, pageCursor.offset)) {
+    const parsed = record.turns.flatMap(turn => [
+      ...(turn.text ? [{ ...turn, tools: undefined }] : []),
+      ...(turn.tools || []).map(tool => ({ role: 'assistant', text: '', tools: [tool] }))
+    ])
+    const first = record.offset === pageCursor.offset ? pageCursor.part : 0
+    for (let part = first; part < parsed.length; part++) {
+      const turn = parsed[part], tool = turn.tools?.[0], value = tool ? String(tool.detail || '') : turn.text
+      let textOffset = record.offset === pageCursor.offset && part === pageCursor.part ? pageCursor.text : 0
+      do {
+        if (turns.length >= PAGE_TURNS || chars >= PAGE_CHARS) {
+          nextCursor = { offset: record.offset, part, text: textOffset }
+          break
+        }
+        let end = Math.min(value.length, textOffset + TEXT_CHARS)
+        if (end < value.length && /[\uD800-\uDBFF]/.test(value[end - 1])) end--
+        const chunk = value.slice(textOffset, end)
+        turns.push(tool ? { ...turn, tools: [{ ...tool, detail: chunk }], continued: textOffset > 0 } : { ...turn, text: chunk, continued: textOffset > 0 })
+        if (tool && textOffset === 0) {
+          toolUsage[tool.name] = (toolUsage[tool.name] || 0) + 1
+          const file = normalizeProjectFile(projectPath, codexFileArg(value))
+          if (file) (EDIT_TOOLS.test(tool.name) ? editedFiles : readFiles).add(file)
+        }
+        chars += chunk.length; textOffset = end
+      } while (textOffset < value.length)
+      if (nextCursor) break
+    }
+    if (nextCursor) break
   }
-
-  const lines = content.split('\n')
-  /** @type {Array<{ role: 'user'|'assistant', text: string, tools?: Array<{ name: string, detail?: string }>, files?: string[], time?: string }>} */
-  const turns = []
-  /** @type {Record<string, number>} */
-  const toolUsage = {}
-  /** 真的動到磁碟的檔案 */
-  const editedFiles = new Set()
-  /** 只是看過的檔案（工具名不認得時也算這邊——不可以憑空說人家改過） */
-  const readFiles = new Set()
-  /** 讀到一半就停了（檔案太大或輪數到上限），UI 要講明白 */
-  let truncated = stat ? stat.size > MAX_DETAIL_BYTES : false
-
-  for (const line of lines) {
-    if (!line.trim()) continue
-    let obj
-    try {
-      obj = JSON.parse(line)
-    } catch {
-      continue
-    }
-
-    // Claude Code 格式
-    if (agent === 'claude') {
-      if (obj.type === 'user') {
-        const rawContent = obj?.message?.content
-        let text = typeof rawContent === 'string'
-          ? rawContent
-          : Array.isArray(rawContent)
-            ? rawContent.filter((p) => p?.type === 'text').map((p) => p.text).join('\n')
-            : ''
-        if (text && !text.startsWith('<')) {
-          turns.push({ role: 'user', text: text.trim().slice(0, 500) })
-        }
-      } else if (obj.type === 'assistant') {
-        const rawContent = obj?.message?.content
-        if (Array.isArray(rawContent)) {
-          const texts = []
-          const tools = []
-          for (const part of rawContent) {
-            if (part?.type === 'text' && part.text) {
-              texts.push(part.text.trim())
-            } else if (part?.type === 'tool_use') {
-              const name = part.name || 'tool'
-              toolUsage[name] = (toolUsage[name] || 0) + 1
-              const input = part.input || {}
-              const rawFileTarget = [input.path, input.file_path, input.file]
-                .find((value) => typeof value === 'string' && value.trim()) || ''
-              const fileTarget = normalizeProjectFile(projectPath, rawFileTarget)
-              if (fileTarget) {
-                if (EDIT_TOOLS.test(name)) editedFiles.add(fileTarget)
-                else readFiles.add(fileTarget)
-              }
-              const detail = fileTarget || input.command || (typeof input === 'string' ? input : '')
-              tools.push({ name, detail: typeof detail === 'string' ? detail.slice(0, 120) : '' })
-            }
-          }
-          if (texts.length || tools.length) {
-            turns.push({
-              role: 'assistant',
-              text: texts.join('\n\n').slice(0, 800),
-              tools: tools.length ? tools.slice(0, 10) : undefined
-            })
-          }
-        }
-      }
-    } else if (agent === 'codex') {
-      // Codex 的現行格式把 role 放在 response_item.payload，文字型別是 output_text。
-      const payload = obj?.type === 'response_item' ? obj.payload : obj
-      const role = payload?.role || obj?.role
-      if (role === 'user') {
-        const text = payload?.content?.find?.((p) => p?.type === 'input_text')?.text
-        if (text && looksLikePrompt(text)) {
-          turns.push({ role: 'user', text: text.trim().slice(0, 500) })
-        }
-      } else if (role === 'assistant') {
-        const text = payload?.content?.find?.((p) => p?.type === 'output_text' || p?.type === 'text')?.text || ''
-        const call = payload?.tool_calls?.[0]
-        const tools = []
-        if (call) {
-          const name = call.name || 'tool'
-          toolUsage[name] = (toolUsage[name] || 0) + 1
-          const args = String(call.arguments || '')
-          // Codex 的參數是一整包 JSON 字串，只挑得出路徑的話就順手歸個類
-          const guess = normalizeProjectFile(projectPath, codexFileArg(args))
-          if (guess) {
-            if (EDIT_TOOLS.test(name)) editedFiles.add(guess)
-            else readFiles.add(guess)
-          }
-          tools.push({ name, detail: args.slice(0, 120) })
-        }
-        if (text || tools.length) {
-          turns.push({
-            role: 'assistant',
-            text: text.slice(0, 800),
-            tools: tools.length ? tools : undefined
-          })
-        }
-      }
-    }
-    if (turns.length >= MAX_TURNS) {
-      truncated = true
-      break
-    }
-  }
-
-  const prompts = turns.filter((turn) => turn.role === 'user').map((turn) => ({ text: turn.text }))
-  // 「改過」與「讀過」分開：同一個檔案兩邊都有時只算改過的那一邊
-  const edited = Array.from(editedFiles).slice(0, MAX_FILE_LIST)
-  const read = Array.from(readFiles).filter((one) => !editedFiles.has(one)).slice(0, MAX_FILE_LIST)
-  const toolCallsCount = Object.values(toolUsage).reduce((sum, count) => sum + count, 0)
+  const edited = [...editedFiles].slice(0, MAX_FILE_LIST)
+  const read = [...readFiles].filter(file => !editedFiles.has(file)).slice(0, MAX_FILE_LIST)
   return {
-    agent,
-    agentLabel: AGENTS[agent]?.label || agent,
-    id: sessionId,
-    sessionId,
-    title: turns.find((t) => t.role === 'user')?.text?.slice(0, 60) || sessionId,
-    mtime: stat ? stat.mtimeMs : Date.now(),
-    source: sourceLabel(found.home),
-    // 記錄檔的真實路徑（工具列「複製路徑」用）：findSessionFile 已確認它屬於這個專案
-    file: targetFile,
-    truncated,
-    prompts,
-    toolCallsCount,
-    toolCallsBreakdown: toolUsage,
-    editedFiles: edited,
-    readFiles: read,
-    turns,
-    stats: {
-      totalTurns: turns.length,
-      toolUsage,
-      editedFiles: edited,
-      readFiles: read
-    }
+    agent, agentLabel: AGENTS[agent].label, id: sessionId, sessionId,
+    title: turns.find(t => t.role === 'user')?.text?.slice(0, 60) || sessionId,
+    mtime: stat.mtimeMs, source: sourceLabel(found.home), file: found.file,
+    truncated: false, hasMore: Boolean(nextCursor), pageCursor, nextCursor,
+    limitations: agent === 'agy' ? ['Antigravity 的部分工具結果以保護格式儲存；對話文字會完整分頁，工具結果顯示可讀摘要。'] : [],
+    prompts: turns.filter(t => t.role === 'user').map(t => ({ text: t.text })),
+    toolCallsCount: Object.values(toolUsage).reduce((sum, count) => sum + count, 0),
+    toolCallsBreakdown: toolUsage, editedFiles: edited, readFiles: read, turns,
+    stats: { totalTurns: turns.length, toolUsage, editedFiles: edited, readFiles: read }
   }
+}
+
+function validateCursor(cursor) {
+  if (cursor == null) return { offset: 0, part: 0, text: 0 }
+  if (typeof cursor !== 'object' || !['offset', 'part', 'text'].every(key => Number.isSafeInteger(cursor[key]) && cursor[key] >= 0)) {
+    throw fail('BAD_CURSOR', '對話頁碼不合法')
+  }
+  return { offset: cursor.offset, part: cursor.part, text: cursor.text }
 }
 
 /**
@@ -709,6 +625,7 @@ module.exports = {
   samePath,
   normalizeProjectFile,
   sessions,
+  list: sessions,
   resumeCommand,
   sessionDetail
 }

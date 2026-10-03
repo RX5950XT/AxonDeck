@@ -523,6 +523,7 @@ async function selectProject(id) {
   // 換專案＝上一個專案的變更清單與篩選條件全部作廢（留著會拿 A 的字去篩 B 的檔案）
   gitFilter = ''
   lastGitStatus = null
+  if (el.gitHub) { el.gitHub.disabled = true; el.gitHub.onclick = null }
   if (el.gitFilter) /** @type {HTMLInputElement} */ (el.gitFilter).value = ''
   setChatPaneMode('workspace')
   startWatching(project.id)
@@ -951,7 +952,7 @@ function buildTreeRow(project, entry, depth) {
     }
     // 改過（還沒提交）的檔案預設開「檢視變更」；新檔／衝突仍開編輯器（前者沒東西可比，後者要改衝突標記）
     const status = treeStatusInfo(entry)
-    if (status?.className === 'is-changed') {
+    if (status?.className === 'is-changed' && entry.media !== 'image' && entry.media !== 'video') {
       void openDiffTab(project, entry.rel, Boolean(status.staged), { keepOpenView: true })
       return
     }
@@ -2064,6 +2065,7 @@ async function renderGit() {
   // 最後都會回到這裡重畫，所以共用快取的失效點放這一個就夠。
   invalidateGitStatus()
   const seq = projectSeq
+  if (el.gitHub) el.gitHub.disabled = true
   let status
   try {
     status = await call(electronAPI.workspace.gitStatus(project.id), '讀不到 Git 狀態')
@@ -2072,6 +2074,13 @@ async function renderGit() {
   }
   // 讀取期間可能已經換過專案：畫下去等於把 A 的變更清單掛在 B 上
   if (!isCurrentProject(project, seq)) return
+  if (el.gitHub) {
+    el.gitHub.disabled = !status.githubUrl
+    el.gitHub.title = status.githubUrl ? '開啟 GitHub 倉庫' : '沒有 GitHub 遠端倉庫'
+    el.gitHub.onclick = status.githubUrl
+      ? () => void call(electronAPI.workspace.openExternal(status.githubUrl), 'GitHub 開不起來').catch(() => {})
+      : null
+  }
   if (!status.repo) {
     if (el.gitBranch) el.gitBranch.replaceChildren(document.createTextNode('不是 git 儲存庫'))
     lastGitStatus = null
@@ -2717,7 +2726,7 @@ async function renderAgents() {
   if (!rows.length) {
     const note = document.createElement('p')
     note.className = 'ws-tree-note'
-    note.textContent = '最近 60 天沒有在這個資料夾跑過 Claude Code 或 Codex。'
+    note.textContent = '最近沒有 AI 對話紀錄'
     el.agentList.appendChild(note)
     return
   }
@@ -2796,7 +2805,8 @@ async function resumeSession(project, row) {
   } catch {
     return
   }
-  await newTerminalWithCommand(`${info.agentLabel} · ${row.title || '接續'}`, info.command)
+  if (currentProject()?.id !== project.id) return
+  await newTerminalWithCommand(`${info.agentLabel} · ${row.title || '接續'}`, info.command, info)
 }
 
 // ===== 對外 =====
@@ -2907,6 +2917,7 @@ export function initWorkspacePage() {
   el.filesProject = document.getElementById('wsFilesProject')
   el.tree = document.getElementById('wsTree')
   el.gitBranch = document.getElementById('wsGitBranch')
+  el.gitHub = document.getElementById('wsGitHubBtn')
   el.gitFiles = document.getElementById('wsGitFiles')
   el.gitChangesStat = document.getElementById('wsGitChangesStat')
   el.gitFilter = document.getElementById('wsGitFilter')

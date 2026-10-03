@@ -165,9 +165,19 @@ function isClaudeTranscript(value, sessionId) {
  * @param {unknown} sessionId
  * @returns {string}
  */
-function startupCommand(preset, sessionId) {
+function isAgentSessionId(preset, value) {
+  if (!Object.hasOwn(PRESETS, preset) || preset === 'shell') return false
+  return preset === 'claude' ? isClaudeSessionId(value) : typeof value === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(value)
+}
+
+function startupCommand(preset, sessionId, agentSessionId) {
   const key = normalizePreset(preset)
   const base = PRESETS[key].command
+  if (isAgentSessionId(key, agentSessionId)) {
+    const resume = { claude: 'claude --resume', codex: 'codex resume --no-daemon',
+      opencode: 'opencode --session', agy: 'agy --conversation', grok: 'grok --resume' }
+    return `${resume[key]} ${agentSessionId}`
+  }
   if (key === 'claude' && isClaudeSessionId(sessionId)) return `claude --resume ${sessionId}`
   return base
 }
@@ -250,6 +260,12 @@ function sanitizeAll(raw) {
       row.claudeSessionId = claudeSessionId
       row.claudeTranscript = item.claudeTranscript
     }
+    if (isAgentSessionId(preset, item.agentSessionId)) row.agentSessionId = item.agentSessionId
+    if (preset !== 'shell' && Number.isFinite(item.agentStartedAt) && item.agentStartedAt > 0) {
+      row.agentStartedAt = item.agentStartedAt
+      row.agentKnownSessions = Array.isArray(item.agentKnownSessions)
+        ? item.agentKnownSessions.filter(id => isAgentSessionId(preset, id)).slice(0, 100) : []
+    }
     out.push(row)
     if (out.length >= MAX_SESSIONS) break
   }
@@ -330,6 +346,7 @@ function create(req) {
       projectId: normalizeProjectId(req?.projectId),
       createdAt: Date.now()
     }
+    if (isAgentSessionId(preset, req?.agentSessionId)) session.agentSessionId = req.agentSessionId
     await writeAll([...items, session])
     return session
   })
@@ -393,10 +410,49 @@ function setClaudeSession(id, sessionId, transcript) {
         delete rest.claudeTranscript
         return rest
       }
-      return { ...item, claudeSessionId: sessionId, claudeTranscript: transcript }
+      return { ...item, claudeSessionId: sessionId, claudeTranscript: transcript,
+        ...(item.preset === 'claude' && item.agentSessionId ? { agentSessionId: sessionId } : {}) }
     })
     if (found) await writeAll(next)
     return found
+  })
+}
+
+/** 僅 main 的記錄掃描器可寫；renderer 給的 ID 先在 service 驗所屬目錄。 */
+function setAgentSession(id, agent, sessionId, expectedStartedAt) {
+  return withStore(async () => {
+    const items = await readAll()
+    if (!isAgentSessionId(agent, sessionId)) return false
+    if (expectedStartedAt !== undefined && !items.some(item => item.id === id && item.preset === agent
+      && !item.agentSessionId && item.agentStartedAt === expectedStartedAt)) return false
+    const next = items.map(item => item.id === id ? { ...item, preset: agent, agentSessionId: sessionId } : item)
+    if (!items.some(item => item.id === id)) return false
+    await writeAll(next)
+    return true
+  })
+}
+
+function setAgentTracking(id, startedAt, knownSessions) {
+  return withStore(async () => {
+    const items = await readAll()
+    const next = items.map(item => item.id === id
+      ? { ...item, agentStartedAt: startedAt, agentKnownSessions: knownSessions.slice(0, 100) } : item)
+    if (!items.some(item => item.id === id)) return false
+    await writeAll(next)
+    return true
+  })
+}
+
+function clearAgentSession(id) {
+  return withStore(async () => {
+    const items = await readAll()
+    const next = items.map(item => {
+      if (item.id !== id) return item
+      const rest = { ...item }
+      delete rest.agentSessionId
+      return rest
+    })
+    await writeAll(next)
   })
 }
 
@@ -413,6 +469,7 @@ module.exports = {
   isSessionId,
   isClaudeSessionId,
   isClaudeTranscript,
+  isAgentSessionId,
   startupCommand,
   normalizeProjectId,
   normalizeCwd,
@@ -424,5 +481,8 @@ module.exports = {
   create,
   rename,
   remove,
-  setClaudeSession
+  setClaudeSession,
+  setAgentSession,
+  setAgentTracking,
+  clearAgentSession
 }

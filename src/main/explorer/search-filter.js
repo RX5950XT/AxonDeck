@@ -25,6 +25,7 @@ const MAX_FILTER_SIZE = Number.MAX_SAFE_INTEGER
 const MAX_FILTER_DATE = 8640000000000000
 
 function finiteNumber(raw) {
+  if (raw == null || (typeof raw === 'string' && !raw.trim())) return null
   const n = typeof raw === 'number' ? raw : Number(raw)
   return Number.isFinite(n) ? n : null
 }

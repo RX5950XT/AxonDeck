@@ -8,6 +8,8 @@ const editorBridge = require('./editor-bridge')
 const clipboardImage = require('./clipboard-image')
 const background = require('./background')
 const claudeHooks = require('./claude-hooks')
+const agents = require('../workspace/agents')
+const agentResume = require('./agent-resume').createTracker(store, agents)
 const { HostClient } = require('./host-client')
 
 /** 複製上限：scrollback 5000 列 × 寬螢幕也到不了這麼多，擋的是 renderer 亂送 */
@@ -57,6 +59,9 @@ async function listSessions() {
   const items = await store.list()
   const states = await getClient().request('list') || []
   const byId = new Map(states.map(item => [item.id, item]))
+  for (const item of items) {
+    if (byId.has(item.id)) await agentResume.begin(item, true)
+  }
   return items.map(item => {
     const state = byId.get(item.id)
     if (state?.cwd) links.noteCwd(item.id, state.cwd)
@@ -84,7 +89,10 @@ async function openSession(id, cols, rows) {
   const editor = bridgeTakesOver() ? editorBridge.shimCommand() : ''
   const editorDir = editor ? editorBridge.shimDir() : ''
   // 對話檔不在就拿掉 claudeSessionId，宿主才不會打出 `claude --resume` 然後報找不到。
-  const safe = await claudeHooks.prepareResume(meta)
+  let safe = await agentResume.prepare(meta)
+  if (!safe.agentSessionId) safe = await claudeHooks.prepareResume(safe)
+  const states = await getClient().request('list') || []
+  await agentResume.begin(safe, states.some(item => item.id === safe.id))
   const snapshot = await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
   if (snapshot?.cwd) links.noteCwd(meta.id, snapshot.cwd)
   return snapshot
@@ -115,21 +123,52 @@ async function hostState() {
  */
 async function restartHost() {
   if (!await getClient().ensure(false)) return false
+  await agentResume.capture()
   return getClient().restart()
 }
 
 async function deleteSession(id) {
+  agentResume.forget(String(id || ''))
   await getClient().request('forget', { sessionId: String(id || '') })
   links.noteCwd(String(id || ''), '')
   return store.remove(String(id || ''))
 }
 
-function writeSession(id, data) {
+async function writeSession(id, data) {
   if (typeof data !== 'string' || !data) return false
   const key = String(id || '')
+  // AI 記錄「送到現有終端機」用固定 resume 指令；驗記錄所屬目錄後一起保存 metadata。
+  const match = data.match(/^(claude --resume|codex resume(?: --no-daemon)?|grok --resume|agy --conversation|opencode --session) ([A-Za-z0-9_-]{6,64})\r?\n?$/)
+  if (match) {
+    const meta = await store.get(key)
+    const agent = match[1].split(' ')[0]
+    if (meta && store.isAgentSessionId(agent, match[2])) {
+      try {
+        const found = await agents.resume(meta.cwd, agent, match[2])
+        await store.setAgentSession(key, agent, match[2])
+        data = `${require('./agent-resume').commandForShell(meta.shell, found)}\r`
+      } catch (error) {
+        if (error?.code !== 'SESSION_NOT_FOUND') throw error
+      }
+    }
+  }
   // 回答了提問 → working；Esc／Ctrl+C 中斷 → idle（中斷不會有 Stop hook）。
   claudeHooks.noteInput(key, data)
   return getClient().request('write', { sessionId: key, data: data.slice(0, terminal.MAX_WRITE_CHARS) })
+}
+
+async function createSession(req = {}) {
+  req = req || {}
+  if (req.agentSessionId !== undefined) {
+    if (!store.isAgentSessionId(req.preset, req.agentSessionId)) {
+      const error = new Error('BAD_SESSION')
+      error.code = 'BAD_SESSION'
+      error.userMessage = '對話代碼不合法'
+      throw error
+    }
+    await agents.resume(store.normalizeCwd(req.cwd), req.preset, req.agentSessionId)
+  }
+  return terminal.createSession(req)
 }
 
 module.exports = {
@@ -147,7 +186,7 @@ module.exports = {
   // Windows 組建號（`10.0.26200` 的最後一段）給 xterm 的 `windowsPty`。放這裡不放 pty.js：
   // pty.js 是宿主檔，一改就得重開宿主（見 AGENTS.md「宿主活得比 App 久」）
   catalog: () => ({ ...terminal.catalog(), winBuild: Number(require('os').release().split('.')[2]) || 0 }),
-  createSession: terminal.createSession,
+  createSession,
   renameSession: terminal.renameSession,
   listSessions,
   hostState,
@@ -178,5 +217,12 @@ module.exports = {
   clearBackground: background.remove,
   resizeSession: (id, cols, rows) => getClient().request('resize', { sessionId: String(id || ''), cols, rows }),
   killSession: (id) => getClient().request('kill', { sessionId: String(id || '') }),
-  disconnect() { foreground.stop(); editorBridge.stop(); client?.disconnect(); client = null }
+  async disconnect() {
+    try { await agentResume.capture() } catch { console.error('[terminal] AI_SESSION_SCAN_FAILED') }
+    agentResume.stop()
+    foreground.stop()
+    editorBridge.stop()
+    client?.disconnect()
+    client = null
+  }
 }

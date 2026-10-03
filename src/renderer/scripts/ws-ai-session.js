@@ -75,7 +75,7 @@ function fileChips(list, onOpen) {
  * @param {(terminalId: string) => void} opts.onResume 接續（空字串＝開一個新的）
  * @param {(file: string) => void} opts.onCopyPath 複製記錄檔的完整路徑
  */
-export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCopyPath }) {
+export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCopyPath, onLoadPage }) {
   const data = tab.sessionData
   const row = tab.sessionRow
   if (els.title) {
@@ -86,7 +86,8 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
     const bits = []
     if (data?.source) bits.push(`來源：${data.source}`)
     if (row?.mtime) bits.push(new Date(row.mtime).toLocaleString('zh-TW'))
-    if (data?.truncated) bits.push('記錄很長，只讀了前面一段')
+    bits.push(`第 ${(tab.sessionPage || 0) + 1} 頁`)
+    if (data?.hasMore) bits.push('還有後續內容')
     els.meta.textContent = bits.join(' · ')
     els.meta.title = els.meta.textContent
   }
@@ -132,7 +133,7 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   summary.className = 'ws-ai-card'
   const summaryTitle = document.createElement('h3')
   summaryTitle.className = 'ws-ai-card-title'
-  summaryTitle.textContent = '會話概況'
+  summaryTitle.textContent = '本頁概況'
   summary.appendChild(summaryTitle)
 
   const grid = document.createElement('div')
@@ -151,10 +152,11 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   }
   addMeta('代理類型', row?.agentLabel || data.agent)
   addMeta('會話識別碼', data.sessionId)
-  addMeta('提問輪數', `${data.prompts?.length || 0} 輪`)
-  addMeta('工具呼叫次數', `${data.toolCallsCount || 0} 次`)
+  addMeta('本頁提問片段', `${data.prompts?.length || 0} 段`)
+  addMeta('本頁工具呼叫', `${data.toolCallsCount || 0} 次`)
   addMeta('記錄來源', data.source || '本機預設位置')
   summary.appendChild(grid)
+  for (const limitation of data.limitations || []) summary.appendChild(note(limitation))
 
   // ── 2. 改過的／讀過的（分開，不可以混）──
   const edited = Array.isArray(data.editedFiles) ? data.editedFiles : []
@@ -162,16 +164,16 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   if (edited.length) {
     const title = document.createElement('div')
     title.className = 'ws-ai-sub-title'
-    title.textContent = `改過的檔案（${edited.length}）：`
+    title.textContent = `本頁改過的檔案（${edited.length}）：`
     summary.append(title, fileChips(edited, onOpenFile))
   }
   if (read.length) {
-    const fold = foldable(`只是讀過的檔案（${read.length}）`, false)
+    const fold = foldable(`本頁只是讀過的檔案（${read.length}）`, false)
     fold.body.appendChild(fileChips(read, onOpenFile))
     summary.appendChild(fold.box)
   }
   if (!edited.length && !read.length) {
-    summary.appendChild(note('這段記錄裡沒有對到這個專案裡的檔案。'))
+    summary.appendChild(note('這頁沒有對到這個專案裡的檔案。'))
   }
   els.body.appendChild(summary)
 
@@ -180,7 +182,7 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   if (Object.keys(breakdown).length) {
     const card = document.createElement('div')
     card.className = 'ws-ai-card'
-    const fold = foldable(`工具呼叫統計（${Object.keys(breakdown).length} 種）`, false)
+    const fold = foldable(`本頁工具呼叫統計（${Object.keys(breakdown).length} 種）`, false)
     const tools = document.createElement('div')
     tools.className = 'ws-ai-tools-grid'
     for (const [name, count] of Object.entries(breakdown)) {
@@ -216,7 +218,7 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
       item.className = turn.role === 'user' ? 'ws-ai-turn is-user' : 'ws-ai-turn'
       const who = document.createElement('span')
       who.className = 'ws-ai-turn-role'
-      who.textContent = turn.role === 'user' ? '我' : (row?.agentLabel || 'AI')
+      who.textContent = turn.role === 'user' ? '我' : `${row?.agentLabel || 'AI'}${turn.thought ? ' · 思考' : ''}${turn.continued ? ' · 接續' : ''}`
       const text = document.createElement('div')
       text.className = 'ws-ai-turn-text'
       text.textContent = turn.text || ''
@@ -240,7 +242,24 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
       list.appendChild(item)
     }
     card.appendChild(list)
-    if (data.truncated) card.appendChild(note('這份記錄太長，只讀了前面一段。'))
     els.body.appendChild(card)
   }
+  const navigation = document.createElement('div')
+  navigation.className = 'ws-ai-card'
+  const pageNote = note(`第 ${(tab.sessionPage || 0) + 1} 頁${data.hasMore ? '，還有後續內容。' : '，已讀到記錄末尾。'}`)
+  navigation.appendChild(pageNote)
+  for (const [direction, label, action, available] of [
+    [-1, '上一頁', 'previous-page', (tab.sessionPage || 0) > 0],
+    [1, '下一頁（繼續讀取）', 'next-page', Boolean(data.nextCursor)]
+  ]) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'btn btn-secondary btn-sm'
+    button.dataset.action = action
+    button.textContent = label
+    button.disabled = !available || Boolean(tab.sessionLoading)
+    button.onclick = () => onLoadPage?.(direction)
+    navigation.appendChild(button)
+  }
+  els.body.prepend(navigation)
 }

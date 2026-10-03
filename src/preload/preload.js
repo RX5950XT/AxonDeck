@@ -362,8 +362,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('workspace:agentResume', id, agent, sessionId)
     ),
     /** @param {string} agent 只認 main 固定表裡的 key */
-    agentSessionDetail: (id, agent, sessionId) => (
-      ipcRenderer.invoke('workspace:agentSessionDetail', id, agent, sessionId)
+    agentSessionDetail: (id, agent, sessionId, cursor) => (
+      ipcRenderer.invoke('workspace:agentSessionDetail', id, agent, sessionId, cursor)
     ),
     /**
      * 結束前 main 會來要一次「把草稿寫完」。`beforeunload` 那條救不了非同步儲存

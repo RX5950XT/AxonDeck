@@ -2289,14 +2289,16 @@ app.on('before-quit', (e) => {
   e.preventDefault()
   isQuitting = true
   // 終端機由獨立宿主持有；更新／結束 App 只斷線，明確關閉分頁才結束程序。
-  if (terminalMod) terminalMod.disconnect()
+  const stopTerminal = terminalMod
+    ? Promise.resolve(terminalMod.disconnect()).catch(() => console.error('[terminal] disconnect failed'))
+    : Promise.resolve()
   try { require('./terminal/claude-hooks').stop() } catch { /* 沒裝過 */ }
-  // 檔案總管只收自己的 fs.watch；UFFS daemon 是整機索引，關 App 不停它。
+  // 檔案總管收自己的 fs.watch，並休眠本 App 用過的 UFFS 索引，保留 daemon／磁碟快取。
   // 殼層 sidecar 要一起收：它抓著 IContextMenu COM 物件，不放會留程序。
-  if (explorerMod) {
-    if (typeof explorerMod.shutdown === 'function') explorerMod.shutdown()
-    else explorerMod.unwatch()
-  }
+  const stopExplorer = explorerMod
+    ? Promise.resolve(typeof explorerMod.shutdown === 'function' ? explorerMod.shutdown() : explorerMod.unwatch())
+      .catch(() => console.warn('[explorer] shutdown failed'))
+    : Promise.resolve()
   // 系統監控有三顆子程序（probe.ps1／nvidia-smi／感測器 sidecar），少收一顆就變孤兒。
   // **這條是 await 得到的**：風扇的手動 PWM 留在晶片裡，沒等它交還就退出等於把風扇
   // 釘在最後的轉速（事後 SetDefault 也救不回來，只有重開機）。
@@ -2318,6 +2320,8 @@ app.on('before-quit', (e) => {
     ? ccSwitchMod.stopGateway().catch((err) => console.error('[ccswitch] gateway stop failed:', err))
     : Promise.resolve()
   const stopAgy = Promise.all([
+    stopTerminal,
+    stopExplorer,
     stopSysmon,
     stopScreentime,
     stopGateway,

@@ -5,7 +5,7 @@
  *
  * 不把 Rust 引擎 vendoring 進來：找本機 `uffs.exe`、代跑 CLI。進檔案頁自動
  * 從 GitHub Releases 下載 zip、一次 UAC 裝 Access Broker、拉起 daemon。
- * 關 App **不停** daemon。
+ * 搜尋後閒置及關 App 會休眠用過的索引，保留 daemon 與磁碟快取。
  */
 
 const fs = require('../raw-fs')
@@ -23,6 +23,7 @@ const SEARCH_LIMIT = 200
 const SEARCH_SCAN_LIMIT = 2000
 const SEARCH_TIMEOUT_MS = 90_000
 const STATUS_TIMEOUT_MS = 8_000
+const SEARCH_IDLE_MS = 60_000
 const MAX_STDOUT = 8 * 1024 * 1024
 const MAX_ZIP_BYTES = 64 * 1024 * 1024
 const ZIP_NAME = 'uffs-windows-x64.zip'
@@ -37,6 +38,44 @@ let searchChild = null
 let downloadCtl = null
 /** @type {Promise<object> | null} */
 let ensureInflight = null
+let hasUsedDaemon = false
+let idleTimer = null
+let releasing = null
+const activeSearches = new Set()
+let searchVersion = 0
+
+function scheduleRelease() {
+  clearTimeout(idleTimer)
+  idleTimer = null
+  if (!hasUsedDaemon || activeSearches.size) return
+  idleTimer = setTimeout(() => {
+    idleTimer = null
+    void releaseMemory().catch(() => console.warn('[explorer] 索引記憶體釋放失敗'))
+  }, SEARCH_IDLE_MS)
+  idleTimer.unref?.()
+}
+
+/** 保留索引快取，下次搜尋由 UFFS 自動載回。從未使用過的外部 daemon 不碰。 */
+async function releaseMemory() {
+  clearTimeout(idleTimer)
+  idleTimer = null
+  if (!hasUsedDaemon || activeSearches.size) return false
+  if (releasing) return releasing
+  const exe = findUffs()
+  if (!exe) return false
+  releasing = run(exe, ['--daemon', 'hibernate'], { timeoutMs: 30_000 }).then(result => {
+    if (result.code !== 0) throw fail('UFFS_FAILED', '搜尋記憶體釋放失敗')
+    return true
+  }).finally(() => { releasing = null })
+  return releasing
+}
+
+async function shutdown() {
+  clearTimeout(idleTimer)
+  cancelSearch()
+  await Promise.all([...activeSearches].map(child => new Promise(resolve => child.once('close', resolve))))
+  return releaseMemory()
+}
 
 /** @param {string} dir */
 function configure(dir) {
@@ -187,7 +226,8 @@ function run(exe, args, opts = {}) {
   })
 }
 
-function cancelSearch() {
+function cancelSearch(keepVersion = false) {
+  if (!keepVersion) searchVersion += 1
   if (!searchChild) return
   try { searchChild.kill() } catch { /* 已經停了 */ }
   searchChild = null
@@ -239,13 +279,13 @@ function parseStatusJson(stdout) {
   if (!parsed || typeof parsed !== 'object') parsed = {}
   const daemon = parsed.daemon && typeof parsed.daemon === 'object' ? parsed.daemon : parsed
   const broker = parsed.broker && typeof parsed.broker === 'object' ? parsed.broker : {}
-  const state = String((daemon.status && daemon.status.state) || daemon.status || '').toLowerCase()
+  const state = String(daemon.status?.status?.state || daemon.status?.state || daemon.status || '').toLowerCase()
   const warming = state.includes('load') || state.includes('start')
     || (state.includes('warm') && state !== 'warm' && state !== 'hot')
   return {
     daemon: {
       running: daemon.running === true,
-      warming,
+      warming: warming || (Array.isArray(daemon.drives) && daemon.drives.some(drive => drive.loading === true)),
       drives: Array.isArray(daemon.drives) ? daemon.drives.length : Number(daemon.drives) || 0,
       records: Number((daemon.stats && daemon.stats.total_records) || daemon.records) || 0
     },
@@ -380,11 +420,34 @@ async function status() {
  * @returns {Promise<{ hits: object[], truncated: boolean, warming: boolean }>}
  */
 async function search(raw, rawFilters) {
+  sanitizePattern(raw)
+  const version = ++searchVersion
+  const deadline = Date.now() + SEARCH_TIMEOUT_MS
+  while (version === searchVersion && Date.now() < deadline) {
+    const result = await searchOnce(raw, rawFilters, version, deadline)
+    if (version !== searchVersion) break
+    let warming = result.warming
+    try {
+      const rawStatus = await run(findUffs(), ['--status', '--json'])
+      warming ||= parseStatusJson(rawStatus.stdout).daemon.warming
+    } catch { /* 搜尋已成功；狀態查詢失敗時仍回傳這次命中。 */ }
+    if (version !== searchVersion) break
+    if (!warming) return result
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+  if (version !== searchVersion) return { hits: [], truncated: false, warming: false, cancelled: true }
+  throw fail('UFFS_TIMEOUT', '搜尋逾時')
+}
+
+async function searchOnce(raw, rawFilters, version, deadline) {
   const pattern = sanitizePattern(raw)
   const filters = sanitizeSearchFilters(rawFilters)
   const exe = findUffs()
   if (!exe) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
-  cancelSearch()
+  clearTimeout(idleTimer)
+  if (releasing) await releasing.catch(() => {}) // 休眠失敗不阻止正常搜尋。
+  if (version !== searchVersion) return { hits: [], truncated: false, warming: false, cancelled: true }
+  cancelSearch(true)
   // ponytail: UFFS 0.6.40 帶點查詢會漏檔；文字／基本 glob 改用受控 regex，上游修正後移除。
   // 進階 glob 與路徑 glob 仍交給上游，避免自己重寫整套語法。
   let query = pattern
@@ -413,13 +476,15 @@ async function search(raw, rawFilters) {
       return
     }
     searchChild = child
+    hasUsedDaemon = true
+    activeSearches.add(child)
     let out = Buffer.alloc(0)
     let err = Buffer.alloc(0)
     let timed = false
     const timer = setTimeout(() => {
       timed = true
       try { child.kill() } catch { /* 已經停了 */ }
-    }, SEARCH_TIMEOUT_MS)
+    }, Math.max(1, deadline - Date.now()))
     child.stdout.on('data', (chunk) => {
       out = Buffer.concat([out, chunk])
       if (out.length > MAX_STDOUT) {
@@ -432,11 +497,15 @@ async function search(raw, rawFilters) {
     child.on('error', () => {
       clearTimeout(timer)
       if (searchChild === child) searchChild = null
+      activeSearches.delete(child)
+      scheduleRelease()
       reject(fail('UFFS_FAILED', '搜尋失敗'))
     })
     child.on('close', (code) => {
       clearTimeout(timer)
       if (searchChild === child) searchChild = null
+      activeSearches.delete(child)
+      scheduleRelease()
       if (timed) {
         reject(fail('UFFS_TIMEOUT', '搜尋逾時'))
         return
@@ -611,8 +680,10 @@ async function runEnsure(opts) {
   if (st.broker.present && !st.broker.installed) {
     st = await installBroker()
   }
-  if (st.installed && !st.daemon.running) {
+  if (st.installed && !st.daemon.running && !st.broker.installed) {
     await startDaemon({ elevate: !st.broker.installed })
+    hasUsedDaemon = true
+    scheduleRelease()
     st = await status()
   }
   return st
@@ -636,6 +707,8 @@ module.exports = {
   installBroker,
   startDaemon,
   ensureReady,
+  releaseMemory,
+  shutdown,
   parseJsonRows,
   parseStatusJson,
   classifySearchError,

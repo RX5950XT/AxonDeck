@@ -74,6 +74,8 @@ pub struct Session {
     preset_sent: bool,
     pub shell: String,
     pub cwd: String,
+    pub agent_preset: String,
+    pub agent_home: String,
 }
 
 struct Client {
@@ -210,9 +212,9 @@ impl Host {
         )
     }
 
-    fn spawn_pty(self: &Arc<Self>, id: &str, shell_key: &str, cwd: &str, cols: i64, rows: i64, editor: &str, editor_dir: &str) -> Result<(Backend, u32, u64), ()> {
+    fn spawn_pty(self: &Arc<Self>, id: &str, shell_key: &str, cwd: &str, cols: i64, rows: i64, editor: &str, editor_dir: &str, agent: &str, agent_home: &str) -> Result<(Backend, u32, u64), ()> {
         let (exe, args) = shell::shell_command(shell_key);
-        let env = shell::shell_environment(editor, editor_dir, id);
+        let env = shell::agent_environment(shell::shell_environment(editor, editor_dir, id), agent, agent_home);
         let pty = Pty::spawn(&exe, &args, cwd, &env, cols as u16, rows as u16).map_err(|_| ())?;
         let generation = self.next_gen.fetch_add(1, Ordering::Relaxed);
         let io = Arc::new(PtyIo { hpc: Mutex::new(Some(pty.hpc())), input: pty.input(), process: pty.process });
@@ -264,16 +266,21 @@ impl Host {
             let preset = shell::startup_command(
                 meta.get("preset").and_then(Value::as_str),
                 meta.get("claudeSessionId").and_then(Value::as_str).unwrap_or(""),
+                meta.get("agentSessionId").and_then(Value::as_str).unwrap_or(""),
             );
             let cwd = shell::normalize_cwd(meta.get("cwd").and_then(Value::as_str));
+            let agent = meta.get("preset").and_then(Value::as_str).unwrap_or("");
+            let agent_home = meta.get("agentHome").and_then(Value::as_str).unwrap_or("");
             let is_admin = meta.get("admin") == Some(&Value::Bool(true));
             let (backend, pid, generation) = if is_admin {
                 (Backend::Admin { spawned: false }, None, self.next_gen.fetch_add(1, Ordering::Relaxed))
             } else {
-                let (b, pid, generation) = self.spawn_pty(id, &shell_key, &cwd, c, r, editor, editor_dir)?;
+                let (b, pid, generation) = self.spawn_pty(id, &shell_key, &cwd, c, r, editor, editor_dir, agent, agent_home)?;
                 (b, Some(pid), generation)
             };
             let session = Session {
+                agent_preset: agent.to_string(),
+                agent_home: agent_home.to_string(),
                 generation,
                 backend,
                 tracker: Tracker::new(now_ms()),

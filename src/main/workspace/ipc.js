@@ -169,8 +169,8 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:agentSessions', (event, id) => (
     invoke(event, () => service.agentSessions(id))
   ))
-  ipcMain.handle('workspace:agentSessionDetail', (event, id, agent, sessionId) => (
-    invoke(event, () => service.agentSessionDetail(id, agent, sessionId))
+  ipcMain.handle('workspace:agentSessionDetail', (event, id, agent, sessionId, cursor) => (
+    invoke(event, () => service.agentSessionDetail(id, agent, sessionId, cursor))
   ))
   ipcMain.handle('workspace:agentResume', (event, id, agent, sessionId) => (
     invoke(event, () => service.agentResume(id, agent, sessionId))

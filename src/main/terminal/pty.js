@@ -214,7 +214,7 @@ function spawnSession(meta, cols, rows, editor, editorDir) {
       cols,
       rows,
       cwd: meta.cwd,
-      env: shellEnvironment(editor, editorDir, meta.id)
+      env: shellEnvironment(editor, editorDir, meta.id, meta.preset, meta.agentHome)
     })
 
   /** @type {LiveSession} */
@@ -233,7 +233,7 @@ function spawnSession(meta, cols, rows, editor, editorDir) {
   live.set(meta.id, session)
 
   // 重開後沒有活著的 pty 才會進到這裡。合法的 Claude 對話 id 改打 `claude --resume <uuid>`。
-  const command = store.startupCommand(meta.preset, meta.claudeSessionId)
+  const command = store.startupCommand(meta.preset, meta.claudeSessionId, meta.agentSessionId)
   let presetSent = !command
   term.onData((chunk) => {
     absorb(session, chunk)
@@ -386,7 +386,7 @@ const CLAUDE_SESSION_VARS = [
  * @param {string} [editorDir]
  * @param {string} [terminalId] 工作階段 id，給 Claude hook 的 `VOICEINK_TERMINAL_ID`
  */
-function shellEnvironment(editor, editorDir, terminalId) {
+function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   const env = { ...process.env, TERM: 'xterm-256color' }
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_NO_ASAR
@@ -402,6 +402,12 @@ function shellEnvironment(editor, editorDir, terminalId) {
   // 不合法就連繼承來的也拿掉，免得子程序沿用別的分頁的 id。
   if (store.isSessionId(terminalId)) env.VOICEINK_TERMINAL_ID = terminalId
   else delete env.VOICEINK_TERMINAL_ID
+  const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
+  if (homeKey && typeof agentHome === 'string' && /^[A-Za-z]:[\\/]/.test(agentHome)
+    && agentHome.length <= 1024 && !/[\u0000-\u001f]/.test(agentHome) && !agentHome.replace(/\\/g, '/').split('/').includes('..')) {
+    for (const key of Object.keys(env)) if (key.toUpperCase() === homeKey) delete env[key]
+    env[homeKey] = agentHome
+  }
   return env
 }
 

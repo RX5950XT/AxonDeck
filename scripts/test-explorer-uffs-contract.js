@@ -37,11 +37,11 @@ async function main() {
     ['foo.js|bar.js', 'foo.js|bar.js'], ['folder/*.js', 'folder/*.js']
   ]) {
     await uffs.search(query)
-    assert.equal(calls.at(-1)[0], expected)
+    assert.equal(calls.findLast(argv => argv[0] !== '--status')[0], expected)
   }
   assert.throws(() => uffs.sanitizePattern('>.*'), { code: 'BAD_QUERY' })
   await uffs.search('*test-sysmon-hotfix-date.js*')
-  const glob = new RegExp(calls.at(-1)[0].slice(1), 'i')
+  const glob = new RegExp(calls.findLast(argv => argv[0] !== '--status')[0].slice(1), 'i')
   assert(glob.test('D:\\project\\test-sysmon-hotfix-date.js'))
   assert(glob.test('D:\\project\\TEST-SYSMON-HOTFIX-DATE.JS'))
   assert(!glob.test('D:\\project\\test-sysmon-hotfix-dateXjs'))

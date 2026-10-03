@@ -68,6 +68,8 @@ async function listDir(projectId, relPath) {
   const ignored = await git.ignoredPaths(root, listed.entries.map((entry) => entry.rel))
   for (const entry of listed.entries) {
     if (ignored.has(entry.rel)) entry.ignored = true
+    const kind = entry.dir ? '' : files.mediaKind(entry.rel)
+    if (kind === 'image' || kind === 'video') entry.media = kind
   }
   return listed
 }
@@ -76,14 +78,16 @@ async function readFile(projectId, relPath) {
   const root = await rootOf(projectId)
   const full = files.resolveExisting(root, relPath)
   const nativeMedia = mediaPlayer.mediaKind(full)
-  // SVG 仍保留原始碼，避免吃掉既有的編輯草稿；其他媒體只讀檔頭資訊。
-  if (nativeMedia && !full.toLowerCase().endsWith('.svg')) {
+  // 專案支援的圖片／影片走分頁串流；其他原生媒體維持獨立播放器。
+  const inlineMedia = ['image', 'video'].includes(files.mediaKind(full))
+  if (nativeMedia && !inlineMedia) {
     const stats = await fsp.stat(full)
     return { nativeMedia, rel: relPath, size: stats.size, mtimeMs: stats.mtimeMs, binary: true }
   }
   const file = await files.readFile(root, relPath)
   // 圖片／PDF／影音不讀內容，給一個串流網址（`image`／`pdf`／`audio`／`video` 其中一個欄位）
-  return file.media ? { ...file, nativeMedia, [file.media]: media.urlFor(projectId, file.rel) } : file
+  if (file.media) return { ...file, [file.media]: media.urlFor(projectId, file.rel) }
+  return /\.md$/i.test(full) ? { ...file, imageBase: media.urlFor(projectId, file.rel) } : file
 }
 
 async function writeFile(projectId, relPath, content, expectedMtimeMs) {
@@ -259,8 +263,8 @@ async function agentResume(projectId, agent, sessionId) {
   return agents.resume(await rootOf(projectId), agent, sessionId)
 }
 
-async function agentSessionDetail(projectId, agent, sessionId) {
-  return agents.sessionDetail(await rootOf(projectId), agent, sessionId)
+async function agentSessionDetail(projectId, agent, sessionId, cursor) {
+  return agents.sessionDetail(await rootOf(projectId), agent, sessionId, cursor)
 }
 
 module.exports = {

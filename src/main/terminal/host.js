@@ -48,7 +48,8 @@ function dispatch(message) {
     if (!meta) throw new Error('BAD_REQUEST')
     const editor = typeof message.editor === 'string' ? message.editor : ''
     const editorDir = typeof message.editorDir === 'string' ? message.editorDir : ''
-    return terminal.openSessionWithMeta(meta, message.cols, message.rows, editor, editorDir)
+    // home 只存在已認證 main 的這次 open 封包，不寫入 terminals.json；shellEnvironment 再驗形狀。
+    return terminal.openSessionWithMeta({ ...meta, agentHome: message.meta.agentHome }, message.cols, message.rows, editor, editorDir)
   }
   if (message.op === 'write') {
     if (typeof message.data !== 'string' || message.data.length > terminal.MAX_WRITE_CHARS) throw new Error('BAD_REQUEST')

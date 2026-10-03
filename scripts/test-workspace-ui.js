@@ -278,7 +278,7 @@ function gitRowLayoutChecks() {
   check('分組標題也帶該組總增刪',
     /function gitGroup[\s\S]*gitLineTotals\(files\.map\(\(f\) => gitSideLines\(f, side\)\)\)/.test(workspacePage))
   check('每列依暫存／未暫存取對的行數', /gitLineCounts\(gitSideLines\(file, side\)\)/.test(workspacePage))
-  check('檔案樹點改過的檔案預設開檢視變更', /is-changed'\) \{\s*void openDiffTab\(project, entry\.rel, Boolean\(status\.staged\), \{ keepOpenView: true \}\)/.test(workspacePage))
+  check('檔案樹點改過的檔案預設開檢視變更', /is-changed' && entry\.media !== 'image' && entry\.media !== 'video'\) \{\s*void openDiffTab\(project, entry\.rel, Boolean\(status\.staged\), \{ keepOpenView: true \}\)/.test(workspacePage))
 }
 
 /**

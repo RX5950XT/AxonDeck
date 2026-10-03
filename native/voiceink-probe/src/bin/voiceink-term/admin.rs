@@ -65,11 +65,11 @@ fn say(host: &Arc<Host>, id: &str, generation: u64, text: &str) {
     host.absorb(id, generation, text);
 }
 
-fn mark_spawned(host: &Arc<Host>, id: &str, generation: u64) -> Option<(String, String, i64, i64)> {
+fn mark_spawned(host: &Arc<Host>, id: &str, generation: u64) -> Option<(String, String, i64, i64, String, String)> {
     let mut hub = host.lock();
     let s = hub.sessions.get_mut(id).filter(|s| s.generation == generation)?;
     s.backend = Backend::Admin { spawned: true };
-    Some((s.shell.clone(), s.cwd.clone(), s.cols, s.rows))
+    Some((s.shell.clone(), s.cwd.clone(), s.cols, s.rows, s.agent_preset.clone(), s.agent_home.clone()))
 }
 
 /// 新的管理員工作階段：沒有提權宿主就起一顆，連上之後補送 spawn
@@ -92,8 +92,8 @@ pub fn spawn(host: Arc<Host>, id: String, generation: u64) {
 
 fn send_spawn(host: &Arc<Host>, id: &str, generation: u64) {
     say(host, id, generation, "\x1b[90m已取得系統管理員權限。\x1b[0m\r\n");
-    if let Some((shell, cwd, cols, rows)) = mark_spawned(host, id, generation) {
-        post(json!({ "op": "spawn", "id": id, "shell": shell, "cwd": cwd, "cols": cols, "rows": rows }));
+    if let Some((shell, cwd, cols, rows, agent, home)) = mark_spawned(host, id, generation) {
+        post(json!({ "op": "spawn", "id": id, "shell": shell, "cwd": cwd, "cols": cols, "rows": rows, "preset": agent, "agentHome": home }));
     }
 }
 
@@ -316,7 +316,9 @@ fn spawn_elevated<F: Fn(Value) + Send + 'static>(id: &str, msg: &Value, terms: &
         let send = send.clone();
         move |v: Value| (send.lock().unwrap())(v)
     };
-    let pty = match Pty::spawn(&exe, &args, &cwd, &shell::shell_environment("", "", id), c as u16, r as u16) {
+    let env = shell::agent_environment(shell::shell_environment("", "", id),
+        msg.get("preset").and_then(Value::as_str).unwrap_or(""), msg.get("agentHome").and_then(Value::as_str).unwrap_or(""));
+    let pty = match Pty::spawn(&exe, &args, &cwd, &env, c as u16, r as u16) {
         Ok(p) => p,
         Err(_) => return post(json!({ "ev": "exit", "id": id, "code": 1 })),
     };

@@ -89,7 +89,7 @@ function findByClass(node, cls) {
 const src = fs
   .readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'scripts', 'markdown.js'), 'utf8')
   .replace(/^export /gm, '')
-const sandbox = { document: documentShim }
+const sandbox = { document: documentShim, URL }
 vm.createContext(sandbox)
 vm.runInContext(`${src}\n;globalThis.__render = renderMarkdown;`, sandbox)
 /** @type {(text: string) => any} */
@@ -269,5 +269,22 @@ check('長輸入（5000 行）在 2 秒內完成', () => {
   assert.ok(Date.now() - t0 < 2000, `耗時 ${Date.now() - t0}ms`)
 })
 
+check('Markdown 網路圖片顯示 IMG 與 alt，不變成連結', () => {
+  const frag = renderMarkdown('![範例](https://example.com/a.png)')
+  assert.strictEqual(findAll(frag, 'img').length, 1)
+  assert.strictEqual(findAll(frag, 'img')[0].attributes.alt, '範例')
+  assert.strictEqual(findAll(frag, 'a').length, 0)
+})
+check('專案相對圖片依 Markdown 所在資料夾解析，根目錄圖片也可用', () => {
+  const frag = renderMarkdown('> ![圖](../images/pic.png)\n\n![根](/images/root.png)', 0, 'vi-media://token/project/docs/readme.md')
+  assert.deepStrictEqual(findAll(frag, 'img').map((n) => n.attributes.src), [
+    'vi-media://token/project/images/pic.png', 'vi-media://token/project/images/root.png'
+  ])
+})
+check('危險圖片與越出專案的相對圖片維持文字', () => {
+  for (const url of ['javascript:bad', 'file:///secret.png', '../../secret.png', '//evil.test/p.png']) {
+    assert.strictEqual(findAll(renderMarkdown(`![圖](${url})`, 0, 'vi-media://token/project/readme.md'), 'img').length, 0)
+  }
+})
 console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILED'}  ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

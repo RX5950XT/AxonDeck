@@ -46,6 +46,7 @@ const MAX_TAB_TITLE = 28
  *   preview?: boolean,
  *   readonly?: string,
  *   image?: string,
+ *   imageBase?: string,
  *   pdf?: string,
  *   audio?: string,
  *   video?: string,
@@ -141,6 +142,7 @@ export function showSurface(kind) {
   if (el.browser) el.browser.hidden = kind !== 'browser'
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
+  if (kind !== 'ai-session') el.aiSessionBody?.replaceChildren()
 }
 
 // ===== 持久化 (Hot Exit) =====
@@ -315,6 +317,7 @@ async function reloadActiveFileFromDisk(userTriggered = false) {
     )
     if (findTab(activeId) !== tab || tab.content !== original) return
     tab.content = file.content || ''
+    tab.imageBase = file.imageBase || ''
     tab.savedContent = tab.content
     tab.dirty = false
     tab.mtimeMs = file.mtimeMs || Date.now()
@@ -827,12 +830,20 @@ export function retargetTabs(projectId, fromRel, toRel) {
       : oldId
     retargetModel(oldId, tab.id)
     tab.relPath = nextRel
+    for (const key of ['image', 'video', 'imageBase']) {
+      if (!tab[key]) continue
+      const url = new URL(tab[key])
+      url.pathname = `${url.pathname.split('/').slice(0, 2).join('/')}/${nextRel.split('/').map(encodeURIComponent).join('/')}`
+      tab[key] = url.href
+    }
     if (tab.kind === 'editor' || tab.diffView) tab.title = nextRel.split('/').pop() || nextRel
     if (activeId === oldId) activeId = tab.id
     changed = true
   }
   if (!changed) return
   renderTabs()
+  const active = findTab(activeId)
+  if (active?.kind === 'editor' && active.preview) paintEditor(active)
   schedulePersistTabs()
 }
 
@@ -1178,10 +1189,6 @@ export async function openEditorTab(proj, relPath, line = 0) {
   const id = `e:${proj.id}:${relPath}`
   const existing = findTab(id)
   if (existing) {
-    if (line === 0 && !existing.dirty && (existing.image || existing.audio || existing.video)) {
-      await openWithSystem(proj.id, relPath)
-      return
-    }
     // 停在「變更」那一面時點這個檔案＝要看檔案本身，換回編輯那一面
     if (existing.diffView) await backToEditorTab(existing)
     else await activate(id)
@@ -1225,6 +1232,7 @@ export async function openEditorTab(proj, relPath, line = 0) {
     preview: Boolean(file.image || file.pdf || file.audio || file.video)
       || (!unsupported && PREVIEWABLE_EXTS.includes(extOf(relPath))),
     image: file.image || '',
+    imageBase: file.imageBase || '',
     pdf: file.pdf || '',
     audio: file.audio || '',
     video: file.video || '',
@@ -1693,7 +1701,7 @@ function paintPreview(tab) {
     box.replaceChildren(frame)
     return
   }
-  box.replaceChildren(renderMarkdown(source))
+  box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || ''))
 }
 
 /** pdf.js 只在真的開了 PDF 才載（那支 min 檔快 500KB，不該進開機路徑） */
@@ -2700,8 +2708,37 @@ function paintAiSessionTab(tab) {
     terminals: () => tabs
       .filter((one) => one.kind === 'terminal')
       .map((one) => ({ id: one.id, title: one.title })),
-    onResume: (terminalId) => void resumeSession(tab, terminalId)
+    onResume: (terminalId) => void resumeSession(tab, terminalId),
+    onLoadPage: (direction) => void loadAiSessionPage(tab, direction)
   })
+}
+
+/** 每次只保留一頁內容；前一頁用游標重讀，不累積整份巨型 log。 */
+async function loadAiSessionPage(tab, direction) {
+  if (tab.sessionLoading || !tab.projectId || !tab.sessionRow) return
+  const page = tab.sessionPage || 0
+  const cursors = tab.sessionPageCursors || [null]
+  const nextPage = page + direction
+  if (nextPage < 0 || (direction > 0 && !tab.sessionData?.nextCursor)) return
+  const cursor = direction > 0 ? tab.sessionData.nextCursor : cursors[nextPage]
+  const gen = projectSwitch
+  tab.sessionLoading = true
+  paintAiSessionTab(tab)
+  try {
+    const row = tab.sessionRow
+    const data = await call(electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor), '讀取這頁對話失敗')
+    if (staleOpen(gen, tab.projectId) || findTab(tab.id) !== tab) return
+    tab.sessionData = data
+    tab.sessionPage = nextPage
+    cursors[nextPage] = cursor
+    tab.sessionPageCursors = cursors
+    if (activeId === tab.id && el.aiSessionBody) el.aiSessionBody.scrollTop = 0
+  } catch {
+    // call 已顯示錯誤；保留現在這頁。
+  } finally {
+    tab.sessionLoading = false
+    if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab)
+  }
 }
 
 /**
@@ -2716,6 +2753,7 @@ function paintAiSessionTab(tab) {
 async function resumeSession(tab, terminalId) {
   const row = tab.sessionRow
   if (!tab.projectId || !row) return
+  const generation = projectSwitch
   let info
   try {
     info = await call(
@@ -2725,9 +2763,10 @@ async function resumeSession(tab, terminalId) {
   } catch {
     return
   }
+  if (generation !== projectSwitch || findTab(tab.id) !== tab) return
   const title = `${info.agentLabel} · ${shortTitle(row.title || row.id)}`
   if (!terminalId) {
-    await newTerminalWithCommand(title, info.command)
+    await newTerminalWithCommand(title, info.command, info)
     return
   }
   // 送進現有的那一顆：先切過去，讓人看得到指令真的被打進去了
@@ -2883,18 +2922,20 @@ export function newShellTerminal() {
  * 開一個已知的恢復指令（AI 記錄面板用）。
  * @param {string} title
  * @param {string} command
+ * @param {{ agent: string, sessionId: string }} [resumeInfo]
  */
-export async function newTerminalWithCommand(title, command) {
+export async function newTerminalWithCommand(title, command, resumeInfo) {
   try {
     const created = await call(electronAPI.terminal.create({
-      preset: 'shell',
+      preset: resumeInfo?.agent || 'shell',
+      ...(resumeInfo ? { agentSessionId: resumeInfo.sessionId } : {}),
       cwd: project?.path || '',
       projectId: project?.id || '',
       title
     }), '建立終端機失敗')
     const mod = await import('./terminal-page.js')
     await mod.openTerminalSession(created.id)
-    await electronAPI.terminal.write(created.id, `${command}\r`)
+    if (!resumeInfo) await electronAPI.terminal.write(created.id, `${command}\r`)
   } catch {
     // call 已經吐過 toast
   }
@@ -2957,6 +2998,7 @@ async function restoreProjectTabs(proj, generation) {
             dirty: hasDraft,
             preview: Boolean(item.preview || (file.image || file.pdf || file.audio || file.video)),
             image: file.image || '',
+            imageBase: file.imageBase || '',
             pdf: file.pdf || '',
             audio: file.audio || '',
             video: file.video || '',

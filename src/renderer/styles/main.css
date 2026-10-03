@@ -5921,6 +5921,11 @@ label.chat-model-flag {
   margin: 0 0 10px;
 }
 
+.md-image {
+  max-width: 100%;
+  height: auto;
+}
+
 .chat-msg-body > *:last-child,
 .md-p:last-child {
   margin-bottom: 0;

@@ -5,7 +5,7 @@
  * → 任何模型輸出（含 <script>、onerror=）都只會變成文字節點，XSS 先天不可能。
  *
  * 支援：圍欄碼塊、標題、清單、引用、表格、分隔線、段落；
- *       行內 code / 粗體 / 斜體 / 刪除線 / 連結（僅 http(s)、mailto）。
+ *       行內 code / 粗體 / 斜體 / 刪除線 / 連結（僅 http(s)、mailto）／圖片。
  * 不支援（原樣輸出，不壞版）：巢狀清單、內嵌 HTML、reference link、腳註。
  */
 
@@ -29,7 +29,7 @@ const RE_TABLE_SEP = /^ {0,3}\|?(?:\s*:?-+:?\s*\|)+\s*:?-*:?\s*\|?\s*$/
  */
 const INLINE_SRC = [
   '`([^`\\n]+)`', // 1 行內碼
-  '\\[([^\\]\\n]*)\\]\\(\\s*([^)\\s]+)\\s*\\)', // 2 文字 3 URL
+  '!?\\[([^\\]\\n]*)\\]\\(\\s*(<[^>\\n]+>|[^\\s()]+(?:\\([^\\s()]*\\)[^\\s()]*)*)\\s*(?:"[^"\\n]*"\\s*)?\\)', // 2 文字 3 URL
   // 標記內側不得為空白，否則 `2 * 3 * 4`、`a ** b` 會被當成強調
   '\\*\\*(?!\\s)([^\\n]+?)(?<!\\s)\\*\\*', // 4 粗體
   '(?<!\\w)__(?!\\s)([^\\n]+?)(?<!\\s)__(?!\\w)', // 5 粗體
@@ -67,7 +67,7 @@ function appendText(parent, text) {
  * @param {Node} parent
  * @param {string} text
  */
-function renderInline(parent, text) {
+function renderInline(parent, text, imageBase = '') {
   const re = new RegExp(INLINE_SRC, 'g')
   let last = 0
   let m
@@ -79,18 +79,19 @@ function renderInline(parent, text) {
       code.textContent = m[1]
       parent.appendChild(code)
     } else if (m[3] !== undefined) {
-      appendLink(parent, m[2], m[3])
+      if (m[0].startsWith('!')) appendImage(parent, m[2], m[3], imageBase)
+      else appendLink(parent, m[2], m[3], imageBase)
     } else if (m[4] !== undefined || m[5] !== undefined) {
       const strong = el('strong')
-      renderInline(strong, m[4] ?? m[5])
+      renderInline(strong, m[4] ?? m[5], imageBase)
       parent.appendChild(strong)
     } else if (m[6] !== undefined) {
       const del = el('del')
-      renderInline(del, m[6])
+      renderInline(del, m[6], imageBase)
       parent.appendChild(del)
     } else {
       const em = el('em')
-      renderInline(em, m[7] ?? m[8])
+      renderInline(em, m[7] ?? m[8], imageBase)
       parent.appendChild(em)
     }
   }
@@ -103,7 +104,8 @@ function renderInline(parent, text) {
  * @param {string} label
  * @param {string} url
  */
-function appendLink(parent, label, url) {
+function appendLink(parent, label, url, imageBase) {
+  url = url.replace(/^<|>$/g, '')
   if (!SAFE_PROTO.test(url)) {
     appendText(parent, `[${label}](${url})`)
     return
@@ -112,8 +114,35 @@ function appendLink(parent, label, url) {
   a.setAttribute('href', url)
   a.setAttribute('target', '_blank')
   a.setAttribute('rel', 'noopener noreferrer')
-  renderInline(a, label || url)
+  renderInline(a, label || url, imageBase)
   parent.appendChild(a)
+}
+
+/** 圖片只讀 http(s)；專案相對路徑走 main 給的串流網址與原有路徑守衛。 */
+function appendImage(parent, label, raw, imageBase) {
+  const value = raw.replace(/^<|>$/g, '')
+  let source = ''
+  try {
+    if (/^https?:/i.test(value)) {
+      const url = new URL(value)
+      if (!url.username && !url.password) source = url.href
+    } else if (imageBase && !/^[a-z][a-z0-9+.-]*:|^[\\/]{2}/i.test(value)) {
+      const base = new URL(imageBase)
+      const projectRoot = base.pathname.split('/').slice(0, 2).join('/') + '/'
+      const relative = value.replace(/\\/g, '/')
+      const url = new URL(relative.startsWith('/') ? projectRoot + relative.slice(1) : relative, base)
+      if (base.protocol === 'vi-media:' && url.origin === base.origin
+        && url.hostname === base.hostname && url.pathname.startsWith(projectRoot)) source = url.href
+    }
+  } catch { /* 壞網址維持原文字 */ }
+  if (!source) { appendText(parent, `![${label}](${raw})`); return }
+  const img = el('img', 'md-image')
+  img.setAttribute('src', source)
+  img.setAttribute('alt', label)
+  img.setAttribute('loading', 'lazy')
+  img.setAttribute('decoding', 'async')
+  img.setAttribute('referrerpolicy', 'no-referrer')
+  parent.appendChild(img)
 }
 
 /**
@@ -153,11 +182,11 @@ function tryFence(lines, i, out) {
   return closed ? j + 1 : j
 }
 
-function tryHeading(lines, i, out) {
+function tryHeading(lines, i, out, depth, imageBase) {
   const m = RE_HEADING.exec(lines[i])
   if (!m) return -1
   const h = el(`h${m[1].length}`, 'md-h')
-  renderInline(h, m[2].replace(/\s+#+\s*$/, ''))
+  renderInline(h, m[2].replace(/\s+#+\s*$/, ''), imageBase)
   out.appendChild(h)
   return i + 1
 }
@@ -168,7 +197,7 @@ function tryHr(lines, i, out) {
   return i + 1
 }
 
-function tryQuote(lines, i, out, depth) {
+function tryQuote(lines, i, out, depth, imageBase) {
   if (!RE_QUOTE.test(lines[i])) return -1
   const inner = []
   let j = i
@@ -177,7 +206,7 @@ function tryQuote(lines, i, out, depth) {
   }
   const quote = el('blockquote', 'md-quote')
   if (depth < MAX_DEPTH) {
-    quote.appendChild(renderMarkdown(inner.join('\n'), depth + 1))
+    quote.appendChild(renderMarkdown(inner.join('\n'), depth + 1, imageBase))
   } else {
     appendText(quote, inner.join('\n'))
   }
@@ -186,7 +215,7 @@ function tryQuote(lines, i, out, depth) {
 }
 
 /** 不支援巢狀：縮排的標記視為同層 */
-function tryList(lines, i, out) {
+function tryList(lines, i, out, depth, imageBase) {
   const ordered = RE_ORDERED.test(lines[i])
   if (!ordered && !RE_BULLET.test(lines[i])) return -1
   const list = el(ordered ? 'ol' : 'ul', 'md-list')
@@ -205,26 +234,26 @@ function tryList(lines, i, out) {
   }
   for (const text of items) {
     const li = el('li')
-    renderInline(li, text)
+    renderInline(li, text, imageBase)
     list.appendChild(li)
   }
   out.appendChild(list)
   return j
 }
 
-function tryTable(lines, i, out) {
+function tryTable(lines, i, out, depth, imageBase) {
   if (i + 1 >= lines.length) return -1
   if (!lines[i].includes('|') || !lines[i + 1].includes('|')) return -1
   if (!RE_TABLE_SEP.test(lines[i + 1])) return -1
   const align = splitRow(lines[i + 1]).map(cellAlign)
   const table = el('table', 'md-table')
   const thead = el('thead')
-  thead.appendChild(buildRow(splitRow(lines[i]), align, 'th'))
+  thead.appendChild(buildRow(splitRow(lines[i]), align, 'th', imageBase))
   table.appendChild(thead)
   const tbody = el('tbody')
   let j = i + 2
   for (; j < lines.length && lines[j].trim() && lines[j].includes('|'); j++) {
-    tbody.appendChild(buildRow(splitRow(lines[j]), align, 'td'))
+    tbody.appendChild(buildRow(splitRow(lines[j]), align, 'td', imageBase))
   }
   table.appendChild(tbody)
   const wrap = el('div', 'md-table-wrap')
@@ -248,11 +277,11 @@ function cellAlign(cell) {
   return ''
 }
 
-function buildRow(cells, align, tag) {
+function buildRow(cells, align, tag, imageBase) {
   const tr = el('tr')
   cells.forEach((cell, idx) => {
     const td = el(tag, align[idx] || '')
-    renderInline(td, cell)
+    renderInline(td, cell, imageBase)
     tr.appendChild(td)
   })
   return tr
@@ -274,9 +303,10 @@ function isBlockStart(lines, i) {
  * Markdown → DocumentFragment（零 innerHTML）
  * @param {string} text
  * @param {number} [depth] 內部遞迴用
+ * @param {string} [imageBase] main 提供的專案 Markdown 串流網址，用來解析相對圖片
  * @returns {DocumentFragment}
  */
-export function renderMarkdown(text, depth = 0) {
+export function renderMarkdown(text, depth = 0, imageBase = '') {
   const out = document.createDocumentFragment()
   const lines = String(text ?? '')
     .replace(/\r\n?/g, '\n')
@@ -289,7 +319,7 @@ export function renderMarkdown(text, depth = 0) {
     }
     let next = -1
     for (const handler of [tryFence, tryHeading, tryHr, tryQuote, tryList, tryTable]) {
-      next = handler(lines, i, out, depth)
+      next = handler(lines, i, out, depth, imageBase)
       if (next >= 0) break
     }
     if (next >= 0) {
@@ -303,7 +333,7 @@ export function renderMarkdown(text, depth = 0) {
       i++
     }
     const p = el('p', 'md-p')
-    renderInline(p, buf.join('\n'))
+    renderInline(p, buf.join('\n'), imageBase)
     out.appendChild(p)
   }
   return out

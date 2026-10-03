@@ -97,11 +97,37 @@ pub fn is_claude_session_id(value: &str) -> bool {
 }
 
 /// 沒有活著的 pty、要新開 shell 時的第一行。Claude 且 meta 有合法對話 id 才接回。
-pub fn startup_command(key: Option<&str>, session_id: &str) -> String {
+pub fn startup_command(key: Option<&str>, session_id: &str, agent_session_id: &str) -> String {
+    let valid = if key == Some("claude") { is_claude_session_id(agent_session_id) }
+        else { (6..=64).contains(&agent_session_id.len())
+            && agent_session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') };
+    if valid {
+        let command = match key {
+            Some("claude") => "claude --resume",
+            Some("codex") => "codex resume --no-daemon",
+            Some("agy") => "agy --conversation",
+            Some("grok") => "grok --resume",
+            Some("opencode") => "opencode --session",
+            _ => "",
+        };
+        if !command.is_empty() { return format!("{command} {agent_session_id}"); }
+    }
     if key == Some("claude") && is_claude_session_id(session_id) {
         return format!("claude --resume {session_id}");
     }
     preset_command(key).to_string()
+}
+
+/// home 由 main 按對話記錄查得，只覆寫兩家 CLI 官方支援的環境鍵。
+pub fn agent_environment(mut env: Vec<(String, String)>, agent: &str, home: &str) -> Vec<(String, String)> {
+    let key = match agent { "claude" => "CLAUDE_CONFIG_DIR", "codex" => "CODEX_HOME", _ => "" };
+    let bytes = home.as_bytes();
+    if key.is_empty() || !(3..=1024).contains(&bytes.len()) || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':' || !matches!(bytes[2], b'\\' | b'/') || home.chars().any(|c| c < ' ')
+        || home.replace('\\', "/").split('/').any(|p| p == "..") { return env; }
+    env.retain(|(name, _)| !name.eq_ignore_ascii_case(key));
+    env.push((key.to_string(), home.to_string()));
+    env
 }
 
 /// `host.rs` 的 `valid_id`。環境變數只放這一種，免得把路徑送進子程序。
@@ -323,10 +349,15 @@ mod tests {
         assert!(is_claude_session_id(id));
         assert!(!is_claude_session_id("not-a-uuid"));
         assert!(!is_claude_session_id(&format!("{id};calc")));
-        assert_eq!(startup_command(Some("claude"), id), format!("claude --resume {id}"));
-        assert_eq!(startup_command(Some("claude"), "not-a-uuid"), "claude");
-        assert_eq!(startup_command(Some("claude"), ""), "claude");
-        assert_eq!(startup_command(Some("codex"), id), "codex --no-daemon");
-        assert_eq!(startup_command(Some("nope"), id), "");
+        assert_eq!(startup_command(Some("claude"), id, ""), format!("claude --resume {id}"));
+        assert_eq!(startup_command(Some("claude"), "not-a-uuid", ""), "claude");
+        assert_eq!(startup_command(Some("claude"), "", ""), "claude");
+        assert_eq!(startup_command(Some("codex"), id, ""), "codex --no-daemon");
+        assert_eq!(startup_command(Some("nope"), id, ""), "");
+        for (agent, prefix) in [("claude", "claude --resume"), ("codex", "codex resume --no-daemon"),
+            ("agy", "agy --conversation"), ("grok", "grok --resume"), ("opencode", "opencode --session")] {
+            assert_eq!(startup_command(Some(agent), "", id), format!("{prefix} {id}"));
+            assert_eq!(startup_command(Some(agent), "", &format!("{id};calc")), preset_command(Some(agent)));
+        }
     }
 }

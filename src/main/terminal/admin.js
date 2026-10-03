@@ -253,7 +253,8 @@ function spawnAdmin(meta, cols, rows) {
     if (terms.get(meta.id) !== term) return
     term.spawned = true
     term.onData?.('\x1b[90m已取得系統管理員權限。\x1b[0m\r\n')
-    post({ op: 'spawn', id: meta.id, shell: meta.shell, cwd: meta.cwd, cols: term.cols, rows: term.rows })
+    post({ op: 'spawn', id: meta.id, shell: meta.shell, cwd: meta.cwd, cols: term.cols, rows: term.rows,
+      preset: meta.preset, agentHome: meta.agentHome })
   }, (err) => {
     if (terms.get(meta.id) !== term) return
     terms.delete(meta.id)

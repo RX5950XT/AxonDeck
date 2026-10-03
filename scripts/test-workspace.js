@@ -674,7 +674,7 @@ async function main() {
       agents.resumeCommand('claude', '5626ac7b-ff69-4b79-80a4-051aabe4f06e')
         === 'claude --resume 5626ac7b-ff69-4b79-80a4-051aabe4f06e'
     )
-    ok('codex 的指令形狀', agents.resumeCommand('codex', 'abc-123') === 'codex resume abc-123')
+    ok('codex 的指令形狀', agents.resumeCommand('codex', 'abc-123') === 'codex resume --no-daemon abc-123')
 
     /** @param {string} agent @param {string} id */
     const rejects = (agent, id) => {
@@ -769,7 +769,7 @@ async function main() {
 
       // 接續要驗「這段對話是不是這個專案的」，不是只驗 id 長得像不像
       const resumed = await agents.resume('D:\\Proj', 'codex', 'xyz-789')
-      ok('接續指令由 main 組', resumed.command === 'codex resume xyz-789')
+      ok('接續指令由 main 組', resumed.command === 'codex resume --no-daemon xyz-789')
       let resumeBlocked = ''
       try {
         await agents.resume('D:\\Proj', 'codex', 'other-456')
@@ -1036,7 +1036,7 @@ console.log('\n[P] AI 會話 detail caller 傳 projectId')
 {
   const tabsSource = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/ws-tabs.js'), 'utf8')
   const calls = [...tabsSource.matchAll(/agentSessionDetail\(([^\n]+)\)/g)].map((match) => match[1])
-  ok('所有 AI detail caller 都傳 projectId', calls.length === 2 && calls.every((args) => args.trim().startsWith('proj.id,')))
+  ok('所有 AI detail caller 都傳 projectId', calls.length === 3 && calls.every((args) => /^(proj\.id|tab\.projectId),/.test(args.trim())))
   ok('AI 記錄工具名稱走 textContent', !/\.innerHTML\s*=/.test(tabsSource))
 }
 

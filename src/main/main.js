@@ -2168,7 +2168,7 @@ app.whenReady().then(() => {
   const aiWeb = require('./ai-web')
   for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
     const ses = session.fromPartition(partition)
-    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
+    aiWeb.setupSession(ses, { partition, userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
     aiWebPartitions.set(ses, partition)
   }
   // 第三個參數是檔案總管的大預覽：路徑一律過 `explorer/paths` 的 `resolveExisting`

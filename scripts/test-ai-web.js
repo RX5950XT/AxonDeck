@@ -1,7 +1,7 @@
 'use strict'
 // 網頁版 AI 對話的網址／標題把關：`node scripts/test-ai-web.js`
 const assert = require('node:assert/strict')
-const { SITES, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup, chromeUserAgent, allowPermission } = require('../src/main/ai-web')
+const { SITES, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup, chromeUserAgent, userAgentFor, allowPermission } = require('../src/main/ai-web')
 
 assert.equal(safeUrl('chatgpt', 'https://chatgpt.com/c/abc'), 'https://chatgpt.com/c/abc')
 assert.equal(safeUrl('chatgpt', 'https://evil.example/c/abc'), '', '別的網域不收')
@@ -48,6 +48,10 @@ assert.ok(!isLoginPopup('https://x.com/someone/status/1'))
 assert.ok(!isLoginPopup('http://accounts.google.com/'), '只收 https')
 assert.equal(chromeUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) voiceink/1.38.4 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'),
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'UA 跟真 Chrome 一樣')
+const APP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) voiceink/1.39.0 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'
+assert.equal(userAgentFor('persist:ai-grok', APP_UA),
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36', 'Grok 照實用 Electron 識別，Cloudflare 才放行')
+assert.equal(userAgentFor('persist:ai-chatgpt', APP_UA), chromeUserAgent(APP_UA))
 assert.ok(allowPermission('clipboard-sanitized-write'))
 assert.ok(allowPermission('media', { mediaTypes: ['audio'] }), '語音輸入可以用麥克風')
 assert.ok(!allowPermission('media', { mediaTypes: ['audio', 'video'] }), '不給相機')

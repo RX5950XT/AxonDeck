@@ -837,7 +837,7 @@ export function retargetTabs(projectId, fromRel, toRel) {
       : oldId
     retargetModel(oldId, tab.id)
     tab.relPath = nextRel
-    for (const key of ['image', 'video', 'imageBase']) {
+    for (const key of ['image', 'video', 'imageBase', 'pdf', 'audio']) {
       if (!tab[key]) continue
       const url = new URL(tab[key])
       url.pathname = `${url.pathname.split('/').slice(0, 2).join('/')}/${nextRel.split('/').map(encodeURIComponent).join('/')}`
@@ -1260,7 +1260,13 @@ export async function openEditorTab(proj, relPath, line = 0) {
  */
 function cancelBridgeTabs() {
   for (const tab of tabs) {
-    if (tab.bridgeId) void electronAPI.terminal.editorCancel(tab.bridgeId)
+    if (!tab.bridgeId) continue
+    const id = tab.bridgeId
+    // 沒按儲存就換專案：先存再放行，否則 CLI 拿回原文、使用者打的字直接消失
+    const live = tab.dirty && tab.id === activeId && monaco ? currentValue() : null
+    const content = typeof live === 'string' ? live : tab.content
+    const save = tab.dirty ? electronAPI.terminal.editorSave(id, content) : Promise.resolve()
+    void save.catch(() => {}).finally(() => electronAPI.terminal.editorCancel(id))
   }
 }
 
@@ -1309,10 +1315,11 @@ export async function openPromptEditTab(req) {
  * @param {number} line 1 起算
  */
 function goToLine(line) {
+  // `useMonaco` 是非同步的：這時候 model 可能還是上一個檔案的，
+  // 所以一律先記下來，等它掛好再跳（`applyGoto`）。第一次載入中（monacoTried 已是 true、
+  // monaco 還是 null）也要記，否則載完會停在第 1 行。
+  pendingGoto = line
   if (monaco || !monacoTried) {
-    // `useMonaco` 是非同步的：這時候 model 可能還是上一個檔案的，
-    // 所以只記下來，等它掛好再跳（`applyGoto`）。
-    pendingGoto = line
     applyGoto()
     return
   }
@@ -2349,12 +2356,18 @@ function safeUrl(raw) {
   return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : ''
 }
 
+/** 下一個沒人用的瀏覽器分頁 id（其他專案還原回來的分頁也算） */
+function nextBrowserId() {
+  do browserSeq += 1
+  while (tabs.some((t) => t.id === `b:${browserSeq}`))
+  return `b:${browserSeq}`
+}
+
 /**
  * @param {string} [url]
  */
 export async function openBrowserTab(url = '') {
-  browserSeq += 1
-  const id = `b:${browserSeq}`
+  const id = nextBrowserId()
   tabs.push({ id, kind: 'browser', title: '瀏覽器', url: url || '', projectId: project?.id || '' })
   await activate(id)
 }
@@ -3070,9 +3083,11 @@ async function restoreProjectTabs(proj, generation) {
           // ignore
         }
       } else if (item.kind === 'browser') {
-        browserSeq += 1
+        // 存檔的 id（b:3）重開後還在用，browserSeq 卻從 0 起算：之後新開的會撞號、兩個分頁共用一顆 webview
+        const saved = typeof item.id === 'string' && !tabs.some((t) => t.id === item.id) ? item.id : ''
+        browserSeq = Math.max(browserSeq, Number(/^b:(\d+)$/.exec(saved)?.[1]) || 0)
         tabs.push({
-          id: item.id || `b:${browserSeq}`,
+          id: saved || nextBrowserId(),
           kind: 'browser',
           title: item.title || '瀏覽器',
           url: item.url || '',

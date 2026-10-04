@@ -80,7 +80,9 @@ function librarySearchDirs() {
     dirs.push(path.join(root, 'bin'))
     dirs.push(path.join(root, 'bin', 'x64'))
   }
-  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean)
+  // 這裡是主程序上的同步 existsSync：UNC 在 NAS 離線時會等到網路逾時、整個 App 卡住，直接跳過。
+  // ponytail: 對應成磁碟代號的網路磁碟仍會被掃，要擋得改成非同步 stat＋逾時
+  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter((dir) => dir && !/^[\\/]{2}/.test(dir))
   return [...new Set([...dirs, ...pathDirs])]
 }
 

@@ -227,21 +227,23 @@ function save(id, content) {
 function cancel(id) {
   const key = String(id || '')
   if (!pending.has(key)) return false
-  release(key)
-  return true
+  return release(key)
 }
 
 /**
  * 放走那支卡住的 batch。過期請求（上一輪留下來的）也走這裡，所以不要求 `pending` 有這一筆。
  * @param {string} key
+ * @returns {boolean} `.done` 有沒有寫成
  */
 function release(key) {
+  // batch 沒有逾時：`.done` 寫不出去就留著這筆，讓之後再關一次還放得走
+  try { fs.writeFileSync(doneFile(key), '1', 'utf8') } catch { return false }
   pending.delete(key)
   // **放走過的一律進忽略名單**：`.done` 一落地就會叫醒 `fs.watch`，而那支 batch 每秒
   // 才看一次，所以掃描當下 `<id>.in` 還躺在磁碟上——這一筆已經不在 `pending` 裡了，
   // 不擋的話就會被當成新請求再發一次，使用者關掉的分頁**當場自己跳回來**。
   stale.add(`${key}.in`)
-  try { fs.writeFileSync(doneFile(key), '1', 'utf8') } catch { /* batch 會等到逾時，不再多做 */ }
+  return true
 }
 
 module.exports = { configure, shimCommand, shimDir, isRealEditor, start, stop, save, cancel }

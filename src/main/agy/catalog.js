@@ -10,6 +10,7 @@ const upstream = require('./upstream')
  * 而上游新出的整個 3.7／3.6／3.5 家族它一個都沒有。型錄才是權威來源。
  */
 
+const CATALOG_TIMEOUT_MS = 30_000
 const CACHE_TTL_MS = 10 * 60 * 1000
 
 /**
@@ -206,7 +207,8 @@ async function list({ force = false, options, now = Date.now } = {}) {
   if (!force && cache.at && nowMs - cache.at < CACHE_TTL_MS) {
     return { models: cache.models, defaultModelId: cache.defaultModelId, cached: true, fetchedAt: cache.at }
   }
-  const payload = await upstream.fetchAvailableModels({ options })
+  // 沒有上限的話上游不回應時「重新整理型錄」與「連線測試」會一直轉
+  const payload = await upstream.fetchAvailableModels({ options, signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) })
   const parsed = parseCatalog(payload)
   cache = { at: nowMs, models: parsed.models, defaultModelId: parsed.defaultModelId }
   return { ...parsed, cached: false, fetchedAt: nowMs }

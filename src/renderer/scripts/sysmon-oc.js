@@ -518,6 +518,8 @@ function onVfDown(event) {
   state.vfDrag = true
   state.vfGpuIndex = gpuIndex
   svg.classList.add('is-dragging')
+  // 拖曳中每秒的 ocStatus 會整份換掉 state.data；鬆手要送的是這裡留住的值，不是輪詢回來的舊草稿
+  let dragged = null
   const move = (ev) => {
     const rect = svg.getBoundingClientRect()
     const y = ((ev.clientY - rect.top) / rect.height) * VF_H
@@ -532,6 +534,7 @@ function onVfDown(event) {
     const vfDeltas = [...(draftGpus(state.data)[gpuIndex]?.vfDeltas || [])]
     while (vfDeltas.length < live.length) vfDeltas.push(0)
     vfDeltas[index] = extra
+    dragged = vfDeltas
     const read = host?.querySelector('.oc-vf-read')
     if (read) read.textContent = `${Math.round(point.v || 0)} mV → ${mhz} MHz（${extra > 0 ? '+' : ''}${extra}）`
     const gpus = draftGpus(state.data).map((g, i) => (i === gpuIndex ? { ...g, vfDeltas } : g))
@@ -544,7 +547,8 @@ function onVfDown(event) {
     window.removeEventListener('pointerup', up)
     svg.classList.remove('is-dragging')
     state.vfDrag = false
-    const vfDeltas = draftGpus(state.data)[gpuIndex]?.vfDeltas || []
+    if (!dragged) return
+    const vfDeltas = dragged
     electronAPI.sysmon.ocSetDraft({ gpuIndex, gpu: { vfDeltas } }).then((res) => { if (res?.ok) render(res.data) })
   }
   window.addEventListener('pointermove', move)

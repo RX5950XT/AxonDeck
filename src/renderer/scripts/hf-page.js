@@ -138,14 +138,19 @@ function scheduleSearch() {
   searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS)
 }
 
+let searchSeq = 0
+
 async function runSearch() {
   const box = $('hfSearchResults')
   if (!box) return
+  // 改了關鍵字又搜一次時，晚回來的舊結果不能蓋掉新的
+  const seq = ++searchSeq
   clearError()
   const query = /** @type {HTMLInputElement} */ ($('hfSearchInput'))?.value.trim() || ''
   const sort = /** @type {HTMLSelectElement} */ ($('hfSearchSort'))?.value || 'downloads'
   box.replaceChildren(el('p', 'setting-hint', '搜尋中…'))
   const rows = await call(electronAPI.hfmodels.search(query, sort))
+  if (seq !== searchSeq) return
   if (!rows) { box.replaceChildren(); return }
   if (!rows.length) {
     box.replaceChildren(el('p', 'setting-hint', '沒有找到有 GGUF 的 repo。可以直接貼上 owner/repo。'))
@@ -201,7 +206,10 @@ async function openDetail(repoId) {
   if (!inspected.has(repoId)) {
     pane.replaceChildren(el('p', 'setting-hint', '讀取模型卡與檔案清單…'))
     const data = await call(electronAPI.hfmodels.detail(repoId))
-    if (!data) { pane.replaceChildren(el('p', 'setting-hint', '讀不到這個 repo。')); return }
+    if (!data) {
+      if (selectedRepo === repoId) pane.replaceChildren(el('p', 'setting-hint', '讀不到這個 repo。'))
+      return
+    }
     inspected.set(repoId, data)
   }
   // 讀的時候使用者可能已經點去別顆了

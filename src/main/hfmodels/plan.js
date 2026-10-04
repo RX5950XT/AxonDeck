@@ -196,7 +196,7 @@ function planRun(input) {
   }
 
   const totalBudgetMiB = devices.reduce(
-    (sum, d) => sum + Math.floor((Number(d.freeMiB) || Number(d.totalMiB) || 0) * VRAM_SAFETY), 0
+    (sum, d) => sum + Math.floor((Number.isFinite(Number(d.freeMiB)) ? Number(d.freeMiB) : Number(d.totalMiB) || 0) * VRAM_SAFETY), 0
   )
 
   // ---- KV 量化檔位：先挑「放得下的最寬鬆那一檔」 ----
@@ -282,7 +282,8 @@ function planRun(input) {
   return finalize({
     ctxSize,
     gpuLayers,
-    device: device.id || '',
+    // 多卡時 `--device` 要列出跟 `-ts` 同一批卡，只給第一張的話第二張根本不會用到
+    device: devices.filter((d) => d?.id && d.freeMiB > 0).map((d) => d.id).join(',') || device.id || '',
     tensorSplit: requested.tensorSplit ? String(requested.tensorSplit) : planTensorSplit(devices),
     nCpuMoe,
     tier, info, cpu, requested,

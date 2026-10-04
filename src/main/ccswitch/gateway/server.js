@@ -239,11 +239,14 @@ async function readSse(response, onPayload, onActivity) {
         if (line.startsWith('data:')) {
           const data = line.slice(5).trim()
           if (data && data !== '[DONE]') {
+            let payload = null
             try {
-              onPayload(JSON.parse(data))
+              payload = JSON.parse(data)
             } catch {
               // 上游偶爾夾雜非 JSON 的心跳，跳過
             }
+            // 轉換器丟的錯（上游回報失敗）不能吞，要讓呼叫端回錯誤而不是假成功
+            if (payload) onPayload(payload)
           }
         }
         index = buffer.indexOf('\n')
@@ -262,7 +265,7 @@ async function readSse(response, onPayload, onActivity) {
  * @param {object} upstreamBody
  * @returns {Promise<Response>}
  */
-async function callUpstream(route, presetId, upstreamBody) {
+async function callUpstream(route, presetId, upstreamBody, signal) {
   const fetchImpl = deps.fetchImpl || globalThis.fetch
   const url = deps.baseUrl ? `${deps.baseUrl}/${presetId}` : route.url
 
@@ -276,7 +279,8 @@ async function callUpstream(route, presetId, upstreamBody) {
         Authorization: `Bearer ${auth.token}`,
         ...headersFor(route, { accountId: auth.accountId })
       },
-      body: JSON.stringify(upstreamBody)
+      body: JSON.stringify(upstreamBody),
+      signal
     })
     if (response.status !== 401 || attempt > 0 || route.auth === 'key') return response
     // 上游說 token 不能用了：清掉快取那顆，下一圈強制重換
@@ -374,11 +378,24 @@ async function handle(req, res) {
   // Codex 的 Responses 端點跟公版不一樣（store / max_output_tokens / temperature），見 convert.js
   const upstreamBody = route.auth === 'codex' ? convert.forCodexBackend(converted) : converted
 
+  // 逾時、客戶端斷線、關閉閘道都靠這顆中止上游。reader 被 getReader() 鎖住時
+  // body.cancel() 會被拒絕，所以不能拿它來停；首 token 計時從送出請求就開始算。
+  const controller = new AbortController()
+  let timeoutCode = ''
+  let timer = null
+  const arm = (ms, code) => {
+    clearTimeout(timer)
+    timer = setTimeout(() => { timeoutCode = code; controller.abort() }, ms)
+  }
+  res.on('close', () => { clearTimeout(timer); controller.abort() })
+  arm(FIRST_TOKEN_MS, 'UPSTREAM_TIMEOUT')
+
   let response
   try {
-    response = await callUpstream(route, presetId, upstreamBody)
+    response = await callUpstream(route, presetId, upstreamBody, controller.signal)
   } catch (error) {
-    sendError(res, 502, error?.userMessage || '無法連線上游')
+    clearTimeout(timer)
+    sendError(res, 502, timeoutCode ? '上游太久沒有回應' : error?.userMessage || '無法連線上游')
     return
   }
 
@@ -390,6 +407,7 @@ async function handle(req, res) {
     } catch {
       // 已經關了
     }
+    clearTimeout(timer)
     if (response.status === 429) {
       const retryAfter = response.headers.get('retry-after')
       if (retryAfter) res.setHeader('retry-after', retryAfter)
@@ -404,10 +422,12 @@ async function handle(req, res) {
     try {
       await readSse(response, (payload) => {
         for (const delta of consume(payload, state)) convert.apply(collector, delta)
-      }, () => {})
+      }, () => arm(IDLE_MS, 'UPSTREAM_IDLE'))
+      clearTimeout(timer)
       sendJson(res, 200, convert.toResponse(collector))
     } catch {
-      sendError(res, 502, '上游串流中斷')
+      clearTimeout(timer)
+      sendError(res, 502, timeoutCode ? '上游太久沒有回應' : '上游串流中斷')
     }
     return
   }
@@ -418,28 +438,14 @@ async function handle(req, res) {
     Connection: 'keep-alive'
   })
 
-  // 串流不可以用 AbortSignal.timeout（會砍掉長連線）→ 首 token 與閒置各一個計時器
-  let timer = setTimeout(() => {
-    res.write(convert.errorStream(collector, 'UPSTREAM_TIMEOUT'))
-    res.end()
-    response.body?.cancel().catch(() => {})
-  }, FIRST_TOKEN_MS)
-  const bump = (ms) => {
-    clearTimeout(timer)
-    timer = setTimeout(() => {
-      res.write(convert.errorStream(collector, 'UPSTREAM_IDLE'))
-      res.end()
-      response.body?.cancel().catch(() => {})
-    }, ms)
-  }
-
+  // 串流不可以用 AbortSignal.timeout（會砍掉長連線）→ 有資料就重新計閒置時間
   try {
     await readSse(response, (payload) => {
       for (const delta of consume(payload, state)) {
         const chunk = convert.apply(collector, delta)
         if (chunk) res.write(chunk)
       }
-    }, () => bump(IDLE_MS))
+    }, () => arm(IDLE_MS, 'UPSTREAM_IDLE'))
     clearTimeout(timer)
     if (!res.writableEnded) {
       res.write(convert.closeStream(collector))
@@ -448,7 +454,7 @@ async function handle(req, res) {
   } catch {
     clearTimeout(timer)
     if (!res.writableEnded) {
-      res.write(convert.errorStream(collector, 'UPSTREAM_STREAM_FAILED'))
+      res.write(convert.errorStream(collector, timeoutCode || 'UPSTREAM_STREAM_FAILED'))
       res.end()
     }
   }
@@ -488,7 +494,11 @@ function stop() {
   const instance = server
   server = null
   startedAt = 0
-  return new Promise((resolve) => instance.close(() => resolve()))
+  // close() 只等連線自己結束；卡住的上游請求會讓關閘道、退出 App 一直等 → 直接切斷，
+  // 各請求的 res 'close' 會連帶中止上游 fetch
+  const closed = new Promise((resolve) => instance.close(() => resolve()))
+  instance.closeAllConnections()
+  return closed
 }
 
 /**

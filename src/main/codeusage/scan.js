@@ -166,7 +166,8 @@ async function scanSource(source, cursors, onEvent, sinceMs) {
     } catch {
       continue
     }
-    // 檔案變小＝被截斷或換過一份，整份重讀，連同舊的去重狀態一起清掉
+    // 檔案變小＝被截斷（Grok rewind）或換過一份，整份重讀；只留去重 id——
+    // 截斷後留下來的那些輪早就算過，清掉 seen 會整段再加一次（id 唯一，換檔也不會誤擋）
     const rewound = size < offset
     if (rewound) offset = 0
     if (size === offset && !rewound) {
@@ -177,7 +178,7 @@ async function scanSource(source, cursors, onEvent, sinceMs) {
       }
       continue
     }
-    jobs.push({ file, key, offset, state: restoreState(source.newState(), rewound ? null : previous) })
+    jobs.push({ file, key, offset, state: restoreState(source.newState(), rewound ? { seen: previous?.seen } : previous) })
   }
 
   // 原生版一次吃整批檔案；跑不起來（沒 build、當掉）就整批退回 JS，結果一樣只是慢

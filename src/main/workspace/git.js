@@ -86,11 +86,14 @@ function run(cwd, args, input) {
       }
       reject(fail('GIT_TIMEOUT', 'git 沒有在時間內回應'))
     }, TIMEOUT_MS)
+    // setEncoding 會把切在兩個 chunk 之間的中文字接回來，逐塊 toString 會變亂碼
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString('utf8')
+      stdout += chunk
     })
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString('utf8')
+      stderr += chunk
     })
     child.on('error', () => {
       if (done) return
@@ -226,7 +229,7 @@ function pushFile(out, file) {
 async function rootOf(projectId) {
   const project = await store.get(projectId)
   if (!project) throw fail('NO_PROJECT', '找不到這個專案')
-  if (!store.pathExists(project.path)) throw fail('NO_PROJECT', '找不到專案資料夾')
+  if (!(await store.pathExists(project.path))) throw fail('NO_PROJECT', '找不到專案資料夾')
   return project.path
 }
 
@@ -493,9 +496,15 @@ async function log(projectId) {
 async function stage(projectId, relPath) {
   const path = relPathOf(relPath)
   const cwd = await rootOf(projectId)
-  const res = await run(cwd, ['add', '--', path])
+  // 單檔操作都加 --literal-pathspecs：`--` 只隔開參數，`a[1].js` 仍會被當萬用字元連 `a1.js` 一起動
+  const res = await run(cwd, ['--literal-pathspecs', 'add', '--', path])
   if (res.code !== 0) throw fail('STAGE_FAILED', '暫存失敗（細節看終端機）')
   return { staged: true }
+}
+
+/** @param {string} cwd */
+async function hasHead(cwd) {
+  return (await run(cwd, ['rev-parse', '--verify', '-q', 'HEAD'])).code === 0
 }
 
 /**
@@ -506,8 +515,10 @@ async function stage(projectId, relPath) {
 async function unstage(projectId, relPath) {
   const path = relPathOf(relPath)
   const cwd = await rootOf(projectId)
-  // `restore` 要 git 2.23+；`reset` 相容性最好
-  const res = await run(cwd, ['reset', '-q', 'HEAD', '--', path])
+  // `restore` 要 git 2.23+；`reset` 相容性最好。還沒有第一筆 commit 時沒有 HEAD，只能從 index 拿掉
+  const res = await hasHead(cwd)
+    ? await run(cwd, ['--literal-pathspecs', 'reset', '-q', 'HEAD', '--', path])
+    : await run(cwd, ['--literal-pathspecs', 'rm', '-q', '-r', '--cached', '--', path])
   if (res.code !== 0) throw fail('STAGE_FAILED', '取消暫存失敗')
   return { unstaged: true }
 }
@@ -531,7 +542,9 @@ async function stageAll(projectId) {
  */
 async function unstageAll(projectId) {
   const cwd = await rootOf(projectId)
-  const res = await run(cwd, ['reset', '-q', 'HEAD'])
+  const res = await hasHead(cwd)
+    ? await run(cwd, ['reset', '-q', 'HEAD'])
+    : await run(cwd, ['rm', '-q', '-r', '--cached', '--ignore-unmatch', '--', '.'])
   if (res.code !== 0) throw fail('STAGE_FAILED', '全部取消暫存失敗')
   return { unstagedAll: true }
 }
@@ -546,14 +559,14 @@ async function unstageAll(projectId) {
 async function discard(projectId, relPath) {
   const path = relPathOf(relPath)
   const cwd = await rootOf(projectId)
-  const stat = await run(cwd, ['status', '--porcelain=v2', '-z', '--', path])
+  const stat = await run(cwd, ['--literal-pathspecs', 'status', '--porcelain=v2', '-z', '--', path])
   const wanted = path.replace(/\\/g, '/')
   const entry = parseStatus(stat.stdout).files.find((file) => file.path.replace(/\\/g, '/') === wanted)
   if (!entry) throw fail('BAD_PATH', '找不到這個檔案的變更')
   const untracked = entry.index === '?' && entry.worktree === '?'
   const res = untracked
-    ? await run(cwd, ['clean', '-f', '--', path])
-    : await run(cwd, ['checkout', '--', path])
+    ? await run(cwd, ['--literal-pathspecs', 'clean', '-f', '--', path])
+    : await run(cwd, ['--literal-pathspecs', 'checkout', '--', path])
   if (res.code !== 0) throw fail('DISCARD_FAILED', '捨棄變更失敗')
   return { discarded: true }
 }
@@ -603,12 +616,12 @@ function pullFailMessage(stderr) {
 async function diff(projectId, relPath, staged = false) {
   const path = relPathOf(relPath)
   const cwd = await rootOf(projectId)
-  const args = staged ? ['diff', '--cached', '--', path] : ['diff', '--', path]
+  const args = staged ? ['--literal-pathspecs', 'diff', '--cached', '--', path] : ['--literal-pathspecs', 'diff', '--', path]
   const res = await run(cwd, args)
   let diffText = res.stdout || ''
   if (!diffText && !staged) {
     // 檢查是否為未追蹤檔案（untracked）
-    const stat = await run(cwd, ['status', '--porcelain=v2', '-z', '--', path])
+    const stat = await run(cwd, ['--literal-pathspecs', 'status', '--porcelain=v2', '-z', '--', path])
     const wanted = path.replace(/\\/g, '/')
     const entry = parseStatus(stat.stdout).files.find((f) => f.path.replace(/\\/g, '/') === wanted)
     if (entry && entry.index === '?' && entry.worktree === '?') {

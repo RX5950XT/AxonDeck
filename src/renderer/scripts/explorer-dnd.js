@@ -51,9 +51,16 @@ export function dropMode(event, fromPath, toDir) {
   if (pathKey(toDir) === RECYCLE_CWD) return 'trash'
   if (event.ctrlKey) return 'copy'
   if (event.shiftKey) return 'move'
-  const a = String(fromPath || '')[0]
-  const b = String(toDir || '')[0]
-  return a && b && a.toLowerCase() === b.toLowerCase() ? 'move' : 'copy'
+  const a = volumeOf(fromPath)
+  return a && a === volumeOf(toDir) ? 'move' : 'copy'
+}
+
+/** 同一顆磁碟才預設搬移：C:、或 UNC 的 \\伺服器\分享（只比第一個字的話兩台 NAS 都是 '\'） */
+function volumeOf(p) {
+  const text = String(p || '').toLowerCase()
+  const unc = /^\\\\[^\\]+\\[^\\]+/.exec(text)
+  if (unc) return unc[0]
+  return /^[a-z]:/.exec(text)?.[0] || ''
 }
 
 export function hasExplorerDrag(event) {

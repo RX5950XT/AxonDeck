@@ -259,12 +259,13 @@ function toAccount(flow, payload) {
  */
 async function saveAccount(account) {
   const items = await readAccounts()
-  const kept = items.filter((item) => !(
-    item.provider === account.provider &&
+  const same = (item) => item.provider === account.provider &&
     (item.accountId ? item.accountId === account.accountId : item.label === account.label)
-  ))
-  await writeAccounts([...kept, account])
-  return account
+  // 沿用舊 id：供應商設定綁的是我們的 id，換新 id 會讓既有綁定變成 NO_ACCOUNT
+  const old = items.find(same)
+  const saved = old ? { ...account, id: old.id } : account
+  await writeAccounts([...items.filter((item) => !same(item)), saved])
+  return saved
 }
 
 // ===== PKCE（Codex） =====
@@ -295,6 +296,8 @@ function startCallbackServer(flow, state) {
     /** @type {(error: Error) => void} */
     let failCode = () => {}
     const code = new Promise((res, rej) => { settleCode = res; failCode = rej })
+    // 埠被佔用時外層 reject 已回報錯誤，沒人等 code；先掛 handler 免得變成未處理 rejection
+    code.catch(() => {})
 
     const server = http.createServer((req, res) => {
       let url
@@ -470,17 +473,15 @@ async function begin(providerKey, options = {}) {
   sessions.set(flow.key, session)
 
   const run = flow.kind === 'pkce' ? runPkce(flow, session, options) : runDevice(flow, session, options)
-  run.then(
-    async (account) => {
-      await saveAccount(account)
-      session.status = 'done'
-      session.accountLabel = account.label
-    },
-    (error) => {
-      session.status = session.cancelled ? 'idle' : 'error'
-      session.message = error?.userMessage || '登入失敗，請再試一次'
-    }
-  ).finally(() => closeSession(session))
+  // 存檔失敗也要落到 error，不能讓畫面一直等、也不能變成未處理 rejection
+  run.then(async (account) => {
+    await saveAccount(account)
+    session.status = 'done'
+    session.accountLabel = account.label
+  }).catch((error) => {
+    session.status = session.cancelled ? 'idle' : 'error'
+    session.message = error?.userMessage || '登入失敗，請再試一次'
+  }).finally(() => closeSession(session))
 
   // 等流程把「該給使用者看的東西」填好；PKCE 是網址、device 是驗證碼
   const readyAt = Date.now() + HTTP_TIMEOUT_MS
@@ -594,7 +595,10 @@ async function resolveToken(id, options) {
       ? Number(claims.exp) * 1000
       : Date.now() + (Number.isFinite(expiresIn) ? expiresIn * 1000 : 3600_000)
   }
-  await writeAccounts(items.map((item) => (item.id === id ? next : item)))
+  // 等網路的期間清單可能被改過（別的帳號續期、使用者刪帳號），重讀再只換這一筆
+  const latest = await readAccounts()
+  if (!latest.some((item) => item.id === id)) throw authError('NO_ACCOUNT', '找不到這個登入帳號，請重新登入')
+  await writeAccounts(latest.map((item) => (item.id === id ? next : item)))
   return { token: accessToken, accountId: account.accountId }
 }
 

@@ -78,6 +78,8 @@ function readModelsDir() {
  * @returns {Promise<{ dir: string }>}
  */
 async function chooseModelsDir() {
+  // 下載器固定用開始時的資料夾，完成紀錄卻寫進新的 root → 檔案與紀錄分家
+  if (installs.size) throw new Error('有模型正在下載，等下載完成或取消後再換資料夾')
   const { dialog } = require('electron')
   const result = await dialog.showOpenDialog({
     title: '選擇本機模型存放資料夾',
@@ -454,7 +456,8 @@ async function refreshFit(id) {
   })
   emit({ type: 'fit-start', id })
   const result = await fit.runFit({
-    exe: runtimeExe(),
+    // 不是 runtimeExe()：那是 llama-server，會真的起服務、等到逾時也印不出 fit 參數
+    exe: path.join(path.dirname(runtimeExe()), 'llama-fit-params.exe'),
     gguf: mainGgufOf(model),
     mmproj: mmprojOf(model),
     ctxSize: decided.ctxSize,

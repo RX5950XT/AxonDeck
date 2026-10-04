@@ -26,9 +26,13 @@ export function parseUnifiedDiff(raw) {
 
   let oldNum = 0
   let newNum = 0
+  // hunk 裡的 `+++`／`---` 是內容（例如刪掉 markdown 的 `---`），檔頭只出現在 `diff ` 與第一個 `@@` 之間
+  let inHunk = false
 
   for (const line of lines) {
+    if (line.startsWith('diff ')) inHunk = false
     if (line.startsWith('@@')) {
+      inHunk = true
       // @@ -a,b +c,d @@ 或 @@ -a +c @@
       const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
       if (match) {
@@ -41,7 +45,7 @@ export function parseUnifiedDiff(raw) {
         type: 'hunk',
         text: line
       })
-    } else if (line.startsWith('+') && !line.startsWith('+++')) {
+    } else if (line.startsWith('+') && (inHunk || !line.startsWith('+++'))) {
       result.push({
         oldLine: null,
         newLine: newNum,
@@ -49,7 +53,7 @@ export function parseUnifiedDiff(raw) {
         text: line
       })
       newNum += 1
-    } else if (line.startsWith('-') && !line.startsWith('---')) {
+    } else if (line.startsWith('-') && (inHunk || !line.startsWith('---'))) {
       result.push({
         oldLine: oldNum,
         newLine: null,

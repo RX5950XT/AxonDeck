@@ -1484,7 +1484,6 @@ async function handleScanModels() {
   // 掃描是由 main 拿著網址與金鑰出去打的，所以草稿得先落地。
   // renderer 不能直接把網址交給 main——那等於開一個「幫你打任意網址」的代理。
   await electronAPI.store.set('chatProviders', providerDraft)
-  await electronAPI.store.set('chatProviderId', draftId)
 
   const label = scanModelsBtn.textContent
   scanModelsBtn.disabled = true
@@ -1650,8 +1649,8 @@ export async function saveChatSettings(validation = null) {
   const checked = validation || validateChatSettings()
   if (!checked.ok) return false
 
+  // draftId 只是設定表單正在看哪一組，不是聊天選用的那組；選用值（含「本機模型」）由 main 收斂
   await electronAPI.store.set('chatProviders', providerDraft)
-  await electronAPI.store.set('chatProviderId', draftId)
   // 空白與重複的模型列略過幾筆，由呼叫端（設定頁的 saveSettings）併進「設定已儲存」那則提示
   await refreshModelSelect()
   await refreshBanner()

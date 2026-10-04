@@ -35,7 +35,8 @@ function parseIso(s) {
   return new Date(y, m - 1, d)
 }
 
-function shiftDate(delta) {
+/** 往前／後翻 delta 段後的日期（不翻進未來：超過今天就停在今天） */
+function shiftedIso(delta) {
   const d = parseIso(state.date)
   if (state.range === 'week') d.setDate(d.getDate() + delta * 7)
   else if (state.range === 'month') {
@@ -46,16 +47,26 @@ function shiftDate(delta) {
   }
   else if (state.range === 'year') d.setFullYear(d.getFullYear() + delta)
   else d.setDate(d.getDate() + delta)
-  // 不翻進未來：超過今天就停在今天（今天所在的那一段）
   const today = isoDate(new Date())
-  state.date = isoDate(d) > today ? today : isoDate(d)
-  state.dateTouched = state.date !== today
+  return isoDate(d) > today ? today : isoDate(d)
+}
+
+function shiftDate(delta) {
+  state.date = shiftedIso(delta)
+  state.dateTouched = state.date !== isoDate(new Date())
 }
 
 /** 已經在今天那一段就不能再往後翻 */
 function syncNextButton() {
   const next = /** @type {HTMLButtonElement|null} */ ($('stimeNext'))
-  if (next) next.disabled = state.date >= isoDate(new Date())
+  if (!next) return
+  // 錨點在本週／月／年但早於今天時，往後翻會被夾回同一段：標題不變就當作已到底
+  const current = state.date
+  const label = dateLabel()
+  state.date = shiftedIso(1)
+  const same = dateLabel() === label
+  state.date = current
+  next.disabled = current >= isoDate(new Date()) || same
 }
 
 function dateLabel() {

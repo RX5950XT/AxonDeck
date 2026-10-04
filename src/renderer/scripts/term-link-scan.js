@@ -174,7 +174,8 @@ function appendRow(line, y, trim, map) {
   }
   let text = ''
   let col = 0
-  let kept = map.length
+  const base = map.length
+  let kept = base
   while (col < line.length) {
     const cell = line.getCell(col)
     if (!cell) break
@@ -190,7 +191,8 @@ function appendRow(line, y, trim, map) {
   }
   if (!trim) return text
   map.length = kept
-  return text.slice(0, kept)
+  // kept 是整個 map 的索引（含前面幾列）；切這一列自己的字要扣掉起點
+  return text.slice(0, kept - base)
 }
 
 /**

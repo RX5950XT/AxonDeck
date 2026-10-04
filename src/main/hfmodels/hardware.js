@@ -37,7 +37,8 @@ function parseDevices(text) {
       name: match[4],
       totalMiB: total,
       // 沒報 free 的後端（例如 Metal）就當全部可用，不要當成 0 而規劃出「什麼都放不下」
-      freeMiB: free || total
+      // 有報 free 就照用，0 是「被別的程式吃光」不是缺值
+      freeMiB: match[6] === undefined ? total : free
     })
   }
   return devices

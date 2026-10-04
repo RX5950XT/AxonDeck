@@ -181,7 +181,8 @@ function remove(id) {
 async function importFile(sourcePath, id = '') {
   const stat = await fs.promises.stat(sourcePath)
   if (!stat.isFile() || !/\.gguf$/i.test(sourcePath)) throw new Error('只能匯入 .gguf 檔案')
-  const name = id || path.basename(sourcePath).replace(/\.gguf$/i, '')
+  // 分片（Foo-00001-of-00002.gguf）要落在同一個模型資料夾，逐片匯入才湊得成一整組
+  const name = id || path.basename(sourcePath).replace(/\.gguf$/i, '').replace(/-\d{5}-of-\d{5}$/i, '')
   const safe = name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 96)
   if (!isValidId(safe)) throw new Error('模型代號格式不正確')
   const dir = dirFor(safe)

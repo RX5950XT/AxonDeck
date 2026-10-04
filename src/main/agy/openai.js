@@ -189,6 +189,9 @@ function toGeminiRequest(body, mapped) {
       inner.toolConfig = { functionCallingConfig: { mode: 'NONE' } }
     } else if (body.tool_choice === 'required') {
       inner.toolConfig = { functionCallingConfig: { mode: 'ANY' } }
+    } else if (body.tool_choice?.type === 'function' && body.tool_choice.function?.name) {
+      // 指定某個工具：只給 ANY 的話模型可以挑別的工具
+      inner.toolConfig = { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [String(body.tool_choice.function.name)] } }
     }
   }
   const generationConfig = buildGenerationConfig(body, mapped)

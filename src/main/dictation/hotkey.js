@@ -104,6 +104,7 @@ function createMachine(opts = {}) {
 /** @type {{ mode: 'native'|'uiohook', machine: ReturnType<typeof createMachine>,
  *            uIOhook?: any, handlers?: object, stopNative?: () => void } | null} */
 let active = null
+let hookGeneration = 0
 
 /**
  * 讓這一次的右 Alt 不再是「單獨一顆 Alt」，前景程式就不會把選單列叫出來。
@@ -133,6 +134,8 @@ function neutralizeAlt(uIOhook) {
  */
 async function start(deps) {
   if (active) return { ok: true, mode: active.mode }
+  // 等 sidecar 起來的途中被 stop()（或又被 start 一次）：晚到的 hook 要收掉，不能在停用後還攔著右 Alt
+  const generation = ++hookGeneration
   const onAction = typeof deps?.onAction === 'function' ? deps.onAction : () => {}
 
   if (deps?.native !== false) {
@@ -153,6 +156,10 @@ async function start(deps) {
         else if (kind === 'escape') fire(machine.escape())
       }
     })
+    if (generation !== hookGeneration) {
+      if (res?.ok) res.stop?.()
+      return { ok: false, error: 'CANCELLED' }
+    }
     if (res?.ok) {
       active = { mode: 'native', machine, stopNative: res.stop }
       return { ok: true, mode: 'native' }
@@ -217,6 +224,7 @@ async function start(deps) {
  * 停止監聽並拔掉 listener（`uIOhook` 是模組單例，不拔會在重新啟用時疊起來）
  */
 function stop() {
+  hookGeneration += 1
   if (!active) return
   const { uIOhook, handlers, stopNative } = active
   active = null

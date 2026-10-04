@@ -2257,6 +2257,7 @@ async function toggleMemStress(run) {
   const res = await electronAPI.sysmon.memStress(run, gb)
   if (!res?.ok) {
     if (stat) stat.textContent = res?.error?.message || '記憶體壓力測試無法啟動。'
+    if (run && start) start.disabled = false
     return
   }
   const mem = res.data.memory

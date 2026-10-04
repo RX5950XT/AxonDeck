@@ -836,7 +836,7 @@ async function main() {
     // 資料夾暫時找不到（隨身碟拔掉）不可以整筆丟掉——插回去就沒了
     const missing = store.sanitizeAll([{ id: 'm', path: 'D:\\definitely-not-here-12345' }])
     ok('路徑不存在仍保留該筆', missing.length === 1)
-    ok('pathExists 認得出不存在', store.pathExists('D:\\definitely-not-here-12345') === false)
+    ok('pathExists 認得出不存在', await store.pathExists('D:\\definitely-not-here-12345') === false)
   }
 
   // ===== [H] 埠號解析 =====

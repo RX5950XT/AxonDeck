@@ -35,8 +35,9 @@ const BIG_COUNT = 2600
 const BIG = path.join(USER_DATA_DIR, 'big')
 const LEFT = path.join(USER_DATA_DIR, 'left')
 const RIGHT = path.join(USER_DATA_DIR, 'right')
+const DBL = path.join(USER_DATA_DIR, 'dbl')
 
-for (const dir of [BIG, LEFT, RIGHT]) fs.mkdirSync(dir, { recursive: true })
+for (const dir of [BIG, LEFT, RIGHT, path.join(DBL, 'inner')]) fs.mkdirSync(dir, { recursive: true })
 // 拖到資料夾列要有個資料夾可以停；名字排前面，第一屏就看得到。
 fs.mkdirSync(path.join(BIG, 'aa-subfolder'), { recursive: true })
 for (let i = 0; i < BIG_COUNT; i += 1) {
@@ -346,10 +347,32 @@ let child
     return true })()`)
   await cdp.eval(`(() => { const l = document.getElementById('exSecondList'); l.scrollTop = l.scrollHeight; l.dispatchEvent(new Event('scroll')); return true })()`)
   await sleep(3_000)
-  await cdp.eval(`(() => { const rows = [...document.querySelectorAll('#exSecondList .ex-row')]; const last = rows[rows.length - 1]; if (last) last.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); return true })()`)
+  await cdp.eval(`(() => { const rows = [...document.querySelectorAll('#exSecondList .ex-row')]; const last = rows[rows.length - 1]; if (last) last.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 })); return true })()`)
   await sleep(2_000)
   assert(cdp.errors.length === 0, '捲到底雙擊不丟例外', json(cdp.errors))
   await cdp.eval(`(() => { window.electronAPI.explorer.openPath = window.__openPath; return true })()`)
+
+  console.log('\n[4b] 右欄真滑鼠雙擊資料夾會進去')
+  // 合成的 dblclick 測不到：真滑鼠第一下會重畫清單，dblclick 落在被換掉的舊列上。
+  await gotoSecond(cdp, DBL)
+  const sub = path.join(DBL, 'inner')
+  const subRect = await waitFor(() => cdp.eval(`(() => {
+    const row = [...document.querySelectorAll('#exSecondList .ex-row')].find((r) => r.dataset.path === ${json(sub)})
+    if (!row) return null
+    const r = row.getBoundingClientRect()
+    return { x: r.left + 40, y: r.top + r.height / 2 }
+  })()`), 10_000, '右欄的 inner 資料夾')
+  for (const clickCount of [1, 2]) {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: subRect.x, y: subRect.y, button: 'left', buttons: 1, clickCount })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: subRect.x, y: subRect.y, button: 'left', buttons: 0, clickCount })
+    await sleep(60)
+  }
+  const enteredSub = await waitFor(
+    () => cdp.eval(`((document.getElementById('exSecondCrumbs') || {}).dataset.path || '').toLowerCase() === ${json(sub.toLowerCase())}`),
+    8_000,
+    '右欄雙擊進入資料夾'
+  ).catch(() => false)
+  assert(enteredSub, '右欄真滑鼠雙擊資料夾會進去')
 
   console.log('\n[5] 跨欄鈕的來源不會被作用欄帶偏')
   await gotoSecond(cdp, RIGHT)

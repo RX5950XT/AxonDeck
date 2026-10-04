@@ -66,13 +66,7 @@ const rows = archive.readTranscript(id)
 ok('[D] 兩筆', rows.length === 2)
 ok('[D] 後寫的蓋掉前面', rows[0].source === 'hello there' && rows[0].translation === '你好')
 ok('[D] 順序不變', rows[1].source === 'world')
-const list = archive.listTranscripts()
-ok('[D] 清單有句數與預覽', list.length === 1 && list[0].count === 2 && list[0].preview === '你好')
 archive.appendTranscript('live-1700000300000', { key: 'b-1-1', source: '', translation: '' })
-ok('[D] 全空的場次不列', archive.listTranscripts().length === 1)
-archive.deleteTranscript(id)
-assert.throws(() => archive.readTranscript(id), /找不到/)
-passed += 1
 
 // [E] IPC 外殼：非主視窗擋掉、錯誤訊息是我們自己的
 const handlers = {}
@@ -82,6 +76,12 @@ archive.registerSttArchiveIpc({
   openPath: async () => ''
 })
 ;(async () => {
+  const list = await archive.listTranscripts()
+  ok('[D] 清單有句數與預覽', list.length === 1 && list[0].count === 2 && list[0].preview === '你好')
+  ok('[D] 全空的場次不列', list.every((t) => t.count > 0))
+  archive.deleteTranscript(id)
+  assert.throws(() => archive.readTranscript(id), /找不到/)
+  passed += 1
   // readRecording 是非同步的（大檔不能卡主程序）
   ok('[B] 兩塊接起來', Buffer.compare(await archive.readRecording(a), Buffer.from([1, 2, 3])) === 0)
   const denied = await handlers['sttArchive:recordings']('other')

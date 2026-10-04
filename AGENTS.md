@@ -105,6 +105,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 - ZIP／手機（MTP）是虛擬路徑（`zip-ops.js`／`mtp.js`，`index.js` 每入口先問）；ZIP 唯讀、擋 zip-slip；MTP 只能永久刪除、全走殼層 sidecar。
 - 殼層 sidecar 主執行緒要跑訊息迴圈；pidl 用 `LPArray`；IContextMenu3 不做事退回 v2；縮圖用 `IShellItemImageFactory`（測試要斷言縮圖≠類型圖示）。
 - 列目錄先排序再截斷（`MAX_STAT` 10000）；點開頭在 Windows 不等於隱藏，不准加回 `startsWith('.')`。
+- 點一下就重畫的清單不能靠容器上的 `dblclick`（舊列被換掉，事件傳不到容器）：在 click 裡認 `event.detail === 2`。回歸要用真滑鼠（`Input.dispatchMouseEvent`），合成的 dblclick 永遠綠。
 - 虛擬清單：`paintList()` 前先記 `scrollTop`；框選與就地改名期間不准重畫；捲到已載入頁也要重畫；稀疏陣列先 `.filter(Boolean)`。
 - 拖到別的程式只有 `webContents.startDrag`（跟 HTML5 DnD 不能並存，CDP 不可呼叫它）；`dropEffect` 一律 `setDropEffect`。
 - Ctrl+滾輪要 `{ passive: false }`；縮圖快取鍵帶尺寸；影片縮圖抓完要放掉 `<video>`（不然檔案被鎖）；插拔裝置靠 `hookWindowMessage(0x0219)`，不輪詢。

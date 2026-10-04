@@ -228,7 +228,8 @@ export async function prewarmTranslatePage() {
   try {
     const r = await electronAPI.engine.acquire('translate', { asr: false, llm: true })
     if (gen !== prewarmGen) {
-      if (r && r.ok) {
+      // owner 是布林不是計數：較新的 acquire 正在跑或已拿到時，這次 release 會把它的模型一起卸掉
+      if (r && r.ok && !prewarmInFlight && !prewarmed && !engineAcquired) {
         await electronAPI.engine.release('translate').catch(() => {})
       }
       return
@@ -242,8 +243,11 @@ export async function prewarmTranslatePage() {
       engineAcquired = false
     }
   } finally {
-    prewarmInFlight = false
-    if (gen === prewarmGen) await refreshUiState()
+    // 過期的那次不能把較新那次的 in-flight 標記清掉（換代的地方自己會清）
+    if (gen === prewarmGen) {
+      prewarmInFlight = false
+      await refreshUiState()
+    }
   }
 }
 
@@ -252,6 +256,7 @@ export async function prewarmTranslatePage() {
  */
 export async function cooldownTranslatePage() {
   prewarmGen++
+  prewarmInFlight = false
   if (el) el._translateRequestId = 0
   stopSpeak()
   await electronAPI.tts?.cancel?.().catch(() => {})
@@ -292,6 +297,7 @@ async function syncEngineForSettings() {
     await prewarmTranslatePage()
   } else {
     prewarmGen++
+    prewarmInFlight = false
     await releaseTranslateEngine()
   }
 }

@@ -35,16 +35,22 @@ function normalizePath(value) {
  * 這個路徑現在還在不在。**不存在不代表要刪掉那筆**（隨身碟拔掉、網路磁碟沒連上），
  * 只是標記起來讓 UI 講明白——整筆丟掉等於使用者插回硬碟後專案就沒了。
  * @param {string} full
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function pathExists(full) {
+async function pathExists(full) {
   if (!full) return false
+  // 非同步＋逾時：NAS 離線時同步 stat 會讓 Windows 等網路逾時，整個 main 跟著卡住
+  const stat = fs.promises.stat(full).then((s) => s.isDirectory(), () => false)
+  let timer
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(false), STAT_TIMEOUT_MS) })
   try {
-    return fs.statSync(full).isDirectory()
-  } catch {
-    return false
+    return await Promise.race([stat, timeout])
+  } finally {
+    clearTimeout(timer)
   }
 }
+
+const STAT_TIMEOUT_MS = 3000
 
 /**
  * @param {unknown} value
@@ -186,13 +192,13 @@ async function writeAll(items) {
  * 給 renderer 的形狀：多一個 `missing`，UI 才講得出「這個資料夾找不到了」。
  * @param {{ id: string, name: string, path: string, createdAt: number }} item
  */
-function toView(item) {
-  return { ...item, missing: !pathExists(item.path) }
+async function toView(item) {
+  return { ...item, missing: !(await pathExists(item.path)) }
 }
 
 /** @returns {Promise<Array<object>>} */
 function list() {
-  return withStore(async () => (await readAll()).map(toView))
+  return withStore(async () => Promise.all((await readAll()).map(toView)))
 }
 
 /**
@@ -214,7 +220,7 @@ function create(req) {
   return withStore(async () => {
     const items = await readAll()
     const full = normalizePath(req?.path)
-    if (!pathExists(full)) {
+    if (!(await pathExists(full))) {
       const error = new Error('BAD_PATH')
       error.code = 'BAD_PATH'
       error.userMessage = '找不到這個資料夾'
@@ -306,7 +312,7 @@ function remove(id) {
 function reorder(ids) {
   return withStore(async () => {
     const items = await readAll()
-    if (!Array.isArray(ids)) return items.map(toView)
+    if (!Array.isArray(ids)) return Promise.all(items.map(toView))
     const byId = new Map(items.map((item) => [item.id, item]))
     const next = []
     for (const id of ids) {
@@ -317,7 +323,7 @@ function reorder(ids) {
     }
     next.push(...byId.values())
     await writeAll(next)
-    return next.map(toView)
+    return Promise.all(next.map(toView))
   })
 }
 

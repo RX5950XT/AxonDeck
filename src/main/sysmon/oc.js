@@ -95,7 +95,9 @@ function sanitizeGpu(raw) {
  * @param {number} absMax
  */
 function withFactory(value, factory, absMin, absMax) {
-  if (value == null || !Number.isFinite(Number(value))) {
+  // 0 不是合法設定（下限遠高於 0），是「感測器還沒起來時存下的暫時值」：一樣換成出廠值，
+  // 否則會被夾到出廠值的一半，按套用就真的把 CPU 功耗牆壓低
+  if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) {
     return Number.isFinite(factory) && factory > 0 ? clampAround(factory, factory, absMin, absMax) : 0
   }
   return clampAround(value, factory, absMin, absMax)
@@ -214,8 +216,9 @@ function sanitizeConfig(raw, factory = {}) {
  */
 function parseGpu(gpu) {
   const src = gpu && typeof gpu === 'object' ? gpu : {}
+  // sidecar 用 null 表示沒讀數；Number(null) 是 0，不先擋的話「溫度全失聯就還原」永遠不會觸發
   const num = (value) => {
-    const n = Number(value)
+    const n = value == null || value === '' ? NaN : Number(value)
     return Number.isFinite(n) ? n : null
   }
   return {
@@ -251,8 +254,9 @@ function parseGpu(gpu) {
 function parseLive(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const cpu = src.c && typeof src.c === 'object' ? src.c : {}
+  // sidecar 用 null 表示沒讀數；Number(null) 是 0，不先擋的話「溫度全失聯就還原」永遠不會觸發
   const num = (value) => {
-    const n = Number(value)
+    const n = value == null || value === '' ? NaN : Number(value)
     return Number.isFinite(n) ? n : null
   }
   const gpus = Array.isArray(src.gs) && src.gs.length
@@ -499,13 +503,17 @@ function createOcEngine(deps = {}) {
       }
       if (live.cpu.writable) {
         const c = config.cpu
-        sent = sensors.send(`C ${c.pptW} ${c.tdcA} ${c.edcA} ${c.scalarX100} ${c.coAll} ${c.freqMhz} ${c.tctlC} ${c.voltMv} ${c.socMv}`) || sent
+        // 每核先送、C 後送：C 套用時用的是 sidecar 手上的每核陣列，先送才是這次的值。
+        // 每核 CO 是絕對值，會蓋掉全核：沒個別調（0）的核心要跟全核，不然全核 -10 被 0 洗掉。
         if (c.cores && c.cores.length) {
-          sent = sensors.send(`K ${c.cores.length} ${c.cores.join(' ')}`) || sent
+          const cores = c.cores.map((v) => (v === 0 ? c.coAll : v))
+          sent = sensors.send(`K ${cores.length} ${cores.join(' ')}`) || sent
         }
-        if (c.freqCores && c.freqCores.some((v) => v > 0)) {
+        // 全部 0 也要送：不送的話 sidecar 留著上一次的每核鎖頻，畫面說回到 PBO、硬體卻還鎖著
+        if (c.freqCores && c.freqCores.length) {
           sent = sensors.send(`F ${c.freqCores.length} ${c.freqCores.join(' ')}`) || sent
         }
+        sent = sensors.send(`C ${c.pptW} ${c.tdcA} ${c.edcA} ${c.scalarX100} ${c.coAll} ${c.freqMhz} ${c.tctlC} ${c.voltMv} ${c.socMv}`) || sent
       }
       if (!sent) {
         clearDirty()

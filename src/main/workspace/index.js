@@ -39,7 +39,7 @@ async function rootOf(projectId) {
   if (typeof projectId !== 'string' || !projectId) throw fail('NO_PROJECT', '請先選一個專案')
   const project = await store.get(projectId)
   if (!project) throw fail('NO_PROJECT', '找不到這個專案')
-  if (!store.pathExists(project.path)) throw fail('NO_PROJECT', '找不到專案資料夾')
+  if (!(await store.pathExists(project.path))) throw fail('NO_PROJECT', '找不到專案資料夾')
   return project.path
 }
 

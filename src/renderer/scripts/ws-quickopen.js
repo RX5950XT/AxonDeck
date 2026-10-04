@@ -212,8 +212,12 @@ export function isOpen() {
  * @param {{ id: string }} project
  * @param {(rel: string) => void} pickHandler 選到一個檔案時要做什麼
  */
+let openSeq = 0
+
 export async function openQuickOpen(project, pickHandler) {
   const view = ensureUi()
+  // Esc 後立刻在別的專案再開：上一次（另一個專案）的清單晚回來不能蓋掉這次的
+  const seq = ++openSeq
   onPick = pickHandler
   indexed = []
   view.host.hidden = false
@@ -224,7 +228,7 @@ export async function openQuickOpen(project, pickHandler) {
 
   const result = await electronAPI.workspace.listFiles(project.id)
   // 抓清單的途中使用者可能已經按 Esc 了，別把畫面再叫回來
-  if (!onPick || view.host.hidden) return
+  if (!onPick || view.host.hidden || seq !== openSeq) return
   if (!result || !result.ok) {
     showToast(result?.error?.message || '讀不到檔案清單', 'error')
     close()

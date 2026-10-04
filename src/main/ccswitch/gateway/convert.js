@@ -200,6 +200,19 @@ function textPart(role, text) {
 }
 
 /**
+ * Anthropic 的 tool_choice → OpenAI 的字串，或 `{ name }`（指定工具，由呼叫端包成各協議的格式）。
+ * @param {unknown} choice
+ * @returns {string|{ name: string }|null}
+ */
+function toolChoiceFor(choice) {
+  const type = choice?.type
+  if (type === 'any') return 'required'
+  if (type === 'none' || type === 'auto') return type
+  if (type === 'tool' && choice.name) return { name: String(choice.name) }
+  return null
+}
+
+/**
  * Anthropic Messages → OpenAI Responses 請求。
  * @param {object} body
  * @param {string} model 上游真正要用的模型名
@@ -217,7 +230,8 @@ function toResponsesRequest(body, model) {
   const functions = toolsToFunctions(body?.tools)
   if (functions.length) {
     request.tools = functions.map((fn) => ({ type: 'function', ...fn }))
-    request.tool_choice = 'auto'
+    const choice = toolChoiceFor(body?.tool_choice)
+    request.tool_choice = choice?.name ? { type: 'function', name: choice.name } : choice || 'auto'
   }
 
   const maxTokens = Number(body?.max_tokens)
@@ -253,10 +267,13 @@ function toChatRequest(body, model) {
     if (!Array.isArray(content)) continue
 
     const texts = []
+    const images = []
     const toolCalls = []
     for (const block of content) {
       if (block?.type === 'text' && block.text) {
         texts.push(block.text)
+      } else if (block?.type === 'image' && block.source?.type === 'base64') {
+        images.push({ type: 'image_url', image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` } })
       } else if (block?.type === 'tool_use') {
         toolCalls.push({
           id: String(block.id || ''),
@@ -271,8 +288,10 @@ function toChatRequest(body, model) {
         })
       }
     }
-    if (texts.length || toolCalls.length) {
-      const entry = { role, content: texts.join('\n\n') }
+    if (texts.length || images.length || toolCalls.length) {
+      const text = texts.join('\n\n')
+      // 有圖才用多段 content；純文字維持字串，相容只吃字串的供應商
+      const entry = { role, content: images.length ? [...(text ? [{ type: 'text', text }] : []), ...images] : text }
       if (toolCalls.length) entry.tool_calls = toolCalls
       messages.push(entry)
     }
@@ -282,6 +301,8 @@ function toChatRequest(body, model) {
   const functions = toolsToFunctions(body?.tools)
   if (functions.length) {
     request.tools = functions.map((fn) => ({ type: 'function', function: fn }))
+    const choice = toolChoiceFor(body?.tool_choice)
+    if (choice) request.tool_choice = choice.name ? { type: 'function', function: { name: choice.name } } : choice
   }
   const maxTokens = Number(body?.max_tokens)
   if (Number.isFinite(maxTokens) && maxTokens >= 1) request.max_tokens = maxTokens
@@ -314,6 +335,7 @@ function consumeResponses(payload, state) {
   /** @type {Delta[]} */
   const out = []
 
+  if (type === 'response.failed' || type === 'error') throw new Error('UPSTREAM_FAILED')
   if (type === 'response.output_text.delta' && typeof payload.delta === 'string') {
     out.push({ text: payload.delta })
   } else if (type === 'response.reasoning_summary_text.delta' && typeof payload.delta === 'string') {
@@ -363,6 +385,7 @@ function consumeResponses(payload, state) {
 function consumeChat(payload, state) {
   /** @type {Delta[]} */
   const out = []
+  if (payload?.error) throw new Error('UPSTREAM_FAILED')
   const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null
   const delta = choice?.delta
 
@@ -564,7 +587,12 @@ function closeStream(collector) {
   out += event('message_delta', {
     type: 'message_delta',
     delta: { stop_reason: stopReasonFor(collector), stop_sequence: null },
-    usage: { output_tokens: collector.usage?.output ?? 0 }
+    // 用量多半最後才到，message_start 那時還是 0，收尾要補上輸入與快取
+    usage: {
+      input_tokens: collector.usage?.input ?? 0,
+      output_tokens: collector.usage?.output ?? 0,
+      ...(collector.usage?.cached ? { cache_read_input_tokens: collector.usage.cached } : {})
+    }
   })
   out += event('message_stop', { type: 'message_stop' })
   return out

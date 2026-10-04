@@ -88,11 +88,20 @@ function beep(freq) {
   } catch { /* 提示音失敗不影響錄音 */ }
 }
 
+let micPromise = null
+
 /**
- * 開麥克風（只在啟用時做一次）
+ * 開麥克風（只在啟用時做一次）。同時呼叫的共用同一次：`getUserMedia` 還沒回來時
+ * 兩邊都看到 graph 是空的，各開一條的話先開的那條永遠關不掉（麥克風指示燈一直亮）。
  * @returns {Promise<boolean>}
  */
-async function ensureMic() {
+function ensureMic() {
+  micPromise ??= openMic().finally(() => { micPromise = null })
+  return micPromise
+}
+
+/** @returns {Promise<boolean>} */
+async function openMic() {
   // 麥克風是一直開著的，中途拔耳機／被別的程式搶走時 track 會變成 `ended`——
   // 這時 graph 還在，看起來一切正常，但錄下來是一整段靜音（按了沒反應的主因）。
   // 一併看 AudioContext 有沒有被系統中斷。

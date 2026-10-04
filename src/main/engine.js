@@ -74,7 +74,7 @@ async function acquire(owner, needs = {}) {
     // ASR 與 LLM 互相獨立，並行 warm 縮短同時載入兩模型的等待（warm 各自 catch 不 reject）
     const [asrRes, llmRes] = await Promise.all([
       // owner 就是 scope：檔案轉錄與即時字幕各自選各自的 ASR 模型
-      wantAsr ? localAsr.warm(owner === 'live' ? 'live' : 'file') : Promise.resolve(null),
+      wantAsr ? localAsr.warm(owner === 'live' ? 'live' : 'file', asrScopesInUse(owner)) : Promise.resolve(null),
       wantLlm ? localLlm.warm(llmKeyFor(owner)) : Promise.resolve(null)
     ])
     if (asrRes) warnings.push(...(asrRes.warnings || []))
@@ -92,6 +92,18 @@ async function acquire(owner, needs = {}) {
 
     return { ok, asrLoaded, llmLoaded, warnings }
   })
+}
+
+/**
+ * 其他仍持有引擎的 owner 各自要用哪個 ASR scope（translate 不吃 ASR，不算）
+ * @param {string} owner
+ * @returns {Array<'live'|'file'>}
+ */
+function asrScopesInUse(owner) {
+  const scopes = []
+  if (owner !== 'live' && users.live) scopes.push('live')
+  if (owner !== 'file' && users.file) scopes.push('file')
+  return scopes
 }
 
 /**

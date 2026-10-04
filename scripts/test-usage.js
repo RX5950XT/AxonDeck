@@ -821,7 +821,7 @@ test('Antigravity 沒設 OAuth client 時改叫 agy 續期並用新 token', asyn
   let current = 'old-access'
   const cli = []
   const account = await syncAntigravity({
-    env: { LOCALAPPDATA: path.join(os.tmpdir(), 'no-such-local') },
+    env: { LOCALAPPDATA: path.join(os.tmpdir(), 'no-such-local') }, // temp-ok: 只當不存在的假路徑字串，沒有建檔
     nowMs: Date.parse('2026-08-20T12:00:00Z'),
     readCredential: async () => JSON.stringify({
       token: { access_token: current, refresh_token: 'r', expiry: '2026-08-20T11:00:00Z' }
@@ -841,7 +841,7 @@ test('Antigravity 沒設 OAuth client 時改叫 agy 續期並用新 token', asyn
     },
     log: () => {}
   })
-  assert.deepEqual(cli, [path.join(os.tmpdir(), 'no-such-local')])
+  assert.deepEqual(cli, [path.join(os.tmpdir(), 'no-such-local')]) // temp-ok: 同上
   assert.equal(account.status, 'available')
   assert.equal(account.windows.find((w) => w.id === 'antigravity-gemini-5h').used, 75)
 })

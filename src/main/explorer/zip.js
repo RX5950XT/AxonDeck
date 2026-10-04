@@ -408,6 +408,30 @@ function tempRoot() {
   return process.env.VOICEINK_ZIP_TEMP || path.join(os.tmpdir(), 'voiceink-zip')
 }
 
+const TEMP_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 開過的暫存副本（壓縮檔裡的檔、手機的照片影片）留一天就清，不然手機影片一支好幾 GB 越積越多。
+ * 用非同步 fsp.rm：它不會穿過 junction（見 safe-rm.js）。正被別的程式開著的刪不掉，下次再清。
+ */
+async function sweepTemp(now = Date.now()) {
+  const root = tempRoot()
+  for (const dir of [root, path.join(root, 'mtp')]) {
+    let names = []
+    try { names = await fsp.readdir(dir) } catch { continue }
+    for (const name of names) {
+      if (dir === root && name === 'mtp') continue
+      const full = path.join(dir, name)
+      try {
+        const st = await fsp.lstat(full)
+        if (now - st.mtimeMs > TEMP_MAX_AGE_MS) await fsp.rm(full, { recursive: true, force: true })
+      } catch {
+        // 下次再清
+      }
+    }
+  }
+}
+
 /**
  * 開檔／拖出去用：解到暫存資料夾（同一份壓縮檔、同一個檔案再開一次直接用上次那份）。
  * @param {string} archive
@@ -449,6 +473,7 @@ module.exports = {
   stat,
   extract,
   extractTemp,
+  sweepTemp,
   tempRoot,
   safeName,
   parseDirectory

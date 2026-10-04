@@ -232,8 +232,12 @@ async function cleanupLocalChunked(content, system, modelKey) {
   const localLlm = require('../local-llm')
   // ponytail: 重寫模式下每一段各自重組，跨段的合併與搬移做不到（本地那顆 context 就 2048）。
   // 想要整篇一起重組就得挑雲端模型，或換一顆 context 更大的本地模型。
-  const chunks = text.splitForCleanup(content, LOCAL_CHUNK_CHARS).slice(0, LOCAL_MAX_CHUNKS)
-  if (!chunks.length) return content
+  const all = text.splitForCleanup(content, LOCAL_CHUNK_CHARS)
+  if (!all.length) return content
+  // 段數上限只限制「送去整理幾段」；超過的尾段原文照接，不能直接丟掉
+  // （切點最短 150 字，6000 字以內也可能切出十幾段）
+  const chunks = all.slice(0, LOCAL_MAX_CHUNKS)
+  const tail = all.slice(LOCAL_MAX_CHUNKS)
   /** @type {string[]} */
   const parts = []
   for (const chunk of chunks) {
@@ -250,7 +254,7 @@ async function cleanupLocalChunked(content, system, modelKey) {
   // 拿來接整理後的段落會把排好的版整成一行。切點本來就找句末標點（見 splitForCleanup），
   // 這裡的每一段都是完整句子。
   // ponytail: 硬切（整段找不到句末標點）時會多一個假的分段，換成標記切點才治本。
-  return parts.filter(Boolean).join('\n\n')
+  return [...parts, ...tail].filter(Boolean).join('\n\n')
 }
 
 /**

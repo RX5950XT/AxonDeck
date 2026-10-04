@@ -669,7 +669,6 @@ function bindOnce() {
     }
   }, { passive: true })
   $('exSecondList')?.addEventListener('click', onSecondListClick)
-  $('exSecondList')?.addEventListener('dblclick', (e) => void onSecondDoubleClick(e))
   $('exSecondList')?.addEventListener('wheel', onSecondWheel, { passive: false })
   $('exSecondList')?.addEventListener('contextmenu', onSecondContext)
   $('exSecondList')?.addEventListener('keydown', onSecondKey)
@@ -1057,8 +1056,9 @@ function paintList() {
     empty.hidden = rows.length > 0
     empty.textContent = inSearch() || filterQuery() ? '沒有符合的檔案' : inRecycle() ? '資源回收筒是空的' : '這個資料夾是空的'
   }
-  // 篩過的清單跟 entries 的索引對不上，虛擬捲動（照位置補載頁面）只給完整清單用
-  const canVirtualize = !inSearch() && !filterQuery() && rows.length > 250
+  // 篩過的清單跟 entries 的索引對不上，虛擬捲動（照位置補載頁面）只給完整清單用；
+  // 方格的 spacer 會變成一個 grid 格子撐高第一排，所以方格只畫已載入的，捲到底再補頁
+  const canVirtualize = !inSearch() && !filterQuery() && view !== 'grid' && rows.length > 250
   if (canVirtualize) {
     const range = visibleBrowseRange({
       total: rows.length,
@@ -1704,7 +1704,11 @@ async function loadSecondVisiblePages() {
   const offsets = pageOffsetsForRange(range.start, range.end, BROWSE_PAGE_SIZE)
   const pending = offsets.filter((offset) => !secondPane.loadedOffsets.has(offset)
     && !secondPane.pendingOffsets.has(offset))
-  if (!pending.length) return
+  // 跟左欄 loadVisiblePages 同理：頁都在手上也要照新位置重畫，否則捲下去整片空白（方格不虛擬化，免重畫）
+  if (!pending.length) {
+    if (secondPane.view !== 'grid') paintSecondPane()
+    return
+  }
   pending.forEach((offset) => secondPane.pendingOffsets.add(offset))
   const seq = secondPane.seq
   await Promise.all(pending.map(async (offset) => {
@@ -1861,6 +1865,12 @@ async function secondGoUp() {
 function onSecondListClick(event) {
   const row = event.target.closest('.ex-row')
   if (!row) return
+  // 雙擊不能掛 dblclick：第一下的重畫把列換掉了，dblclick 落在拿掉的舊列上，傳不到清單。
+  // 第二下的 click 落在新列上，detail 就是 2。
+  if (event.detail === 2 && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    void onSecondDoubleClick(event)
+    return
+  }
   const id = row.dataset.path
   if (!id) return
   if (event.shiftKey && secondPane.anchor) {
@@ -2517,7 +2527,8 @@ async function loadVisiblePages() {
     total: directoryTotal || entries.length,
     scrollTop: host.scrollTop,
     viewportHeight: host.clientHeight || 600,
-    rowHeight: view === 'grid' ? Math.max(112, tile + 32) : 34,
+    // 方格只畫已載入的格子：用「實際捲動高度 ÷ 已畫格數」換算每格佔幾 px，捲到底時 end 才會跨進下一頁
+    rowHeight: view === 'grid' ? host.scrollHeight / Math.max(1, entries.filter(Boolean).length) : 34,
     overscan: 18
   })
   const offsets = pageOffsetsForRange(range.start, range.end, BROWSE_PAGE_SIZE)
@@ -2526,7 +2537,7 @@ async function loadVisiblePages() {
   // 捲到的那幾頁已經在手上時也要重畫：虛擬清單只畫可見範圍，
   // 不重畫就會一直停在最初那幾列，後面全是空白。
   if (!pending.length) {
-    paintList()
+    if (view !== 'grid') paintList()
     return
   }
   await Promise.all(pending.map(async (offset) => {
@@ -2916,18 +2927,21 @@ function openPreview(entry) {
 
 async function openEntry(entry) {
   if (!entry) return
-  if (inRecycle()) {
+  // 指令列、右鍵、Enter 都會走這裡：要開在作用中的那一欄，回收筒也只看那一欄
+  const right = rightActive()
+  if (activeInRecycle()) {
     await restoreItems([entry])
     return
   }
+  const go = (target) => (right ? secondNavigate(target) : navigate(target))
   if (entry.dir) {
-    await navigate(entry.path)
+    await go(entry.path)
     return
   }
   try {
-    const seq = navSeq
+    const seq = right ? secondPane.seq : navSeq
     const data = await call(electronAPI.explorer.openPath(entry.path), '打不開')
-    if (data?.dir && seq === navSeq) await navigate(data.path)
+    if (data?.dir && seq === (right ? secondPane.seq : navSeq)) await go(data.path)
   } catch {
     // toast 已顯示
   }
@@ -3097,24 +3111,23 @@ async function newEntry(dir) {
   }
   await refreshAfterMutate()
   const name = made.path.split(/[\\/]/).pop() || ''
-  selectInActivePane(made.path, name)
+  selectInActivePane(made.path)
   await renameItem({ name, path: made.path, dir })
 }
 
 /**
  * 在作用中那一欄把這一項選起來（新增／改名完要看得到是哪一個）。
  * @param {string} full
- * @param {string} name
  */
-function selectInActivePane(full, name) {
+function selectInActivePane(full) {
   if (rightActive()) {
     secondPane.selected = new Set([full])
     secondPane.anchor = full
     paintSecondPane()
   } else {
-    const id = inSearch() ? full : name
-    selected = new Set([id])
-    anchor = id
+    // 選取 id 是完整路徑（entryId），用檔名的話選取對不到任何一列
+    selected = new Set([full])
+    anchor = full
     paintList()
   }
   paintStatus()
@@ -3186,7 +3199,7 @@ async function renameItem(item) {
       ))
     }
     await refreshAfterMutate()
-    if (done?.path) selectInActivePane(done.path, name)
+    if (done?.path) selectInActivePane(done.path)
   } catch {
     // toast 已顯示
     repaintAfterInline()
@@ -3194,7 +3207,7 @@ async function renameItem(item) {
 }
 
 function batchRenameItems(items) {
-  if (!Array.isArray(items) || items.length < 2 || inRecycle() || blockInZip(items)) return
+  if (!Array.isArray(items) || items.length < 2 || activeInRecycle() || blockInZip(items)) return
   const dialog = document.createElement('dialog')
   dialog.className = 'app-dialog ex-batch-dialog'
   const title = document.createElement('h2')
@@ -3250,7 +3263,8 @@ function batchRenameItems(items) {
     preview.replaceChildren()
     const table = document.createElement('div')
     table.className = 'ex-batch-table'
-    const outside = new Set(entries.filter((entry) => !items.some((item) => entry.path === item.path)).map((entry) => entry.name.toLowerCase()))
+    // 撞名要比「這些檔案所在那一欄」的資料夾，右欄改名不能拿左欄來比
+    const outside = new Set((rightActive() ? secondPane.entries : entries).filter((entry) => !items.some((item) => entry.path === item.path)).map((entry) => entry.name.toLowerCase()))
     const selectedNames = new Map(items.map((item) => [item.name.toLowerCase(), item.path]))
     const seen = new Set()
     let invalid = false
@@ -3355,15 +3369,16 @@ function showBatchRenameResult(results, revert) {
 
 async function deleteItems(items, opts = {}) {
   if (!items.length || blockInZip(items, { phoneOk: true })) return
-  // 手機沒有資源回收筒：刪了就沒了，照實問
-  const permanent = Boolean(opts.permanent) || inRecycle() || items.some((item) => item.phone)
+  // 手機沒有資源回收筒：刪了就沒了，照實問。回收筒只看作用欄：左欄停在回收筒時，右欄刪檔仍要丟回收筒
+  const recycle = activeInRecycle()
+  const permanent = Boolean(opts.permanent) || recycle || items.some((item) => item.phone)
   const desc = items.length === 1 ? items[0].name : `${items.length} 個項目`
   const title = permanent ? '永久刪除？無法還原' : '移到資源回收筒？'
   const ok = await askConfirm(title, { desc, confirmText: permanent ? '永久刪除' : '刪除', danger: true })
   if (!ok) return
   try {
     for (const item of items) {
-      if (inRecycle() && item.recycleKey) {
+      if (recycle && item.recycleKey) {
         await call(electronAPI.explorer.purgeEntry(item.recycleKey), '刪不掉')
       } else {
         await call(electronAPI.explorer.removeEntry(item.path, { permanent }), '刪不掉')
@@ -3500,10 +3515,12 @@ function copyNames(items) {
 }
 
 async function makeShortcut(items) {
-  if (inRecycle() || !items.length) return
+  // 建在作用欄的資料夾；本機首頁不是真資料夾，建不了
+  const dir = activeCwd()
+  if (activeInRecycle() || paneInHome(activePane) || !items.length) return
   try {
     for (const item of items.slice(0, 20)) {
-      await call(electronAPI.explorer.createShortcut(item.path, cwd), '建不了捷徑')
+      await call(electronAPI.explorer.createShortcut(item.path, dir), '建不了捷徑')
     }
     await refreshAfterMutate()
     showToast('已建立捷徑')
@@ -3917,6 +3934,8 @@ function onSideButton(e) {
 
 function onPageKey(e) {
   if (!$('page-explorer')?.classList.contains('active')) return
+  // 右欄清單的 onSecondKey 處理過的鍵會冒泡上來；不擋的話 Backspace 兩欄一起上一層、Enter 開檔開兩次
+  if (e.defaultPrevented) return
   // 大預覽開著時，方向鍵／Esc／空白鍵都是它的（見 image-viewer.js）
   if (imageViewerOpen() || previewOpen()) return
   if (document.querySelector('.ws-menu, dialog[open]')) return
@@ -3973,6 +3992,8 @@ function onPageKey(e) {
     void goUp()
   }
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) && !e.altKey) {
+    // moveSelection 只動左欄；右欄作用中時方向鍵歸 onSecondKey
+    if (rightActive()) return
     // 清單檢視只吃上下：左右留給之後可能的水平操作，方格檢視才四個方向都走
     const grid = $('exList')?.classList.contains('is-grid')
     if (grid || !['ArrowLeft', 'ArrowRight'].includes(e.key)) {

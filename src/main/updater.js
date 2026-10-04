@@ -114,6 +114,8 @@ function hasUpdateConfig() {
 /** 手動按「檢查更新」；autoDownload 開著的話會直接接著下載；手動模式已發現新版時這顆鈕就是「下載更新」 */
 async function check() {
   if (!app.isPackaged) return status()
+  // 連點：第二下進來時已在下載／檢查，再檢查一次失敗會把進行中的下載蓋成 error
+  if (state.state === 'downloading' || state.state === 'checking') return status()
   if (state.state === 'available' && updater) {
     emit({ state: 'downloading', percent: 0, message: `開始下載 v${state.version}…` })
     updater.downloadUpdate().catch(() => {}) // 失敗由 'error' 事件回報

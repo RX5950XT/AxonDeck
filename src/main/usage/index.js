@@ -190,6 +190,8 @@ async function redeemCodexReset(creditId) {
   const outcome = await consumeCodexReset(creditId, { version: APP_VERSION })
   let state = null
   try {
+    // 正在跑的那輪可能在重置前就查完 Codex；直接共用會拿到舊額度，要等它結束再開新的一輪
+    await syncInFlight?.catch(() => {})
     state = await sync()
   } catch {
     // 重置本身已經成功或失敗了；同步不到只是面板晚一點才更新

@@ -215,7 +215,8 @@ function normalizeModel(raw) {
  * @returns {boolean}
  */
 function isJunkModel(model) {
-  return /^[a-z0-9]{1,2}$/.test(String(model || ''))
+  // 例外：內建表認得的短名（`o1`）是真模型
+  return /^[a-z0-9]{1,2}$/.test(String(model || '')) && !Object.hasOwn(BUILTIN_PRICES, model)
 }
 
 /**

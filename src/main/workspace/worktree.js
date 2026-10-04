@@ -71,7 +71,8 @@ function run(cwd, args) {
       child.kill()
       reject(fail('TIMEOUT', 'git 沒有在時間內回應'))
     }, TIMEOUT_MS)
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8') })
+    child.stdout.setEncoding('utf8') // 中文路徑切在 chunk 邊界時才不會變亂碼
+    child.stdout.on('data', (chunk) => { stdout += chunk })
     // stderr 刻意整包丟掉：裡面有遠端網址、使用者名稱，有時候還有 token
     child.stderr.on('data', () => {})
     child.on('error', () => {

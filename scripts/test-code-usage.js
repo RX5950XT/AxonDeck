@@ -557,11 +557,11 @@ console.log('\n[F] 增量掃描')
     await scan.scanSource(source, persistedCursors, (event) => third.push(event), 0)
     ok('附加後相同識別不重複、新行照收', third.length === 1 && third[0].input === 10, String(third.length))
 
-    // 檔案被截斷（Grok rewind）→ 整份重讀
-    fs.writeFileSync(file, `${mkLine('m2')}\n`)
+    // 檔案被截斷（Grok rewind）→ 整份重讀；留下來的 m2 早就算過，不能再加一次，新的 m4 照收
+    fs.writeFileSync(file, `${mkLine('m2')}\n${mkLine('m4')}\n`)
     const fourth = []
     await scan.scanSource(source, persistedCursors, (event) => fourth.push(event), 0)
-    ok('檔案變小時整份重讀且清掉舊去重狀態', fourth.length === 1, String(fourth.length))
+    ok('檔案變小時整份重讀，但保留去重識別', fourth.length === 1, String(fourth.length))
 
     // 寫入中的 JSONL 最後一行可能還沒收尾；游標只能推到最後一個完整換行，
     // 否則下一次補上尾端時會從 EOF 開始，這筆用量就永遠消失。

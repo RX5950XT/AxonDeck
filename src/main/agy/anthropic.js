@@ -160,8 +160,10 @@ function toGeminiRequest(body, mapped) {
     inner.tools = tools
     const choice = body.tool_choice?.type
     if (choice === 'none') inner.toolConfig = { functionCallingConfig: { mode: 'NONE' } }
-    else if (choice === 'any' || choice === 'tool') {
-      inner.toolConfig = { functionCallingConfig: { mode: 'ANY' } }
+    else if (choice === 'any') inner.toolConfig = { functionCallingConfig: { mode: 'ANY' } }
+    else if (choice === 'tool' && body.tool_choice.name) {
+      // 指定某個工具：只給 ANY 的話模型可以挑別的工具
+      inner.toolConfig = { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [String(body.tool_choice.name)] } }
     }
   }
 

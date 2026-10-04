@@ -1298,6 +1298,14 @@ ipcMain.handle('store:set', async (event, key, value) => {
     store.set(key, sanitizeSubtitleBounds(value))
     return true
   }
+  if (key === 'hfModelsDir') {
+    // 正常只有系統對話框會寫（e2e 也借這條）；擋掉相對路徑與 UNC，免得模型庫被指到任意位置
+    if (typeof value !== 'string' || !path.isAbsolute(value) || /^[\\/]{2}/.test(value)) {
+      throw new Error('模型資料夾路徑無效')
+    }
+    store.set(key, value)
+    return true
+  }
   if (key === 'telegramPanes') {
     const list = Array.isArray(value) ? value : []
     store.set(key, list.filter((url) => typeof url === 'string' && url.length <= 2048

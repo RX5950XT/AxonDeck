@@ -922,7 +922,8 @@ function buildTreeRow(project, entry, depth) {
   row.addEventListener('contextmenu', (event) => openTreeMenu(project, entry, event))
   row.addEventListener('focus', () => setTreeCursor(row))
   row.addEventListener('dragstart', (event) => onTreeDragStart(event, entry))
-  row.addEventListener('dragend', () => clearDropMarks())
+  // 拖到樹外或按 Esc 取消時不會有 drop：這裡不清，下次從外面拖檔進來會被當成搬移這些殘留項目
+  row.addEventListener('dragend', () => { dragging = []; clearDropMarks() })
   row.addEventListener('dragover', (event) => onTreeDragOver(event, entry, row))
   row.addEventListener('dragleave', () => row.classList.remove('is-drop'))
   row.addEventListener('drop', (event) => void onTreeDrop(event, project, entry))

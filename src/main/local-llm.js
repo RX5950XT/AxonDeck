@@ -763,7 +763,8 @@ async function translateLocal(text, targetLang, context = {}, options = {}) {
   if (isLinguaforge(key) && options.mode !== 'live') {
     const lines = splitLinesForLinguaforge(text)
     const total = lines.reduce((n, l) => n + l.parts.length, 0)
-    if (total > 1) {
+    // 只有一行但帶清單標記（`· 選擇器`）也要走這條：標記要剝掉才送，否則模型會把符號翻成標籤
+    if (total > 1 || lines.some((line) => line.parts.length && line.prefix.trim())) {
       const outLines = []
       let done = 0
       for (const line of lines) {

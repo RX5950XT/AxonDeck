@@ -44,6 +44,8 @@ let armed = null
 let accounts = []
 /** 登入輪詢的計時器；開新流程或關彈窗一定要收掉 */
 let loginTimer = 0
+// 每次開始／停止登入輪詢都換一代：連點登入時，晚回來的那次不能再開第二條 interval
+let loginSeq = 0
 let loginProvider = ''
 
 // ===== 共用小工具 =====
@@ -812,6 +814,7 @@ async function dropAccount(flow, accountId) {
 function stopLoginPoll() {
   if (loginTimer) window.clearInterval(loginTimer)
   loginTimer = 0
+  loginSeq += 1
 }
 
 /**
@@ -826,6 +829,7 @@ async function startLogin() {
   if (!flow) return
 
   stopLoginPoll()
+  const seq = loginSeq
   loginProvider = flow.key
   const step = document.getElementById('ccOauthStep')
   const code = document.getElementById('ccOauthCode')
@@ -837,9 +841,10 @@ async function startLogin() {
   try {
     started = await call(electronAPI.ccswitch.beginLogin(flow.key), '開始登入失敗')
   } catch {
-    showLoginWait(false)
+    if (seq === loginSeq) showLoginWait(false)
     return
   }
+  if (seq !== loginSeq) return
 
   if (started.kind === 'device') {
     step.textContent = `瀏覽器已開啟 ${started.verificationUri || 'xAI 登入頁'}，請在上面輸入這組驗證碼：`
@@ -850,22 +855,25 @@ async function startLogin() {
     code.classList.add('hidden')
   }
 
-  loginTimer = window.setInterval(() => void pollLogin(flow), 1500)
+  loginTimer = window.setInterval(() => void pollLogin(flow, seq), 1500)
 }
 
 /**
  * @param {object} flow
+ * @param {number} seq 開始這條輪詢時的 loginSeq
  */
-async function pollLogin(flow) {
+async function pollLogin(flow, seq) {
   let state
   try {
     state = await call(electronAPI.ccswitch.loginStatus(flow.key), '查詢登入狀態失敗')
   } catch {
+    if (seq !== loginSeq) return
     stopLoginPoll()
     showLoginWait(false)
     return
   }
   if (state.status === 'waiting' || state.status === 'starting') return
+  if (seq !== loginSeq) return
 
   stopLoginPoll()
   if (state.status === 'done') {

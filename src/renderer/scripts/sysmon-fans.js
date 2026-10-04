@@ -687,12 +687,24 @@ function renderBar(data) {
 
 // ===== 資料流 =====
 
+let pendingSave = null
+
 function saveChannel(id, patch) {
-  if (state.busy) return Promise.resolve()
+  if (state.busy) {
+    // 上一次還沒回來：留住最後一次、回來後補送。直接丟掉的話晶片停在舊曲線，下一秒輪詢再把點畫回去
+    pendingSave = { id, patch: { ...(pendingSave?.id === id ? pendingSave.patch : {}), ...patch } }
+    return Promise.resolve()
+  }
   state.busy = true
   return electronAPI.sysmon.fanSetChannel(id, patch)
-    .then((res) => { if (res?.ok) render(res.data) })
-    .finally(() => { state.busy = false })
+    // 還有一筆等著送就不畫這次的回應，免得把畫面拉回較舊的那一版
+    .then((res) => { if (res?.ok && !pendingSave) render(res.data) })
+    .finally(() => {
+      state.busy = false
+      const next = pendingSave
+      pendingSave = null
+      if (next) saveChannel(next.id, next.patch)
+    })
 }
 
 function render(data) {

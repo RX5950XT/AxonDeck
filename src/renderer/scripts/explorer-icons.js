@@ -4,13 +4,15 @@
 const cache = new Map()
 const visible = new WeakSet()
 const inflight = new WeakSet()
-const retryCount = new Map()
-let observer
+const retryCount = new WeakMap()
+// 每個清單（左欄、右欄）各一份 observer／重試計時：雙欄時兩欄輪流重畫，
+// 共用一份的話後畫的那欄會把另一欄還沒載完的圖示整批丟掉，停在預設圖。
+// 回來的結果用「pane 物件還是不是同一個」判斷過期，取代全域 generation。
+/** @type {Map<HTMLElement, { readIcon: Function, observer: IntersectionObserver | null, timers: Set<ReturnType<typeof setTimeout>> }>} */
+const panes = new Map()
+/** @type {{ el: HTMLElement, host: HTMLElement }[]} */
 let queue = []
 let running = 0
-let generation = 0
-const retryTimers = new Set()
-let activeContext = null
 
 const THUMB_SIZE = 96
 /** 殼層給得出的最大邊長（`shell.js` 的 `thumbOf` 也夾在這） */
@@ -91,66 +93,60 @@ function loadIcon(el, host, readIcon, size) {
   return readIcon(el.dataset.path)
 }
 
-function clearRetries() {
-  for (const id of retryTimers) clearTimeout(id)
-  retryTimers.clear()
+function dropPane(host) {
+  const pane = panes.get(host)
+  if (!pane) return
+  pane.observer?.disconnect()
+  for (const id of pane.timers) clearTimeout(id)
+  panes.delete(host)
+  queue = queue.filter((item) => item.host !== host)
 }
 
 export function clearFileIconWork() {
-  generation += 1
-  clearRetries()
-  retryCount.clear()
-  observer?.disconnect()
-  observer = undefined
-  queue = []
-  activeContext = null
+  for (const host of [...panes.keys()]) dropPane(host)
 }
 
 function enqueue(el, host) {
   if (cache.has(cacheKey(el, wantThumb(host, el), thumbSize(host)))) return
   if (inflight.has(el)) return
-  if (queue.includes(el)) return
-  queue.push(el)
+  if (queue.some((item) => item.el === el)) return
+  queue.push({ el, host })
 }
 
-function scheduleRetry(el, host, readIcon, attempt) {
-  const gen = generation
+function scheduleRetry(el, host, pane, attempt) {
   const delay = RETRY_MS * (2 ** (attempt - 1))
   const id = setTimeout(() => {
-    retryTimers.delete(id)
-    if (gen !== generation) return
+    pane.timers.delete(id)
+    if (panes.get(host) !== pane) return
     if (!el.isConnected || !visible.has(el)) return
     enqueue(el, host)
-    pump(host, readIcon)
+    pump()
   }, delay)
-  retryTimers.add(id)
+  pane.timers.add(id)
 }
 
-function applyThumb(el, host, readIcon, result, thumb, size) {
+function applyThumb(el, host, pane, result, thumb, size) {
   if (!result?.ok || (!result.data?.folder && !result.data?.fallback && !/^data:image\/png;base64,/.test(result.data?.url))) return
   if (result.data.pending === true) {
     if (el.isConnected) showIcon(el, result.data)
     const attempt = (retryCount.get(el) || 0) + 1
     retryCount.set(el, attempt)
-    if (attempt <= MAX_RETRY) scheduleRetry(el, host, readIcon, attempt)
-    else observer?.unobserve(el)
+    if (attempt <= MAX_RETRY) scheduleRetry(el, host, pane, attempt)
+    else pane.observer?.unobserve(el)
     return
   }
   retryCount.delete(el)
-  observer?.unobserve(el)
+  pane.observer?.unobserve(el)
   cache.set(cacheKey(el, thumb, size), result.data)
   if (cache.size > 256) cache.delete(cache.keys().next().value)
   if (el.isConnected) showIcon(el, result.data)
 }
 
 export function paintFileIcons(host, readIcon) {
-  generation += 1
-  clearRetries()
-  retryCount.clear()
-  observer?.disconnect()
-  queue = []
-  activeContext = { host, readIcon }
-  observer = new IntersectionObserver((entries) => {
+  dropPane(host)
+  const pane = { readIcon, observer: null, timers: new Set() }
+  panes.set(host, pane)
+  pane.observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
         visible.add(entry.target)
@@ -159,19 +155,21 @@ export function paintFileIcons(host, readIcon) {
         visible.delete(entry.target)
       }
     }
-    pump(host, readIcon)
+    pump()
   }, { root: host })
   for (const el of host.querySelectorAll('.ex-row-icon[data-path]')) {
+    retryCount.delete(el)
     const cached = cache.get(cacheKey(el, wantThumb(host, el), thumbSize(host)))
     if (cached) showIcon(el, cached)
-    else observer.observe(el)
+    else pane.observer.observe(el)
   }
 }
 
-function pump(host, readIcon) {
+function pump() {
   while (running < 4 && queue.length) {
-    const el = queue.shift()
-    if (!el.isConnected || inflight.has(el)) continue
+    const { el, host } = queue.shift()
+    const pane = panes.get(host)
+    if (!pane || !el.isConnected || inflight.has(el)) continue
     if (cache.has(cacheKey(el, wantThumb(host, el), thumbSize(host)))) continue
     running++
     inflight.add(el)
@@ -179,16 +177,15 @@ function pump(host, readIcon) {
     // 要哪個尺寸在**發問當下**就定住：回來時使用者可能已經又滾了一格，
     // 拿新的尺寸當快取鍵會把小圖存成大圖那一格。
     const size = thumbSize(host)
-    const gen = generation
-    void loadIcon(el, host, readIcon, size).then((result) => {
-      if (gen !== generation) return
-      applyThumb(el, host, readIcon, result, thumb, size)
+    void loadIcon(el, host, pane.readIcon, size).then((result) => {
+      if (panes.get(host) !== pane) return
+      applyThumb(el, host, pane, result, thumb, size)
     }).catch(() => {
       // 檔案可能剛被刪除，保留原本的類型圖示。
     }).finally(() => {
       inflight.delete(el)
       running--
-      if (activeContext) pump(activeContext.host, activeContext.readIcon)
+      pump()
     })
   }
 }

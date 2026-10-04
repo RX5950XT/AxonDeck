@@ -336,7 +336,13 @@ async function copyNode(from, to, ctx) {
     return
   }
   const input = await fsp.open(from, 'r')
-  const output = await fsp.open(to, 'wx', st.mode & 0o777)
+  let output
+  try {
+    output = await fsp.open(to, 'wx', st.mode & 0o777)
+  } catch (error) {
+    await input.close() // 目的地撞名（wx）時來源的 handle 也要關，不然檔案被鎖到 GC 才放
+    throw error
+  }
   const buffer = Buffer.allocUnsafe(COPY_CHUNK_BYTES)
   try {
     while (true) {
@@ -803,13 +809,14 @@ async function moveEntry(fromPath, toDir, rawOptions) {
     if (decided.skipped) return { path: next, skipped: true }
     next = decided.dest
     if (options && (options.onProgress || options.onTotal)) {
-      const measured = await measureTree(from, options.signal)
-      if (options.onTotal) options.onTotal(measured.complete ? measured.bytes : null)
       checkCancelled(options.signal)
+      // 先試 rename：同一顆磁碟搬家是瞬間的事，先量整棵樹（node_modules、照片庫）反而要等好幾分鐘。
+      // rename 不成才改複製，copyTreeWithProgress 自己會量並回報 onTotal。
       try {
         await fsp.rename(from, next)
         invalidateListCache()
-        return { path: next, bytes: 0, totalBytes: measured.complete ? measured.bytes : null }
+        if (options.onTotal) options.onTotal(0)
+        return { path: next, bytes: 0, totalBytes: 0 }
       } catch {
         try {
           const copied = await copyTreeWithProgress(from, next, options)

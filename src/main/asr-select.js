@@ -60,12 +60,14 @@ function other(chosen) {
 
 /**
  * @param {import('./model-scope').Scope} scope
+ * @param {Array<import('./model-scope').Scope>} [inUse] 其他仍持有引擎的 scope
  * @returns {Promise<{ ok: boolean, warnings: string[] }>}
  */
-async function warm(scope) {
+async function warm(scope, inUse = []) {
   const chosen = pick(scope)
   const idle = other(chosen)
-  if (idle.isLoaded()) await idle.unload()
+  // 即時字幕還在用另一支時不能卸（字幕 CPU、檔案 GPU 這種組合），只收沒人要的那支
+  if (idle.isLoaded() && !inUse.some((s) => pick(s) === idle)) await idle.unload()
   return chosen.warm()
 }
 

@@ -64,7 +64,14 @@ async function saveMany(rawList) {
     const buf = Buffer.from(m[2], 'base64')
     if (!buf.length || buf.length > MAX_IMAGE_BYTES) continue
     const name = newName(MIME_EXT[m[1]])
-    await fs.writeFile(path.join(dir, name), buf)
+    // 寫檔前就 hold：寫完到呼叫端 hold() 之間還有 await，別的對話這時 prune 會把新圖刪掉
+    heldNames.add(name)
+    try {
+      await fs.writeFile(path.join(dir, name), buf)
+    } catch (error) {
+      heldNames.delete(name)
+      throw error
+    }
     names.push(name)
   }
   return names

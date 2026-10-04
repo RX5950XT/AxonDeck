@@ -100,7 +100,11 @@ function detectDevice(exe) {
       const match = out.match(/^\s*((?:Vulkan|CUDA|ROCm|SYCL|Metal)\d+):/m)
       resolve((cachedDevice = match ? match[1] : null))
     })
-    setTimeout(() => { try { child.kill() } catch { /* ignore */ } }, 10000)
+    // kill 之後若遲遲等不到 close，warm 不能跟著一直掛著：先當成沒有 GPU 回去（不快取，下次再問）
+    setTimeout(() => {
+      try { child.kill() } catch { /* ignore */ }
+      resolve(null)
+    }, 10000)
   })
 }
 

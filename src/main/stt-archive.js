@@ -146,25 +146,27 @@ function appendTranscript(id, entry) {
   return true
 }
 
-function listTranscripts() {
+async function listTranscripts() {
   const dir = dirOf('live-transcripts')
-  return fs.readdirSync(dir)
+  const names = (await fs.promises.readdir(dir))
     .filter((n) => n.endsWith('.jsonl') && LIVE_ID.test(n.slice(0, -6)))
     .sort()
     .reverse()
     .slice(0, MAX_TRANSCRIPTS)
-    .map((n) => {
-      const full = path.join(dir, n)
-      const rows = parseTranscript(fs.readFileSync(full, 'utf8'))
-      return {
-        id: n.slice(0, -6),
-        startedAt: startedAtOf(n),
-        endedAt: fs.statSync(full).mtimeMs,
-        count: rows.length,
-        preview: (rows[0]?.translation || rows[0]?.source || '').slice(0, 80)
-      }
-    })
-    .filter((t) => t.count > 0)
+  // 非同步：每一場都整份讀（每次 upsert 都追加一行，長場次動輒好幾 MB），同步讀會卡住主程序
+  const items = await Promise.all(names.map(async (n) => {
+    const full = path.join(dir, n)
+    const [text, stat] = await Promise.all([fs.promises.readFile(full, 'utf8'), fs.promises.stat(full)])
+    const rows = parseTranscript(text)
+    return {
+      id: n.slice(0, -6),
+      startedAt: startedAtOf(n),
+      endedAt: stat.mtimeMs,
+      count: rows.length,
+      preview: (rows[0]?.translation || rows[0]?.source || '').slice(0, 80)
+    }
+  }))
+  return items.filter((t) => t.count > 0)
 }
 
 function readTranscript(id) {

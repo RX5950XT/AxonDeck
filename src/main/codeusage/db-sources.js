@@ -124,7 +124,7 @@ function readOpencode(sinceMs, dbPath = opencodeDbPath()) {
 /**
  * Antigravity：讀 VoiceInk 自己的 AGY 反代日誌。
  *
- * @param {number} sinceMs
+ * @param {number} sinceMs 結束時間游標
  * @param {string} dbPath `<userData>/agy-logs.db`
  * @returns {Array<object>}
  */
@@ -133,14 +133,17 @@ function readAntigravity(sinceMs, dbPath) {
   if (!db) return []
   try {
     const rows = db.prepare(
-      `SELECT ts, model, mapped_model, input_tokens, output_tokens, thought_tokens, cached_tokens
+      // 日誌在請求「結束」才寫入，所以增量要照結束時間（ts + duration_ms）走；
+      // 照開始時間走，先開始、後結束的那筆會落在游標之前，永遠漏算
+      `SELECT ts, ts + duration_ms AS end_ts, model, mapped_model, input_tokens, output_tokens, thought_tokens, cached_tokens
        FROM request_logs
-       WHERE ts > ? AND status < 400
-       ORDER BY ts ASC LIMIT ?`
+       WHERE ts + duration_ms > ? AND status < 400
+       ORDER BY end_ts ASC LIMIT ?`
     ).all(sinceMs, MAX_ROWS)
 
     return rows.map((row) => ({
       ts: Number(row.ts) || 0,
+      endTs: Number(row.end_ts) || 0,
       model: String(row.mapped_model || row.model || 'unknown'),
       input: Number(row.input_tokens) || 0,
       output: Number(row.output_tokens) || 0,

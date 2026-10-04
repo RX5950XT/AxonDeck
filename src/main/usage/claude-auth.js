@@ -127,16 +127,17 @@ async function postRefresh(oauth, { fetchImpl = globalThis.fetch } = {}) {
       signal: controller.signal
     })
   } catch {
-    throw new UsageError('REFRESH_NETWORK', '無法連線 Claude 登入伺服器')
-  } finally {
     clearTimeout(timer)
+    throw new UsageError('REFRESH_NETWORK', '無法連線 Claude 登入伺服器')
   }
   // 上游回應內容一律不往外送（見 AGENTS.md「雲端路徑的 HTTP 錯誤只記狀態摘要」）
   if (!response?.ok) {
+    clearTimeout(timer)
     throw new UsageError('REFRESH_FAILED', `Claude 登入續期失敗（HTTP ${Number(response?.status) || 0}）`, Number(response?.status) || 0)
   }
   let data
-  try { data = await response.json() } catch { data = null }
+  // 計時器要涵蓋讀 body：headers 回了 body 卻卡住時，abort 才中止得了 json()
+  try { data = await response.json() } catch { data = null } finally { clearTimeout(timer) }
   const accessToken = typeof data?.access_token === 'string' ? data.access_token : ''
   const expiresIn = Number(data?.expires_in)
   if (!accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {

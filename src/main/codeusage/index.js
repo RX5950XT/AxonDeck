@@ -302,11 +302,12 @@ async function runSync(options) {
   // Antigravity：只有 AGY 反代日誌
   options.onProgress?.({ provider: 'antigravity', state: 'scanning' })
   const agyDb = paths.userDataPath ? path.join(paths.userDataPath, 'agy-logs.db') : ''
-  const agySince = Number(dbCursors.antigravity) || (Date.now() - RETENTION_DAYS * DAY_MS)
+  // 游標是結束時間（antigravityEnd）；舊版只存開始時間，沿用一次當起點
+  const agySince = Number(dbCursors.antigravityEnd) || Number(dbCursors.antigravity) || (Date.now() - RETENTION_DAYS * DAY_MS)
   const agyEvents = agyDb ? dbSources.readAntigravity(agySince, agyDb) : []
   for (const event of agyEvents) addEvent(buckets, 'antigravity', event)
   if (agyEvents.length) {
-    dbCursors.antigravity = agyEvents[agyEvents.length - 1].ts
+    dbCursors.antigravityEnd = agyEvents[agyEvents.length - 1].endTs
   }
   report.providers.antigravity = { files: 1, events: agyEvents.length }
 

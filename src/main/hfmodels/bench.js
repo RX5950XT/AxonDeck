@@ -128,8 +128,8 @@ function argsFor(input) {
     '-ctk', ctk,
     '-ctv', ctv
   ]
-  if (p.device) args.push('-dev', p.device)
-  if (p.ctxSize) args.push('-c', String(p.ctxSize))
+  // llama-bench 的多卡寫法是 `a/b`（逗號代表「分別測」）；它也沒有 `-c`，帶了整支直接報錯退出
+  if (p.device) args.push('-dev', String(p.device).replace(/,/g, '/'))
   // V 量化需要 flash attention（K 不用）
   if (ctv !== 'f16') args.push('-fa', 'on')
   if (p.gpuLayers !== undefined && p.gpuLayers !== null) args.push('-ngl', String(p.gpuLayers))

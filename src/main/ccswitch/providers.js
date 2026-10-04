@@ -759,7 +759,8 @@ function accountForPreset(presetId) {
     const items = await readAll()
     const currentId = await readCurrentId()
     const current = items.find((item) => item.id === currentId)
-    if (current?.presetId === presetId && current.oauthAccountId) return current.oauthAccountId
+    // 目前這筆就是這家：空 id 是使用者選了「用 CLI 憑證」，要照辦，不能換成別筆的帳號
+    if (current?.presetId === presetId) return current.oauthAccountId || ''
     return items.find((item) => item.presetId === presetId && item.oauthAccountId)?.oauthAccountId || ''
   })
 }

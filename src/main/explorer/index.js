@@ -10,7 +10,7 @@
 const { app, shell, dialog, BrowserWindow, nativeImage } = require('electron')
 const fs = require('../raw-fs')
 const path = require('path')
-const { spawnSync } = require('child_process')
+const { execFile } = require('child_process')
 const paths = require('./paths')
 const store = require('./store')
 const files = require('./fs')
@@ -43,6 +43,7 @@ let clip = { mode: 'copy', paths: [] }
  */
 function configure(opts) {
   if (opts && opts.userDataPath) uffs.configure(opts.userDataPath)
+  void zip.sweepTemp()
   if (opts && typeof opts.send === 'function') {
     emit = opts.send
     operations.configure({ emit })
@@ -219,12 +220,11 @@ async function connectShare(raw) {
   const letter = places.sanitizeLetter(input.letter)
   if (letter) {
     const net = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'net.exe')
-    const result = spawnSync(net, ['use', `${letter}:`, unc, '/persistent:yes'], {
-      windowsHide: true,
-      timeout: 20000,
-      encoding: 'utf8'
+    // 非同步：NAS 慢或在等帳密時，同步的 spawnSync 會把整個 App 凍住最多 20 秒
+    const ok = await new Promise((resolve) => {
+      execFile(net, ['use', `${letter}:`, unc, '/persistent:yes'], { windowsHide: true, timeout: 20000 }, (error) => resolve(!error))
     })
-    if (result.status !== 0) throw paths.fail('NET_USE', '連不上這個網路磁碟')
+    if (!ok) throw paths.fail('NET_USE', '連不上這個網路磁碟')
   }
   const target = letter ? `${letter}:\\` : unc
   const label = typeof input.label === 'string' && input.label.trim()

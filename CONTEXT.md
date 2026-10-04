@@ -18,7 +18,7 @@ AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定�
 
 - 側欄 Agent／Chat 兩分頁；Chat 上方六顆鈕都是「新增」：Local（本機／API 對話）、資料夾各半排，ChatGPT、Gemini、Claude、Grok 只留圖示並排一排（名稱在 title／aria-label）。主區三選一 `setChatPaneMode('chat'|'workspace'|'web')`，`#aiWebMain` 由 `ai-web-page.js` 管。
 - 網頁版 AI 對話跟 Local 存在同一份 chats.json，多一個 `web: { site, url, title }`：可多開、改名、刪除、搬資料夾、拖曳。webview 換頁回報 `chat:setWebUrl`、分頁標題回報 `chat:setWebTitle`（main `ai-web.js` 只收該站網域、擋登入／OAuth／授權碼；標題只收真正對話頁，使用者改過名就不覆蓋；Gemini 標題從頁面 DOM 讀）。第一次打開才建；藏超過 5 分鐘、或同時超過 3 則（最久沒看的先收）就整個移除 webview，正在出聲的不收，再點照存的網址重建。工作區瀏覽器同理：目前專案的背景分頁閒置 10 分鐘拆 webview、分頁留著，點回去照 `tab.url` 重建（停放的別專案不拆）。
-- 同一家共用 `persist:ai-<site>`（跟工作區瀏覽器 `persist:wsbrowser`、Telegram `persist:telegram` 都分開）。main `setupSession`：UA 縮成真 Chrome 格式、`ai-web-shim.js`（session frame preload，只補 `window.chrome.app/csi/loadTimes`）、權限只給剪貼簿／全螢幕／純麥克風；`accounts.google.com` 整頁導覽改送非瀏覽器識別走 Google 精簡版登入（不然被判「瀏覽器可能有安全疑慮」）；Google／Apple／X… 登入小視窗在 App 內開、共用同一分區。Edge 的 cookie 用 app-bound 加密，不做匯入。
+- 同一家共用 `persist:ai-<site>`（跟工作區瀏覽器 `persist:wsbrowser`、Telegram `persist:telegram` 都分開）。main `setupSession`（工作區瀏覽器也套同一套，Telegram 不套）：UA 縮成真 Chrome 格式、`ai-web-shim.js`（session frame preload，只補 `window.chrome.app/csi/loadTimes`）、權限只給剪貼簿／全螢幕／純麥克風；`accounts.google.com` 整頁導覽改送非瀏覽器識別走 Google 精簡版登入（不然被判「瀏覽器可能有安全疑慮」）；Google／Apple／X… 登入小視窗在 App 內開、共用同一分區。Edge 的 cookie 用 app-bound 加密，不做匯入。
 - 對話列／資料夾沒有三點與小按鈕，整列右鍵（或選單鍵／Shift+F10）叫 `chat-menu.js`；刪對話走 `askConfirm`。聊天圖片 data URL 快取以 LRU 限約 16MB。
 - 打包時不要把 log 寫進專案目錄：`build.files` 是 `**/*`，邊寫邊長的檔案會讓 asar 後面整串錯位，`pack-preview` 的比對會擋下。
 

@@ -1,5 +1,5 @@
 /**
- * 網頁版 AI 登入分區（persist:ai-*）每個 frame 的 preload。由 main 用 session.registerPreloadScript 掛上，
+ * 網頁版 AI 登入分區（persist:ai-*）與工作區瀏覽器（persist:wsbrowser）每個 frame 的 preload。由 main 用 session.registerPreloadScript 掛上，
  * 不是 renderer 指定的（webview 自帶的 preload 仍一律被 main 拿掉）。
  *
  * 只做一件事：Electron 的 window.chrome 是空的，真 Chrome 有 app／csi／loadTimes。

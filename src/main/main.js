@@ -2133,7 +2133,7 @@ app.on('child-process-gone', (_event, details) => {
 
 // webview guest 的 popup 走不到主視窗那條 attachWindowSecurity（那是掛在
 // 主視窗 webContents 上），一律在 app 層補上：http(s) 交給系統瀏覽器，其餘擋掉。
-// 網頁版 AI 的登入分區（whenReady 時登記）：session → partition 名稱
+// 網頁版 AI 與工作區瀏覽器的分區（whenReady 時登記）：session → partition 名稱
 const aiWebPartitions = new Map()
 app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
@@ -2163,13 +2163,13 @@ app.whenReady().then(() => {
   // 沒搶到鎖的那份只負責把訊號送出去就結束，不可以建窗、更不可以 autoStart 反代（撞埠）
   if (!hasInstanceLock) return
   bootLog('whenReady')
-  // 網頁版 AI 的四個登入分區：瀏覽器特徵補成跟 Chrome 一樣（登入、hCaptcha、Cloudflare 才不會當成內嵌瀏覽器擋掉）、
-  // 權限只給用得到的
+  // 網頁版 AI 的四個登入分區＋工作區瀏覽器：瀏覽器特徵補成跟 Chrome 一樣（登入、hCaptcha、Cloudflare 才不會當成
+  // 內嵌瀏覽器擋掉）、權限只給用得到的、登入小視窗在 App 內開
   const aiWeb = require('./ai-web')
-  for (const site of Object.keys(aiWeb.SITES)) {
-    const ses = session.fromPartition(`persist:ai-${site}`)
+  for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
+    const ses = session.fromPartition(partition)
     aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
-    aiWebPartitions.set(ses, `persist:ai-${site}`)
+    aiWebPartitions.set(ses, partition)
   }
   // 第三個參數是檔案總管的大預覽：路徑一律過 `explorer/paths` 的 `resolveExisting`
   // （跟檔案總管讀檔同一個入口，沒有放寬任何範圍），拿不到就丟例外 → 協定回 404。

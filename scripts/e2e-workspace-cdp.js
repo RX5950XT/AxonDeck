@@ -607,6 +607,9 @@ async function main() {
       await waitInPage(cdp, `document.querySelector('#wsBrowserFrame webview') !== null`, 8000))
     ok('[F] webview 的 partition 是持久 session',
       await cdp.eval(`document.querySelector('#wsBrowserFrame webview').getAttribute('partition') === 'persist:wsbrowser'`))
+    // 跟網頁版 AI 同一套（main 的 setupSession）：UA 是真 Chrome 格式，Google 登入才不會擋
+    const wsUa = await cdp.eval(`document.querySelector('#wsBrowserFrame webview').getUserAgent()`)
+    ok('[F] 瀏覽器 UA 跟真 Chrome 一樣（沒有 Electron 字樣）', !/Electron\//.test(wsUa) && /Chrome\/\d+\.0\.0\.0 /.test(wsUa), wsUa)
 
     // 背景分頁閒置 10 分鐘就拆 webview、分頁留著；點回去照原網址重建。
     // 每分鐘掃一次：開第二個分頁讓第一個變背景，等一輪記下「開始藏」，再把時鐘撥快 11 分鐘等下一輪

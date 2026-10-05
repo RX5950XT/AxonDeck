@@ -532,11 +532,8 @@ async function runRowMenu() {
 
     if (danger) {
       danger.dispatch('click')
-      check('刪除先確認、尚未刪', confirmGate?.opts?.danger === true && confirmGate.title.includes('甲') && !api.some((call) => call[0] === 'delete'))
-      confirmGate.resolve(false)
-      await confirmGate.promise
       await flush()
-      check('取消不刪對話', !api.some((call) => call[0] === 'delete'))
+      check('刪除對話不跳確認、直接刪', !confirmGate && api.some((call) => call[0] === 'delete'))
     }
 
     item.rect = { left: 30, top: 350, right: 230, bottom: 390, width: 200, height: 40 }
@@ -608,11 +605,8 @@ async function runRowMenu() {
     check('刪資料夾是危險項', Boolean(deleteFolder && hasClass(deleteFolder, 'is-danger')))
     if (deleteFolder) {
       deleteFolder.dispatch('click')
-      check('刪資料夾先確認', confirmGate?.title?.includes('工作') && confirmGate.opts?.danger === true && !api.some((call) => call[0] === 'deleteFolder'))
-      confirmGate.resolve(false)
-      await confirmGate.promise
       await flush()
-      check('取消不刪資料夾', !api.some((call) => call[0] === 'deleteFolder'))
+      check('刪資料夾不跳確認、直接刪', !confirmGate && api.some((call) => call[0] === 'deleteFolder'))
     }
 
     const liveToggle = listEl.querySelector('.chat-folder-toggle')
@@ -657,7 +651,7 @@ async function run() {
     process.exitCode = 1
     return
   }
-  console.log('PASS: 側欄整列右鍵選單、定位與刪除確認')
+  console.log('PASS: 側欄整列右鍵選單、定位與直接刪除')
 }
 
 run().catch((error) => {

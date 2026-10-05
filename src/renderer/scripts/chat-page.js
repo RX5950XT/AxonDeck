@@ -11,7 +11,6 @@
 
 import { showToast, electronAPI, cleanIpcError, openSettingsPage, setChatPaneMode } from './app.js'
 import { renderMarkdown } from './markdown.js'
-import { askConfirm } from './app-dialog.js'
 import { createChatSidebar } from './chat-sidebar.js'
 import { openParamsDialog, countParams } from './chat-params-panel.js'
 import { openImageViewer } from './image-viewer.js'
@@ -1458,12 +1457,6 @@ async function handleDeleteProvider() {
   const provider = providerDraft.find((p) => p.id === draftId)
   if (!provider) return
   const label = provider.name || '未命名供應商'
-  const yes = await askConfirm(`刪除供應商「${label}」？`, {
-    desc: 'API Key 與模型清單一併移除。',
-    confirmText: '刪除',
-    danger: true
-  })
-  if (!yes) return
   providerDraft = providerDraft.filter((p) => p.id !== draftId)
   draftId = providerDraft[0]?.id || ''
   renderProviderSelect()

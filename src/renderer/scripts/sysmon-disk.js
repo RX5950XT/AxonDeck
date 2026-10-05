@@ -4,7 +4,7 @@
  */
 
 import { electronAPI, openInFilesPage } from './app.js'
-import { askConfirm, showAlert } from './app-dialog.js'
+import { showAlert } from './app-dialog.js'
 import {
   baseName, categorize, chainTo, findChain, formatBytes, fullPath, isReclaimable,
   labelInk, largestFiles, layoutTree, nameMatches, removePath
@@ -436,14 +436,7 @@ function repairStack() {
 async function trashMarked() {
   if (state.trashing || !state.marked.size) return
   const items = [...state.marked.values()].sort((a, b) => b.path.length - a.path.length)
-  const total = items.reduce((s, item) => s + (Number(item.bytes) || 0), 0)
-  const lines = items.map((item) => `${item.path}　${formatBytes(item.bytes)}`).join('\n')
-  const ok = await askConfirm('丟到資源回收筒？', {
-    desc: `${lines}\n\n合計 ${formatBytes(total)}。可從資源回收筒還原。`,
-    confirmText: '丟到回收筒',
-    danger: true
-  })
-  if (!ok || !state.marked.size) return
+  // 丟回收筒救得回來，不問
   state.trashing = true
   const fails = await trashEach(items)
   state.trashing = false

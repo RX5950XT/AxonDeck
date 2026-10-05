@@ -3372,10 +3372,11 @@ async function deleteItems(items, opts = {}) {
   // 手機沒有資源回收筒：刪了就沒了，照實問。回收筒只看作用欄：左欄停在回收筒時，右欄刪檔仍要丟回收筒
   const recycle = activeInRecycle()
   const permanent = Boolean(opts.permanent) || recycle || items.some((item) => item.phone)
-  const desc = items.length === 1 ? items[0].name : `${items.length} 個項目`
-  const title = permanent ? '永久刪除？無法還原' : '移到資源回收筒？'
-  const ok = await askConfirm(title, { desc, confirmText: permanent ? '永久刪除' : '刪除', danger: true })
-  if (!ok) return
+  // 丟回收筒救得回來，不問；只有永久刪除才確認
+  if (permanent) {
+    const desc = items.length === 1 ? items[0].name : `${items.length} 個項目`
+    if (!await askConfirm('永久刪除？無法還原', { desc, confirmText: '永久刪除', danger: true })) return
+  }
   try {
     for (const item of items) {
       if (recycle && item.recycleKey) {
@@ -3902,14 +3903,7 @@ async function handleDrop(e, toDir) {
   const mode = dropMode(e, paths[0], toDir)
   try {
     if (mode === 'trash') {
-      const ok = await askConfirm('移到資源回收筒？', {
-        desc: paths.length === 1
-          ? String(paths[0]).split(/[\\/]/).filter(Boolean).pop()
-          : `${paths.length} 個項目`,
-        confirmText: '刪除',
-        danger: true
-      })
-      if (!ok) return
+      // 丟回收筒救得回來，不問
       await call(electronAPI.explorer.dropEntries(paths, RECYCLE_CWD, 'move'), '刪不掉')
     } else {
       const done = await call(electronAPI.explorer.dropEntries(paths, toDir, mode), '搬不過去')

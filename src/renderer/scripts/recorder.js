@@ -7,7 +7,6 @@
  */
 
 import { showToast, electronAPI, cleanIpcError, openInFilesPage } from './app.js'
-import { askConfirm } from './app-dialog.js'
 
 /** 64kbps opus：200MB 上限約 7 小時，語音清楚 */
 const BITS_PER_SECOND = 64000
@@ -276,12 +275,6 @@ function transcribe(rec) {
 
 /** @param {typeof items[number]} rec */
 async function remove(rec) {
-  const ok = await askConfirm('刪除這段錄音？', {
-    desc: `${new Date(rec.startedAt).toLocaleString()}，刪了就找不回來`,
-    confirmText: '刪除',
-    danger: true
-  })
-  if (!ok) return
   await call(electronAPI.sttArchive.deleteRecording(rec.name))
   await renderList()
 }

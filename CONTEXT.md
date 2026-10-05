@@ -28,7 +28,8 @@ src/main/
   ipc-invoke.js      模組 IPC 共用外殼；raw-fs.js（不鎖 asar）；safe-rm.js（不穿 junction）
   updater.js / update-mirrors.js   electron-updater＋GitHub latest.yml；安裝檔走鏡像、差分下載關閉
   chat*.js           雲端聊天 SSE（每對話一條 inflight）、會話＋側欄資料夾、取樣參數、自動標題、圖片
-  ai-web.js          網頁版 AI：網址把關、標題、Google 登入修正、登入小視窗、各分區 UA（userAgentFor）
+  ai-web.js          網頁版 AI：網址把關、標題、Google 登入修正、登入小視窗、分區 UA
+  grok-clearance.js  Grok 被 Cloudflare 擋時開 Edge／Chrome 拿通行證（cf_clearance＋UA）帶回 App
   terminal/          service.js（門面）→ 獨立宿主 host*.js／Rust voiceink-term；claude-hooks.js、editor-bridge.js、
                      links.js、clipboard-image.js、admin*.js
   workspace/         files.js（resolveIn）、git.js、agents.js（五家 AI 記錄）、worktree.js、watch.js、media.js（vi-media://）
@@ -59,7 +60,7 @@ native/
 ### AI 頁
 - Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。
 - 網頁版 AI 對話存 `chats.json` 的 `web: { site, url, title }`，可改名、搬資料夾、拖曳；webview 回報網址／標題由 `ai-web.js` 把關。
-- 分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`：UA 偽裝 Chrome（Grok 例外，保留 Electron 識別才過 Cloudflare）、`ai-web-shim.js` 補 `window.chrome`、權限只給剪貼簿／全螢幕／純麥克風、`accounts.google.com` 走精簡版登入、登入小視窗在 App 內開。
+- 分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`：UA 偽裝 Chrome（Grok 改用替它過驗證的 Edge／Chrome 的 UA，存在 `grok-clearance.json`）、`ai-web-shim.js` 補 `window.chrome`、權限只給剪貼簿／全螢幕／純麥克風、`accounts.google.com` 走精簡版登入、登入小視窗在 App 內開。
 - 記憶體：網頁藏超過 5 分鐘或同時超過 3 則就移除 webview（正在出聲的不收），再點照網址重建；工作區背景瀏覽器分頁閒置 10 分鐘拆掉。聊天圖片快取 LRU 約 16MB。
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
@@ -141,6 +142,8 @@ native/
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| v1.39.3 | 10-05 | Grok 改借 Edge 過 Cloudflare 驗證；刪對話等可還原操作不再跳確認框 |
+| v1.39.2 | 10-04 | 全專案讀碼修掉五十多個 bug |
 | v1.39.1 | 10-04 | Grok 網頁版保留 Electron 識別，不再卡 Cloudflare 驗證 |
 | v1.39.0 | 10-04 | AI 頁四家網頁版對話、右鍵選單、Google 登入不被擋、閒置網頁自動收；搜尋記憶體下降、五種 AI 紀錄與終端機接續 |
 | v1.38.4 | 10-03 | 檔案轉錄限流／逾時重試並保留已完成內容 |

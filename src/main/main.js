@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, ipcMain, session, desktopCapturer, screen, shell, dialog,
-  Menu, Tray, nativeImage, protocol
+  Menu, Tray, nativeImage, protocol, webContents
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -2176,9 +2176,15 @@ app.whenReady().then(() => {
   const aiWeb = require('./ai-web')
   for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
     const ses = session.fromPartition(partition)
-    aiWeb.setupSession(ses, { partition, userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
+    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
     aiWebPartitions.set(ses, partition)
   }
+  // Grok 的 Cloudflare 擋 Electron：碰到驗證頁就請系統的 Edge／Chrome 過一次，把通行證帶回來（grok-clearance.js）
+  const grokSes = session.fromPartition('persist:ai-grok')
+  require('./grok-clearance').install(grokSes, {
+    userDataDir: app.getPath('userData'),
+    getGuests: () => webContents.getAllWebContents().filter((c) => c.session === grokSes && c.getType() === 'webview')
+  })
   // 第三個參數是檔案總管的大預覽：路徑一律過 `explorer/paths` 的 `resolveExisting`
   // （跟檔案總管讀檔同一個入口，沒有放寬任何範圍），拿不到就丟例外 → 協定回 404。
   workspaceMedia.register(

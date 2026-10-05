@@ -12,7 +12,6 @@ import {
 import { DEFAULT_ASR_API_URL, DEFAULT_ASR_MODEL } from './api.js'
 import { initResizer } from './pane-resize.js'
 import { initCustomSelects, syncCustomSelects } from './custom-select.js'
-import { askConfirm } from './app-dialog.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { createListReorder } from './list-reorder.js'
 import { TERM_THEMES, DEFAULT_TERM_THEME, DEFAULT_TERM_BG_OPACITY, MIN_TERM_BG_OPACITY } from './term-themes.js'
@@ -1510,12 +1509,6 @@ async function handleDeleteAsrCloud() {
   const cur = asrCloudsDraft.find((c) => c.id === asrCloudDraftId)
   if (!cur) return
   const label = cur.name || '未命名設定'
-  const yes = await askConfirm(`刪除設定「${label}」？`, {
-    desc: 'API Key 與模型清單一併移除。',
-    confirmText: '刪除',
-    danger: true
-  })
-  if (!yes) return
   asrCloudsDraft = asrCloudsDraft.filter((c) => c.id !== asrCloudDraftId)
   asrCloudDraftId = asrCloudsDraft[0]?.id || ''
   renderAsrCloudSelect()

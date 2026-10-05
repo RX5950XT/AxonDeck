@@ -522,7 +522,7 @@ async function main() {
     check('模型列有「生圖」勾選框', imageFlag.hasBox)
     check('生圖標記切換供應商後仍在', imageFlag.kept, JSON.stringify(imageFlag))
 
-    // 走 app-dialog 的 askConfirm；背景視窗裡 Chromium 會延後派發 `close`，按完「刪除」手動補送一次
+    // 刪除供應商不再跳確認（草稿沒按儲存前都還原得回來）
     const deleted = await cdp.eval(`(async () => {
       const select = document.getElementById('chatProviderSelect')
       const before = select.options.length
@@ -734,18 +734,14 @@ async function main() {
       check('拖曳排序會寫回 main', Array.isArray(persisted) && persisted[0] === made.a && persisted[1] === made.b,
         Array.isArray(persisted) ? persisted.slice(0, 2).join(',') : '未落盤')
 
-      // 刪除：右鍵 → 刪除對話 → App 自己的確認彈窗（不是原生 confirm，原生彈窗會卡死 CDP）。
-      // 彈窗結果靠 close 事件，背景視窗會延後派發（見上面資料夾那段），這裡只驗「先問、不直接刪」
+      // 刪除：右鍵 → 刪除對話 → 直接刪，不跳確認彈窗
       await cdp.eval(rightClick(`.chat-list-item[data-id="${made.b}"]`))
       await cdp.eval(clickMenuItem('刪除對話'))
-      const asking = await waitFor(() => cdp.eval(`(async () => {
-        const dialog = document.querySelector('dialog.app-dialog[open]')
-        if (!dialog) return null
-        const stillThere = !!(await window.electronAPI.chat.get('${made.b}'))
-        dialog.close('')
-        return { stillThere }
-      })()`), 5_000, '刪除確認彈窗')
-      check('刪除先跳確認、不直接刪', asking.stillThere === true, JSON.stringify(asking))
+      const gone = await waitFor(() => cdp.eval(`(async () => {
+        const dialog = !!document.querySelector('dialog.app-dialog[open]')
+        return (await window.electronAPI.chat.get('${made.b}')) ? null : { dialog }
+      })()`), 5_000, '對話被刪除')
+      check('刪除對話直接刪、不跳確認', gone.dialog === false, JSON.stringify(gone))
     } finally {
       await cdp.eval(`(async () => {
         await window.electronAPI.chat.delete('${made.a}')

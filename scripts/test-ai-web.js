@@ -1,7 +1,7 @@
 'use strict'
 // 網頁版 AI 對話的網址／標題把關：`node scripts/test-ai-web.js`
 const assert = require('node:assert/strict')
-const { SITES, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup, chromeUserAgent, userAgentFor, allowPermission } = require('../src/main/ai-web')
+const { SITES, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup, chromeUserAgent, allowPermission } = require('../src/main/ai-web')
 
 assert.equal(safeUrl('chatgpt', 'https://chatgpt.com/c/abc'), 'https://chatgpt.com/c/abc')
 assert.equal(safeUrl('chatgpt', 'https://evil.example/c/abc'), '', '別的網域不收')
@@ -48,14 +48,19 @@ assert.ok(!isLoginPopup('https://x.com/someone/status/1'))
 assert.ok(!isLoginPopup('http://accounts.google.com/'), '只收 https')
 assert.equal(chromeUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) voiceink/1.38.4 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'),
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'UA 跟真 Chrome 一樣')
-const APP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) voiceink/1.39.0 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'
-assert.equal(userAgentFor('persist:ai-grok', APP_UA),
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36', 'Grok 照實用 Electron 識別，Cloudflare 才放行')
-assert.equal(userAgentFor('persist:ai-chatgpt', APP_UA), chromeUserAgent(APP_UA))
 assert.ok(allowPermission('clipboard-sanitized-write'))
 assert.ok(allowPermission('media', { mediaTypes: ['audio'] }), '語音輸入可以用麥克風')
 assert.ok(!allowPermission('media', { mediaTypes: ['audio', 'video'] }), '不給相機')
 assert.ok(!allowPermission('media', {}), '沒說要什麼就不給')
 assert.ok(!allowPermission('notifications'))
 assert.ok(!allowPermission('geolocation'))
+
+const { passedTitle, toElectronCookie } = require('../src/main/grok-clearance')
+assert.ok(passedTitle('Grok'))
+assert.ok(!passedTitle('請稍候...'), 'Cloudflare 驗證頁不算通過')
+assert.ok(!passedTitle('Just a moment...'))
+assert.ok(!passedTitle('grok.com/'), '載入中標題是網址')
+const ck = toElectronCookie({ name: 'cf_clearance', value: 'v', domain: '.grok.com', path: '/', secure: true, httpOnly: true, expires: 2e9, sameSite: 'None' })
+assert.deepEqual([ck.url, ck.domain, ck.sameSite, ck.expirationDate], ['https://grok.com/', '.grok.com', 'no_restriction', 2e9])
+assert.equal(toElectronCookie({ name: 'a', value: 'b', domain: 'grok.com', path: '/', expires: -1 }).expirationDate, undefined, '工作階段 cookie 不給到期日')
 console.log('PASS ai-web 網址、標題、Google 登入、登入小視窗、UA 與權限把關')

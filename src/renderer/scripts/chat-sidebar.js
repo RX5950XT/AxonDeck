@@ -8,7 +8,7 @@
 import { electronAPI, showToast, cleanIpcError } from './app.js'
 import { mergeVisibleOrder } from './usage-reorder.js'
 import { createListReorder } from './list-reorder.js'
-import { askConfirm, askInput } from './app-dialog.js'
+import { askInput } from './app-dialog.js'
 import { openChatMenu } from './chat-menu.js'
 
 /** 側欄圖示：跟 composer 的按鈕同一套線條風格 */
@@ -324,12 +324,7 @@ export function createChatSidebar(deps) {
 
   /** @param {Folder} folder */
   async function deleteFolder(folder) {
-    const yes = await askConfirm(`刪除資料夾「${folder.name}」？`, {
-      desc: '裡面的對話不會刪除，會移回未分類。',
-      confirmText: '刪除',
-      danger: true
-    })
-    if (!yes) return
+    // 裡面的對話不會刪，只是移回未分類，所以不問
     await electronAPI.chat.deleteFolder(folder.id)
     await reload()
   }
@@ -397,15 +392,10 @@ export function createChatSidebar(deps) {
   }
 
   /**
-   * 刪除要先確認。回應中的對話也可以刪：main 會先把那條串流停掉。
+   * 直接刪，不再跳確認。回應中的對話也可以刪：main 會先把那條串流停掉。
    * @param {ConvSummary} conv
    */
   async function deleteConversation(conv) {
-    const yes = await askConfirm(`刪除對話「${conv.title}」？`, {
-      confirmText: '刪除',
-      danger: true
-    })
-    if (!yes) return
     await electronAPI.chat.delete(conv.id)
     await deps.onDeleted(conv.id)
   }

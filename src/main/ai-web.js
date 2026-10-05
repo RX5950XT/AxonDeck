@@ -92,15 +92,6 @@ function chromeUserAgent(fallback) {
   return String(fallback).replace(/\s(Electron|voiceink)\/\S+/gi, '').replace(/Chrome\/(\d+)[\d.]+/, 'Chrome/$1.0.0.0')
 }
 
-// Grok 的 Cloudflare 認得出這是 Electron：識別裝成 Chrome、縮版號、多帶 App 名字都會一直「正在執行安全驗證」，
-// 只有 Electron 原本的識別直接放行（2026-10-04 實測）。所以這個分區只拿掉 App 名字，其他照實。
-const ELECTRON_UA_PARTITIONS = new Set(['persist:ai-grok'])
-
-/** 分區該用的瀏覽器識別 */
-function userAgentFor(partition, fallback) {
-  return ELECTRON_UA_PARTITIONS.has(partition) ? String(fallback).replace(/\svoiceink\/\S+/gi, '') : chromeUserAgent(fallback)
-}
-
 // Electron 沒設處理器時所有權限一律放行（通知、相機、定位…），真 Chrome 會先問；兩者都不對。
 // 只給網頁版 AI 會用到的：麥克風（語音輸入，只限聲音）、剪貼簿、全螢幕。通知等其他一律不給。
 const ALLOWED_PERMISSIONS = new Set(['clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'media'])
@@ -115,10 +106,10 @@ function allowPermission(permission, details) {
 /**
  * 網頁版 AI 一個登入分區的設定（main 在 whenReady 叫）
  * @param {import('electron').Session} ses
- * @param {{ partition: string, userAgent: string, shimPath: string }} opts
+ * @param {{ userAgent: string, shimPath: string }} opts
  */
-function setupSession(ses, { partition, userAgent, shimPath }) {
-  ses.setUserAgent(userAgentFor(partition, userAgent))
+function setupSession(ses, { userAgent, shimPath }) {
+  ses.setUserAgent(chromeUserAgent(userAgent))
   ses.registerPreloadScript({ type: 'frame', id: 'voiceink-ai-web-shim', filePath: shimPath })
   ses.setPermissionRequestHandler((_contents, permission, callback, details) => callback(allowPermission(permission, details)))
   ses.setPermissionCheckHandler((_contents, permission, _origin, details) => allowPermission(permission, details))
@@ -127,5 +118,5 @@ function setupSession(ses, { partition, userAgent, shimPath }) {
 
 module.exports = {
   SITES, isSite, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup,
-  chromeUserAgent, userAgentFor, allowPermission, setupSession
+  chromeUserAgent, allowPermission, setupSession
 }

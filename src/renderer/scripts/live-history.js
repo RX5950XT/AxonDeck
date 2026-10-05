@@ -6,7 +6,6 @@
  */
 
 import { showToast, electronAPI, cleanIpcError } from './app.js'
-import { askConfirm } from './app-dialog.js'
 
 let bound = false
 /** @type {{ id: string, startedAt: number, endedAt: number, count: number, preview: string }[]} */
@@ -186,12 +185,6 @@ function download(s, text) {
 
 /** @param {typeof sessions[number]} s */
 async function remove(s) {
-  const ok = await askConfirm('刪除這份字幕紀錄？', {
-    desc: `${new Date(s.startedAt).toLocaleString()}，${s.count} 句`,
-    confirmText: '刪除',
-    danger: true
-  })
-  if (!ok) return
   await call(electronAPI.sttArchive.deleteTranscript(s.id))
   await refreshLiveHistory()
 }

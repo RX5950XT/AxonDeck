@@ -214,6 +214,24 @@ async function list({ force = false, options, now = Date.now } = {}) {
   return { ...parsed, cached: false, fetchedAt: nowMs }
 }
 
+let refreshing = null
+
+/**
+ * 給模型映射用的型錄：有快取（過期也算）就立刻回並在背景更新，不讓每個請求等上游；
+ * 第一次沒有快取才等一次。拿不到回 null，`resolveModel` 退回靜態表。
+ * @param {{ options?: object }} [params]
+ * @returns {Promise<Array<object> | null>}
+ */
+async function snapshot({ options } = {}) {
+  if (cache.at && Date.now() - cache.at < CACHE_TTL_MS) return cache.models
+  if (!refreshing) refreshing = list({ force: true, options }).finally(() => { refreshing = null })
+  if (cache.at) {
+    refreshing.catch(() => {})
+    return cache.models
+  }
+  return refreshing.then((result) => result.models, () => null)
+}
+
 /**
  * 給反代的 `/v1/models` 用：只列對話可用的，並回 OpenAI 形狀。
  * 型錄拿不到時回 null，呼叫端自己決定要不要退回靜態表。
@@ -243,6 +261,7 @@ async function listForApi({ options } = {}) {
 module.exports = {
   list,
   listForApi,
+  snapshot,
   parseCatalog,
   compareModelIds,
   isChatCapable,

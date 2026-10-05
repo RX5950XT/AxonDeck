@@ -34,6 +34,7 @@ const SORT_KEYS = Object.freeze({
   diskRead: (p) => p.diskRead,
   diskWrite: (p) => p.diskWrite,
   diskTotal: (p) => p.diskRead + p.diskWrite,
+  network: (p) => p.network,
   gpu: (p) => p.gpu,
   gpuMemory: (p) => p.gpuMemory
 })
@@ -481,7 +482,8 @@ function parseTick(rows) {
       case 'D':
         s.disks.push({
           name: f[1] || '', read: num(f[2]), write: num(f[3]),
-          idle: num(f[4]), ts: num(f[5])
+          idle: f[4] !== undefined && f[4] !== '' && Number.isFinite(Number(f[4])) ? Number(f[4]) : null,
+          ts: num(f[5])
         })
         break
       case 'DT': {
@@ -519,7 +521,9 @@ function parseTick(rows) {
           ioRead: num(f[8]),
           ioWrite: num(f[9]),
           handles: num(f[10]),
-          parentPid: num(f[11])
+          parentPid: num(f[11]),
+          exePath: f[12] || '',
+          startedAt: num(f[13])
         })
         break
       default:
@@ -612,8 +616,11 @@ function diffSamples(prev, curr, logicalCores) {
       threads: p.threads,
       handles: p.handles,
       parentPid: p.parentPid,
+      exePath: p.exePath,
+      startedAt: p.startedAt,
       diskRead,
       diskWrite,
+      network: null,
       gpu: gpuByPid.get(p.pid) || 0,
       gpuMemory: vram ? vram.dedicated : 0
     }
@@ -626,10 +633,16 @@ function diffSamples(prev, curr, logicalCores) {
     const before = prevDisks.get(d.name)
     let read = 0
     let write = 0
+    let busy = null
     if (before) {
       const sec = (d.ts - before.ts) / HUNDRED_NS_PER_SEC
       // 跟 GPU engine 同一條：uint64 繞回／垃圾值不做差值，否則畫面上是 EB/s
       if (sec > 0) {
+        const idle = d.idle - before.idle
+        if (Number.isFinite(d.idle) && Number.isFinite(before.idle) && idle >= 0
+          && d.idle < COUNTER_WRAP && before.idle < COUNTER_WRAP && d.name !== '_Total') {
+          busy = Math.max(0, Math.min(100, 100 - idle / (d.ts - before.ts) * 100))
+        }
         if (d.read < COUNTER_WRAP && before.read < COUNTER_WRAP) {
           read = Math.max(0, (d.read - before.read) / sec)
         }
@@ -638,7 +651,7 @@ function diffSamples(prev, curr, logicalCores) {
         }
       }
     }
-    return { name: d.name, read, write }
+    return { name: d.name, read, write, busy }
   })
 
   // ── 網路 ──────────────────────────────────────────────────────────
@@ -657,6 +670,7 @@ function diffSamples(prev, curr, logicalCores) {
 
   return {
     tMs: curr.tMs,
+    countersReady: Boolean(prev),
     memory: curr.memory,
     processes,
     disks,
@@ -696,6 +710,8 @@ function mergeProcesses(list) {
     cur.handles += p.handles || 0
     cur.diskRead += p.diskRead || 0
     cur.diskWrite += p.diskWrite || 0
+    cur.network = cur.network == null || p.network == null ? null : cur.network + p.network
+    if (!cur.exePath && p.exePath) cur.exePath = p.exePath
     cur.gpu = Math.min(100, (cur.gpu || 0) + (p.gpu || 0))
     cur.gpuMemory += p.gpuMemory || 0
     if (p.pid < cur.pid) cur.pid = p.pid
@@ -769,6 +785,7 @@ function sortProcesses(list, key, dir) {
   return [...list].sort((a, b) => {
     const av = pick(a)
     const bv = pick(b)
+    if (av == null || bv == null) return av == null && bv == null ? a.pid - b.pid : av == null ? 1 : -1
     if (av < bv) return -sign
     if (av > bv) return sign
     return a.pid - b.pid

@@ -12,12 +12,11 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | AI | `chat` | 側欄 Agent（專案）／Chat（對話）；主區三選一 `setChatPaneMode('chat'\|'workspace'\|'web')` |
 | Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格並排、共用 `persist:telegram` |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
-| CC代理 | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道、MCP、CLI 版本、用量統計子分頁 |
-| AGY反代 | `agy` | Antigravity 憑證 → OpenAI／Anthropic 端點（127.0.0.1＋強制金鑰） |
-| 語音轉文字 | `stt` | 檔案轉錄｜錄音機｜即時字幕｜語音輸入 |
+| CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP／CLI 版本／用量統計 |
+| 語音轉文字 | `stt` | 檔案與錄音（左轉入、右錄音）｜即時字幕（系統聲音／麥克風）｜語音輸入 |
 | 翻譯與 TTS | `translate` | local（LinguaForge）／cloud 翻譯；Edge TTS |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
-| HF模型 | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
+| Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
 | 設定 | `settings` | 裝了什麼、怎麼推論、雲端端點、終端機配色與桌布 |
 
 ## 模組地圖
@@ -87,19 +86,23 @@ native/
 ### 系統監控
 - 取樣器 `voiceink-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；nvidia-smi 常駐；多 GPU 各自一卡。
 - 提權感測器 sidecar 走排程工作，斷線一直重拉；風扇曲線每秒重送；效能調整不開機自動套用。
+- 處理程序：`sysmon-procs.js` 管理圖示、整機占用與保存的欄序（名稱固定第一欄）；取樣器帶執行檔路徑，main 非同步快取圖示。網路沿用感測器 sidecar 的 Kernel-Network ETW（TCP／UDP、IPv4／IPv6），未啟用、權限不足、遺失事件或資料過期顯示「—」，不新增 UAC。
 - 磁碟空間：`voiceink-probe disk-tree` 平行掃＋treemap，刪除只丟回收筒。強制結束權限不足會跳一次 UAC。
 
 ### 額度與用量統計
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
-- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，在 CC代理子分頁。
+- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，在 CC Proxy 子分頁。
 
-### CC代理
+### CC Proxy
 - 內建 Grok、Codex、Ollama Cloud、OpenCode Go、Command Code、OpenRouter 可選上游格式，非 Anthropic 走本機閘道轉換；Codex／Grok 可在 App 登入或沿用 CLI。
+- 轉換閘道跟著供應商自動開關（沒有手動開關）；AGY 反代執行中會自動多一張「Antigravity」供應商（直連反代、位址金鑰自動帶入，啟用時反代沒開會自動開）。
+- AGY 反代從獨立頁搬成 CC Proxy 的子分頁（`#cc-agy`，`agy-page.js` 照舊管自己的輪詢）。AGY 模型映射先比對即時型錄，再退回靜態表。
+- 供應商彈窗：金鑰／登入／模型在外面，名稱、上游格式、1M 收在「進階設定」（自訂預設展開）；多一顆「儲存並啟用」。
 - 模型清單每天自動同步一次（`modelsCheckedAt`），下拉依 AI lab 分組（`cc-model-groups.js`）；Codex 查詢的 `client_version` 跟隨已安裝 CLI。
 
 ### 語音
 - 語音輸入：右 Alt → 錄音 → ASR → 字典 → LLM 整理 → 插入（自己視窗直接插、外部才走剪貼簿）；HUD 每次載入重送狀態。
-- 檔案轉錄：ffmpeg 串流切段；雲端遇 429／逾時／5xx 同段重試，仍失敗保留已完成內容。錄音機與即時字幕邊錄邊 append。
+- 檔案轉錄：ffmpeg 串流切段；雲端遇 429／逾時／5xx 同段重試，仍失敗保留已完成內容。錄音機跟檔案轉入同一頁，錄音可拖過去（只帶檔名，路徑由 main 解析）。即時字幕音源記在 `liveAudioSource`（system／mic）。錄音與字幕邊錄邊 append。
 - 三個子分頁各自選模型（`model-scope.js`）：`file`／`live`／`dictation`；值 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
 
 ### Telegram

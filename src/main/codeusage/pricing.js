@@ -84,6 +84,8 @@ const BUILTIN_PRICES = {
   'claude-opus-4.8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, cacheWrite1h: 10 },
   'claude-opus-4.7': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, cacheWrite1h: 10 },
   'claude-opus-4.6': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, cacheWrite1h: 10 },
+  // Sonnet 5.5（2026-10 查證）：與 Sonnet 5 同價
+  'claude-sonnet-5.5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, cacheWrite1h: 4 },
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, cacheWrite1h: 4 },
   'claude-sonnet-4.6': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
   'claude-sonnet-4.5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
@@ -99,6 +101,8 @@ const BUILTIN_PRICES = {
   // OpenAI **沒有** 5m／1h 兩檔，所以 cacheWrite1h 寫成跟 cacheWrite 一樣的價
   // （留 0 等於說「1 小時快取寫入免費」，空著又會被 costOf 推成 1.6 倍）。
   // gpt-6 系列（2026-09-23 查證，標準長度；長上下文另有加價，這張表只收一檔）
+  // gpt-6.1-sol（2026-10-06 查證）：cached input 比 gpt-6-sol 便宜一半
+  'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 2.5 },
   'gpt-6-sol': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, cacheWrite1h: 2.5 },
   'gpt-6-luna': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWrite1h: 0.125 },
   'gpt-6-astra': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, cacheWrite1h: 12.5 },

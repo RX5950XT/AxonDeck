@@ -386,8 +386,8 @@ async function main() {
       JSON.stringify(table))
     ok('虛擬捲動：DOM 節點遠少於總列數', table.domRows < 60 && table.domRows < table.groups,
       `DOM ${table.domRows} / 組 ${table.groups}`)
-    ok('有八個欄位', table.cols === 8, String(table.cols))
-    ok('第一列有資料', table.firstCells.length === 8 && table.firstCells[0].length > 0,
+    ok('有九個欄位（含網路）', table.cols === 9, String(table.cols))
+    ok('第一列有資料', table.firstCells.length === 9 && table.firstCells[0].length > 0,
       JSON.stringify(table.firstCells))
 
     // 捲到底之後仍然只有那幾十個節點（節點池有在重用）
@@ -468,7 +468,7 @@ async function main() {
     const filtered = await cdp.eval(`(() => ({
       count: document.getElementById('sysmonProcCount').textContent,
       names: [...document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden)')]
-        .map((r) => r.children[1].textContent)
+        .map((r) => r.querySelector('[data-key="name"]')?.textContent || '')
     }))()`)
     ok('搜尋會過濾', filtered.count !== beforeFilter && filtered.count.includes('/'),
       `${beforeFilter} → ${filtered.count}`)

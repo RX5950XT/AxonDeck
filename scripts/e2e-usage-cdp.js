@@ -446,15 +446,15 @@ async function main() {
     // ===== 用量統計子分頁 =====
     // 只驗「切得過去、面板都在、統計讀得出來」。**刻意不按「掃描本機記錄」**：
     // 那會讀滿 GB 等級的 session 記錄，是使用者自己決定要不要跑的動作，不該由測試代按。
-    // 用量統計搬到 CC代理頁的子分頁
+    // 用量統計搬到 CC Proxy頁的子分頁
     await cdp.eval("document.querySelector('[data-page=\"ccswitch\"]').click()")
     await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"stats\"]').click()")
     await waitFor(
       () => cdp.eval("document.getElementById('cc-stats').classList.contains('active') && document.querySelectorAll('#cuChart .cu-bar-col').length > 0"),
       15_000,
-      'CC代理的用量統計子分頁'
+      'CC Proxy的用量統計子分頁'
     )
-    pass('CC代理頁的「用量統計」子分頁切得過去')
+    pass('CC Proxy頁的「用量統計」子分頁切得過去')
 
     const statsPanels = await cdp.eval("document.querySelectorAll('#cc-stats .cc-panel').length")
     if (statsPanels !== 3) throw new Error(`用量統計應有三個面板，實際 ${statsPanels}`)

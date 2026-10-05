@@ -17,6 +17,7 @@ const http = require('http')
 const { timingSafeEqual } = require('crypto')
 const convert = require('./convert')
 const credential = require('./credential')
+const clientHeaders = require('./client-headers')
 
 const HOST = '127.0.0.1'
 const MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -265,7 +266,7 @@ async function readSse(response, onPayload, onActivity) {
  * @param {object} upstreamBody
  * @returns {Promise<Response>}
  */
-async function callUpstream(route, presetId, upstreamBody, signal) {
+async function callUpstream(route, presetId, upstreamBody, signal, headers) {
   const fetchImpl = deps.fetchImpl || globalThis.fetch
   const url = deps.baseUrl ? `${deps.baseUrl}/${presetId}` : route.url
 
@@ -276,6 +277,7 @@ async function callUpstream(route, presetId, upstreamBody, signal) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
+        ...headers,
         Authorization: `Bearer ${auth.token}`,
         ...headersFor(route, { accountId: auth.accountId })
       },
@@ -392,7 +394,8 @@ async function handle(req, res) {
 
   let response
   try {
-    response = await callUpstream(route, presetId, upstreamBody, controller.signal)
+    const headers = presetId === 'opencode-go' ? clientHeaders.forOpenCode(req.headers, body) : {}
+    response = await callUpstream(route, presetId, upstreamBody, controller.signal, headers)
   } catch (error) {
     clearTimeout(timer)
     sendError(res, 502, timeoutCode ? '上游太久沒有回應' : error?.userMessage || '無法連線上游')

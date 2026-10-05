@@ -15,6 +15,7 @@ const path = require('path')
 
 const ROOT = path.join(__dirname, '..')
 const server = require(path.join(ROOT, 'src/main/ccswitch/gateway/server.js'))
+const modelsScan = require(path.join(ROOT, 'src/main/ccswitch/models-scan.js'))
 
 let passed = 0
 let failed = 0
@@ -56,6 +57,13 @@ function startUpstream() {
           lastUpstream = { path: req.url, headers: req.headers, body: JSON.parse(body || '{}') }
         } catch {
           lastUpstream = { path: req.url, headers: req.headers, body: null }
+        }
+
+        if (req.url === '/opencode-go' && (!req.headers['user-agent']?.startsWith('VoiceInk-CCSwitch/') ||
+          req.headers['x-opencode-session'] !== 'claude-session-123456')) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: { message: FAKE_UPSTREAM_SECRET } }))
+          return
         }
 
         if (upstreamMode === 'unauthorized-once' && upstreamCalls === 1) {
@@ -139,7 +147,7 @@ async function main() {
     port: 0,
     apiKey: 'gateway-key',
     getProviderKey: async (key) => (
-      { 'ollama-cloud': 'ollama-key', p_custom1: 'custom-key' }[key] || ''
+      { 'ollama-cloud': 'ollama-key', 'opencode-go': 'opencode-key', p_custom1: 'custom-key' }[key] || ''
     ),
     // 自訂供應商不在 ROUTES 固定表裡，位址由 main 從 store 查回來（這裡模擬那一步）
     resolveRoute: async (key) => (key === 'p_custom1'
@@ -213,6 +221,11 @@ async function main() {
     ok('Codex 有明寫 store:false', lastUpstream.body.store === false, JSON.stringify(lastUpstream.body.store))
     ok('Codex 不送 max_output_tokens', lastUpstream.body.max_output_tokens === undefined)
     ok('Codex 不送 temperature', lastUpstream.body.temperature === undefined)
+    const codexProbe = modelsScan.probeBody('openai_responses', 'gpt-5.6-luna', true)
+    ok('Codex 最小測試也用 input 陣列', Array.isArray(codexProbe.input))
+    ok('Codex 最小測試必須串流，不能套公版非串流請求', codexProbe.stream === true)
+    ok('Codex 最小測試仍保留後端限制', codexProbe.store === false &&
+      !('max_output_tokens' in codexProbe) && !('temperature' in codexProbe))
 
     // Claude Code 宣告 1M 時模型名尾巴會帶 [1m]，上游不認得（400 model is not supported）
     const oneM = await request(port, '/codex/v1/messages', { ...anthropicBody, model: 'gpt-5.6-sol[1m]' })
@@ -231,6 +244,23 @@ async function main() {
     await request(port, '/ollama-cloud/v1/messages', { ...anthropicBody, stream: false })
     ok('Ollama 用使用者填的金鑰', lastUpstream.headers.authorization === 'Bearer ollama-key')
     ok('Ollama 收到 Responses 形狀', typeof lastUpstream.body.input === 'string' || Array.isArray(lastUpstream.body.input))
+
+    console.log('\n[D1] OpenCode Go 對話識別')
+    const go = await request(port, '/opencode-go/v1/messages', { ...anthropicBody, stream: false,
+      metadata: { user_id: JSON.stringify({ device_id: 'not-forwarded', account_uuid: '', session_id: 'claude-session-123456' }) } })
+    ok('OpenCode Go 收到客戶端名稱與對話識別，避免上游 400', go.status === 200, String(go.status))
+    ok('OpenCode Go 沿用 Claude 的對話識別', lastUpstream.headers['x-opencode-session'] === 'claude-session-123456')
+    ok('不轉送使用者與裝置識別', !JSON.stringify(lastUpstream).includes('not-forwarded'))
+    let probeHeaders
+    await modelsScan.testProvider({ presetId: 'opencode-go', apiKey: 'test-go-key',
+      apiFormat: 'openai_responses', model: 'gpt-5.6-luna' }, { fetchImpl: async (_url, options) => {
+      probeHeaders = options.headers
+      return { ok: true, status: 200, body: { cancel: async () => {} } }
+    } })
+    ok('OpenCode OpenAI 測試送 Bearer，而非 Claude 專用 x-api-key',
+      probeHeaders.Authorization === 'Bearer test-go-key' && !probeHeaders['x-api-key'])
+    ok('最小測試也帶客戶端與對話識別', probeHeaders['User-Agent']?.startsWith('VoiceInk-CCSwitch/') &&
+      /^[A-Za-z0-9_-]{6,128}$/.test(probeHeaders['x-opencode-session']))
 
     console.log('\n[D2] 自訂供應商（動態路由）')
     upstreamCalls = 0

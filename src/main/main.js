@@ -218,6 +218,8 @@ const STORE_ALLOWLIST = new Set([
   'fileLlm',
   'liveAsr',
   'liveLlm',
+  // 即時字幕音源：system（系統 loopback）／mic（麥克風）。別的值讀寫都收成 system
+  'liveAudioSource',
   'dictationAsr',
   'dictationLlm',
   // 終端機外觀：配色 key、桌布檔名（**檔名不是路徑**，圖片本體在 <userData>/terminal-bg/）、
@@ -414,7 +416,9 @@ function loadCcSwitch() {
       // OAuth 登入要把使用者帶去系統瀏覽器；只放行我們自己組出來的 https 授權網址
       openExternal: (url) => {
         if (typeof url === 'string' && url.startsWith('https://')) void shell.openExternal(url)
-      }
+      },
+      // AGY 反代可以當成一家供應商：切過去時要讀它的位址／金鑰、必要時把它開起來
+      getAgy: () => loadAgy()
     })
   }
   return ccSwitchMod
@@ -554,6 +558,9 @@ function scheduleBackgroundServices() {
           })
           .catch((err) => console.warn('[dictation] autoStart failed:', err?.message || err))
       }
+      // 閘道沒有手動開關了：目前那家要經閘道就跟著 App 一起開，不然 Claude Code 連不上
+      void loadCcSwitch().autoStartGateway()
+        .catch((err) => console.warn('[ccswitch] gateway autoStart failed:', err?.code || err?.message))
       if (store.get('agyEnabled') !== true) return { ok: false, error: 'DISABLED' }
       return loadAgy().then((service) => service.autoStart())
     })
@@ -1101,6 +1108,7 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   if (key === 'chatParams') return chatParams.sanitize(val)
   if (key === 'dictationEnabled') return val === true
   if (key === 'dictationLang') return DICTATION_LANGS.has(val) ? val : 'zh-TW'
+  if (key === 'liveAudioSource') return val === 'mic' ? 'mic' : 'system'
   if (key === 'fileAsr' || key === 'liveAsr' || key === 'dictationAsr') {
     // 帶著雲端 ASR 設定清單去驗：不帶的話 `cloud:<設定>:<模型>` 會被當成不認得而降級
     return modelScope.sanitizeAsr(val, modelScope.cloudsOf(store))
@@ -1279,6 +1287,10 @@ ipcMain.handle('store:set', async (event, key, value) => {
   }
   if (key === 'dictationLang') {
     store.set(key, DICTATION_LANGS.has(value) ? value : 'zh-TW')
+    return true
+  }
+  if (key === 'liveAudioSource') {
+    store.set(key, value === 'mic' ? 'mic' : 'system')
     return true
   }
   if (key === 'fileAsr' || key === 'liveAsr' || key === 'dictationAsr') {
@@ -2053,8 +2065,6 @@ registerCcSwitchIpc({
     testProvider: (...args) => loadCcSwitch().testProvider(...args),
     scanProviderModels: (...args) => loadCcSwitch().scanProviderModels(...args),
     gatewayStatus: (...args) => loadCcSwitch().gatewayStatus(...args),
-    startGateway: (...args) => loadCcSwitch().startGateway(...args),
-    stopGateway: (...args) => loadCcSwitch().stopGateway(...args),
     listMcp: (...args) => loadCcSwitch().listMcp(...args),
     saveMcp: (...args) => loadCcSwitch().saveMcp(...args),
     toggleMcp: (...args) => loadCcSwitch().toggleMcp(...args),
@@ -2065,7 +2075,8 @@ registerCcSwitchIpc({
     cancelLogin: (...args) => loadCcSwitch().cancelLogin(...args),
     removeAccount: (...args) => loadCcSwitch().removeAccount(...args),
     checkVersions: (...args) => loadCcSwitch().checkVersions(...args),
-    versionUpdateCommand: (...args) => loadCcSwitch().versionUpdateCommand(...args)
+    runCliTask: (...args) => loadCcSwitch().runCliTask(...args),
+    cliTaskStatus: (...args) => loadCcSwitch().cliTaskStatus(...args)
   },
   isMainSender: assertMainWindowSender
 })

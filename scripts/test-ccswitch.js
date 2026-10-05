@@ -183,14 +183,15 @@ console.log('\n[D] 預設表')
   // 自訂沒有固定端點；官方訂閱刻意不寫端點（寫了會蓋掉使用者原本的自架／企業代理設定）
   const noUrl = list.filter((p) => p.route === 'direct' && !p.baseUrl).map((p) => p.id)
   ok('直連的都有端點（自訂與官方訂閱除外）',
-    noUrl.every((id) => id === 'custom' || id === 'official'), noUrl.join(','))
+    noUrl.every((id) => id === 'custom' || id === 'official' || id === 'agy'), noUrl.join(','))
   // 端點是探測過才寫進表的，這裡守「格式」——真的能不能通要跑 probe-ccswitch-endpoints.js
   const badUrl = list.filter((p) => p.baseUrl && !/^https?:\/\//.test(p.baseUrl)).map((p) => p.id)
   ok('端點只用 http(s)', badUrl.length === 0, badUrl.join(','))
   const trailing = list.filter((p) => p.baseUrl.endsWith('/')).map((p) => p.id)
   ok('端點沒有結尾斜線（接路徑時會變兩條斜線）', trailing.length === 0, trailing.join(','))
   // modelsUrl 是掃描按鈕的開關：五家內建都要有（格式守在這裡，真的通不通跑 probe-ccswitch-models.js）
-  const builtin = list.filter((p) => p.id !== 'custom' && p.auth !== 'none')
+  // AGY 的模型清單由反代自己的型錄供應（金鑰是本機的），不走 modelsUrl 掃描
+  const builtin = list.filter((p) => p.id !== 'custom' && p.auth !== 'none' && p.auth !== 'agy')
   ok('六家內建都有 modelsUrl', builtin.every((p) => /^https?:\/\//.test(p.modelsUrl)),
     builtin.filter((p) => !p.modelsUrl).map((p) => p.id).join(','))
   ok('自訂沒有 modelsUrl（由 baseUrl 推導）', presets.getPreset('custom').modelsUrl === undefined)
@@ -310,18 +311,20 @@ console.log('\n[E] resolveEnv')
   const direct = providers.resolveEnv({ presetId: 'openrouter', apiKey: 'sk-or-1', model: '' })
   ok('直連寫上游網址', direct.ANTHROPIC_BASE_URL === 'https://openrouter.ai/api')
   ok('直連寫金鑰', direct.ANTHROPIC_AUTH_TOKEN === 'sk-or-1')
-  ok('直連帶預設模型', direct.ANTHROPIC_MODEL === 'anthropic/claude-sonnet-5')
+  ok('直連帶預設模型', direct.ANTHROPIC_DEFAULT_SONNET_MODEL === 'anthropic/claude-sonnet-5')
+  // 主模型（兜底）已拿掉：舊資料殘留的 model 欄位也不能再寫出 ANTHROPIC_MODEL
+  ok('不寫 ANTHROPIC_MODEL', direct.ANTHROPIC_MODEL === undefined)
 
-  // 主模型只動 ANTHROPIC_MODEL；沒填的等級沿用預設表（cc-switch 的模型映射一樣是分格的）
-  const overridden = providers.resolveEnv({ presetId: 'openrouter', apiKey: 'sk-or-1', model: 'x-ai/grok-4.6' })
-  ok('主模型只寫兜底那個鍵', overridden.ANTHROPIC_MODEL === 'x-ai/grok-4.6')
+  // 沒填的等級沿用預設表（cc-switch 的模型映射一樣是分格的）
+  const overridden = providers.resolveEnv({ presetId: 'openrouter', apiKey: 'sk-or-1', model: 'legacy', sonnetModel: 'x-ai/grok-4.6' })
+  ok('舊 model 欄位被忽略', overridden.ANTHROPIC_MODEL === undefined)
   ok('沒填的等級沿用預設', overridden.ANTHROPIC_DEFAULT_HAIKU_MODEL === 'anthropic/claude-haiku-4.5')
 
   const perTier = providers.resolveEnv({
-    presetId: 'openrouter', apiKey: 'k', model: 'a', haikuModel: 'b', sonnetModel: 'c', opusModel: 'd'
+    presetId: 'openrouter', apiKey: 'k', haikuModel: 'b', sonnetModel: 'c', opusModel: 'd'
   })
-  ok('四個等級各自寫各自的鍵',
-    perTier.ANTHROPIC_MODEL === 'a' && perTier.ANTHROPIC_DEFAULT_HAIKU_MODEL === 'b' &&
+  ok('三個等級各自寫各自的鍵',
+    perTier.ANTHROPIC_DEFAULT_HAIKU_MODEL === 'b' &&
     perTier.ANTHROPIC_DEFAULT_SONNET_MODEL === 'c' && perTier.ANTHROPIC_DEFAULT_OPUS_MODEL === 'd')
 
   // 內建各家的端點是實測查證過的事實，**不吃**使用者（或被手改的 store）塞的網址；
@@ -358,21 +361,21 @@ console.log('\n[E] resolveEnv')
 
   // [1M] 宣告：Claude Code 認模型名尾巴的 `[1m]`（cc-switch 同一套約定）
   const oneM = providers.resolveEnv({ presetId: 'codex', apiKey: '', model: '', context1m: true }, gw)
-  ok('宣告 1M 時四個等級都補後綴',
-    oneM.ANTHROPIC_MODEL.endsWith('[1m]') && oneM.ANTHROPIC_DEFAULT_HAIKU_MODEL.endsWith('[1m]') &&
+  ok('宣告 1M 時三個等級都補後綴',
+    oneM.ANTHROPIC_DEFAULT_HAIKU_MODEL.endsWith('[1m]') &&
     oneM.ANTHROPIC_DEFAULT_SONNET_MODEL.endsWith('[1m]') && oneM.ANTHROPIC_DEFAULT_OPUS_MODEL.endsWith('[1m]'),
-    JSON.stringify(oneM.ANTHROPIC_MODEL))
+    JSON.stringify(oneM.ANTHROPIC_DEFAULT_SONNET_MODEL))
   // 只加後綴而不動窗口鍵的話，preset 釘住的 372000 會把自動壓縮門檻夾回去
   ok('宣告 1M 時兩個窗口鍵一起放大',
     oneM.CLAUDE_CODE_MAX_CONTEXT_TOKENS === '1000000' && oneM.CLAUDE_CODE_AUTO_COMPACT_WINDOW === '1000000',
     `${oneM.CLAUDE_CODE_MAX_CONTEXT_TOKENS}/${oneM.CLAUDE_CODE_AUTO_COMPACT_WINDOW}`)
   const oneMTyped = providers.resolveEnv(
-    { presetId: 'openrouter', apiKey: 'k', model: 'foo[1M]', context1m: true }
+    { presetId: 'openrouter', apiKey: 'k', sonnetModel: 'foo[1M]', context1m: true }
   )
-  ok('使用者自己打了 [1M] 也不會疊成兩層', oneMTyped.ANTHROPIC_MODEL === 'foo[1m]', oneMTyped.ANTHROPIC_MODEL)
-  const noOneM = providers.resolveEnv({ presetId: 'openrouter', apiKey: 'k', model: 'foo' })
+  ok('使用者自己打了 [1M] 也不會疊成兩層', oneMTyped.ANTHROPIC_DEFAULT_SONNET_MODEL === 'foo[1m]', oneMTyped.ANTHROPIC_DEFAULT_SONNET_MODEL)
+  const noOneM = providers.resolveEnv({ presetId: 'openrouter', apiKey: 'k', sonnetModel: 'foo' })
   ok('沒宣告就不加後綴、不動窗口鍵',
-    noOneM.ANTHROPIC_MODEL === 'foo' && noOneM.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined)
+    noOneM.ANTHROPIC_DEFAULT_SONNET_MODEL === 'foo' && noOneM.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined)
   // 官方訂閱的定義是「什麼都不寫」，勾了 1M 也不能破例
   ok('官方訂閱勾了 1M 仍然一個鍵都不寫',
     Object.keys(providers.resolveEnv({ presetId: 'official', context1m: true })).length === 0)
@@ -503,7 +506,8 @@ providers.configure({ getStore: async () => providerFakeStore })
 async function runBuiltin() {
   // 空清單 → 內建每一家各播一筆（tile 那一排的資料來源）。筆數從 `presets.PRESETS` 推導，
   // 不寫死數字——加一家就得改測試的話，改的人會直接把數字調大而不去看順序對不對
-  const BUILTIN_IDS = presets.PRESETS.filter((p) => p.id !== 'custom').map((p) => p.id)
+  // AGY 那家只在反代啟動中才播種，另外測
+  const BUILTIN_IDS = presets.PRESETS.filter((p) => p.id !== 'custom' && p.auth !== 'agy').map((p) => p.id)
   const seeded = await providers.list()
   const builtins = seeded.providers.filter((p) => p.presetId !== 'custom')
   ok('空清單把內建各家都播種了', builtins.length === BUILTIN_IDS.length, String(builtins.length))
@@ -555,6 +559,28 @@ async function runBuiltin() {
   const topped = await providers.list()
   ok('只補缺的那幾家',
     topped.providers.length === BUILTIN_IDS.length && topped.providers.some((p) => p.id === keepId))
+
+  // AGY 反代啟動中才自動加入；切過去寫的是反代的位址與金鑰
+  const agy = { running: true, baseUrl: 'http://127.0.0.1:8788', apiKey: 'agy-test-key' }
+  const withAgy = await providers.list({ agy })
+  const agyItem = withAgy.providers.find((p) => p.presetId === 'agy')
+  ok('AGY 啟動中自動加入供應商', Boolean(agyItem) && withAgy.agyRunning === true)
+  const agyEnv = providers.resolveEnv(providerBag.get('providers').find((p) => p.presetId === 'agy'), undefined, agy)
+  ok('AGY 寫反代位址與金鑰、直連', agyEnv.ANTHROPIC_BASE_URL === agy.baseUrl &&
+    agyEnv.ANTHROPIC_AUTH_TOKEN === agy.apiKey && agyItem.route === 'direct')
+  let agyOffline = ''
+  try {
+    providers.resolveEnv(agyItem, undefined, { ...agy, running: false })
+  } catch (error) {
+    agyOffline = error.code
+  }
+  ok('AGY 沒開不寫 settings.json', agyOffline === 'AGY_OFFLINE', agyOffline)
+  ok('AGY 認得出使用中（反代還沒接續也算）',
+    providers.detectActiveId([agyItem], agyItem.id, agy.baseUrl, undefined, { ...agy, running: false }) === agyItem.id)
+  await providers.remove(agyItem.id).catch(() => {})
+  providerBag.set('providers', (providerBag.get('providers') || []).filter((p) => p.presetId !== 'agy'))
+  const noAgy = await providers.list({ agy: { ...agy, running: false } })
+  ok('AGY 沒開不自動加入', !noAgy.providers.some((p) => p.presetId === 'agy'))
 
   const codex = (providerBag.get('providers') || []).find((p) => p.presetId === 'codex')
   await providers.update(codex.id, { apiFormat: 'openai_chat' })
@@ -629,6 +655,34 @@ async function runModelsScan() {
     { fetchImpl: respondWith({ models: [{ slug: 'gpt-5.6-sol' }] }) }
   )
   ok('codex 掃得到模型', codexScan.ok && codexScan.models[0] === 'gpt-5.6-sol', codexScan.error || '')
+
+  // OpenRouter 只留接得了 Claude Code 的：純文字輸出、支援工具、一年內上架、有評測分數，重複入口不列
+  const nowS = Math.floor(Date.now() / 1000)
+  const orRow = (id, extra = {}) => ({
+    id, created: nowS - 86400,
+    architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
+    supported_parameters: ['tools', 'max_tokens'],
+    benchmarks: { artificial_analysis: { intelligence_index: 40 } }, ...extra
+  })
+  const orScan = await modelsScan.scanProviderModels({ presetId: 'openrouter', apiKey: 'k' }, {
+    fetchImpl: respondWith({ data: [
+      orRow('good/chat'),
+      orRow('good/chat:batch'),
+      orRow('img/gen', { architecture: { input_modalities: ['text'], output_modalities: ['image'] } }),
+      orRow('mix/omni', { architecture: { input_modalities: ['text'], output_modalities: ['text', 'audio'] } }),
+      orRow('no/tools', { supported_parameters: ['max_tokens'] }),
+      orRow('old/model', { created: nowS - 400 * 86400 }),
+      orRow('good/chat:free'),
+      orRow('~good/latest'),
+      orRow('no/score', { benchmarks: {} }),
+      orRow('better/chat', { benchmarks: { artificial_analysis: { intelligence_index: 55 } } })
+    ] })
+  })
+  ok('OpenRouter 濾掉非文字、無工具、重複入口、沒分數與過舊模型，高分在前',
+    orScan.ok && JSON.stringify(orScan.models) === '["better/chat","good/chat"]', JSON.stringify(orScan))
+  const many = Array.from({ length: 150 }, (_, i) => orRow(`lab/m${i}`, { benchmarks: { artificial_analysis: { intelligence_index: i } } }))
+  const top = modelsScan.pickOpenRouterModels(many)
+  ok('OpenRouter 最多 100 顆、取分數最高的', top.length === 100 && top[0].id === 'lab/m149' && top[99].id === 'lab/m50')
   ok('acquire 收到 oauthAccountId', acquired?.options?.oauthAccountId === 'oa-1')
   ok('codex 帶 chatgpt-account-id', seen[0]?.headers['chatgpt-account-id'] === 'acc-1')
   ok('codex 帶 originator', seen[0]?.headers.originator === 'codex_cli_rs')
@@ -823,17 +877,13 @@ console.log('\n[G] MCP')
 
     // 更新一律用該工具自己的 updater：claude／grok／agy 多半不是 npm 裝的，
     // 對它們跑 `npm i -g` 會裝出第二份互相蓋掉
-    ok('更新指令用工具自己的 updater', cli.updateCommand('claude') === 'claude update')
-    ok('opencode 用 upgrade 不是 update', cli.updateCommand('opencode') === 'opencode upgrade')
-    ok('沒發 npm 的也有更新指令', cli.updateCommand('agy') === 'agy update')
-    ok('更新指令不含 npm i -g', cli.TOOLS.every((tool) => !/npm\s+i/.test(tool.update)))
-    let unknown = ''
-    try {
-      cli.updateCommand('rm -rf /')
-    } catch (error) {
-      unknown = error.code
-    }
-    ok('不認得的工具 key 擋下來', unknown === 'NO_UPDATE_PATH', unknown)
+    const { UPDATERS } = require('../src/main/ccswitch/cli-install')
+    ok('更新指令用工具自己的 updater', UPDATERS.claude === 'claude update')
+    ok('opencode 用 upgrade 不是 update', UPDATERS.opencode === 'opencode upgrade')
+    ok('沒發 npm 的也有更新指令', UPDATERS.agy === 'agy update')
+    ok('更新指令不含 npm i -g', Object.values(UPDATERS).every(command => !/npm\s+i/.test(command)))
+    const unknown = await cli.runTask('rm -rf /')
+    ok('不認得的工具 key 擋下來', unknown.code === 'INVALID_TOOL', unknown.code)
 
     const fakeFetch = async () => ({
       ok: true,

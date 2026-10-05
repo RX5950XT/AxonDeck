@@ -868,7 +868,8 @@ export function refreshAgyPage() {
     if (gen !== pageGen) return
     await refreshAll()
     if (gen !== pageGen) return
-    if (!byId('page-agy')?.classList.contains('active')) return
+    // 只有 CC Proxy 頁的 AGY 子分頁看得到時才輪詢
+    if (!byId('page-ccswitch')?.classList.contains('active') || !byId('cc-agy')?.classList.contains('active')) return
     startPolling()
   })()
 }

@@ -66,6 +66,8 @@ pub fn register(machine: bool) -> windows::core::Result<()> {
         let label = match kind.as_str() { "image" => "圖片", "video" => "影片", "audio" => "音樂", _ => "播放清單" };
         put(root, &format!("Software\\Classes\\{prog}"), "", &format!("VoiceInk {label}"))?;
         put(root, &format!("Software\\Classes\\{prog}\\DefaultIcon"), "", &engine::runtime().join("icon.ico").to_string_lossy())?;
+        // 沒有 TypeOverlay 時，檔案總管會把預設圖示（我們的 logo）疊在縮圖右下角；空字串＝不疊
+        put(root, &format!("Software\\Classes\\{prog}"), "TypeOverlay", "")?;
         put(root, &format!("Software\\Classes\\{prog}\\shell\\open\\command"), "", &command)?;
         for ext in formats.as_array().unwrap() {
             let ext = format!(".{}", ext.as_str().unwrap());

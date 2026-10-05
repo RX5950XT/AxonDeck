@@ -5,6 +5,7 @@
 //! 程序與網路改走原生 API：那兩段是 PowerShell 版每輪的大宗。
 
 use std::fmt::Write as _;
+use std::collections::{HashMap, HashSet};
 
 use windows::Win32::NetworkManagement::IpHelper::{
     GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, GetIfEntry2,
@@ -16,6 +17,7 @@ use windows::Win32::System::SystemInformation::GetSystemTimePreciseAsFileTime;
 use wmi::WMIConnection;
 
 use crate::procs;
+use crate::detail;
 use crate::smart;
 use crate::util::{esc, now_epoch_ms, query};
 
@@ -24,6 +26,7 @@ pub struct TickState {
     /// u64 當單位：IP_ADAPTER_ADDRESSES 要 8 byte 對齊
     pub net_buf: Vec<u64>,
     pub smart_drives: Vec<u32>,
+    pub proc_paths: HashMap<u32, (i64, String)>,
 }
 
 pub fn emit(con: Option<&WMIConnection>, st: &mut TickState) -> String {
@@ -60,26 +63,35 @@ pub fn emit(con: Option<&WMIConnection>, st: &mut TickState) -> String {
         }
         let _ = writeln!(s, "V|{}|{}|{}", v.raw("Name"), v.raw("DedicatedUsage"), v.raw("SharedUsage"));
     }
-    proc_rows(&mut st.proc_buf, &mut s);
+    proc_rows(&mut st.proc_buf, &mut st.proc_paths, &mut s);
     s
 }
 
 /// 一次拿完 pid／名稱／CPU／記憶體／執行緒／I/O／handle／父程序。
 /// 時間戳用系統時間（100ns），跟 CPU 時間同單位，metrics.js 拿差值相除
-fn proc_rows(buf: &mut Vec<u8>, s: &mut String) {
+fn proc_rows(buf: &mut Vec<u8>, paths: &mut HashMap<u32, (i64, String)>, s: &mut String) {
     let ft = unsafe { GetSystemTimePreciseAsFileTime() };
     let ts = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
+    let mut alive = HashSet::new();
     for p in procs::snapshot(buf) {
         // Idle（pid 0）不是真的程序，metrics.js 也會丟掉
         if p.pid == 0 {
             continue;
         }
+        alive.insert(p.pid);
+        // 用建立時間識別 PID 重用；無權限的路徑也快取，直到程序結束。
+        if paths.get(&p.pid).is_none_or(|(created, _)| *created != p.create_time) {
+            paths.insert(p.pid, (p.create_time, detail::image_path(p.pid)));
+        }
+        let path = &paths[&p.pid].1;
+        let started = crate::util::filetime_epoch_ms(p.create_time);
         let _ = writeln!(
-            s, "P|{}|{}|{}|{ts}|{}|{}|{}|{}|{}|{}|{}",
+            s, "P|{}|{}|{}|{ts}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             p.pid, esc(&p.perf_name()), p.cpu_100ns, p.working_set, p.private_bytes, p.threads,
-            p.io_read, p.io_write, p.handles, p.parent,
+            p.io_read, p.io_write, p.handles, p.parent, esc(path), started,
         );
     }
+    paths.retain(|pid, _| alive.contains(pid));
 }
 
 fn from_pwstr(p: windows::core::PWSTR) -> String {

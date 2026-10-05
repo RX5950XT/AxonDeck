@@ -88,7 +88,7 @@ async function readBounded(response) {
  * @param {{ apiUrl?: string, url?: string, apiKey?: string, headers?: Record<string, string>, fetchImpl?: typeof fetch, allowEmpty?: boolean }} options
  * @returns {Promise<{ ok: true, models: string[] } | { ok: false, code: string, error: string }>}
  */
-async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty = false }) {
+async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty = false, pickRows = null }) {
   const target = String(url || modelsUrl(apiUrl)).trim()
   if (!/^https?:\/\//i.test(target)) {
     return { ok: false, code: 'BAD_URL', error: '這個供應商的 API URL 不正確' }
@@ -126,9 +126,10 @@ async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty
       return { ok: false, code: 'BAD_JSON', error: '模型清單不是合法的 JSON' }
     }
 
-    const models = extractIds(payload)
     // 只有明確的空陣列可以清掉 CC 的舊清單；HTTP 200 的錯誤物件不能當成「模型全下架」。
     const rows = Array.isArray(payload) ? payload : (payload?.data ?? payload?.models)
+    // pickRows：個別供應商自己挑哪幾列（例如 OpenRouter 只留前段班）
+    const models = extractIds(pickRows && Array.isArray(rows) ? pickRows(rows) : payload)
     if (allowEmpty && Array.isArray(rows) && rows.length === 0) return { ok: true, models: [] }
     if (!models.length) return { ok: false, code: 'EMPTY', error: '這個端點沒有回傳任何模型' }
     return { ok: true, models }

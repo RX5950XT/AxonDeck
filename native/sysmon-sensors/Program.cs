@@ -169,6 +169,7 @@ namespace VoiceInkSensors
             }
 
             var visitor = new UpdateVisitor();
+            using var processNetwork = new ProcessNetwork();
             int writeFailures = 0;
             var builder = new StringBuilder(16 * 1024);
             bool memoryTried = false;
@@ -199,6 +200,10 @@ namespace VoiceInkSensors
 
                         builder.Clear();
                         BuildPayload(builder, computer);
+                        builder.Length -= 1;
+                        builder.Append(",\"network\":");
+                        processNetwork.AppendJson(builder);
+                        builder.Append('}');
                     }
 
                     try

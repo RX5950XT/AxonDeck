@@ -11,6 +11,8 @@ import { showToast, electronAPI, cleanIpcError, openInFilesPage } from './app.js
 /** 64kbps opus：200MB 上限約 7 小時，語音清楚 */
 const BITS_PER_SECOND = 64000
 const MIME = 'audio/webm;codecs=opus'
+/** 拖到檔案轉入區時只放檔名；跟 transcribe.js 的讀取端同一條 */
+const REC_DRAG = 'application/x-voiceink-recording'
 
 let bound = false
 /** @type {MediaRecorder|null} */
@@ -205,6 +207,18 @@ function renderItem(r) {
   const row = document.createElement('div')
   row.className = 'dict-record rec-item'
   row.dataset.name = r.name
+  row.draggable = true
+  row.title = '拖到轉入區即可選取'
+  row.addEventListener('dragstart', (e) => {
+    const fromControl = e.target instanceof Element && e.target.closest('button, audio, input')
+    if (fromControl || !e.dataTransfer) {
+      e.preventDefault()
+      return
+    }
+    e.dataTransfer.setData(REC_DRAG, r.name)
+    e.dataTransfer.setData('text/plain', r.name)
+    e.dataTransfer.effectAllowed = 'copy'
+  })
 
   const head = document.createElement('div')
   head.className = 'dict-record-head'
@@ -268,9 +282,10 @@ async function play(row, rec) {
 
 /** @param {typeof items[number]} rec */
 function transcribe(rec) {
-  // 交給檔案轉錄：先切子分頁（那一頁會載入 transcribe.js），再把檔放上去
-  document.querySelector('#sttSubtabs .subtab[data-subtab="file"]')?.dispatchEvent(new MouseEvent('click'))
-  import('./transcribe.js').then((m) => m.useRecording(rec))
+  // 同一頁的左欄。只交檔名，路徑由 main 解析
+  import('./transcribe.js').then((m) => m.useRecording(rec.name)).catch((error) => {
+    showToast(cleanIpcError(error), 'error')
+  })
 }
 
 /** @param {typeof items[number]} rec */

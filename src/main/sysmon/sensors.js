@@ -78,6 +78,7 @@ function createSensorBridge(deps = {}) {
   let buf = ''
   /** @type {any[]} */
   let groups = []
+  let processNetwork = null
   let lastAt = 0
   /** 缺 PawnIO：GPU／硬碟溫度仍可讀，只有 CPU／主機板那一塊拿不到 */
   let needsPawnIo = false
@@ -175,6 +176,7 @@ function createSensorBridge(deps = {}) {
     }
     if (Array.isArray(payload?.h)) {
       groups = payload.h
+      processNetwork = require('./process-network').readProcessNetwork(payload.network)
       controls = Array.isArray(payload.c) ? payload.c : []
       oc = payload.o && typeof payload.o === 'object' ? payload.o : null
       lastAt = Date.now()
@@ -200,9 +202,10 @@ function createSensorBridge(deps = {}) {
 
     read() {
       if (state !== 'on' || (Date.now() - lastAt) >= staleMs) {
-        return { available: false, groups: [], controls: [], oc: null }
+        return { available: false, groups: [], controls: [], oc: null, processNetwork: null }
       }
-      return { available: true, groups, controls, oc }
+      const network = require('./process-network').readProcessNetwork(processNetwork)
+      return { available: true, groups, controls, oc, processNetwork: network }
     },
 
     /**
@@ -369,6 +372,7 @@ function createSensorBridge(deps = {}) {
         pendingEnable = null
         cleanup()
         groups = []
+        processNetwork = null
         controls = []
         resetWaiters = []
         lastAt = 0

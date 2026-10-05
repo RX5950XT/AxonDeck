@@ -26,7 +26,7 @@ async function main() {
       throw new Error('isLlmKey')
     }
     if (models.isLlmKey('qwen3asr')) throw new Error('asr 不該是 llm key')
-    if (!models.status().models.linguaforge08) throw new Error('linguaforge08 應出現在 status')
+    if (!models.status().models.linguaforge08q4) throw new Error('linguaforge08q4 應出現在 status')
     if (!models.ggufRelativePath('linguaforge08q4')?.endsWith('.gguf')) {
       throw new Error('lingua gguf path')
     }

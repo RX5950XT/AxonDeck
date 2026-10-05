@@ -378,7 +378,9 @@ async function openPath(target) {
   const full = paths.resolveExisting(target)
   const resolved = resolveLocal(full)
   if (resolved.dir) return resolved
-  const err = await mediaPlayer.openPath(resolved.path)
+  // 影音交給自家播放器（要真的檔案路徑）；其他照原樣開 `full`——是捷徑就開捷徑本身，
+  // 啟動參數、起始位置、以系統管理員執行這些設定才不會被跳過
+  const err = await mediaPlayer.openMedia(resolved.path) ? '' : await shell.openPath(full)
   if (err) throw paths.fail('OPEN_FAILED', '打不開')
   return true
 }

@@ -4,7 +4,7 @@ const { randomUUID } = require('crypto')
 const {
   finishReasonOf,
   firstCandidate,
-  sanitizeSchema,
+  schemaFor,
   splitParts,
   unwrapEnvelope,
   usageFrom
@@ -63,7 +63,7 @@ function parseArguments(raw) {
   }
 }
 
-function toolsToDeclarations(tools) {
+function toolsToDeclarations(tools, mapped) {
   if (!Array.isArray(tools)) return null
   const declarations = []
   for (const tool of tools) {
@@ -73,7 +73,7 @@ function toolsToDeclarations(tools) {
     if (typeof fn.description === 'string' && fn.description) {
       declaration.description = fn.description.slice(0, 4000)
     }
-    const parameters = sanitizeSchema(fn.parameters)
+    const parameters = schemaFor(fn.parameters, mapped)
     if (parameters) declaration.parameters = parameters
     declarations.push(declaration)
   }
@@ -108,7 +108,7 @@ function messagesToContents(messages) {
         : JSON.stringify(message.content ?? '')
       contents.push({
         role: 'user',
-        parts: [{ functionResponse: { name, response: { content: text } } }]
+        parts: [{ functionResponse: { name, response: { content: text }, ...(id ? { id } : {}) } }]
       })
       continue
     }
@@ -119,7 +119,9 @@ function messagesToContents(messages) {
         const name = typeof call?.function?.name === 'string' ? call.function.name : ''
         if (!name) continue
         if (typeof call.id === 'string') toolNames.set(call.id, name)
-        parts.push({ functionCall: { name, args: parseArguments(call.function?.arguments) } })
+        // Claude 模型的上游把 functionCall 轉回 tool_use，id 是必填
+        const id = typeof call.id === 'string' && call.id ? { id: call.id } : {}
+        parts.push({ functionCall: { name, args: parseArguments(call.function?.arguments), ...id } })
       }
       if (parts.length) contents.push({ role: 'model', parts })
       continue
@@ -182,7 +184,7 @@ function toGeminiRequest(body, mapped) {
   if (systemTexts.length) {
     inner.systemInstruction = { role: 'user', parts: [{ text: systemTexts.join('\n\n') }] }
   }
-  const tools = toolsToDeclarations(body.tools)
+  const tools = toolsToDeclarations(body.tools, mapped)
   if (tools) {
     inner.tools = tools
     if (body.tool_choice === 'none') {

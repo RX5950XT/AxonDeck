@@ -27,13 +27,16 @@ const MODEL_REFRESH_MS = 24 * 60 * 60_000
 const modelScans = new Map()
 const modelAttempts = new Map()
 let modelRefreshTimer = null
+/** main 注入的 AGY 反代載入器（晚載：AGY 會開 SQLite，沒用到不該跟著 CC Proxy 一起載） */
+let loadAgy = null
 
 /**
- * @param {{ userDataPath: string, openExternal?: (url: string) => unknown }} options
+ * @param {{ userDataPath: string, openExternal?: (url: string) => unknown, getAgy?: () => Promise<object> }} options
  */
-function configure({ userDataPath, openExternal }) {
+function configure({ userDataPath, openExternal, getAgy }) {
   if (configured) return
   configured = true
+  if (typeof getAgy === 'function') loadAgy = getAgy
   claudeSettings.configure({ backupDir: path.join(userDataPath, 'claude-backup') })
   mcp.configure(providers.getStore)
   // 登入要開系統瀏覽器；用注入的而不是在這裡 require electron，模組才 node 直測得動
@@ -74,7 +77,20 @@ async function ensureGatewayKey() {
 }
 
 /**
- * 啟動閘道。只由使用者按下頁面的開關時呼叫。
+ * AGY 反代的位址與金鑰（不碰憑證）。沒注入或載入失敗回 null。
+ * @returns {Promise<{ running: boolean, baseUrl: string, apiKey: string } | null>}
+ */
+async function agyInfo() {
+  if (!loadAgy) return null
+  try {
+    return (await loadAgy()).endpoint()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 啟動閘道。由切換供應商自動呼叫（要轉換格式的那幾家），使用者不必手動開。
  * @returns {Promise<object>}
  */
 async function startGateway() {
@@ -131,7 +147,18 @@ function catalog() {
 }
 
 async function listProviders() {
-  const result = await providers.list({ gateway: gatewayInfo() || undefined })
+  const agy = await agyInfo()
+  const result = await providers.list({ gateway: gatewayInfo() || undefined, agy: agy || undefined })
+  // AGY 那家沒有 /models 可掃（金鑰是本機的），模型下拉直接拿反代的即時型錄
+  if (agy?.running && result.providers.some((item) => item.presetId === 'agy')) {
+    // 型錄過期時會等上游；最多等 3 秒，等不到這次就沿用沒有清單（下拉可手動輸入）
+    const models = await Promise.race([agyModels(), new Promise((resolve) => setTimeout(resolve, 3000, null))])
+    if (models) {
+      result.providers = result.providers.map((item) => (
+        item.presetId === 'agy' ? { ...item, availableModels: models } : item
+      ))
+    }
+  }
   void refreshProviderModels()
   if (!modelRefreshTimer) {
     modelRefreshTimer = setInterval(() => void refreshProviderModels(), MODEL_REFRESH_MS)
@@ -178,9 +205,56 @@ function reorderProviders(ids) {
   return providers.reorder(ids)
 }
 
-/** @param {string} id */
+/** @returns {Promise<string[] | null>} */
+async function agyModels() {
+  try {
+    const { models } = await (await loadAgy()).listModels()
+    return models.filter((model) => model.chatCapable && !model.deprecated).map((model) => model.id)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 切換供應商。閘道跟著目標走：要轉換格式就先開、切到直連（含官方訂閱）就關；
+ * 切到 AGY 時反代沒開就先開。開在前、關在後——寫 settings.json 失敗時舊的那家還連得上。
+ * @param {string} id
+ */
 async function activateProvider(id) {
-  return providers.activate(id, { gateway: gatewayInfo() || undefined })
+  const item = await providers.getRaw(id)
+  const preset = item ? presets.getPreset(item.presetId) : null
+  const needsGateway = Boolean(preset) && providers.routeFor(item, preset) === 'gateway'
+  if (needsGateway && !gateway.status().running) await startGateway()
+  if (preset?.auth === 'agy' && loadAgy && !(await agyInfo())?.running) {
+    const started = await (await loadAgy()).start()
+    if (!started?.ok) {
+      const error = new Error('AGY_START_FAILED')
+      error.code = 'AGY_START_FAILED'
+      error.userMessage = 'AGY 反代啟動失敗，請到「AGY 反代」分頁查看'
+      throw error
+    }
+  }
+  const result = await providers.activate(id, {
+    gateway: gatewayInfo() || undefined,
+    agy: (await agyInfo()) || undefined
+  })
+  if (!needsGateway && gateway.status().running) await stopGateway()
+  return result
+}
+
+/**
+ * App 啟動時呼叫：目前選用的那家要經閘道就把閘道開起來，不然重開 App 之後
+ * Claude Code 會連不上（閘道不再有手動開關）。
+ */
+async function autoStartGateway() {
+  const { providers: items, currentId } = await providers.list({})
+  if (items.find((item) => item.id === currentId)?.route !== 'gateway') return false
+  await startGateway()
+  // 開了才比得出 settings.json 是不是真的指著閘道；被外部改走了就不佔著埠
+  const { activeId } = await providers.list({ gateway: gatewayInfo() || undefined })
+  if (activeId === currentId) return true
+  await stopGateway()
+  return false
 }
 
 /**
@@ -195,7 +269,23 @@ async function testProvider(id) {
     error.userMessage = '找不到這個供應商'
     throw error
   }
+  if (presets.getPreset(provider.presetId)?.auth === 'agy') return testAgy()
   return modelsScan.testProvider(provider)
+}
+
+/** AGY 那家借反代自己的端到端自我測試，回成跟 `modelsScan.testProvider` 一樣的形狀 */
+async function testAgy() {
+  const agy = await agyInfo()
+  if (!agy?.running) return { responded: false, ok: false, format: 'anthropic', error: 'AGY 反代沒有啟動' }
+  const result = await (await loadAgy()).selfTest()
+  return {
+    responded: Boolean(result?.status),
+    ok: result?.ok === true,
+    status: result?.status || 0,
+    format: 'anthropic',
+    url: agy.baseUrl,
+    error: result?.ok ? '' : (result?.message || '測試失敗')
+  }
 }
 
 /**
@@ -293,9 +383,8 @@ function checkVersions() {
 }
 
 /** @param {string} key */
-function versionUpdateCommand(key) {
-  return cliVersion.updateCommand(key)
-}
+function runCliTask(key) { return cliVersion.runTask(key) }
+function cliTaskStatus(key) { return cliVersion.taskStatus(key) }
 
 module.exports = {
   DEFAULT_GATEWAY_PORT,
@@ -304,6 +393,7 @@ module.exports = {
   gatewayStatus,
   startGateway,
   stopGateway,
+  autoStartGateway,
   catalog,
   listProviders,
   createProvider,
@@ -323,5 +413,6 @@ module.exports = {
   cancelLogin,
   removeAccount,
   checkVersions,
-  versionUpdateCommand
+  runCliTask,
+  cliTaskStatus
 }

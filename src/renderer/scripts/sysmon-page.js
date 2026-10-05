@@ -15,23 +15,9 @@ import { showFanPanel, hideFanPanel } from './sysmon-fans.js'
 import { showOcPanel, hideOcPanel, onOcSample } from './sysmon-oc.js'
 import { showScreentimePanel, hideScreentimePanel } from './sysmon-screentime.js'
 import { showDiskPanel, hideDiskPanel } from './sysmon-disk.js'
+import { createProcessTable, sortProcessRows, isProcessSortKey } from './sysmon-procs.js'
 
 const HISTORY = 120
-const ROW_HEIGHT = 30
-const OVERSCAN = 8
-
-/** 進程表欄位。key 要與 main 的 metrics.SORT_KEYS 對得上。 */
-const COLUMNS = [
-  { key: 'pid', label: 'PID', align: 'right' },
-  { key: 'name', label: '名稱', align: 'left' },
-  { key: 'cpu', label: 'CPU', align: 'right' },
-  { key: 'memory', label: '記憶體', align: 'right' },
-  { key: 'diskTotal', label: '磁碟', align: 'right' },
-  { key: 'gpu', label: 'GPU', align: 'right' },
-  { key: 'gpuMemory', label: 'VRAM', align: 'right' },
-  { key: 'threads', label: '執行緒', align: 'right' }
-]
-
 const state = {
   inited: false,
   active: false,
@@ -60,8 +46,7 @@ const history = new Map()
 /** @type {(() => void) | null} */
 let unsubscribe = null
 let refreshGeneration = 0
-/** @type {HTMLElement[]} 虛擬捲動的節點池 */
-const rowPool = []
+let processTable = null
 
 const $ = (id) => document.getElementById(id)
 
@@ -1692,62 +1677,28 @@ function renderBlocks() {
 
 // ===== 進程表 =====
 
-function renderHead() {
-  const head = $('sysmonHead')
-  if (!head || head.childElementCount === COLUMNS.length) {
-    updateHeadSort()
-    return
-  }
-  head.textContent = ''
-  for (const col of COLUMNS) {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = `sysmon-th sysmon-th-${col.align}`
-    btn.dataset.key = col.key
-    btn.setAttribute('role', 'columnheader')
-    const label = document.createElement('span')
-    label.textContent = col.label
-    const arrow = document.createElement('i')
-    arrow.className = 'sysmon-sort-arrow'
-    btn.append(label, arrow)
-    btn.addEventListener('click', () => {
-      if (state.sortKey === col.key) {
-        state.sortDir = state.sortDir === 'desc' ? 'asc' : 'desc'
-      } else {
-        state.sortKey = col.key
-        // 數字欄預設由大到小（想看誰吃資源），名稱欄由 A 到 Z
-        state.sortDir = col.key === 'name' || col.key === 'pid' ? 'asc' : 'desc'
-      }
-      electronAPI.store.set('sysmonSort', `${state.sortKey}:${state.sortDir}`)
+function getProcessTable() {
+  if (!processTable) processTable = createProcessTable({
+    state, $, fmtBytes, fmtRate, fmtPct, onSelect: selectPid,
+    onSort(key) {
+      state.sortDir = state.sortKey === key
+        ? (state.sortDir === 'desc' ? 'asc' : 'desc')
+        : (key === 'name' || key === 'pid' ? 'asc' : 'desc')
+      state.sortKey = key
+      electronAPI.store.set('sysmonSort', `${key}:${state.sortDir}`)
       updateHeadSort()
       rebuildRows()
-    })
-    head.appendChild(btn)
-  }
-  updateHeadSort()
+    }
+  })
+  return processTable
+}
+
+function renderHead() {
+  if ($('sysmonHead')) getProcessTable().renderHead()
 }
 
 function updateHeadSort() {
-  const head = $('sysmonHead')
-  if (!head) return
-  for (const btn of head.children) {
-    const on = btn.dataset.key === state.sortKey
-    btn.classList.toggle('is-sorted', on)
-    btn.classList.toggle('is-asc', on && state.sortDir === 'asc')
-    btn.setAttribute('aria-sort', on ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none')
-  }
-}
-
-/** 排序鍵 → 取值。跟 main 的 metrics.SORT_KEYS 是同一份定義，這裡是顯示端的副本。 */
-const PICK = {
-  pid: (p) => p.pid,
-  name: (p) => p.name.toLowerCase(),
-  cpu: (p) => p.cpu,
-  memory: (p) => p.memory,
-  threads: (p) => p.threads,
-  diskTotal: (p) => p.diskRead + p.diskWrite,
-  gpu: (p) => p.gpu,
-  gpuMemory: (p) => p.gpuMemory
+  processTable?.updateHead()
 }
 
 function rebuildRows() {
@@ -1760,16 +1711,8 @@ function rebuildRows() {
       || String(p.pid).includes(needle)
       || (Array.isArray(p.pids) && p.pids.some((id) => String(id).includes(needle))))
   }
-  const pick = PICK[state.sortKey] || PICK.cpu
-  const sign = state.sortDir === 'asc' ? 1 : -1
-  // pid 當第二鍵：一堆 CPU 都是 0 的時候，沒有它每輪順序都會跳
-  state.rows = [...list].sort((a, b) => {
-    const av = pick(a)
-    const bv = pick(b)
-    if (av < bv) return -sign
-    if (av > bv) return sign
-    return a.pid - b.pid
-  })
+  state.rows = sortProcessRows(list, state.sortKey, state.sortDir)
+  updateHeadSort()
   const count = $('sysmonProcCount')
   if (count) {
     const raw = s.processes.reduce((n, p) => n + (p.count || 1), 0)
@@ -1788,53 +1731,7 @@ function rebuildRows() {
 }
 
 function renderVisibleRows() {
-  const body = $('sysmonBody')
-  const spacer = $('sysmonSpacer')
-  const rowsHost = $('sysmonRows')
-  if (!body || !spacer || !rowsHost) return
-
-  spacer.style.height = `${state.rows.length * ROW_HEIGHT}px`
-  const viewport = body.clientHeight || 400
-  const first = Math.max(0, Math.floor(state.scrollTop / ROW_HEIGHT) - OVERSCAN)
-  const visible = Math.ceil(viewport / ROW_HEIGHT) + OVERSCAN * 2
-  const slice = state.rows.slice(first, first + visible)
-  rowsHost.style.transform = `translateY(${first * ROW_HEIGHT}px)`
-
-  // 節點池：只有「可見列數」這麼多個 DOM，捲動與更新都重用它們
-  while (rowPool.length < slice.length) {
-    const row = document.createElement('div')
-    row.className = 'sysmon-row'
-    row.setAttribute('role', 'row')
-    for (const col of COLUMNS) {
-      const cell = document.createElement('span')
-      cell.className = `sysmon-td sysmon-td-${col.align}`
-      cell.setAttribute('role', 'cell')
-      row.appendChild(cell)
-    }
-    row.addEventListener('click', () => selectPid(Number(row.dataset.pid)))
-    rowPool.push(row)
-    rowsHost.appendChild(row)
-  }
-  for (let i = slice.length; i < rowPool.length; i += 1) rowPool[i].classList.add('hidden')
-
-  slice.forEach((p, i) => {
-    const row = rowPool[i]
-    row.classList.remove('hidden')
-    row.dataset.pid = String(p.pid)
-    row.classList.toggle('is-selected', state.selectedPid === p.pid)
-    const c = row.children
-    c[0].textContent = (p.count || 1) > 1 ? `×${p.count}` : String(p.pid)
-    c[1].textContent = p.name
-    c[2].textContent = fmtPct(p.cpu)
-    c[3].textContent = fmtBytes(p.memory)
-    c[4].textContent = fmtRate(p.diskRead + p.diskWrite)
-    c[5].textContent = fmtPct(p.gpu)
-    c[6].textContent = p.gpuMemory > 0 ? fmtBytes(p.gpuMemory) : '—'
-    c[7].textContent = String(p.threads)
-    // 熱度：吃愈兇顏色愈亮，btop 的做法
-    c[2].classList.toggle('is-hot', p.cpu >= 10)
-    c[3].classList.toggle('is-hot', p.memory >= 1024 * 1024 * 1024)
-  })
+  if ($('sysmonBody')) getProcessTable().renderRows()
 }
 
 function selectPid(pid) {
@@ -2785,7 +2682,7 @@ export function initSysmonPage() {
         syncCustomSelects()
     }
     const [key, dir] = String(sort || '').split(':')
-    if (PICK[key]) {
+    if (isProcessSortKey(key)) {
       state.sortKey = key
       state.sortDir = dir === 'asc' ? 'asc' : 'desc'
       updateHeadSort()

@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.4.1（內建 Node 24）、腳本用系統 Node 22。
-nav 十頁（可拖曳排序）：AI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜CC代理｜AGY反代｜語音轉文字｜翻譯與 TTS｜系統監控｜HF模型｜設定。額度是工作區底下那條，用量統計在 CC代理。
+nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜CC Proxy｜語音轉文字｜翻譯與 TTS｜系統監控｜Local SI（`hfmodels`）｜設定。額度是工作區底下那條；AGY 反代與用量統計是 CC Proxy 的子分頁。
 
 ## 指令
 
@@ -136,10 +136,14 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 - 整理：失敗退回原文；字典送前送後各套一次、單趟掃描；本地逐段結果用空行接不用 `joinSegments`。
 - 錄音與字幕邊錄邊 append，不在 renderer 累積；檔名只收 `rec-<13 位毫秒>.webm`／`live-<13 位毫秒>`。
 
-### CC代理／AGY反代
+### CC Proxy／AGY反代
+- 轉換閘道沒有手動開關：`ccswitch/index.js` 的 `activateProvider` 依目標路由自動開（gateway）／關（直連、官方訂閱），開機由 `autoStartGateway` 接續。切到 `agy` 那家時 AGY 沒開就先 `start()`；AGY 只在執行中才自動播種成供應商。
+- AGY 模型映射要先查即時型錄（`catalog.snapshot`）：靜態前綴規則會把 `claude-opus-5-5` 之類帳號裡真的有的新 ID 改寫回 `claude-opus-4-6-thinking`（別人帳號上已下架 → 報錯）。
 - 改 `~/.claude/settings.json` 只動我們管的 `env` 鍵，切換先清前一家；壞檔拋錯；寫入前備份＋原子替換。MCP 在 `~/.claude.json`，只改 `mcpServers`。
 - `providers.routeFor()` 是路由唯一推導點；內建供應商不吃自訂 Base URL。Codex Responses 要 `store: false`、不送 `max_output_tokens`／`temperature`。
 - 1M 上下文＝模型名加 `[1m]`，閘道仍要 `stripContextMarker`。CLI 更新用各自的 updater。
+- 模型只有 Opus／Sonnet／Haiku 三格（`MODEL_FIELDS`），不再寫 `ANTHROPIC_MODEL`（仍在 `claude-settings.js` 管理清單裡，切換會清掉）；舊檔的 `model` 只拿來補三格。OpenRouter 掃描走 `keepOpenRouterModel`（純文字輸出＋工具＋一年內，排除 `:batch`）。
+- AGY 送 Claude 模型：工具 schema 不能有 `anyOf`（`gemini.schemaFor` 攤平）、functionCall／functionResponse 要帶 id，少一樣 Claude Code 就整個 400。
 - AGY：憑證只讀；續期靠代跑 `agy models`（`stdio: 'ignore'`，`execFile` 會卡 stdin）；`mustRefresh` 只有 401 能設；端點順序 sandbox → daily → prod；function schema 走白名單並修三種型別錯。
 
 ### 用量統計與額度
@@ -173,6 +177,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 ## 驗證方式
 
 純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `VOICEINK_EXE`）。
+全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。
 
 | 範圍 | 主要腳本 |
 |---|---|
@@ -180,7 +185,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 | 工作區 | `test-workspace*.js` `e2e-workspace-cdp.js`；Monaco／大檔 `probe-workspace-perf.js` `probe-workspace-bigfile.js` |
 | 檔案總管 | `test-explorer*.js` `e2e-explorer-cdp.js` `e2e-explorer-dual-cdp.js` `probe-explorer-shell.js` `probe-explorer-uffs.js` |
 | 終端機 | `test-terminal*.js` `test-term-agent.js` `test-claude-hooks.js` `e2e-terminal-cdp.js`；宿主 `probe-terminal-restart.js` `probe-terminal-host-version.js`；IME `probe-terminal-ime.js` |
-| CC代理／閘道 | `test-ccswitch*.js` `e2e-ccswitch-cdp.js`；真上游 `probe-ccswitch-*.js` |
+| CC Proxy／閘道 | `test-ccswitch*.js` `e2e-ccswitch-cdp.js`；真上游 `probe-ccswitch-*.js` |
 | AGY | `test-agy-mappers.js` `e2e-agy.js` `e2e-agy-cdp.js` `probe-agy-upstream.js` |
 | 用量／額度 | `test-code-usage.js` `test-usage.js` `test-claude-auth.js` `e2e-usage-cdp.js`；`probe-usage-native-parity.js` |
 | 系統監控 | `test-sysmon*.js` `e2e-sysmon-cdp.js` `e2e-sysmon-disk-cdp.js` `cargo test` |

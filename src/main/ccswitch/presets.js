@@ -74,10 +74,9 @@ const PRESETS = [
     modelsUrl: 'https://cli-chat-proxy.grok.com/v1/models',
     modelsAuth: 'cli',
     env: {
-      ANTHROPIC_MODEL: 'grok-4.6',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'grok-4.6',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'grok-4.6',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'grok-4.6'
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'grok-4.7',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'grok-4.7',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'grok-4.7'
     },
     hint: 'xAI 訂閱（Grok Build），用已登入的 CLI 憑證經本機閘道轉換。'
   },
@@ -94,10 +93,9 @@ const PRESETS = [
     modelsUrl: 'https://chatgpt.com/backend-api/codex/models?client_version=0.160.0',
     modelsAuth: 'cli',
     env: {
-      ANTHROPIC_MODEL: 'gpt-5.6-sol',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'gpt-5.6-luna',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'gpt-5.6-sol',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'gpt-5.6-sol',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'gpt-6-astra',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'gpt-6.1-sol',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'gpt-6-luna',
       // Claude Code 遇到不認得的非 Claude 模型 id 會退回 200K 窗口；
       // ChatGPT Codex 後端登記 gpt-5.6-sol 是 372K，兩個鍵一起釘住才不會被遠端實驗改掉。
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: '372000',
@@ -116,13 +114,11 @@ const PRESETS = [
     wireBaseUrl: 'https://ollama.com/v1',
     modelsUrl: 'https://ollama.com/v1/models',
     modelsAuth: 'bearer',
-    // 2026-09-01 實測：`qwen3-coder:480b-cloud` 已經不在上游 `/models` 裡了，
-    // 換成當時清單上真的有的（`probe-ccswitch-models.js` 會盯著這件事）
+    // 模型 id 以上游 `/models` 為準（2026-10-06 實測有 glm-5.3-flash；`probe-ccswitch-models.js` 盯著）
     env: {
-      ANTHROPIC_MODEL: 'kimi-k2.7-code',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-5.3-flash',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-k2.7-code',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'kimi-k2.7-code'
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-5.3-flash'
     },
     hint: '只有 OpenAI 相容端點，經本機閘道轉換。金鑰在 ollama.com 拿。'
   },
@@ -139,10 +135,9 @@ const PRESETS = [
     modelsUrl: 'https://opencode.ai/zen/go/v1/models',
     modelsAuth: 'x-api-key',
     env: {
-      ANTHROPIC_MODEL: 'deepseek-v4-flash',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash'
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.3-flash',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-5.3-flash'
     },
     hint: '訂閱制。金鑰要放 ANTHROPIC_API_KEY，放 AUTH_TOKEN 會被忽略。'
   },
@@ -159,10 +154,10 @@ const PRESETS = [
     modelsUrl: 'https://api.commandcode.ai/provider/v1/models',
     modelsAuth: 'bearer',
     env: {
-      ANTHROPIC_MODEL: 'claude-sonnet-5',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-4-5-20251001',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-5',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-5'
+      // Command Code 的 GLM 帶廠商前綴（2026-10-06 `/models` 實測）
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'z-ai/glm-5.3-flash',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'z-ai/glm-5.3-flash',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'z-ai/glm-5.3-flash'
     },
     hint: '訂閱制聚合站，可選 OpenAI Chat 或 Anthropic Messages。金鑰在 commandcode.ai 拿。'
   },
@@ -179,12 +174,25 @@ const PRESETS = [
     modelsUrl: 'https://openrouter.ai/api/v1/models',
     modelsAuth: 'bearer',
     env: {
-      ANTHROPIC_MODEL: 'anthropic/claude-sonnet-5',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'anthropic/claude-haiku-4.5',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'anthropic/claude-opus-5',
       ANTHROPIC_DEFAULT_SONNET_MODEL: 'anthropic/claude-sonnet-5',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'anthropic/claude-opus-5'
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'anthropic/claude-haiku-4.5'
     },
     hint: '原生支援 Anthropic 協議，直連。金鑰在 openrouter.ai/keys 拿。'
+  },
+  {
+    // 本機 AGY 反代：講 Anthropic Messages、直連；位址與金鑰是 AGY 自己的設定（埠可改），
+    // 由 main 在切換當下帶進來（`auth: 'agy'`），不寫死在這張表。反代啟動中才會自動播種。
+    id: 'agy',
+    name: 'Antigravity',
+    route: 'direct',
+    auth: 'agy',
+    keyField: 'ANTHROPIC_AUTH_TOKEN',
+    apiFormat: 'anthropic',
+    baseUrl: '',
+    wireBaseUrl: '',
+    env: {},
+    hint: '本機 AGY 反代（Antigravity 額度）。位址與金鑰自動帶入；啟用時反代沒開會自動開。模型留空＝Claude Code 預設，由反代對到帳號裡最新的 Claude。'
   },
   {
     id: 'custom',
@@ -196,7 +204,7 @@ const PRESETS = [
     baseUrl: '',
     wireBaseUrl: '',
     env: {},
-    hint: '端點、協議、金鑰欄位、四個等級的模型全部自己決定。'
+    hint: '端點、協議、金鑰欄位、三個等級的模型全部自己決定。'
   }
 ]
 
@@ -230,9 +238,8 @@ function catalog() {
     models: [...new Set(Object.entries(preset.env)
       .filter(([key]) => key.endsWith('_MODEL'))
       .map(([, value]) => value))],
-    // 表單四個等級的 placeholder：留空就是用這些
+    // 表單三個等級留空時用這些
     defaults: {
-      model: preset.env.ANTHROPIC_MODEL || '',
       haikuModel: preset.env.ANTHROPIC_DEFAULT_HAIKU_MODEL || '',
       sonnetModel: preset.env.ANTHROPIC_DEFAULT_SONNET_MODEL || '',
       opusModel: preset.env.ANTHROPIC_DEFAULT_OPUS_MODEL || ''

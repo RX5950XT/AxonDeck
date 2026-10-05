@@ -98,6 +98,25 @@ function readRecording(name) {
   return fs.promises.readFile(recordingPath(name))
 }
 
+/**
+ * 拖曳／「轉錄」只帶檔名。路徑由錄音目錄組出來，renderer 給的路徑一律不採用。
+ * @param {string} name
+ * @returns {{ name: string, path: string, size: number, startedAt: number, endedAt: number }}
+ */
+function resolveRecording(name) {
+  const file = recordingPath(name)
+  let st
+  try {
+    st = fs.statSync(file)
+  } catch {
+    throw fail('找不到這段錄音')
+  }
+  if (!st.isFile()) throw fail('找不到這段錄音')
+  if (st.size <= 0) throw fail('錄音檔是空的')
+  if (st.size > MAX_RECORDING_BYTES) throw fail('錄音已達 200 MB 上限')
+  return { name, path: file, size: st.size, startedAt: startedAtOf(name), endedAt: st.mtimeMs }
+}
+
 function deleteRecording(name) {
   fs.rmSync(recordingPath(name), { force: true })
   return true
@@ -193,6 +212,7 @@ function registerSttArchiveIpc({ ipcMain, isMainSender }) {
     message: '存檔操作失敗'
   })
   ipcMain.handle('sttArchive:recordings', (e) => invoke(e, () => listRecordings()))
+  ipcMain.handle('sttArchive:resolveRecording', (e, name) => invoke(e, () => resolveRecording(name)))
   ipcMain.handle('sttArchive:appendRecording', (e, name, bytes) => invoke(e, () => appendRecording(name, bytes)))
   ipcMain.handle('sttArchive:readRecording', (e, name) => invoke(e, () => readRecording(name)))
   ipcMain.handle('sttArchive:deleteRecording', (e, name) => invoke(e, () => deleteRecording(name)))
@@ -207,6 +227,7 @@ module.exports = {
   configure,
   registerSttArchiveIpc,
   listRecordings,
+  resolveRecording,
   appendRecording,
   readRecording,
   deleteRecording,

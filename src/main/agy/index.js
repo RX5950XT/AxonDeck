@@ -127,6 +127,20 @@ async function status() {
   }
 }
 
+/**
+ * 給 CC Proxy 的便宜版狀態：只看 server 有沒有在聽，不碰憑證（`status()` 會做 acquire）。
+ * @returns {{ running: boolean, baseUrl: string, apiKey: string }}
+ */
+function endpoint() {
+  const settings = readSettings()
+  const serverStatus = server.status()
+  return {
+    running: serverStatus.running,
+    baseUrl: `http://${serverStatus.host}:${settings.agyPort}`,
+    apiKey: settings.agyApiKey
+  }
+}
+
 async function saveSettings(raw) {
   const next = raw && typeof raw === 'object' ? raw : {}
   const port = sanitizePort(next.port)
@@ -278,6 +292,7 @@ module.exports = {
   clearLogs,
   configure,
   dispose,
+  endpoint,
   generateApiKey,
   getLogs,
   getStats,

@@ -200,7 +200,7 @@ async function main() {
     ok(
       'nine-tab order + quota bar under the terminal + stats under CC',
       JSON.stringify(usageUi?.order) === JSON.stringify([
-        'chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings'
+        'chat', 'telegram', 'explorer', 'ccswitch', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings'
       ]) &&
         usageUi.hasApi &&
         usageUi.noUsagePage &&
@@ -317,8 +317,8 @@ async function main() {
       }
     })()`)
     ok(
-      'stt page merges file + recorder + live + dictation into subtabs',
-      sttPage?.active && sttPage.subtabs === 4 && sttPage.activePanels === 1 &&
+      'stt page merges file+recorder, live, dictation into subtabs',
+      sttPage?.active && sttPage.subtabs === 3 && sttPage.activePanels === 1 &&
         sttPage.defaultPanel === 'stt-file' && sttPage.hasAsrSelect && sttPage.hasLlmSelect &&
         sttPage.perTabAsr &&
         sttPage.noOldPages,

@@ -23,18 +23,17 @@ const MAX_MODEL = 120
 const MAX_URL = 200
 
 /**
- * 四個等級各自對應的 env 鍵。使用者可以只填「主模型」（等於兜底），
- * 也可以三個等級各給一顆（Opus 用大的、Haiku 用便宜的，比照 cc-switch 的模型映射）。
- * 留空的那一格就沿用預設表裡那家原本的值。
+ * 三個等級各自對應的 env 鍵（Opus 用大的、Haiku 用便宜的，比照 cc-switch 的模型映射）。
+ * 留空的那一格就沿用預設表裡那家原本的值。以前還有一格「主模型」（`ANTHROPIC_MODEL`）
+ * 當兜底，已拿掉：Claude Code 的預設模型本來就落在這三個等級之一；那個鍵仍在
+ * `claude-settings.js` 的管理清單裡，切換時會被清掉。
  */
 const MODEL_FIELDS = Object.freeze({
-  model: 'ANTHROPIC_MODEL',
   haikuModel: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   sonnetModel: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   opusModel: 'ANTHROPIC_DEFAULT_OPUS_MODEL'
 })
 
-/** 舊版相容：以前只有一個 `model` 欄位，語意是「四個等級全套這顆」 */
 const MODEL_KEYS = Object.freeze(Object.values(MODEL_FIELDS))
 
 /**
@@ -150,6 +149,8 @@ function allowsCustomUrl(preset) {
  * @returns {string}
  */
 function apiFormatFor(provider, preset) {
+  // AGY 反代只講 Anthropic（再轉一次 OpenAI 等於繞一圈閘道又回到它自己）
+  if (preset?.auth === 'agy') return 'anthropic'
   const picked = text(provider?.apiFormat, 40)
   return API_FORMATS.includes(picked) ? picked : preset.apiFormat
 }
@@ -233,7 +234,7 @@ function authFieldFor(provider, preset) {
  * 預設不存在的那一筆**整筆丟掉**（沒有端點就沒有意義），與 `chatProviders`
  * 「壞網址只清空欄位」的處置不同——那邊丟掉會連使用者的金鑰與模型清單一起沒。
  * @param {unknown} raw
- * @returns {Array<{ id: string, presetId: string, name: string, apiKey: string, model: string, createdAt: number }>}
+ * @returns {Array<{ id: string, presetId: string, name: string, apiKey: string, createdAt: number }>}
  */
 function sanitizeAll(raw) {
   if (!Array.isArray(raw)) return []
@@ -262,7 +263,6 @@ function sanitizeAll(raw) {
       // 這一筆綁哪個在本 App 登入的帳號（空＝退回讀已安裝 CLI 的憑證）
       oauthAccountId: preset.auth === 'cli' ? text(item.oauthAccountId, 60) : '',
       context1m: item.context1m === true,
-      model,
       haikuModel: legacy ? model : text(item.haikuModel, MAX_MODEL),
       sonnetModel: legacy ? model : text(item.sonnetModel, MAX_MODEL),
       opusModel: legacy ? model : text(item.opusModel, MAX_MODEL),
@@ -278,11 +278,12 @@ function sanitizeAll(raw) {
 /**
  * 算出這一筆供應商要寫進 settings.json 的 env。
  *
- * @param {{ presetId: string, apiKey: string, model: string }} provider
+ * @param {{ presetId: string, apiKey: string, opusModel?: string, sonnetModel?: string, haikuModel?: string }} provider
  * @param {{ baseUrl: string, apiKey: string }} [gateway] 本機閘道（route 為 gateway 的預設才會用到）
+ * @param {{ baseUrl: string, apiKey: string, running?: boolean }} [agy] 本機 AGY 反代（`agy` 那筆才會用到）
  * @returns {Record<string, string>}
  */
-function resolveEnv(provider, gateway) {
+function resolveEnv(provider, gateway, agy) {
   const preset = presets.getPreset(provider?.presetId)
   if (!preset) return {}
   // 官方訂閱：一個鍵都不寫，`applyEnv` 會把我們管的那組整批清掉。模型四格也不套——
@@ -302,7 +303,17 @@ function resolveEnv(provider, gateway) {
     throw error
   }
 
-  if (route === 'gateway') {
+  if (preset.auth === 'agy') {
+    const base = text(agy?.baseUrl, 200)
+    if (!base || !agy?.running || !agy?.apiKey) {
+      const error = new Error('AGY_OFFLINE')
+      error.code = 'AGY_OFFLINE'
+      error.userMessage = 'AGY 反代沒有啟動，請到「AGY 反代」分頁啟動服務'
+      throw error
+    }
+    env.ANTHROPIC_BASE_URL = base
+    env.ANTHROPIC_AUTH_TOKEN = text(agy.apiKey, MAX_KEY)
+  } else if (route === 'gateway') {
     // Claude Code 自己會接 /v1/messages，所以這裡給的是根位址加一段路由前綴
     const base = text(gateway?.baseUrl, 200)
     if (!base) {
@@ -334,7 +345,7 @@ function resolveEnv(provider, gateway) {
     if (value) env[key] = value
   }
 
-  // 宣告 1M：四個等級的模型名尾巴都補 `[1m]`（已經有就不再疊一層），窗口兩個鍵一起放大。
+  // 宣告 1M：三個等級的模型名尾巴都補 `[1m]`（已經有就不再疊一層），窗口兩個鍵一起放大。
   // 上游真的沒有 1M 的話不會因此變大，只是 Claude Code 會比較晚壓縮；閘道送出前會把
   // 後綴剝掉（`convert.stripContextMarker`），不會拿一個上游不認得的模型名去打。
   if (provider?.context1m === true) {
@@ -358,6 +369,7 @@ function resolveEnv(provider, gateway) {
  * @returns {boolean}
  */
 function writesBaseUrl(item, preset) {
+  if (preset.auth === 'agy') return true
   return routeFor(item, preset) === 'gateway' || Boolean(baseUrlFor(item, preset))
 }
 
@@ -379,9 +391,10 @@ function writesBaseUrl(item, preset) {
  * @param {string} currentId
  * @param {string} liveBaseUrl
  * @param {{ baseUrl: string }} [gateway]
+ * @param {{ baseUrl: string }} [agy] AGY 反代的位址（沒在跑也給：重開 App 時反代還沒接續，不能就說被外部改過）
  * @returns {string}
  */
-function detectActiveId(items, currentId, liveBaseUrl, gateway) {
+function detectActiveId(items, currentId, liveBaseUrl, gateway, agy) {
   const live = text(liveBaseUrl, 200)
   const current = items.find((item) => item.id === currentId) || null
   const preset = current ? presets.getPreset(current.presetId) : null
@@ -389,7 +402,7 @@ function detectActiveId(items, currentId, liveBaseUrl, gateway) {
     return current && preset && !writesBaseUrl(current, preset) ? current.id : officialId(items)
   }
   if (!current || !preset) return ''
-  let expected = baseUrlFor(current, preset)
+  let expected = preset.auth === 'agy' ? text(agy?.baseUrl, 200) : baseUrlFor(current, preset)
   if (routeFor(current, preset) === 'gateway') {
     const base = text(gateway?.baseUrl, 200)
     // 閘道沒起來就不知道位址，無從比對
@@ -440,13 +453,16 @@ async function readCurrentId() {
  * 內建各家至少一筆：清單裡缺哪一家就補一筆空殼（冪等，有就不動）。
  * 這是 UI 那一排 tile 的資料來源——被下架的舊預設會在 `sanitizeAll` 丟掉，
  * 新錶上線或清單被清空時靠這裡補齊。
+ * AGY 那家只在反代啟動中才播種（使用者沒在用 AGY 就不塞一張用不了的卡片）。
  * @param {Array<object>} items 正規化過的清單
+ * @param {{ agyRunning?: boolean }} [options]
  * @returns {Promise<Array<object>>}
  */
-async function seedBuiltins(items) {
+async function seedBuiltins(items, options = {}) {
   let seeded = false
   for (const preset of presets.PRESETS) {
     if (preset.id === 'custom') continue
+    if (preset.auth === 'agy' && !options.agyRunning) continue
     if (items.some((item) => item.presetId === preset.id)) continue
     if (items.length >= MAX_PROVIDERS) break
     items.push({
@@ -460,7 +476,6 @@ async function seedBuiltins(items) {
       apiKey: '',
       oauthAccountId: '',
       context1m: false,
-      model: '',
       haikuModel: '',
       sonnetModel: '',
       opusModel: '',
@@ -486,11 +501,11 @@ function getRaw(id) {
 
 /**
  * 清單 ＋ 目前狀態。金鑰只回「有沒有填」與末四碼，完整值不出 main。
- * @param {{ gateway?: { baseUrl: string } }} [options]
+ * @param {{ gateway?: { baseUrl: string }, agy?: { baseUrl: string, running?: boolean } }} [options]
  */
 function list(options = {}) {
   return withStore(async () => {
-    const items = await seedBuiltins(await readAll())
+    const items = await seedBuiltins(await readAll(), { agyRunning: options.agy?.running === true })
     // currentId 指向已不存在的實例（預設被下架、清單被手改）就清掉，
     // 不然 `detectActiveId` 永遠回空，UI 會一直顯示誤導的「被外部修改」
     const s = await getStore()
@@ -512,7 +527,6 @@ function list(options = {}) {
         authField: item.authField,
         oauthAccountId: item.oauthAccountId,
         context1m: item.context1m,
-        model: item.model,
         haikuModel: item.haikuModel,
         sonnetModel: item.sonnetModel,
         opusModel: item.opusModel,
@@ -522,7 +536,8 @@ function list(options = {}) {
         createdAt: item.createdAt
       })),
       currentId,
-      activeId: detectActiveId(items, currentId, live.baseUrl, options.gateway),
+      activeId: detectActiveId(items, currentId, live.baseUrl, options.gateway, options.agy),
+      agyRunning: options.agy?.running === true,
       settingsPath: live.path,
       settingsExists: live.exists,
       liveBaseUrl: live.baseUrl
@@ -560,7 +575,6 @@ function create(req) {
       apiKey: preset.auth === 'key' ? text(req?.apiKey, MAX_KEY) : '',
       oauthAccountId: preset.auth === 'cli' ? text(req?.oauthAccountId, 60) : '',
       context1m: req?.context1m === true,
-      model: text(req?.model, MAX_MODEL),
       haikuModel: text(req?.haikuModel, MAX_MODEL),
       sonnetModel: text(req?.sonnetModel, MAX_MODEL),
       opusModel: text(req?.opusModel, MAX_MODEL),
@@ -605,7 +619,7 @@ function update(id, patch) {
         next.oauthAccountId = text(patch.oauthAccountId, 60)
       }
       if (typeof patch?.context1m === 'boolean') next.context1m = patch.context1m
-      // 四個等級各自可改；沒帶那一格就維持原值（跟金鑰同一條規矩）
+      // 三個等級各自可改；沒帶那一格就維持原值（跟金鑰同一條規矩）
       for (const field of Object.keys(MODEL_FIELDS)) {
         if (typeof patch?.[field] === 'string') next[field] = text(patch[field], MAX_MODEL)
       }
@@ -632,7 +646,7 @@ function scanIdentity(item) {
     .map((field) => item?.[field] || ''))
 }
 
-/** 舊請求晚到時不可蓋掉另一組認證的清單；不改使用者四個等級的模型設定。 */
+/** 舊請求晚到時不可蓋掉另一組認證的清單；不改使用者三個等級的模型設定。 */
 function saveModelScan(provider, result) {
   return withStore(async () => {
     const items = await readAll()
@@ -784,7 +798,7 @@ function unbindAccount(accountId) {
 /**
  * 切換：把這一筆的 env 寫進 `~/.claude/settings.json`。
  * @param {string} id
- * @param {{ gateway?: { baseUrl: string, apiKey: string } }} [options]
+ * @param {{ gateway?: { baseUrl: string, apiKey: string }, agy?: { baseUrl: string, apiKey: string, running?: boolean } }} [options]
  */
 function activate(id, options = {}) {
   return withStore(async () => {
@@ -796,7 +810,7 @@ function activate(id, options = {}) {
       error.userMessage = '找不到這個供應商'
       throw error
     }
-    const env = resolveEnv(item, options.gateway)
+    const env = resolveEnv(item, options.gateway, options.agy)
     const result = claudeSettings.applyEnv(env)
     const s = await getStore()
     s.set('currentId', item.id)

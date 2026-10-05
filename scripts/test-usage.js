@@ -597,7 +597,7 @@ test('沒有 Command Code 金鑰時回 disconnected，env 優先於 auth.json', 
     assert.equal(missing.status, 'disconnected')
     assert.equal(missing.windows.length, 0)
     // 沒跑過 cmd login 的人是在 Studio 開一把 API key，說明要指得到那個填得進去的地方
-    assert.match(missing.notes, /CC代理/)
+    assert.match(missing.notes, /CC Proxy/)
 
     // 只有 CC 代理頁填了金鑰（沒有 auth.json、沒有環境變數）也要讀得到
     const { resolveCommandCodeKey } = require('../src/main/usage/api-key')

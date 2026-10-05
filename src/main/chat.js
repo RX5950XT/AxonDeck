@@ -548,7 +548,7 @@ async function send(req, sender) {
     // 本機模型：沒載入就先載（「一鍵部署」＝直接開始聊）。
     // **這一步一定要在 inflight 佔位之後**：載一顆大模型要好幾十秒。
     if (local && !(await ensureLocalOnce(cfg.modelId))) {
-      return { ok: false, error: '本機模型載入失敗，請到「HF模型」→ 執行環境查看' }
+      return { ok: false, error: '本機模型載入失敗，請到「Local SI」→ 執行環境查看' }
     }
 
     // 先確認對話存在再落圖片檔，否則失敗會留下沒人引用的圖

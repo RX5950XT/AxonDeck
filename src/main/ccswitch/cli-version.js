@@ -3,9 +3,8 @@
 /**
  * CLI 版本檢查（Main Process）。
  *
- * 本機版本靠跑一次 `<工具> --version`，最新版本查 npm registry。**更新不在這裡做**：
- * 我們只把指令交給既有的終端機分頁去跑，使用者看得到整個安裝過程、出錯也自己看得懂。
- * App 偷偷在背景裝全域套件是另一回事。
+ * 本機版本跑 `<工具> --version`，最新版本查 npm registry／agy 官方 manifest。
+ * 安裝與更新由 cli-install.js 在背景執行。
  *
  * 更新一律用**該工具自己的 updater**（`claude update`／`codex update`／`grok update`／
  * `opencode upgrade`／`agy update`），不要一律組 `npm i -g`：這幾家多半是各自的安裝器裝的
@@ -15,30 +14,26 @@
  * 工具清單是這裡的固定表，renderer 只送 key——跟終端機的 shell 白名單同一條理由。
  */
 
-const { spawn } = require('child_process')
 const shared = require('../usage/shared')
-
-/** 跑 `--version` 的逾時。正常都在 1～3 秒。 */
-const VERSION_TIMEOUT_MS = 10000
-/** 子程序輸出讀取上限（版本號就一行，這條只是防它狂吐） */
-const MAX_OUTPUT_BYTES = 64 * 1024
+const { runner, UPDATERS } = require('./cli-install')
 
 /**
  * 支援的 CLI。
- * `pkg` 只用來查「最新版是幾號」（空＝這家沒發 npm，版本比對交給它自己的 updater）；
- * `update` 是真正拿去終端機跑的指令。
- * @type {ReadonlyArray<{ key: string, label: string, exe: string, pkg: string, update: string }>}
+ * `pkg` 只用來查「最新版是幾號」（agy 使用官方 manifest）；
+ * 更新指令只在 cli-install.js 維護。
+ * @type {ReadonlyArray<{ key: string, label: string, exe: string, pkg: string }>}
  */
 const TOOLS = Object.freeze([
-  { key: 'claude', label: 'Claude Code', exe: 'claude', pkg: '@anthropic-ai/claude-code', update: 'claude update' },
-  { key: 'codex', label: 'Codex CLI', exe: 'codex', pkg: '@openai/codex', update: 'codex update' },
-  { key: 'grok', label: 'Grok CLI', exe: 'grok', pkg: '@xai-official/grok', update: 'grok update' },
-  { key: 'opencode', label: 'OpenCode', exe: 'opencode', pkg: 'opencode-ai', update: 'opencode upgrade' },
-  // Antigravity 沒發 npm（安裝器裝到 AppData\Local\agy\bin），只有自己的 update 子指令
-  { key: 'agy', label: 'Antigravity CLI', exe: 'agy', pkg: '', update: 'agy update' }
+  { key: 'claude', label: 'Claude Code', exe: 'claude', pkg: '@anthropic-ai/claude-code' },
+  { key: 'codex', label: 'Codex CLI', exe: 'codex', pkg: '@openai/codex' },
+  { key: 'grok', label: 'Grok CLI', exe: 'grok', pkg: '@xai-official/grok' },
+  { key: 'opencode', label: 'OpenCode', exe: 'opencode', pkg: 'opencode-ai' },
+  // 官方 install.ps1 使用公開平台 manifest，沒有 npm 套件。
+  { key: 'agy', label: 'Antigravity CLI', exe: 'agy', pkg: '' }
 ])
 
-const BY_KEY = new Map(TOOLS.map((tool) => [tool.key, tool]))
+// 來源：https://antigravity.google/cli/install.ps1（2026-10-06 唯讀查證）
+const AGY_MANIFEST_BASE = 'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests'
 
 /**
  * 從一堆輸出裡挑出版本號。CLI 各家格式不同：
@@ -80,7 +75,7 @@ function compareVersions(a, b) {
 /**
  * 跑一次 `<exe> --version`。
  *
- * Windows 上這些工具多半是 `.cmd`，直接 spawn 執行檔找不到，所以走 `cmd /c`。
+ * Windows 上包含 `.cmd`／`.ps1` shim，由背景 PowerShell 執行。
  * exe 名字來自上面的固定表，不是 renderer 給的，所以組進命令列是安全的。
  *
  * `stdin` 一律 `ignore`：留著一條永遠收不到 EOF 的管線會讓 CLI 卡在等輸入
@@ -90,41 +85,7 @@ function compareVersions(a, b) {
  * @returns {Promise<string>} 版本號；找不到或跑不起來回空字串
  */
 function runVersion(exe) {
-  return new Promise((resolve) => {
-    const isWindows = process.platform === 'win32'
-    const child = isWindows
-      ? spawn('cmd', ['/c', `${exe} --version`], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-      : spawn(exe, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] })
-
-    let output = ''
-    let size = 0
-    let settled = false
-    const finish = (value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      try {
-        child.kill()
-      } catch {
-        // 已經結束了
-      }
-      resolve(value)
-    }
-    const timer = setTimeout(() => finish(''), VERSION_TIMEOUT_MS)
-
-    const collect = (chunk) => {
-      if (size >= MAX_OUTPUT_BYTES) return
-      size += chunk.length
-      output += chunk.toString('utf8')
-      // 版本號一出現就可以收工，不必等 CLI 自己結束
-      const found = parseVersion(output)
-      if (found) finish(found)
-    }
-    child.stdout?.on('data', collect)
-    child.stderr?.on('data', collect)
-    child.on('error', () => finish(''))
-    child.on('close', () => finish(parseVersion(output)))
-  })
+  return runner.readVersion(exe).catch(() => '')
 }
 
 /**
@@ -150,7 +111,21 @@ async function fetchLatest(pkg, options = {}) {
       fetchImpl: options.fetchImpl
     }
   )
-  return typeof data.version === 'string' ? data.version : ''
+  return validVersion(data.version)
+}
+
+function validVersion(value) {
+  return typeof value === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value) ? value : ''
+}
+
+async function fetchAgyLatest(options = {}) {
+  const arch = options.arch || process.arch
+  if (!['x64', 'arm64'].includes(arch)) return ''
+  const platform = arch === 'arm64' ? 'windows_arm64' : 'windows_amd64'
+  const data = await shared.fetchJson(`${AGY_MANIFEST_BASE}/${platform}.json`, {
+    label: 'Antigravity CLI', retries: 2, timeoutMs: 10000, maxBytes: 64 * 1024, fetchImpl: options.fetchImpl
+  })
+  return validVersion(data.version)
 }
 
 /**
@@ -161,7 +136,7 @@ async function fetchLatest(pkg, options = {}) {
 async function checkTool(tool, options = {}) {
   const [local, latest] = await Promise.all([
     runVersion(tool.exe),
-    fetchLatest(tool.pkg, options).catch(() => '')
+    (tool.key === 'agy' ? fetchAgyLatest(options) : fetchLatest(tool.pkg, options)).catch(() => '')
   ])
   return {
     key: tool.key,
@@ -171,7 +146,7 @@ async function checkTool(tool, options = {}) {
     local,
     latest,
     outdated: Boolean(local && latest && compareVersions(local, latest) < 0),
-    updateCommand: tool.update
+    task: runner.status(tool.key)
   }
 }
 
@@ -179,25 +154,17 @@ async function checkTool(tool, options = {}) {
  * 全部工具一起查。
  * @param {{ fetchImpl?: Function }} [options]
  */
-function checkAll(options = {}) {
+async function checkAll(options = {}) {
+  await runner.refreshEnvironment().catch(() => {})
   return Promise.all(TOOLS.map((tool) => checkTool(tool, options)))
 }
 
 /**
- * 更新指令。renderer 只送 key，指令字串由這裡組。
+ * 背景任務。renderer 只送 key，指令固定在 main。
  * @param {unknown} key
- * @returns {string}
  */
-function updateCommand(key) {
-  const tool = typeof key === 'string' ? BY_KEY.get(key) : null
-  if (!tool || !tool.update) {
-    const error = new Error('NO_UPDATE_PATH')
-    error.code = 'NO_UPDATE_PATH'
-    error.userMessage = '這個工具沒有更新指令'
-    throw error
-  }
-  return tool.update
-}
+function runTask(key) { return runner.run(key) }
+function taskStatus(key) { return typeof key === 'string' && Object.hasOwn(UPDATERS, key) ? runner.status(key) : { phase: 'failed', code: 'INVALID_TOOL', message: '不支援這個工具' } }
 
 module.exports = {
   TOOLS,
@@ -205,7 +172,9 @@ module.exports = {
   compareVersions,
   runVersion,
   fetchLatest,
+  fetchAgyLatest,
   checkTool,
   checkAll,
-  updateCommand
+  runTask,
+  taskStatus
 }

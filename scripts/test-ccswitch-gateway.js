@@ -16,6 +16,7 @@ const ROOT = path.join(__dirname, '..')
 const convert = require(path.join(ROOT, 'src/main/ccswitch/gateway/convert.js'))
 const credential = require(path.join(ROOT, 'src/main/ccswitch/gateway/credential.js'))
 const server = require(path.join(ROOT, 'src/main/ccswitch/gateway/server.js'))
+const clientHeaders = require(path.join(ROOT, 'src/main/ccswitch/gateway/client-headers.js'))
 
 let passed = 0
 let failed = 0
@@ -259,6 +260,24 @@ console.log('\n[F] 路由與憑證')
   ok('讀得出 JWT 的 exp', claims.exp === 123)
   ok('不是 JWT 就回空物件', Object.keys(credential.jwtClaims('nope')).length === 0)
   ok('壞掉的 payload 回空物件', Object.keys(credential.jwtClaims('a.!!!.c')).length === 0)
+}
+
+console.log('\n[G] OpenCode Go 客戶端與對話識別')
+{
+  const modern = { metadata: { user_id: JSON.stringify({ device_id: 'private-device',
+    account_uuid: 'private-account', session_id: 'session-123456' }) } }
+  const first = clientHeaders.forOpenCode({}, modern)
+  ok('新版 Claude metadata JSON 只取對話識別', first['x-opencode-session'] === 'session-123456')
+  ok('有自己的 User-Agent，不沿用通用 HTTP library', first['User-Agent'].startsWith('VoiceInk-CCSwitch/'))
+  ok('工具往返與重試沿用同一對話識別',
+    clientHeaders.forOpenCode({}, modern)['x-opencode-session'] === first['x-opencode-session'])
+  ok('不轉送使用者／裝置資料', !JSON.stringify(first).includes('private-'))
+  ok('舊版 Claude session 後綴仍可讀', clientHeaders.sessionId({},
+    { metadata: { user_id: 'user_account_session_legacy-123456' } }) === 'legacy-123456')
+  ok('原生 Claude session header 優先', clientHeaders.sessionId(
+    { 'x-claude-code-session-id': 'native-123456' }, modern) === 'native-123456')
+  ok('拒絕陣列、超長值及 header 換行', [[], 'x'.repeat(129), 'abcdef\r\nAuthorization: secret']
+    .every((value) => !clientHeaders.sessionId({ 'x-opencode-session': value }, {})))
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

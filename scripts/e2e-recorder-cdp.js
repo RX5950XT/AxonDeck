@@ -140,11 +140,17 @@ async function main() {
     await cdp.eval(`document.querySelector('[data-page="stt"]').click(), 'ok'`)
     // 子分頁的 click 是 stt-page.js 動態載入後才掛上的
     await waitFor(() => cdp.eval(`!!document.getElementById('fileAsrModel')?.options.length`), 10000, '語音轉文字頁載入')
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="recorder"]').click(), 'ok'`)
+    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="file"]').click(), 'ok'`)
     await waitFor(() => cdp.eval(`!!document.querySelector('#recList .dict-empty')`), 10000, '錄音清單畫好（空）')
-    ok('錄音機子分頁顯示且只有它 active', await cdp.eval(`(() => {
+    ok('檔案與錄音同一頁：轉入區與錄音清單都在', await cdp.eval(`(() => {
       const act = [...document.querySelectorAll('#page-stt .subtab-panel.active')].map((p) => p.id)
-      return act.length === 1 && act[0] === 'stt-recorder' && document.getElementById('stt-recorder').offsetHeight > 0
+      const file = document.getElementById('stt-file')
+      const drop = document.getElementById('dropZone')
+      const rec = document.getElementById('stt-recorder')
+      return act.length === 1 && act[0] === 'stt-file' &&
+        file?.contains(drop) && file?.contains(rec) &&
+        drop.offsetHeight > 0 && rec.offsetHeight > 0 &&
+        !document.getElementById('recordingPickGroup')
     })()`))
     await cdp.shot('rec-empty.png')
 
@@ -184,25 +190,36 @@ async function main() {
       8000, 'audio metadata'
     ))
 
-    // ---- 轉錄 → 檔案轉錄 ----
+    // ---- 轉錄鈕：同一頁左欄帶入 ----
     await cdp.eval(`document.querySelector('#recList .rec-item [data-act="transcribe"]').click(), 'ok'`)
-    await waitFor(() => cdp.eval(`document.getElementById('stt-file').classList.contains('active') && document.querySelector('#fileInfo .file-name').textContent === ${JSON.stringify(recName)}`), 8000, '切到檔案轉錄並帶入')
-    ok('轉錄鈕：切到檔案轉錄、檔案帶進來、開始轉錄鈕可按', await cdp.eval(`(() =>
+    await waitFor(() => cdp.eval(`document.getElementById('stt-file').classList.contains('active') && document.querySelector('#fileInfo .file-name').textContent === ${JSON.stringify(recName)}`), 8000, '轉錄鈕帶入檔案')
+    ok('轉錄鈕：檔案帶進來、開始轉錄鈕可按', await cdp.eval(`(() =>
       !document.getElementById('fileInfo').classList.contains('hidden') &&
       !document.getElementById('transcribeOptions').classList.contains('hidden') &&
       document.getElementById('dropZone').classList.contains('hidden')
     )()`))
 
-    // 檔案轉錄那一側：下拉也選得到同一份
+    // 清掉之後改拖同一筆。拖曳資料只有檔名，沒有路徑
     await cdp.eval(`document.getElementById('clearFileBtn').click(), 'ok'`)
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="recorder"]').click(), 'ok'`)
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="file"]').click(), 'ok'`)
-    await waitFor(() => cdp.eval(`document.querySelectorAll('#recordingPickList .recording-pick-item').length === 1`), 8000, '最近的錄音')
-    const pickVisible = await cdp.eval(`document.getElementById('recordingPickGroup').offsetHeight > 0`)
-    ok('檔案轉錄的「最近的錄音」看得到', pickVisible)
+    await waitFor(() => cdp.eval(`!document.getElementById('dropZone').classList.contains('hidden')`), 5000, '轉入區回到可拖')
+    await cdp.eval(`(() => {
+      const row = document.querySelector('#recList .rec-item')
+      const zone = document.getElementById('sttFileCol')
+      const dt = new DataTransfer()
+      dt.setData('application/x-voiceink-recording', row.dataset.name)
+      dt.setData('text/plain', row.dataset.name)
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }))
+      }
+      return 'ok'
+    })()`)
+    await waitFor(() => cdp.eval(`document.querySelector('#fileInfo .file-name').textContent === ${JSON.stringify(recName)}`), 8000, '拖錄音到轉入區')
+    ok('拖錄音檔到轉入區就等於選了該檔', await cdp.eval(`(() =>
+      !document.getElementById('fileInfo').classList.contains('hidden') &&
+      !document.getElementById('transcribeOptions').classList.contains('hidden') &&
+      !document.getElementById('recordingPickGroup')
+    )()`))
     await cdp.shot('file-pick.png')
-    await cdp.eval(`document.querySelector('#recordingPickList .recording-pick-item[data-name=${JSON.stringify(recName)}]').click(), 'ok'`)
-    ok('點最近的錄音就帶得進來', await cdp.eval(`document.querySelector('#fileInfo .file-name').textContent === ${JSON.stringify(recName)}`))
     await cdp.eval(`document.getElementById('clearFileBtn').click(), 'ok'`)
 
     // ---- 字幕紀錄 ----
@@ -226,18 +243,14 @@ async function main() {
     await cdp.eval(`document.querySelector('.live-history').scrollIntoView({ block: 'end' }), 'ok'`)
     await cdp.shot('live-history.png')
 
-    // 刪除走 app-dialog
+    // v1.39.3 起刪除不再跳確認框，按了就刪
     await cdp.eval(`document.querySelector('#liveHistoryList [data-act="delete"]').click(), 'ok'`)
-    await waitFor(() => cdp.eval(`!!document.querySelector('dialog.app-dialog[open] .btn-danger')`), 5000, '確認框')
-    await cdp.eval(`document.querySelector('dialog.app-dialog[open] .btn-danger').click(), 'ok'`)
     await waitFor(() => cdp.eval(`!!document.querySelector('#liveHistoryList .dict-empty')`), 5000, '刪掉後變空')
     ok('字幕紀錄刪得掉（檔案也不在了）', !fs.existsSync(path.join(USER_DATA_DIR, 'live-transcripts', `${liveId}.jsonl`)))
 
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="recorder"]').click(), 'ok'`)
+    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="file"]').click(), 'ok'`)
     await waitFor(() => cdp.eval(`document.querySelectorAll('#recList .rec-item').length === 1`), 5000, '回到錄音清單')
     await cdp.eval(`document.querySelector('#recList [data-act="delete"]').click(), 'ok'`)
-    await waitFor(() => cdp.eval(`!!document.querySelector('dialog.app-dialog[open] .btn-danger')`), 5000, '確認框')
-    await cdp.eval(`document.querySelector('dialog.app-dialog[open] .btn-danger').click(), 'ok'`)
     await waitFor(() => cdp.eval(`!!document.querySelector('#recList .dict-empty')`), 5000, '錄音刪掉後變空')
     ok('錄音刪得掉', !fs.existsSync(recFile))
 

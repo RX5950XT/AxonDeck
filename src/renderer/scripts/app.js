@@ -72,7 +72,7 @@ async function loadQuotaBar() {
 }
 
 /** @returns {Promise<typeof import('./agy-page.js')>} */
-async function loadAgyPage() {
+export async function loadAgyPage() {
   if (!agyPage) agyPage = await import('./agy-page.js')
   return agyPage
 }
@@ -139,14 +139,13 @@ async function loadHfPage() {
 }
 
 /**
- * 進「語音轉文字」頁：兩個子分頁的模組都要在（切子分頁不該再等一次 import），
- * 但引擎只給目前這個子分頁用——即時字幕 prewarm 很貴，停在檔案轉錄時不該先付。
- * @param {'file'|'live'} subtab
+ * 進「語音轉文字」頁：檔案轉入與錄音機在同一個子分頁，模組先載好（切子分頁不該再等一次 import），
+ * 但引擎只給目前這個子分頁用——即時字幕 prewarm 很貴，停在檔案與錄音時不該先付。
+ * @param {'file'|'live'|'dictation'} subtab
  */
 async function activateSttSubtab(subtab) {
-  const transcribe = await loadTranscribePage()
-  if (subtab === 'file') transcribe.refreshRecordingPick()
-  if (subtab === 'recorder') import('./recorder.js').then((m) => m.refreshRecorderPage())
+  await loadTranscribePage()
+  if (subtab === 'file') import('./recorder.js').then((m) => m.refreshRecorderPage())
   if (subtab === 'live') {
     const live = await loadLiveCaption()
     live.prewarmEngine()
@@ -994,7 +993,6 @@ export function switchPage(pageName) {
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => m.start())
   if (pageName === 'sysmon') loadSysmonPage().then((m) => m.refreshSysmonPage())
-  if (pageName === 'agy') loadAgyPage().then((m) => m.refreshAgyPage())
   if (pageName === 'stt') {
     loadSttPage().then((m) => {
       m.refreshSttPage()
@@ -1011,7 +1009,8 @@ export function switchPage(pageName) {
   if (pageName !== 'translate') translatePage?.cooldownTranslatePage()
   // 取樣器常駐：離開這一頁只收壓力測試與面板，不停 probe / nvidia-smi
   if (pageName !== 'sysmon') sysmonPage?.cooldownSysmonPage()
-  if (pageName !== 'agy') agyPage?.cooldownAgyPage()
+  // AGY 反代現在是 CC Proxy 的子分頁：離開 CC Proxy 就收它的輪詢
+  if (pageName !== 'ccswitch') agyPage?.cooldownAgyPage()
   // **離開 HF模型頁不關 router**：聊天要用它，關掉等於每次切頁都把模型卸載一次。
   // 這裡只收自己的計時器。
   if (pageName !== 'explorer') explorerPage?.cooldownExplorerPage()

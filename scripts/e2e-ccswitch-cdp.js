@@ -25,6 +25,8 @@ const PORT = 9247
 // 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
 const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
 const USER_DATA_DIR = tempDir('voiceink-e2e-ccswitch-')
+// 切換供應商會寫 `~/.claude/settings.json`：測試實例的家目錄指到暫存，真的設定檔一個字都不碰
+const HOME_DIR = tempDir('voiceink-e2e-ccswitch-home-')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -171,7 +173,7 @@ async function main() {
     `--user-data-dir=${USER_DATA_DIR}`,
     '--hidden',
     '--disable-backgrounding-occluded-windows'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] })
+  ], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, USERPROFILE: HOME_DIR, HOME: HOME_DIR } })
   let processLog = ''
   child.stdout.on('data', (chunk) => { processLog += chunk })
   child.stderr.on('data', (chunk) => { processLog += chunk })
@@ -225,7 +227,8 @@ async function main() {
       '官方訂閱排第一、自訂收尾', presetIds.join(','))
     // 內建各家都要有實測過的 modelsUrl（掃描按鈕的開關）；custom 由 baseUrl 推導、不該有
     const byId = Object.fromEntries(catalog.data.presets.map((preset) => [preset.id, preset]))
-    for (const id of presetIds.filter((key) => key !== 'custom' && key !== 'official')) {
+    // AGY 的模型清單直接拿反代的即時型錄，不走 modelsUrl
+    for (const id of presetIds.filter((key) => !['custom', 'official', 'agy'].includes(key))) {
       assert(/^https?:\/\//.test(byId[id]?.modelsUrl || ''), `${id} 有 modelsUrl`, byId[id]?.modelsUrl)
     }
     assert(!byId.custom.modelsUrl, '自訂沒有 modelsUrl')
@@ -289,7 +292,7 @@ async function main() {
     // 真 HTTP 流量走 packaged main；未開編輯窗也必須自動掃，移除舊模型後四格不能殘留。
     const automatic = await cdp.eval(`window.electronAPI.ccswitch.createProvider({
       presetId: 'custom', name: 'CDP 自動模型', baseUrl: ${JSON.stringify(modelUrl)},
-      apiFormat: 'openai_chat', apiKey: 'isolated-cdp-key', model: 'retired-cdp'
+      apiFormat: 'openai_chat', apiKey: 'isolated-cdp-key', sonnetModel: 'retired-cdp'
     })`)
     const automaticId = automatic?.data?.id
     assert(Boolean(automaticId), '建立隔離模型端點供應商')
@@ -300,7 +303,7 @@ async function main() {
     }, 10_000, '自動模型清單')
     assert(modelRequests > 0, '未開編輯窗就自動掃模型（真 HTTP）')
     modelIds = ['fresh-cdp', 'new-cdp']
-    await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
     await waitFor(() => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${automaticId}"]'))`), 5000, '自動供應商 tile')
     await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${automaticId}"] .cc-tile-edit').click()`)
     const requestsBeforeManual = modelRequests
@@ -309,14 +312,34 @@ async function main() {
     await cdp.eval("document.getElementById('ccScanModelsBtn').click()")
     await waitFor(() => cdp.eval("!document.getElementById('ccScanModelsBtn').disabled"), 10_000, '手動模型刷新完成')
     assert(modelRequests > requestsBeforeManual, '手動刷新按鈕立即讀取模型（真 HTTP）')
-    const modelChoices = () => cdp.eval(`['ccModelSelect', 'ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect']
-      .map((id) => [...document.getElementById(id).options].map((option) => option.value))`)
-    await waitFor(async () => (await modelChoices()).every((ids) => ids.includes('new-cdp')), 10_000, '更新後模型下拉')
-    assert((await modelChoices()).every((ids) => !ids.includes('retired-cdp')), '四個模型下拉移除下架模型')
-    assert(await cdp.eval("document.getElementById('ccModelInput').value === 'retired-cdp' && document.getElementById('ccManualModelsBtn').textContent === '改用下拉'"), '清單外原設定保留在手動欄位')
-    // 手動欄位切回下拉選新的，再掃不能把原來存檔的舊模型塞回來。
-    await cdp.eval("document.getElementById('ccManualModelsBtn').click()")
-    await cdp.eval(pickSelect('ccModelSelect', 'new-cdp'))
+    // 模型欄位是可搜尋的輸入框：點進去列出清單，打字即篩，真滑鼠點選就填入
+    const menuIds = () => cdp.eval(`[...document.querySelectorAll('#ccSonnetInputMenu .custom-select-option')].map((item) => item.dataset.value)`)
+    // 真滑鼠點進輸入框（視窗沒焦點時 element.focus() 不保證觸發 focus 事件）
+    const realClick = async (selector) => {
+      const box = await cdp.eval(`(() => {
+        const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect()
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      })()`)
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+        await cdp.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      }
+    }
+    await realClick('#ccSonnetInput')
+    await waitFor(async () => (await menuIds()).includes('new-cdp'), 10_000, '更新後模型清單')
+    assert(!(await menuIds()).includes('retired-cdp'), '模型清單移除下架模型')
+    assert(await cdp.eval("document.getElementById('ccSonnetInput').value === 'retired-cdp'"), '清單外原設定保留在輸入框')
+    await cdp.eval("document.getElementById('ccSonnetInput').select()")
+    await cdp.send('Input.insertText', { text: 'new' })
+    await waitFor(async () => JSON.stringify(await menuIds()) === '["new-cdp"]', 5000, '打字即篩')
+    const optionBox = await cdp.eval(`(() => {
+      const r = document.querySelector('#ccSonnetInputMenu .custom-select-option').getBoundingClientRect()
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    })()`)
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+      await cdp.send('Input.dispatchMouseEvent', { type, x: optionBox.x, y: optionBox.y, button: 'left', clickCount: 1 })
+    }
+    await waitFor(() => cdp.eval("document.getElementById('ccSonnetInput').value === 'new-cdp' && !document.getElementById('ccSonnetInputMenu')?.isConnected"),
+      5000, '點選後填入並收起清單')
     await cdp.eval("document.getElementById('ccProviderCancelBtn').click()")
     modelStatus = 503
     const offline = await cdp.eval(`window.electronAPI.ccswitch.scanModels(${JSON.stringify(automaticId)})`)
@@ -328,7 +351,7 @@ async function main() {
     const empty = await cdp.eval(`window.electronAPI.ccswitch.scanModels(${JSON.stringify(automaticId)})`)
     assert(empty.ok && empty.data.ok && empty.data.models.length === 0, '合法空清單可清掉全部舊模型')
     await cdp.eval(`window.electronAPI.ccswitch.deleteProvider(${JSON.stringify(automaticId)})`)
-    await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
 
     // ===== tile 拖曳排序（跟額度卡片一樣可以自由換位置）=====
     // 拖曳的最後一步跟鍵盤搬動走同一條 onCommit，所以用 Alt+↓ 驗（模擬 pointer 事件
@@ -358,7 +381,7 @@ async function main() {
         '新順序寫回 store'
       )
       // 重新整理之後畫面要照 store 的順序畫回來
-      await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+      await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
       await waitFor(
         () => cdp.eval(`[...document.querySelectorAll('#ccProviderList .cc-tile:not(.is-add)')][0]?.dataset.id === '${order0[1]}'`),
         5000,
@@ -366,7 +389,7 @@ async function main() {
       )
       // 搬回原位，後面的斷言才不受影響
       await cdp.eval(`window.electronAPI.ccswitch.reorderProviders(${JSON.stringify(order0)})`)
-      await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+      await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
       await waitFor(
         () => cdp.eval(`[...document.querySelectorAll('#ccProviderList .cc-tile:not(.is-add)')][0]?.dataset.id === '${order0[0]}'`),
         5000,
@@ -404,7 +427,7 @@ async function main() {
       assert(await cdp.eval("document.querySelectorAll('.reorder-overlay').length === 0"), 'overlay 收乾淨')
 
       await cdp.eval(`window.electronAPI.ccswitch.reorderProviders(${JSON.stringify(order0)})`)
-      await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+      await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
       await waitFor(
         () => cdp.eval(`[...document.querySelectorAll('#ccProviderList .cc-tile:not(.is-add)')][0]?.dataset.id === '${order0[0]}'`),
         5000,
@@ -434,7 +457,7 @@ async function main() {
     assert(created?.ok === true, '新增供應商成功', JSON.stringify(created?.error || {}))
     createdId = created.data.id
 
-    await cdp.eval("document.getElementById('ccRefreshBtn').click()")
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
     await waitFor(
       () => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${createdId}"]'))`),
       10_000,
@@ -471,7 +494,13 @@ async function main() {
       '編輯時金鑰欄留空（不回填完整金鑰）'
     )
     // 「宣告支援 1M 上下文」：勾了要真的存進去（tile 第二行也會多一段 `· 1M`）。
-    // 只斷言 checkbox 在不在抓不到「被 CSS 收掉了」，所以量得到高度才算數
+    // 只斷言 checkbox 在不在抓不到「被 CSS 收掉了」，所以量得到高度才算數。
+    // 它跟名稱收在「進階設定」裡：內建那幾家預設收著，展開後才量得到
+    assert(
+      await cdp.eval("document.getElementById('ccAdvanced').open === false && document.getElementById('ccKeyInput').offsetHeight > 0"),
+      '內建供應商的進階設定預設收著、金鑰欄在外面'
+    )
+    await cdp.eval("document.querySelector('#ccAdvanced > summary').click()")
     assert(
       await cdp.eval("document.getElementById('ccContext1mCheck').offsetHeight > 0"),
       '1M 勾選框看得見'
@@ -574,36 +603,18 @@ async function main() {
     const gwHint = await cdp.eval("document.getElementById('ccApiFormatHint').textContent")
     assert(gwHint.includes('本機轉換閘道'), '換成 OpenAI 協議會說要走閘道', gwHint)
 
-    // 模型四格是下拉＋掃描按鈕；手動輸入是逃生口
+    // 模型三格是可搜尋的輸入框＋掃描按鈕；不再有「手動輸入」切換
     assert(
-      await cdp.eval("Boolean(document.getElementById('ccScanModelsBtn'))"),
-      '有「從 API 載入模型」按鈕'
+      await cdp.eval("Boolean(document.getElementById('ccScanModelsBtn')) && !document.getElementById('ccManualModelsBtn')"),
+      '有「從 API 載入模型」按鈕，沒有手動切換鈕'
     )
-    const modelUi = await cdp.eval(`(() => {
-      const selects = ['ccModelSelect', 'ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect']
-      return {
-        selects: selects.filter((id) => document.getElementById(id)?.tagName === 'SELECT').length,
-        selectShown: selects.every((id) => {
-          const el = document.getElementById(id)
-          return el && !el.closest('.custom-select').classList.contains('hidden')
-        }),
-        inputsHidden: ['ccModelInput', 'ccHaikuInput', 'ccSonnetInput', 'ccOpusInput']
-          .every((id) => document.getElementById(id)?.classList.contains('hidden'))
-      }
-    })()`)
-    assert(modelUi.selects === 4, '四個模型等級都是下拉', JSON.stringify(modelUi))
-    assert(modelUi.selectShown, '下拉模式是預設')
-    assert(modelUi.inputsHidden, '手動輸入欄預設藏著')
-    await cdp.eval("document.getElementById('ccManualModelsBtn').click()")
     assert(
-      await cdp.eval(`(() => {
-        const inputs = ['ccModelInput', 'ccHaikuInput', 'ccSonnetInput', 'ccOpusInput']
-        return inputs.every((id) => !document.getElementById(id)?.classList.contains('hidden')) &&
-          document.getElementById('ccManualModelsBtn').textContent.includes('改用下拉')
-      })()`),
-      '手動輸入切得過去、值帶得走'
+      await cdp.eval(`['ccOpusInput', 'ccSonnetInput', 'ccHaikuInput'].every((id) => {
+        const el = document.getElementById(id)
+        return el?.getAttribute('role') === 'combobox' && el.offsetHeight > 0
+      })`),
+      '三格都是看得見的可搜尋輸入框'
     )
-    await cdp.eval("document.getElementById('ccManualModelsBtn').click()")
 
     // 沒填 Base URL 不准存：錯誤要出現在填錯的地方，不是等到切換才報
     await cdp.eval("document.getElementById('ccBaseUrlInput').value = ''")
@@ -748,22 +759,23 @@ async function main() {
     await cdp.eval(
       `document.querySelector('#ccProviderList .cc-tile[data-id="${codexSeed.id}"] .cc-tile-edit').click()`
     )
-    // 四個等級各一格下拉；沒掃描前選項＝空值＋這家的預設
+    // Opus／Sonnet／Haiku 各一格；留空時只顯示這家預設的模型 id，不加「預設」字樣
     const modelFields = await cdp.eval(`(() => {
-      const ids = ['ccModelSelect', 'ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect']
-      return ids.map((id) => document.getElementById(id)?.options[0]?.textContent ?? null)
+      const ids = ['ccOpusInput', 'ccSonnetInput', 'ccHaikuInput']
+      return ids.map((id) => document.getElementById(id)?.placeholder ?? null)
     })()`)
     assert(
-      modelFields.length === 4 &&
-        modelFields[0].includes('gpt-5.6-sol') && modelFields[1].includes('gpt-5.6-luna'),
-      '四個模型等級各有一格下拉且帶這家預設',
+      JSON.stringify(modelFields) === JSON.stringify(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna']),
+      '三個模型等級各有一格、只顯示這家預設模型 id',
       JSON.stringify(modelFields)
     )
+    assert(await cdp.eval("!document.getElementById('ccModelSelect') && !document.getElementById('ccRefreshBtn')"),
+      '主模型（兜底）與頁首重新整理鈕已拿掉')
     // 內容再高，「取消／儲存」都要留在彈窗裡；.app-dialog 是 overflow:hidden，
     // 中間那塊不會捲的話按鈕會被擠到看不見也滑不下去（實際出貨過）。
     // 壓成矮視窗才量得到——視窗夠高的話內容根本不會超過 86vh。
     await cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: 1280, height: 560, deviceScaleFactor: 1, mobile: false
+      width: 1280, height: 380, deviceScaleFactor: 1, mobile: false
     })
     await sleep(80)
     const footer = await cdp.eval(`(() => {
@@ -807,43 +819,33 @@ async function main() {
       '取消關得掉彈窗'
     )
 
-    // ===== 轉換閘道 =====
-    // OpenAI 協議要經本機閘道。閘道不會因切換供應商自動啟動，只驗手動開關與 /health，
+    // ===== 轉換閘道（跟著供應商自動開關）=====
+    // 切到要轉換格式的那家會自動開閘道、切回官方訂閱會自動關。settings.json 寫在暫存家目錄，
     // **不打真的上游**（那要花使用者的訂閱額度）。
+    assert(await cdp.eval("!document.getElementById('ccGatewayToggleBtn')"), '閘道沒有手動開關了')
     const gwProvider = await cdp.eval(
       "window.electronAPI.ccswitch.createProvider({ presetId: 'ollama-cloud', name: 'CDP 閘道測試', apiKey: 'k' })"
     )
     assert(gwProvider?.ok === true, '建得出需要閘道的供應商')
     createdId = gwProvider.data.id
-
-    await cdp.eval("document.getElementById('ccRefreshBtn').click()")
-    await waitFor(
-      () => cdp.eval("!document.getElementById('ccGateway').classList.contains('hidden')"),
-      10_000,
-      '閘道狀態列出現'
-    )
     const gatewayBefore = await cdp.eval('window.electronAPI.ccswitch.gatewayStatus()')
     assert(gatewayBefore?.ok === true && gatewayBefore.data.running === false,
-      '新增需要閘道的供應商不會自動開閘道', JSON.stringify(gatewayBefore))
-    assert(
-      await cdp.eval("document.getElementById('ccGatewayToggleBtn').getAttribute('aria-checked') === 'false'"),
-      '閘道關閉時開關是關閉狀態'
-    )
-    const activateWhileOff = await cdp.eval(
-      `window.electronAPI.ccswitch.activateProvider(${JSON.stringify(createdId)})`
-    )
-    assert(activateWhileOff?.ok === false && activateWhileOff.error?.code === 'GATEWAY_OFFLINE',
-      '閘道關閉時不會偷偷啟動，切換會明說要先開閘道', JSON.stringify(activateWhileOff))
-    pass('閘道只由使用者手動開啟')
+      '新增供應商不會開閘道', JSON.stringify(gatewayBefore))
 
-    await cdp.eval("document.getElementById('ccGatewayToggleBtn').click()")
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
     await waitFor(
-      () => cdp.eval("document.getElementById('ccGatewayToggleBtn').getAttribute('aria-checked') === 'true'"),
+      () => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${createdId}"] .cc-tile-switch'))`),
       10_000,
-      '按開關啟動閘道'
+      '閘道供應商的啟用鈕出現'
+    )
+    await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${createdId}"] .cc-tile-switch').click()`)
+    await waitFor(
+      () => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile.is-active[data-id="${createdId}"]'))`),
+      15_000,
+      '切到經閘道的供應商後變成使用中'
     )
     const started = await cdp.eval('window.electronAPI.ccswitch.gatewayStatus()')
-    assert(started?.ok === true && started.data.running === true, '閘道啟動成功',
+    assert(started?.ok === true && started.data.running === true, '切過去閘道自動啟動',
       JSON.stringify(started?.error || {}))
     assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(started.data.baseUrl), '閘道只綁 127.0.0.1',
       started.data.baseUrl)
@@ -852,6 +854,11 @@ async function main() {
     // 狀態不可以夾帶上游 token
     assert(!/access_token|refresh_token/.test(JSON.stringify(started.data)),
       '閘道狀態不含上游 token')
+    assert(await cdp.eval("document.getElementById('ccGatewayDot').classList.contains('is-running')"),
+      '閘道狀態燈亮起')
+    const written = JSON.parse(fs.readFileSync(path.join(HOME_DIR, '.claude', 'settings.json'), 'utf8'))
+    assert(String(written.env?.ANTHROPIC_BASE_URL || '').startsWith(started.data.baseUrl),
+      'settings.json 指向本機閘道', String(written.env?.ANTHROPIC_BASE_URL))
 
     const health = await new Promise((resolve) => {
       http.get(`${started.data.baseUrl}/health`, (res) => {
@@ -862,14 +869,36 @@ async function main() {
     })
     assert(health.status === 200, '/health 回得出來（不需鑑權）', String(health.status))
 
-    await cdp.eval("document.getElementById('ccGatewayToggleBtn').click()")
+    const official = await cdp.eval(
+      "window.electronAPI.ccswitch.listProviders().then((r) => r.data.providers.find((p) => p.presetId === 'official').id)"
+    )
+    await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${official}"] .cc-tile-switch').click()`)
     await waitFor(
-      () => cdp.eval("document.getElementById('ccGatewayToggleBtn').getAttribute('aria-checked') === 'false'"),
-      10_000,
-      '按開關停止閘道'
+      () => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile.is-active[data-id="${official}"]'))`),
+      15_000,
+      '切回官方訂閱'
     )
     const stopped = await cdp.eval('window.electronAPI.ccswitch.gatewayStatus()')
-    assert(stopped?.ok === true && stopped.data.running === false, '閘道停得掉')
+    assert(stopped?.ok === true && stopped.data.running === false, '切回官方訂閱閘道自動關閉')
+    const cleared = JSON.parse(fs.readFileSync(path.join(HOME_DIR, '.claude', 'settings.json'), 'utf8'))
+    assert(!cleared.env?.ANTHROPIC_BASE_URL, '切回官方訂閱清掉 Base URL', JSON.stringify(cleared.env || {}))
+
+    // ===== AGY 反代搬進 CC Proxy 子分頁 =====
+    assert(await cdp.eval("!document.querySelector('.nav-tab[data-page=\"agy\"]')"), '頂端不再有 AGY 反代那一頁')
+    assert(await cdp.eval("document.querySelector('.nav-tab[data-page=\"ccswitch\"] .nav-text').textContent === 'CC Proxy'"),
+      '導覽名稱改成 CC Proxy')
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"agy\"]').click()")
+    await waitFor(
+      () => cdp.eval("document.getElementById('cc-agy').classList.contains('active') && document.getElementById('agyToggleBtn').offsetHeight > 0"),
+      10_000,
+      'AGY 反代子分頁切得過去、啟動鈕看得見'
+    )
+    await waitFor(
+      () => cdp.eval("document.getElementById('agyPortInput').value !== ''"),
+      10_000,
+      'AGY 子分頁有載入狀態'
+    )
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"providers\"]').click()")
 
     await cdp.eval(`window.electronAPI.ccswitch.deleteProvider(${JSON.stringify(createdId)})`)
     createdId = ''
@@ -930,34 +959,23 @@ async function main() {
     const versionText = await cdp.eval("document.getElementById('ccVersionList').textContent")
     assert(versionText.includes('Claude Code'), '版本清單有 Claude Code')
     assert(versionText.includes('Antigravity CLI'), '版本清單有 Antigravity CLI')
-    // 沒發 npm 的工具照樣有更新鈕（走它自己的 `agy update`），只有「本機找不到」才沒有
+    // 唯讀驗證：未安裝有安裝鈕，已安裝有更新鈕；不按下修改本機環境。
     const agyRow = await cdp.eval(`(() => {
       const row = document.querySelector('#ccVersionList .cc-row[data-tool="agy"]')
       return { buttons: row?.querySelectorAll('.cc-row-actions button').length ?? -1, text: row?.textContent || '' }
     })()`)
     assert(
-      agyRow.buttons === (agyRow.text.includes('本機找不到') ? 0 : 1),
-      'Antigravity 裝了就有更新鈕、沒裝就沒有',
+      agyRow.buttons === 1,
+      'Antigravity 有安裝或更新鈕',
       JSON.stringify(agyRow)
     )
     // 查不到最新版時不可以再顯示誤導人的「離線？」
     assert(!versionText.includes('離線'), '版本清單不再出現「離線？」')
 
-    // 更新指令由 main 組出來，renderer 不自己拼字串；一律用各家自己的 updater
-    const command = await cdp.eval("window.electronAPI.ccswitch.updateCommand('claude')")
-    assert(
-      command?.ok === true && command.data === 'claude update',
-      '更新指令由 main 的固定表提供',
-      JSON.stringify(command)
-    )
-    const agyCommand = await cdp.eval("window.electronAPI.ccswitch.updateCommand('agy')")
-    assert(
-      agyCommand?.ok === true && agyCommand.data === 'agy update',
-      '沒發 npm 的工具走自己的 update 子指令',
-      JSON.stringify(agyCommand)
-    )
-    const rejected = await cdp.eval("window.electronAPI.ccswitch.updateCommand('rm -rf /')")
-    assert(rejected?.ok === false, '不認得的工具 key 拿不到指令')
+    const status = await cdp.eval("window.electronAPI.ccswitch.cliTaskStatus('agy')")
+    assert(status?.ok === true && status.data.phase === 'idle', '背景任務狀態可唯讀查詢')
+    const rejected = await cdp.eval("window.electronAPI.ccswitch.runCliTask('rm -rf /')")
+    assert(rejected?.ok === true && rejected.data.code === 'INVALID_TOOL', '不認得的工具 key 不啟動子程序')
 
     assert(cdp.exceptions.length === 0, 'renderer 沒有未捕捉例外', JSON.stringify(cdp.exceptions))
 
@@ -979,6 +997,7 @@ async function main() {
     stopTestApp(child)
     await new Promise((resolve) => upstream.close(resolve))
     removeTree(USER_DATA_DIR)
+    removeTree(HOME_DIR)
   }
 }
 

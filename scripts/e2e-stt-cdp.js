@@ -146,6 +146,9 @@ async function main() {
       activePanel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
       activeCount: document.querySelectorAll('#page-stt .subtab-panel.active').length,
       hasDropZone: !!document.querySelector('#stt-file #dropZone'),
+      hasRecorder: !!document.querySelector('#stt-file #recList'),
+      noRecordingPick: !document.getElementById('recordingPickGroup'),
+      liveSources: [...(document.getElementById('liveAudioSource')?.options || [])].map((o) => o.value),
       hasLiveBtn: !!document.querySelector('#stt-live #startLiveBtn'),
       hasDictation: !!document.querySelector('#stt-dictation #dictationEnabledInput'),
       // 舊的兩個 nav 分頁與 section 都不該還在
@@ -153,10 +156,12 @@ async function main() {
       noOldSections: !document.getElementById('page-transcribe') && !document.getElementById('page-live')
     }))()`)
     ok(
-      '檔案轉錄／錄音機／即時字幕／語音輸入合併成一頁的子分頁',
-      JSON.stringify(layout?.subtabs) === JSON.stringify(['file', 'recorder', 'live', 'dictation']) &&
+      '檔案與錄音／即時字幕／語音輸入合併成一頁的子分頁',
+      JSON.stringify(layout?.subtabs) === JSON.stringify(['file', 'live', 'dictation']) &&
         layout.activePanel === 'stt-file' && layout.activeCount === 1 &&
-        layout.hasDropZone && layout.hasLiveBtn && layout.hasDictation &&
+        layout.hasDropZone && layout.hasRecorder && layout.noRecordingPick &&
+        JSON.stringify(layout.liveSources) === JSON.stringify(['system', 'mic']) &&
+        layout.hasLiveBtn && layout.hasDictation &&
         layout.noOldNav && layout.noOldSections,
       JSON.stringify(layout)
     )

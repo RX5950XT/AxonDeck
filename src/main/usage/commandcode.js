@@ -132,7 +132,7 @@ async function syncCommandCode({
   const { key, source } = await resolveCommandCodeKey({ homeDir, env })
   if (!key) {
     account.status = 'disconnected'
-    account.notes = '找不到 Command Code 金鑰，請到「CC代理」頁的 Command Code 填入 API Key（或跑 cmd login）。'
+    account.notes = '找不到 Command Code 金鑰，請到「CC Proxy」頁的 Command Code 填入 API Key（或跑 cmd login）。'
     return normalizeAccount(account)
   }
 
@@ -158,7 +158,7 @@ async function syncCommandCode({
     log(`commandcode: API failed ${error.status ? `HTTP ${error.status}` : error.code || 'unknown'}`)
     if (error?.status === 401 || error?.status === 403) {
       account.status = 'disconnected'
-      account.notes = 'Command Code 金鑰被拒絕，請在「CC代理」頁換一把 API Key 或重跑 cmd login。'
+      account.notes = 'Command Code 金鑰被拒絕，請在「CC Proxy」頁換一把 API Key 或重跑 cmd login。'
     } else {
       account.status = 'connected'
       account.accuracy = 'estimated'

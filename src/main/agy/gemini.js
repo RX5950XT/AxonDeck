@@ -122,7 +122,53 @@ function isNullOnly(item) {
   return false
 }
 
-function sanitizeSchema(raw, depth = 0) {
+const SCALAR_CONSTRAINTS = ['pattern', 'enum', 'format', 'minimum', 'maximum', 'minLength', 'maxLength']
+
+/**
+ * 把 anyOf 攤平成單一型別。Claude 模型經 cloudcode-pa 時，上游把 Gemini schema 轉回 JSON Schema，
+ * **只要出現 anyOf 就整包 400**「input_schema: JSON schema is invalid」（實測：同型別的 pattern
+ * 分支、string|number 都一樣），Claude Code 的 SendMessage 就帶一個，等於整個 Claude Code 不能用。
+ * 分支同型別就只留型別（約束是「其一成立」，留任一支都會變嚴）；不同型別取第一支。
+ * @param {object} schema sanitizeSchema 的輸出
+ * @returns {object}
+ */
+function withoutUnions(schema) {
+  if (!schema || typeof schema !== 'object') return schema
+  let out = { ...schema }
+  if (Array.isArray(out.anyOf) && out.anyOf.length) {
+    const { anyOf, ...rest } = out
+    const types = new Set(anyOf.map((variant) => variant?.type))
+    const first = withoutUnions(anyOf[0])
+    const picked = types.size === 1 && !first.properties && !first.items
+      ? Object.fromEntries(Object.entries(first).filter(([key]) => !SCALAR_CONSTRAINTS.includes(key)))
+      : first
+    out = { ...picked, ...rest }
+  }
+  if (out.properties) {
+    out.properties = Object.fromEntries(Object.entries(out.properties).map(([key, value]) => [key, withoutUnions(value)]))
+  }
+  if (out.items) out.items = withoutUnions(out.items)
+  return out
+}
+
+/**
+ * 工具參數 schema：清洗成 Gemini 子集，送 Claude 模型再攤平聯集。
+ * @param {unknown} raw
+ * @param {string} mapped 實際送上游的模型
+ * @returns {object | null}
+ */
+function schemaFor(raw, mapped) {
+  const schema = sanitizeSchema(raw)
+  return schema && String(mapped || '').startsWith('claude') ? withoutUnions(schema) : schema
+}
+
+/**
+ * @param {unknown} raw
+ * @param {number} [depth]
+ * @param {string} [inheritType] anyOf 分支沒寫 type 時沿用父層的（`{type:'string',anyOf:[{pattern}]}`），
+ *   補成 object 會跟父層衝突，Claude 模型的上游整包 400「input_schema: JSON schema is invalid」
+ */
+function sanitizeSchema(raw, depth = 0, inheritType = '') {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   if (depth > SCHEMA_MAX_DEPTH) return { type: 'string' }
 
@@ -199,7 +245,7 @@ function sanitizeSchema(raw, depth = 0) {
         out.nullable = true
         continue
       }
-      const variant = sanitizeSchema(item, depth + 1)
+      const variant = sanitizeSchema(item, depth + 1, typeof out.type === 'string' ? out.type : '')
       if (variant) variants.push(variant)
     }
     // 只剩一支就攤平，省掉沒有意義的 anyOf
@@ -212,7 +258,7 @@ function sanitizeSchema(raw, depth = 0) {
     }
   }
 
-  if (!out.type && !out.anyOf) out.type = 'object'
+  if (!out.type && !out.anyOf) out.type = inheritType || 'object'
   if (out.type === 'object' && !out.properties && !out.anyOf) {
     // 沒有屬性的 object 會被上游拒絕，補一個空殼
     out.properties = {}
@@ -229,6 +275,7 @@ module.exports = {
   finishReasonOf,
   firstCandidate,
   sanitizeSchema,
+  schemaFor,
   splitParts,
   unwrapEnvelope,
   usageFrom

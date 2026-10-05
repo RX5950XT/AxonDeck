@@ -28,9 +28,9 @@
           <span class="logo-text">VoiceInk</span>
         </div>
         <nav class="header-nav">
-          <button class="nav-tab active" data-page="chat" title="AI" aria-label="AI" aria-current="page">
+          <button class="nav-tab active" data-page="chat" title="SI" aria-label="SI" aria-current="page">
             <span class="nav-icon" data-icon="ai"></span>
-            <span class="nav-text">AI</span>
+            <span class="nav-text">SI</span>
           </button>
           <button class="nav-tab" data-page="telegram" title="Telegram" aria-label="Telegram">
             <span class="nav-icon" data-icon="telegram"></span>
@@ -40,13 +40,9 @@
             <span class="nav-icon" data-icon="folder"></span>
             <span class="nav-text">檔案</span>
           </button>
-          <button class="nav-tab" data-page="ccswitch" title="CC代理" aria-label="CC代理">
+          <button class="nav-tab" data-page="ccswitch" title="CC Proxy" aria-label="CC Proxy">
             <span class="nav-icon" data-icon="claude"></span>
-            <span class="nav-text">CC代理</span>
-          </button>
-          <button class="nav-tab" data-page="agy" title="AGY反代" aria-label="AGY反代">
-            <span class="nav-icon" data-icon="agy"></span>
-            <span class="nav-text">AGY反代</span>
+            <span class="nav-text">CC Proxy</span>
           </button>
           <button class="nav-tab" data-page="stt" title="語音轉文字" aria-label="語音轉文字">
             <span class="nav-icon" data-icon="mic"></span>
@@ -60,9 +56,9 @@
             <span class="nav-icon" data-icon="activity"></span>
             <span class="nav-text">系統監控</span>
           </button>
-          <button class="nav-tab" data-page="hfmodels" title="HF模型" aria-label="HF模型">
+          <button class="nav-tab" data-page="hfmodels" title="Local SI" aria-label="Local SI">
             <span class="nav-icon" data-icon="huggingface"></span>
-            <span class="nav-text">HF模型</span>
+            <span class="nav-text">Local SI</span>
           </button>
           <button class="nav-tab" data-page="settings" title="設定" aria-label="設定">
             <span class="nav-icon" data-icon="settings"></span>
@@ -863,7 +859,7 @@
               <header class="page-header page-header-row">
                 <div class="page-header-text">
                   <p class="hf-eyebrow">本機大型語言模型</p>
-                  <h1>HF模型</h1>
+                  <h1>Local SI</h1>
                   <p class="page-desc">搜尋 Hugging Face 的 GGUF 模型，下載後一鍵載入聊天。</p>
                 </div>
                 <div class="hf-runtime-chip" id="hfRuntimeChip" role="status" aria-live="polite">
@@ -997,11 +993,8 @@
               <header class="page-header page-header-row">
                 <div class="page-header-text">
                   <p class="cc-eyebrow">Claude Code 工作台</p>
-                  <h1>CC代理</h1>
-                  <p class="page-desc">切換 Claude Code 的供應商、管理 MCP、查 CLI 版本。</p>
-                </div>
-                <div class="cc-actions" role="group" aria-label="操作">
-                  <button type="button" id="ccRefreshBtn" class="btn btn-secondary btn-sm">重新整理</button>
+                  <h1>CC Proxy</h1>
+                  <p class="page-desc">切換 Claude Code 的供應商；要轉換格式的那幾家會自動開本機閘道。</p>
                 </div>
               </header>
 
@@ -1011,6 +1004,9 @@
               <div class="subtabs" id="ccSubtabs" role="tablist" aria-label="Claude Code 設定">
                 <button type="button" class="subtab active" data-subtab="providers" role="tab" aria-selected="true">
                   供應商
+                </button>
+                <button type="button" class="subtab" data-subtab="agy" role="tab" aria-selected="false">
+                  AGY 反代
                 </button>
                 <button type="button" class="subtab" data-subtab="mcp" role="tab" aria-selected="false">
                   MCP
@@ -1025,20 +1021,206 @@
 
               <!-- 供應商 -->
               <div class="subtab-panel active" id="cc-providers" data-subtab="providers" role="tabpanel">
-                <section class="cc-panel" aria-labelledby="ccProviderTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="ccProviderTitle" class="cc-panel-title">供應商</h2>
-                  </div>
+                <section class="cc-panel" aria-label="供應商">
                   <p id="ccLivePath" class="cc-panel-desc"></p>
                   <div id="ccGateway" class="cc-gateway">
-                    <button type="button" id="ccGatewayToggleBtn" class="cc-gateway-switch" role="switch" aria-checked="false">
-                      <span class="cc-gateway-switch-track" aria-hidden="true"><span></span></span>
-                      <span>轉換閘道</span>
-                    </button>
+                    <span id="ccGatewayDot" class="agy-dot" aria-hidden="true"></span>
+                    <span class="cc-gateway-label">轉換閘道</span>
                     <span id="ccGatewayText" class="cc-gateway-text" role="status" aria-live="polite"></span>
                   </div>
                   <div id="ccProviderList" class="cc-tiles" role="list"></div>
                 </section>
+              </div>
+
+              <!-- AGY 反代：Antigravity 額度 → OpenAI／Anthropic 端點（原本是獨立一頁） -->
+              <div class="subtab-panel" id="cc-agy" data-subtab="agy" role="tabpanel">
+                <div class="agy-shell">
+                  <header class="agy-header">
+                    <div class="agy-heading">
+                      <p class="page-desc">把 Antigravity 額度轉成 OpenAI／Anthropic API；只聽 127.0.0.1，需帶金鑰。</p>
+                    </div>
+                    <div class="agy-actions" role="group" aria-label="服務操作">
+                      <button type="button" id="agyRefreshBtn" class="btn btn-secondary btn-sm">重新整理</button>
+                      <button type="button" id="agyTestBtn" class="btn btn-secondary btn-sm">測試連線</button>
+                      <button type="button" id="agyToggleBtn" class="btn btn-primary btn-sm">啟動服務</button>
+                    </div>
+                  </header>
+
+                  <p id="agyError" class="live-error hidden" role="alert"></p>
+
+                  <section class="agy-panel agy-control" aria-labelledby="agyControlTitle">
+                    <div class="agy-panel-head">
+                      <h2 id="agyControlTitle" class="agy-panel-title">服務控制</h2>
+                      <p id="agyStatusLine" class="agy-status" role="status" aria-live="polite">
+                        <span id="agyStatusDot" class="agy-dot" aria-hidden="true"></span>
+                        <span id="agyStatusText">已停止</span>
+                      </p>
+                    </div>
+
+                    <dl class="agy-endpoint">
+                      <div class="agy-endpoint-row">
+                        <dt>Base URL</dt>
+                        <dd>
+                          <code id="agyBaseUrl" class="agy-code">尚未啟動</code>
+                          <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
+                        </dd>
+                      </div>
+                      <div class="agy-endpoint-row">
+                        <dt>API Key</dt>
+                        <dd>
+                          <code id="agyApiKey" class="agy-code agy-secret">尚未產生</code>
+                          <button type="button" id="agyKeyToggleBtn" class="btn btn-secondary btn-sm" aria-pressed="false">顯示</button>
+                          <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
+                          <button type="button" id="agyRegenerateBtn" class="btn btn-secondary btn-sm">重新產生</button>
+                        </dd>
+                      </div>
+                      <div class="agy-endpoint-row">
+                        <dt>憑證</dt>
+                        <dd><span id="agyCredential" class="agy-credential">服務停止中</span></dd>
+                      </div>
+                    </dl>
+
+                    <div id="agyCredentialHelp" class="agy-cred-help" role="status" hidden>
+                      <p id="agyCredentialHelpTitle" class="agy-cred-help-title"></p>
+                      <ol id="agyCredentialHelpSteps" class="agy-cred-help-steps"></ol>
+                    </div>
+
+                    <p id="agyTestResult" class="agy-test-result" role="status" aria-live="polite" hidden></p>
+
+                    <details class="agy-clients">
+                      <summary class="agy-clients-summary">客戶端怎麼填？（Claude Code／CC Switch、OpenAI 相容工具）</summary>
+                      <div class="agy-clients-body">
+                        <div class="agy-client">
+                          <p class="agy-client-tag">Claude Code · CC Switch</p>
+                          <div class="agy-client-row">
+                            <code class="agy-code-inline">ANTHROPIC_BASE_URL</code>
+                            <code id="agyAnthropicUrl" class="agy-code">尚未啟動</code>
+                            <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="anthropicBaseUrl">複製</button>
+                          </div>
+                          <div class="agy-client-row">
+                            <code class="agy-code-inline">ANTHROPIC_AUTH_TOKEN</code>
+                            <span class="agy-client-note">填上面那組 API Key</span>
+                            <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
+                          </div>
+                          <p class="agy-client-warn">結尾<strong>不要</strong>加 <code class="agy-code-inline">/v1</code>（Claude Code 自己接）。</p>
+                        </div>
+                        <div class="agy-client">
+                          <p class="agy-client-tag">OpenAI 相容工具</p>
+                          <div class="agy-client-row">
+                            <code class="agy-code-inline">Base URL</code>
+                            <code id="agyOpenaiUrl" class="agy-code">尚未啟動</code>
+                            <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
+                          </div>
+                          <p class="agy-client-note">這一組<strong>要</strong>帶 <code class="agy-code-inline">/v1</code>。</p>
+                        </div>
+                      </div>
+                    </details>
+
+                    <div class="agy-settings">
+                      <label class="agy-setting">
+                        <span>監聽埠</span>
+                        <input id="agyPortInput" class="input" type="number" min="1024" max="65535" step="1" inputmode="numeric" />
+                      </label>
+                      <label class="agy-setting">
+                        <span>日誌保留天數</span>
+                        <input id="agyRetentionInput" class="input" type="number" min="1" max="365" step="1" inputmode="numeric" />
+                      </label>
+                      <label class="agy-setting agy-setting-check">
+                        <input id="agyLogBodiesInput" type="checkbox" />
+                        <span>除錯模式：記錄請求／回應內容（各截 8KB）</span>
+                      </label>
+                      <div class="agy-setting-actions">
+                        <button type="button" id="agyClearLogsBtn" class="btn btn-secondary btn-sm">清空日誌</button>
+                        <button type="button" id="agySaveSettingsBtn" class="btn btn-primary btn-sm">儲存設定</button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="agy-panel agy-stats" aria-labelledby="agyStatsTitle">
+                    <div class="agy-panel-head">
+                      <h2 id="agyStatsTitle" class="agy-panel-title">統計</h2>
+                      <div id="agyRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
+                        <button type="button" class="agy-range-btn" data-agy-range="6h" aria-pressed="false">6 小時</button>
+                        <button type="button" class="agy-range-btn is-active" data-agy-range="24h" aria-pressed="true">24 小時</button>
+                        <button type="button" class="agy-range-btn" data-agy-range="7d" aria-pressed="false">7 天</button>
+                        <button type="button" class="agy-range-btn" data-agy-range="30d" aria-pressed="false">30 天</button>
+                        <button type="button" class="agy-range-btn" data-agy-range="all" aria-pressed="false">全部</button>
+                      </div>
+                    </div>
+                    <div id="agyStatCards" class="agy-stat-cards"></div>
+                    <div class="agy-charts">
+                      <figure class="agy-chart">
+                        <figcaption class="agy-chart-head">
+                          <span>請求量</span>
+                          <span id="agyTrendMeta" class="agy-chart-meta"></span>
+                        </figcaption>
+                        <div class="agy-bars-wrap">
+                          <div id="agyHourlyChart" class="agy-bars" role="img" aria-label="請求量長條圖"></div>
+                          <div id="agyChartTip" class="agy-tip" hidden></div>
+                        </div>
+                      </figure>
+                      <figure class="agy-chart">
+                        <figcaption class="agy-chart-head">
+                          <span>模型分佈</span>
+                          <span id="agyModelMeta" class="agy-chart-meta"></span>
+                        </figcaption>
+                        <div id="agyModelChart" class="agy-model-list" role="img" aria-label="各模型請求量分佈"></div>
+                      </figure>
+                    </div>
+                  </section>
+
+                  <section class="agy-panel agy-models" aria-labelledby="agyModelsTitle">
+                    <div class="agy-panel-head">
+                      <h2 id="agyModelsTitle" class="agy-panel-title">可用模型</h2>
+                      <p class="agy-panel-desc">即時向上游查詢；點模型 ID 可複製。</p>
+                    </div>
+                    <div class="agy-models-bar">
+                      <button type="button" id="agyModelsRefreshBtn" class="btn btn-secondary btn-sm">
+                        重新查詢
+                      </button>
+                      <label class="agy-models-toggle">
+                        <input type="checkbox" id="agyModelsShowAll" />
+                        <span>顯示全部（含 IDE 內部模型）</span>
+                      </label>
+                      <span id="agyModelsMeta" class="agy-models-meta" role="status"></span>
+                    </div>
+                    <div id="agyModelsList" class="agy-models-list"></div>
+                  </section>
+
+                  <section class="agy-panel agy-logs" aria-labelledby="agyLogsTitle">
+                    <div class="agy-panel-head">
+                      <h2 id="agyLogsTitle" class="agy-panel-title">流量日誌</h2>
+                      <div class="agy-log-filters" role="group" aria-label="日誌篩選">
+                        <select id="agyProtocolFilter" class="select" aria-label="協議篩選">
+                          <option value="">全部協議</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="anthropic">Anthropic</option>
+                        </select>
+                        <label class="agy-filter-check">
+                          <input id="agyErrorsOnly" type="checkbox" />
+                          <span>只看錯誤</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="agy-table-wrap">
+                      <table class="agy-table">
+                        <caption class="visually-hidden">反向代理流量日誌，依時間由新到舊排列</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">時間</th>
+                            <th scope="col">協議</th>
+                            <th scope="col">模型</th>
+                            <th scope="col">狀態</th>
+                            <th scope="col">耗時</th>
+                            <th scope="col">Tokens</th>
+                          </tr>
+                        </thead>
+                        <tbody id="agyLogRows"></tbody>
+                      </table>
+                    </div>
+                    <p id="agyLogEmpty" class="agy-empty">尚無流量記錄。啟動服務並讓客戶端送出第一個請求後就會出現。</p>
+                  </section>
+                </div>
               </div>
 
               <!-- MCP -->
@@ -1061,8 +1243,8 @@
                     <h2 id="ccVersionTitle" class="cc-panel-title">CLI 版本</h2>
                     <button type="button" id="ccCheckVersionBtn" class="btn btn-secondary btn-sm">重新檢查</button>
                   </div>
-                  <p class="cc-panel-desc">按「更新」會在終端機分頁執行。</p>
-                  <div id="ccVersionList" class="cc-list" role="list"></div>
+                  <p class="cc-panel-desc">安裝與更新會在背景執行；缺少必要環境時會自動安裝。</p>
+                  <div id="ccVersionList" class="cc-list" role="list" aria-live="polite"></div>
                 </section>
               </div>
 
@@ -1244,6 +1426,7 @@
                   </div>
                 </div>
                 <p id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></p>
+                <p id="sysmonNetworkNote" class="sysmon-detail sysmon-proc-note">欄名顯示整機占用；拖曳或用 Alt＋方向鍵調換欄位，名稱固定在第一欄。</p>
                 <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 
@@ -1520,212 +1703,16 @@
             </dialog>
           </section>
 
-          <!-- AGY 反向代理頁面 -->
-          <section id="page-agy" class="page">
-            <div class="agy-shell">
-              <header class="agy-header">
-                <div class="agy-heading">
-                  <p class="agy-eyebrow">本機 API 閘道</p>
-                  <h1>AGY 反向代理</h1>
-                  <p class="page-desc">把 Antigravity 額度轉成 OpenAI／Anthropic API；只聽 127.0.0.1，需帶金鑰。</p>
-                </div>
-                <div class="agy-actions" role="group" aria-label="服務操作">
-                  <button type="button" id="agyRefreshBtn" class="btn btn-secondary btn-sm">重新整理</button>
-                  <button type="button" id="agyTestBtn" class="btn btn-secondary btn-sm">測試連線</button>
-                  <button type="button" id="agyToggleBtn" class="btn btn-primary btn-sm">啟動服務</button>
-                </div>
-              </header>
-
-              <p id="agyError" class="live-error hidden" role="alert"></p>
-
-              <section class="agy-panel agy-control" aria-labelledby="agyControlTitle">
-                <div class="agy-panel-head">
-                  <h2 id="agyControlTitle" class="agy-panel-title">服務控制</h2>
-                  <p id="agyStatusLine" class="agy-status" role="status" aria-live="polite">
-                    <span id="agyStatusDot" class="agy-dot" aria-hidden="true"></span>
-                    <span id="agyStatusText">已停止</span>
-                  </p>
-                </div>
-
-                <dl class="agy-endpoint">
-                  <div class="agy-endpoint-row">
-                    <dt>Base URL</dt>
-                    <dd>
-                      <code id="agyBaseUrl" class="agy-code">尚未啟動</code>
-                      <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
-                    </dd>
-                  </div>
-                  <div class="agy-endpoint-row">
-                    <dt>API Key</dt>
-                    <dd>
-                      <code id="agyApiKey" class="agy-code agy-secret">尚未產生</code>
-                      <button type="button" id="agyKeyToggleBtn" class="btn btn-secondary btn-sm" aria-pressed="false">顯示</button>
-                      <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
-                      <button type="button" id="agyRegenerateBtn" class="btn btn-secondary btn-sm">重新產生</button>
-                    </dd>
-                  </div>
-                  <div class="agy-endpoint-row">
-                    <dt>憑證</dt>
-                    <dd><span id="agyCredential" class="agy-credential">服務停止中</span></dd>
-                  </div>
-                </dl>
-
-                <div id="agyCredentialHelp" class="agy-cred-help" role="status" hidden>
-                  <p id="agyCredentialHelpTitle" class="agy-cred-help-title"></p>
-                  <ol id="agyCredentialHelpSteps" class="agy-cred-help-steps"></ol>
-                </div>
-
-                <p id="agyTestResult" class="agy-test-result" role="status" aria-live="polite" hidden></p>
-
-                <details class="agy-clients">
-                  <summary class="agy-clients-summary">客戶端怎麼填？（Claude Code／CC Switch、OpenAI 相容工具）</summary>
-                  <div class="agy-clients-body">
-                    <div class="agy-client">
-                      <p class="agy-client-tag">Claude Code · CC Switch</p>
-                      <div class="agy-client-row">
-                        <code class="agy-code-inline">ANTHROPIC_BASE_URL</code>
-                        <code id="agyAnthropicUrl" class="agy-code">尚未啟動</code>
-                        <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="anthropicBaseUrl">複製</button>
-                      </div>
-                      <div class="agy-client-row">
-                        <code class="agy-code-inline">ANTHROPIC_AUTH_TOKEN</code>
-                        <span class="agy-client-note">填上面那組 API Key</span>
-                        <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
-                      </div>
-                      <p class="agy-client-warn">結尾<strong>不要</strong>加 <code class="agy-code-inline">/v1</code>（Claude Code 自己接）。</p>
-                    </div>
-                    <div class="agy-client">
-                      <p class="agy-client-tag">OpenAI 相容工具</p>
-                      <div class="agy-client-row">
-                        <code class="agy-code-inline">Base URL</code>
-                        <code id="agyOpenaiUrl" class="agy-code">尚未啟動</code>
-                        <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
-                      </div>
-                      <p class="agy-client-note">這一組<strong>要</strong>帶 <code class="agy-code-inline">/v1</code>。</p>
-                    </div>
-                  </div>
-                </details>
-
-                <div class="agy-settings">
-                  <label class="agy-setting">
-                    <span>監聽埠</span>
-                    <input id="agyPortInput" class="input" type="number" min="1024" max="65535" step="1" inputmode="numeric" />
-                  </label>
-                  <label class="agy-setting">
-                    <span>日誌保留天數</span>
-                    <input id="agyRetentionInput" class="input" type="number" min="1" max="365" step="1" inputmode="numeric" />
-                  </label>
-                  <label class="agy-setting agy-setting-check">
-                    <input id="agyLogBodiesInput" type="checkbox" />
-                    <span>除錯模式：記錄請求／回應內容（各截 8KB）</span>
-                  </label>
-                  <div class="agy-setting-actions">
-                    <button type="button" id="agyClearLogsBtn" class="btn btn-secondary btn-sm">清空日誌</button>
-                    <button type="button" id="agySaveSettingsBtn" class="btn btn-primary btn-sm">儲存設定</button>
-                  </div>
-                </div>
-              </section>
-
-              <section class="agy-panel agy-stats" aria-labelledby="agyStatsTitle">
-                <div class="agy-panel-head">
-                  <h2 id="agyStatsTitle" class="agy-panel-title">統計</h2>
-                  <div id="agyRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
-                    <button type="button" class="agy-range-btn" data-agy-range="6h" aria-pressed="false">6 小時</button>
-                    <button type="button" class="agy-range-btn is-active" data-agy-range="24h" aria-pressed="true">24 小時</button>
-                    <button type="button" class="agy-range-btn" data-agy-range="7d" aria-pressed="false">7 天</button>
-                    <button type="button" class="agy-range-btn" data-agy-range="30d" aria-pressed="false">30 天</button>
-                    <button type="button" class="agy-range-btn" data-agy-range="all" aria-pressed="false">全部</button>
-                  </div>
-                </div>
-                <div id="agyStatCards" class="agy-stat-cards"></div>
-                <div class="agy-charts">
-                  <figure class="agy-chart">
-                    <figcaption class="agy-chart-head">
-                      <span>請求量</span>
-                      <span id="agyTrendMeta" class="agy-chart-meta"></span>
-                    </figcaption>
-                    <div class="agy-bars-wrap">
-                      <div id="agyHourlyChart" class="agy-bars" role="img" aria-label="請求量長條圖"></div>
-                      <div id="agyChartTip" class="agy-tip" hidden></div>
-                    </div>
-                  </figure>
-                  <figure class="agy-chart">
-                    <figcaption class="agy-chart-head">
-                      <span>模型分佈</span>
-                      <span id="agyModelMeta" class="agy-chart-meta"></span>
-                    </figcaption>
-                    <div id="agyModelChart" class="agy-model-list" role="img" aria-label="各模型請求量分佈"></div>
-                  </figure>
-                </div>
-              </section>
-
-              <section class="agy-panel agy-models" aria-labelledby="agyModelsTitle">
-                <div class="agy-panel-head">
-                  <h2 id="agyModelsTitle" class="agy-panel-title">可用模型</h2>
-                  <p class="agy-panel-desc">即時向上游查詢；點模型 ID 可複製。</p>
-                </div>
-                <div class="agy-models-bar">
-                  <button type="button" id="agyModelsRefreshBtn" class="btn btn-secondary btn-sm">
-                    重新查詢
-                  </button>
-                  <label class="agy-models-toggle">
-                    <input type="checkbox" id="agyModelsShowAll" />
-                    <span>顯示全部（含 IDE 內部模型）</span>
-                  </label>
-                  <span id="agyModelsMeta" class="agy-models-meta" role="status"></span>
-                </div>
-                <div id="agyModelsList" class="agy-models-list"></div>
-              </section>
-
-              <section class="agy-panel agy-logs" aria-labelledby="agyLogsTitle">
-                <div class="agy-panel-head">
-                  <h2 id="agyLogsTitle" class="agy-panel-title">流量日誌</h2>
-                  <div class="agy-log-filters" role="group" aria-label="日誌篩選">
-                    <select id="agyProtocolFilter" class="select" aria-label="協議篩選">
-                      <option value="">全部協議</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="anthropic">Anthropic</option>
-                    </select>
-                    <label class="agy-filter-check">
-                      <input id="agyErrorsOnly" type="checkbox" />
-                      <span>只看錯誤</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="agy-table-wrap">
-                  <table class="agy-table">
-                    <caption class="visually-hidden">反向代理流量日誌，依時間由新到舊排列</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">時間</th>
-                        <th scope="col">協議</th>
-                        <th scope="col">模型</th>
-                        <th scope="col">狀態</th>
-                        <th scope="col">耗時</th>
-                        <th scope="col">Tokens</th>
-                      </tr>
-                    </thead>
-                    <tbody id="agyLogRows"></tbody>
-                  </table>
-                </div>
-                <p id="agyLogEmpty" class="agy-empty">尚無流量記錄。啟動服務並讓客戶端送出第一個請求後就會出現。</p>
-              </section>
-            </div>
-          </section>
-
-          <!-- 語音轉文字：三個子分頁各做各的事，模型選單各自放在自己那一頁裡 -->
+          <!-- 語音轉文字：檔案與錄音｜即時字幕｜語音輸入。模型選單各自放在自己那一頁裡 -->
           <section id="page-stt" class="page">
             <div class="page-header">
               <h1>語音轉文字</h1>
-              <p class="page-desc">轉錄音訊檔案、用麥克風錄音、擷取系統音訊做即時字幕，或用右 Alt 語音輸入</p>
+              <p class="page-desc">轉錄音訊檔、錄音，或做即時字幕（系統聲音／麥克風），也能用語音輸入</p>
             </div>
 
             <div class="subtabs" id="sttSubtabs" role="tablist" aria-label="語音轉文字模式">
               <button type="button" class="subtab active" data-subtab="file" role="tab" aria-selected="true">
-                檔案轉錄
-              </button>
-              <button type="button" class="subtab" data-subtab="recorder" role="tab" aria-selected="false">
-                錄音機
+                檔案與錄音
               </button>
               <button type="button" class="subtab" data-subtab="live" role="tab" aria-selected="false">
                 即時字幕
@@ -1737,6 +1724,8 @@
 
             <!-- 檔案轉錄 -->
             <div class="subtab-panel active" id="stt-file" data-subtab="file" role="tabpanel">
+            <div class="stt-split">
+            <div class="stt-split-col" id="sttFileCol">
 
             <!-- 這一頁自己的模型（跟即時字幕、語音輸入各存各的） -->
             <div class="scope-models" id="fileModelBar">
@@ -1756,15 +1745,10 @@
               <div class="drop-zone-content">
                 <span class="drop-icon">📂</span>
                 <p class="drop-text">拖放音訊檔案到這裡</p>
-                <p class="drop-hint">支援 MP3, WAV, M4A, FLAC, OGG, AAC, WEBM</p>
+                <p class="drop-hint">支援 MP3, WAV, M4A, FLAC, OGG, AAC, WEBM，或從錄音清單拖一段過來</p>
                 <button id="selectFileBtn" class="btn btn-secondary">
                   或點擊選擇檔案
                 </button>
-                <!-- 錄音機錄好的檔：直接列最近幾段，點一下就轉錄（不用去檔案對話框裡找） -->
-                <div class="recording-pick" id="recordingPickGroup" hidden>
-                  <p class="recording-pick-title">或轉錄錄音機的錄音</p>
-                  <div id="recordingPickList" class="recording-pick-list" role="list"></div>
-                </div>
               </div>
               <input
                 type="file"
@@ -1841,8 +1825,8 @@
             </div>
             </div>
 
-            <!-- 錄音機：麥克風錄成 webm，錄好的可以直接丟給檔案轉錄 -->
-            <div class="subtab-panel" id="stt-recorder" data-subtab="recorder" role="tabpanel">
+            <!-- 錄音機：麥克風錄成 webm，可拖到左邊轉入或按轉錄 -->
+            <div class="stt-split-col" id="stt-recorder">
             <div class="rec-content">
               <div class="dict-hero">
                 <div class="dict-hero-main">
@@ -1856,7 +1840,7 @@
                       <span>停止錄音</span>
                     </button>
                   </div>
-                  <p class="setting-hint">錄音邊錄邊存，停止後可以播放或直接轉錄。</p>
+                  <p class="setting-hint">錄音邊錄邊存。停止後可播放、按轉錄，或拖到轉入區。</p>
                 </div>
                 <div class="dict-state">
                   <div id="recStatus" class="live-status rec-status" role="status" aria-live="polite">
@@ -1877,6 +1861,8 @@
                 </div>
                 <div id="recList" class="dict-records rec-list"></div>
               </section>
+            </div>
+            </div>
             </div>
             </div>
 
@@ -1906,6 +1892,14 @@
                   <option value="ja">日本語</option>
                   <option value="ko">한국어</option>
                   <option value="auto">自動偵測（不翻譯）</option>
+                </select>
+              </div>
+
+              <div class="option-group">
+                <label for="liveAudioSource">音源</label>
+                <select id="liveAudioSource" class="select" aria-label="即時字幕音源">
+                  <option value="system">系統聲音</option>
+                  <option value="mic">麥克風</option>
                 </select>
               </div>
 
@@ -2577,20 +2571,6 @@
           <p id="ccProviderDialogDesc" class="dialog-desc"></p>
         </div>
         <div class="cc-dialog-body">
-          <div class="setting-group">
-            <label for="ccNameInput">名稱</label>
-            <input type="text" id="ccNameInput" class="input" maxlength="60" placeholder="例如：工作用 OpenRouter" />
-          </div>
-          <div class="setting-group hidden" id="ccApiFormatGroup">
-            <label for="ccApiFormatSelect">上游格式</label>
-            <select id="ccApiFormatSelect" class="select"></select>
-            <p id="ccApiFormatHint" class="setting-hint"></p>
-          </div>
-          <div class="setting-group" id="ccBaseUrlGroup">
-            <label for="ccBaseUrlInput">Base URL</label>
-            <input type="text" id="ccBaseUrlInput" class="input" maxlength="200" spellcheck="false" autocomplete="off" />
-            <p id="ccBaseUrlHint" class="setting-hint"></p>
-          </div>
           <div class="setting-group" id="ccKeyGroup">
             <label for="ccKeyInput">API 金鑰</label>
             <div class="cc-field-row">
@@ -2616,52 +2596,64 @@
             </div>
             <div class="cc-account-list" id="ccAccountList" role="list"></div>
           </div>
+          <div class="setting-group" id="ccBaseUrlGroup">
+            <label for="ccBaseUrlInput">Base URL</label>
+            <input type="text" id="ccBaseUrlInput" class="input" maxlength="200" spellcheck="false" autocomplete="off" />
+            <p id="ccBaseUrlHint" class="setting-hint"></p>
+          </div>
           <div class="setting-group" id="ccModelGroup">
             <div class="cc-model-head">
-              <label for="ccModelSelect">模型</label>
+              <label for="ccOpusInput">模型</label>
               <div class="cc-model-actions">
                 <button type="button" id="ccScanModelsBtn" class="btn btn-secondary btn-sm">從 API 載入模型</button>
-                <button type="button" id="ccManualModelsBtn" class="btn btn-secondary btn-sm">手動輸入</button>
               </div>
             </div>
             <div class="cc-model-grid">
               <label class="cc-model-cell">
-                <span>主模型（兜底）</span>
-                <select id="ccModelSelect" class="select" aria-label="主模型（兜底）"></select>
-                <input type="text" id="ccModelInput" class="input hidden" maxlength="120" spellcheck="false" />
+                <span>Opus</span>
+                <input type="text" id="ccOpusInput" class="input" maxlength="120" spellcheck="false" aria-label="Opus" />
               </label>
               <label class="cc-model-cell">
-                <span>Haiku（小而快）</span>
-                <select id="ccHaikuSelect" class="select" aria-label="Haiku（小而快）"></select>
-                <input type="text" id="ccHaikuInput" class="input hidden" maxlength="120" spellcheck="false" />
+                <span>Sonnet</span>
+                <input type="text" id="ccSonnetInput" class="input" maxlength="120" spellcheck="false" aria-label="Sonnet" />
               </label>
               <label class="cc-model-cell">
-                <span>Sonnet（日常）</span>
-                <select id="ccSonnetSelect" class="select" aria-label="Sonnet（日常）"></select>
-                <input type="text" id="ccSonnetInput" class="input hidden" maxlength="120" spellcheck="false" />
-              </label>
-              <label class="cc-model-cell">
-                <span>Opus（最強）</span>
-                <select id="ccOpusSelect" class="select" aria-label="Opus（最強）"></select>
-                <input type="text" id="ccOpusInput" class="input hidden" maxlength="120" spellcheck="false" />
+                <span>Haiku</span>
+                <input type="text" id="ccHaikuInput" class="input" maxlength="120" spellcheck="false" aria-label="Haiku" />
               </label>
             </div>
-            <p id="ccScanHint" class="setting-hint">留空用預設值（灰字）。</p>
-            <label class="setting-check">
-              <input id="ccContext1mCheck" type="checkbox" />
-              <span>宣告支援 1M 上下文</span>
-            </label>
-            <p class="setting-hint">
-              模型名加 <code>[1m]</code> 宣告 1M 上下文（後綴不會送上游）。
-              <strong>上游真的有 1M 才開</strong>，講超過會被擋。
-            </p>
+            <p id="ccScanHint" class="setting-hint"></p>
           </div>
+          <details class="cc-advanced" id="ccAdvanced">
+            <summary>進階設定（名稱、上游格式、1M 上下文）</summary>
+            <div class="cc-advanced-body">
+              <div class="setting-group">
+                <label for="ccNameInput">名稱</label>
+                <input type="text" id="ccNameInput" class="input" maxlength="60" placeholder="例如：工作用 OpenRouter" />
+              </div>
+              <div class="setting-group hidden" id="ccApiFormatGroup">
+                <label for="ccApiFormatSelect">上游格式</label>
+                <select id="ccApiFormatSelect" class="select"></select>
+                <p id="ccApiFormatHint" class="setting-hint"></p>
+              </div>
+              <div class="setting-group">
+                <label class="setting-check">
+                  <input id="ccContext1mCheck" type="checkbox" />
+                  <span>宣告支援 1M 上下文</span>
+                </label>
+                <p class="setting-hint">
+                  上游真的有 1M 上下文才開（模型名會加 <code>[1m]</code>，送上游前會剝掉）。
+                </p>
+              </div>
+            </div>
+          </details>
         </div>
         <p class="live-error hidden cc-dialog-error" role="alert"></p>
         <p class="cc-status hidden cc-dialog-status" role="status" aria-live="polite"></p>
         <div class="dialog-actions">
           <button type="button" id="ccProviderCancelBtn" class="btn btn-secondary btn-sm">取消</button>
-          <button type="button" id="ccProviderSaveBtn" class="btn btn-primary btn-sm">儲存</button>
+          <button type="button" id="ccProviderSaveBtn" class="btn btn-secondary btn-sm">儲存</button>
+          <button type="button" id="ccProviderSaveUseBtn" class="btn btn-primary btn-sm">儲存並啟用</button>
         </div>
       </dialog>
 

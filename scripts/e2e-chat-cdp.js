@@ -824,7 +824,7 @@ async function checkAiWeb(cdp, check) {
     buttons: [...document.querySelectorAll('.chat-panel-actions .btn')].map((b) => b.textContent.trim() || b.getAttribute('aria-label')),
     icons: document.querySelectorAll('.chat-panel-actions .ws-tool-icon').length
   }))()`)
-  check('導覽列叫 AI、側欄叫 Agent／Chat', labels.nav === 'AI' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
+  check('導覽列叫 SI、側欄叫 Agent／Chat', labels.nav === 'SI' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
   check('六顆按鈕：Local、資料夾、ChatGPT、Gemini、Claude、Grok（四家只留圖示）',
     labels.buttons.join() === 'Local,資料夾,ChatGPT,Gemini,Claude,Grok' && labels.icons === 5, JSON.stringify(labels))
 

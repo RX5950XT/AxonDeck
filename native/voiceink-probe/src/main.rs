@@ -57,7 +57,7 @@ fn lines_to_body(rows: Vec<String>) -> String {
 fn sysmon() {
     // WMI 連不上就只剩原生那幾段（程序／網路／SMART），不要整支掛掉
     let con = WMIConnection::new().ok();
-    let mut st = tick::TickState { proc_buf: Vec::new(), net_buf: Vec::new(), smart_drives: Vec::new() };
+    let mut st = tick::TickState { proc_buf: Vec::new(), net_buf: Vec::new(), smart_drives: Vec::new(), proc_paths: Default::default() };
     let stdout = std::io::stdout();
     let write = |s: &str| -> bool {
         let mut out = stdout.lock();

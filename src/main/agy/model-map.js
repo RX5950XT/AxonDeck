@@ -108,16 +108,76 @@ const PREFIX_RULES = Object.freeze([
 /** 上游會拒絕的字元；擋掉路徑穿越與 header 注入 */
 const SAFE_MODEL = /^[A-Za-z0-9._:@\/-]{1,120}$/
 
+const CLAUDE_FAMILY = /(opus|sonnet|haiku)/
+
+/**
+ * Claude 名字裡的家族與世代。`claude-opus-5-5`、`claude-opus-4-6-thinking`、
+ * `claude-3-5-sonnet-20241022` 都要認得；8 位數日期不算世代。
+ * @param {string} id
+ * @returns {{ family: string, version: number[] } | null}
+ */
+function claudeShape(id) {
+  const lower = id.toLowerCase()
+  const family = CLAUDE_FAMILY.exec(lower)?.[1]
+  if (!lower.startsWith('claude-') || !family) return null
+  const version = lower.replace(/-\d{8}\b/, '').match(/\d+/g)?.map(Number) || []
+  return { family, version }
+}
+
+function compareVersion(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0)
+  }
+  return 0
+}
+
+/**
+ * 在即時型錄裡挑 Claude：同家族同世代優先，沒有就同家族最新；Haiku 上游沒有就退 Sonnet、
+ * 沒有 Opus 也退 Sonnet。靜態表寫死 `claude-opus-4-6-thinking`，帳號已經換成新世代的人
+ * 會被導回舊模型報錯——型錄才知道這個帳號現在有什麼。
+ * @param {string} model
+ * @param {Array<{ id: string }>} usable
+ * @returns {string}
+ */
+function pickClaude(model, usable) {
+  const want = claudeShape(model)
+  if (!want) return ''
+  const rows = usable.map((row) => ({ id: row.id, shape: claudeShape(row.id) })).filter((row) => row.shape)
+  const order = want.family === 'sonnet' ? ['sonnet', 'opus'] : [want.family, 'sonnet', 'opus']
+  const thinking = model.toLowerCase().endsWith('-thinking')
+  for (const family of order) {
+    const same = rows.filter((row) => row.shape.family === family)
+    if (!same.length) continue
+    const newest = same.reduce((best, row) => (compareVersion(row.shape.version, best) > 0 ? row.shape.version : best), [])
+    const target = same.some((row) => compareVersion(row.shape.version, want.version) === 0) ? want.version : newest
+    const pool = same.filter((row) => compareVersion(row.shape.version, target) === 0)
+    return (pool.find((row) => row.id.endsWith('-thinking') === thinking) || pool[0]).id
+  }
+  return ''
+}
+
 /**
  * @param {unknown} raw 客戶端送來的 model
+ * @param {Array<{ id: string, chatCapable?: boolean, deprecated?: boolean, replacedBy?: string }> | null} [live]
+ *   即時型錄（`catalog.parseCatalog` 的 models）；拿不到時給 null，退回靜態表
  * @returns {{ model: string, mapped: string, known: boolean }}
  *   model 是清洗後的原始名稱，mapped 是實際要送上游的名稱
  */
-function resolveModel(raw) {
-  const model = typeof raw === 'string' ? raw.trim() : ''
+function resolveModel(raw, live = null) {
+  // Claude Code 的 1M 宣告後綴（`[1m]`），上游不認得，SAFE_MODEL 也不收中括號
+  const model = typeof raw === 'string' ? raw.trim().replace(/\[1m\]$/i, '') : ''
   // `/` 要放行（google/gemini-3-flash 這種 OpenRouter 風格是合法的），但 `..` 沒有正當用途
   if (!model || !SAFE_MODEL.test(model) || model.includes('..')) {
     return { model, mapped: DEFAULT_MODEL, known: false }
+  }
+
+  if (Array.isArray(live) && live.length) {
+    const usable = live.filter((row) => row && row.chatCapable !== false && !row.deprecated)
+    const hit = live.find((row) => row?.id === model)
+    if (hit && !hit.deprecated) return { model, mapped: hit.id, known: true }
+    if (hit?.replacedBy) return { model, mapped: hit.replacedBy, known: true }
+    const claude = pickClaude(model, usable)
+    if (claude) return { model, mapped: claude, known: true }
   }
 
   const exact = EXACT_MAP[model]

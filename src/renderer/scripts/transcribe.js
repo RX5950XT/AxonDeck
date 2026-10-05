@@ -98,30 +98,34 @@ export function initTranscribe() {
  * 設定拖放功能
  */
 function setupDragAndDrop() {
+  // 整欄都收得到：選了檔之後拖放區會藏起來，再拖一段錄音仍要能換檔
+  const host = document.getElementById('sttFileCol') || dropZone
   ;['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, (e) => {
+    host.addEventListener(eventName, (e) => {
       e.preventDefault()
       e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
     })
   })
 
   ;['dragenter', 'dragover'].forEach(eventName => {
-    dropZone.addEventListener(eventName, () => {
+    host.addEventListener(eventName, () => {
       dropZone.classList.add('dragover')
+      host.classList.add('dragover')
     })
   })
 
   ;['dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, () => {
+    host.addEventListener(eventName, () => {
       dropZone.classList.remove('dragover')
+      host.classList.remove('dragover')
     })
   })
 
-  dropZone.addEventListener('drop', handleFileDrop)
+  host.addEventListener('drop', handleFileDrop)
 
   dropZone.addEventListener('click', (e) => {
     if (e.target === dropZone || e.target.closest('.drop-zone-content')) {
-      // 錄音下拉（原生 select 與自訂 listbox）點下去不是要開檔案對話框
       if (!e.target.closest('button, select, .custom-select')) {
         fileInput.click()
       }
@@ -145,87 +149,46 @@ function setupFileSelection() {
   })
 
   clearFileBtn.addEventListener('click', clearFile)
-
-  // 清單在拖放區裡面：點它不可以順便打開檔案對話框
-  document.getElementById('recordingPickGroup')?.addEventListener('click', (e) => {
-    e.stopPropagation()
-    const btn = /** @type {HTMLElement} */ (e.target).closest('button')
-    if (!btn) return
-    if (btn.dataset.act === 'all') {
-      document.querySelector('#sttSubtabs .subtab[data-subtab="recorder"]')?.dispatchEvent(new MouseEvent('click'))
-      return
-    }
-    const rec = recordingOptions.find((r) => r.name === btn.dataset.name)
-    if (rec) useRecording(rec)
-  })
 }
 
-/** 檔案轉錄頁直接列出來的錄音數；更多的到錄音機分頁看 */
-const RECORDING_PICK_MAX = 4
-
-/** @param {number} ms */
-function formatClock(ms) {
-  const sec = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(sec / 3600)
-  const mm = String(Math.floor((sec % 3600) / 60)).padStart(2, '0')
-  const ss = String(sec % 60).padStart(2, '0')
-  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
-
-/** @type {{ name: string, path: string, size: number, startedAt: number, endedAt?: number }[]} */
-let recordingOptions = []
+/** 跟 main `stt-archive` 的錄音檔名同一條：renderer 只帶這個，路徑由 main 組 */
+const REC_NAME = /^rec-\d{13}\.webm$/
+const REC_DRAG = 'application/x-voiceink-recording'
 
 /**
- * 錄音機錄好的檔直接當成這一頁的檔案（main 端轉錄只要絕對路徑）
- * @param {{ name: string, path: string, size: number }} rec
+ * 錄音機的檔當成這一頁的檔案。只收檔名，路徑向 main 要（不採用拖曳資料裡的路徑）。
+ * @param {string | { name?: string }} recOrName
  */
-export function useRecording(rec) {
+export async function useRecording(recOrName) {
+  const name = typeof recOrName === 'string' ? recOrName : recOrName?.name
+  if (typeof name !== 'string' || !REC_NAME.test(name)) {
+    showToast('錄音檔名無效', 'error')
+    return
+  }
   if (isTranscribing) {
     showToast('正在轉錄，等這份跑完再換檔', 'error')
     return
   }
-  handleFileSelect({ name: rec.name, size: rec.size, path: rec.path })
+  const res = await electronAPI.sttArchive?.resolveRecording?.(name)
+  if (!res?.ok || typeof res.data?.path !== 'string') {
+    showToast(res?.error?.message || '找不到這段錄音', 'error')
+    return
+  }
+  handleFileSelect({ name: res.data.name || name, size: res.data.size, path: res.data.path })
 }
 
 /**
- * 重讀「最近的錄音」清單（切到檔案轉錄時呼叫）
+ * 拖進來的若是錄音清單的一列，只認檔名；外部檔案維持原本的 File。
+ * @param {DataTransfer | null} dt
+ * @returns {string}
  */
-export async function refreshRecordingPick() {
-  const list = document.getElementById('recordingPickList')
-  const group = document.getElementById('recordingPickGroup')
-  if (!list || !group || !electronAPI.sttArchive) return
-  const res = await electronAPI.sttArchive.recordings()
-  if (!res?.ok) console.warn('[檔案轉錄] 讀不到錄音清單:', res?.error?.message)
-  recordingOptions = res?.ok ? res.data : []
-  const rows = recordingOptions.slice(0, RECORDING_PICK_MAX).map((r) => {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'recording-pick-item'
-    btn.dataset.name = r.name
-    btn.setAttribute('role', 'listitem')
-    const when = document.createElement('span')
-    when.className = 'recording-pick-when'
-    when.textContent = new Date(r.startedAt).toLocaleString()
-    const meta = document.createElement('span')
-    meta.className = 'recording-pick-meta'
-    const length = r.endedAt ? `${formatClock(r.endedAt - r.startedAt)} · ` : ''
-    meta.textContent = `${length}${formatFileSize(r.size)}`
-    const go = document.createElement('span')
-    go.className = 'recording-pick-go'
-    go.textContent = '轉錄'
-    btn.append(when, meta, go)
-    return btn
-  })
-  if (recordingOptions.length > RECORDING_PICK_MAX) {
-    const all = document.createElement('button')
-    all.type = 'button'
-    all.className = 'btn btn-secondary btn-sm recording-pick-all'
-    all.dataset.act = 'all'
-    all.textContent = `全部 ${recordingOptions.length} 段錄音`
-    rows.push(all)
-  }
-  list.replaceChildren(...rows)
-  group.hidden = recordingOptions.length === 0
+function recordingNameFromTransfer(dt) {
+  if (!dt) return ''
+  const custom = dt.getData(REC_DRAG)
+  if (REC_NAME.test(custom)) return custom
+  if (dt.files && dt.files.length > 0) return ''
+  const text = (dt.getData('text/plain') || '').trim()
+  return REC_NAME.test(text) ? text : ''
 }
 
 /**
@@ -233,10 +196,13 @@ export async function refreshRecordingPick() {
  * @param {DragEvent} e
  */
 function handleFileDrop(e) {
-  const files = e.dataTransfer.files
-  if (files.length > 0) {
+  const files = e.dataTransfer?.files
+  if (files && files.length > 0) {
     handleFileSelect(files[0])
+    return
   }
+  const name = recordingNameFromTransfer(e.dataTransfer)
+  if (name) useRecording(name).catch(() => showToast('找不到這段錄音', 'error'))
 }
 
 /**

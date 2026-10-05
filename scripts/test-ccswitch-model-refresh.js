@@ -23,7 +23,7 @@ globalThis.fetch = async () => {
 }
 
 async function main() {
-  const created = await providers.create({ presetId: 'custom', baseUrl: 'https://isolated.invalid/v1', apiFormat: 'openai_chat', apiKey: 'isolated-key', model: 'retired' })
+  const created = await providers.create({ presetId: 'custom', baseUrl: 'https://isolated.invalid/v1', apiFormat: 'openai_chat', apiKey: 'isolated-key', sonnetModel: 'retired' })
   await service.scanProviderModels(created.id)
   assert.deepEqual((await providers.getRaw(created.id)).availableModels, ['fresh'], '成功掃描必須持久化最新模型清單')
   payload = { data: [{ id: 'next' }] }
@@ -38,7 +38,7 @@ async function main() {
   assert.deepEqual((await providers.getRaw(created.id)).availableModels, [], '合法空清單移除全部舊模型')
   payload = { error: 'not-a-model-list' }
   assert.equal((await service.scanProviderModels(created.id)).ok, false, '畸形回應不可當空清單')
-  assert.equal((await providers.getRaw(created.id)).model, 'retired', '掃描不改使用者模型映射')
+  assert.equal((await providers.getRaw(created.id)).sonnetModel, 'retired', '掃描不改使用者模型映射')
 
   let release
   globalThis.fetch = async () => {
@@ -107,7 +107,7 @@ async function main() {
   assert.equal(grokHeaders['x-grok-client-version'], '1.0.13', 'Grok 模型掃描帶 CLI 版本標頭')
 
   checkDropdown()
-  console.log('PASS CC 模型：每天更新、重啟保留時間、lab 分組、世代排序、四格一致、清單與草稿保護')
+  console.log('PASS CC 模型：每天更新、重啟保留時間、lab 分組、世代排序、清單與草稿保護')
 }
 
 function checkDropdown() {
@@ -132,17 +132,14 @@ function checkDropdown() {
     document: { getElementById: get, createElement: (tag) => new Element(tag) },
     syncCustomSelects() {}, createGridReorder: () => ({})
   })
-  vm.runInContext(grouping + '\n' + source + `\nproviders = [{ id: 'p', presetId: 'codex', model: 'retired', availableModels: ['fresh'] }];
-    editingProviderId = 'p'; catalog = { presets: [{ id: 'codex', defaults: { model: 'retired' } }] };
-    field('ccModelInput').value = 'draft'; field('ccModelSelect').value = 'draft';
+  vm.runInContext(grouping + '\n' + source + `\nproviders = [{ id: 'p', presetId: 'codex', sonnetModel: 'retired', availableModels: ['fresh'] }];
+    editingProviderId = 'p'; catalog = { presets: [{ id: 'codex', defaults: { sonnetModel: 'retired' } }] };
+    field('ccSonnetInput').value = 'draft';
     rebuildModelSelects(['fresh']);`, context)
-  assert.deepEqual(get('ccModelSelect').options.map((option) => option.value), ['', 'fresh'], '下架模型與舊預設不能併回下拉')
-  assert.equal(get('ccModelInput').value, 'draft', '更新清單不蓋掉未儲存的選擇')
-  assert.equal(vm.runInContext('modelManual', context), true, '清單外草稿保留在手動欄位')
-  vm.runInContext('toggleModelMode()', context)
-  assert.equal(vm.runInContext('modelManual', context), false)
-  assert(!get('ccModelSelect').options.some((option) => option.value === 'draft'), '切回下拉不能把清單外模型補回去')
-  checkGroups(context, get)
+  const choices = () => JSON.parse(vm.runInContext('JSON.stringify(modelGroups)', context))
+  assert.deepEqual(choices().flatMap((group) => group.models), ['fresh'], '下架模型與舊預設不能併回清單')
+  assert.equal(get('ccSonnetInput').value, 'draft', '更新清單不蓋掉未儲存的輸入')
+  checkGroups(context, choices)
   checkGeneration(context)
 }
 
@@ -163,23 +160,19 @@ function checkGeneration(context) {
   assert.equal(groups.flatMap((group) => group.models).length, 15, '只去重與排除無效值，不丟陌生模型')
 }
 
-function checkGroups(context, get) {
+function checkGroups(context, choices) {
   const models = ['mystery-99', 'gpt-5.6-luna', 'moonshotai/Kimi-K2.6', 'Qwen/Qwen3.7-Max',
     'claude-opus-4-8', 'z-ai/glm-5.2', 'MiniMaxAI/MiniMax-M2.7', 'Qwen/Qwen3.8-Max',
     'claude-sonnet-5-5', 'gpt-6.1-sol', 'moonshotai/Kimi-K3', 'MiniMaxAI/MiniMax-M3', 'zai-org/GLM-5.3']
-  vm.runInContext(`modelManual = false; field('ccModelSelect').value = 'gpt-5.6-luna'; rebuildModelSelects(${JSON.stringify(models)});`, context)
-  const groups = get('ccModelSelect').children.filter((child) => child.tagName === 'optgroup')
+  vm.runInContext(`field('ccSonnetInput').value = 'gpt-5.6-luna'; rebuildModelSelects(${JSON.stringify(models)});`, context)
+  const groups = choices()
   assert.deepEqual(groups.map((group) => group.label), ['Anthropic', 'OpenAI', 'Alibaba · Qwen', 'Moonshot AI · Kimi', 'Z.ai · GLM', 'MiniMax', '其他／未分類'], '主流 AI lab 分組在前，未知模型在最後')
-  assert.deepEqual(groups[0].options.map((item) => item.value), ['claude-sonnet-5-5', 'claude-opus-4-8'], 'Claude 世代排序不能受 Sonnet／Opus 字母影響')
+  assert.deepEqual(groups[0].models, ['claude-sonnet-5-5', 'claude-opus-4-8'], 'Claude 世代排序不能受 Sonnet／Opus 字母影響')
   for (const [index, newest] of [[1, 'gpt-6.1-sol'], [2, 'Qwen/Qwen3.8-Max'], [3, 'moonshotai/Kimi-K3'], [4, 'zai-org/GLM-5.3'], [5, 'MiniMaxAI/MiniMax-M3']]) {
-    assert.equal(groups[index].options[0].value, newest, '各家較新世代在上面')
+    assert.equal(groups[index].models[0], newest, '各家較新世代在上面')
   }
-  assert.equal(get('ccModelSelect').value, 'gpt-5.6-luna', '分類不改原本選擇')
-  assert.deepEqual(get('ccModelSelect').options.map((item) => item.value).filter(Boolean).sort(), [...models].sort(), '分類不增刪或改寫上游 ID')
-  assert.equal(vm.runInContext('modelManual', context), false)
-  for (const id of ['ccHaikuSelect', 'ccSonnetSelect', 'ccOpusSelect']) {
-    assert.deepEqual(get(id).options.map((item) => item.value), get('ccModelSelect').options.map((item) => item.value), '四格下拉分類一致')
-  }
+  assert.equal(vm.runInContext("field('ccSonnetInput').value", context), 'gpt-5.6-luna', '分類不改原本選擇')
+  assert.deepEqual(groups.flatMap((group) => group.models).sort(), [...models].sort(), '分類不增刪或改寫上游 ID')
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1 }).finally(() => {

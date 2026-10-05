@@ -18,6 +18,7 @@ import {
   resolveTranslateModelKey
 } from './app.js'
 import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
+import { syncCustomSelects } from './custom-select.js'
 import { newTranscriptId, logTranscript, refreshLiveHistory } from './live-history.js'
 
 // ===== DOM 元素 =====
@@ -30,6 +31,8 @@ let liveEngine
 let levelFill
 let liveError
 let liveTranslatorHint
+/** @type {HTMLSelectElement | null} */
+let liveAudioSource
 
 // ===== 狀態 =====
 let isCapturing = false
@@ -73,6 +76,10 @@ const MAX_TRANSLATE_QUEUE = 5
 let targetLanguage = 'zh-TW'
 /** 這一場字幕寫進紀錄用的 id；沒在擷取時是空字串（晚到的結果不寫） */
 let transcriptId = ''
+/** 音源：system＝既有的系統 loopback；mic＝麥克風。同一時間只開一條 */
+let liveSource = 'system'
+/** @type {Promise<void>} */
+let liveSourceReady = Promise.resolve()
 
 let sessionEpoch = 0
 let batchSeq = 0
@@ -104,9 +111,12 @@ export function initLiveCaption() {
   levelFill = document.getElementById('levelFill')
   liveError = document.getElementById('liveError')
   liveTranslatorHint = document.getElementById('liveTranslatorHint')
+  liveAudioSource = /** @type {HTMLSelectElement | null} */ (document.getElementById('liveAudioSource'))
 
   startLiveBtn.addEventListener('click', startCapture)
   stopLiveBtn.addEventListener('click', () => stopCapture())
+  liveAudioSource?.addEventListener('change', onLiveSourceChange)
+  liveSourceReady = loadLiveSource()
 
   electronAPI.subtitle.onClosed(() => {
     if (isCapturing) stopCapture({ closeWindow: false })
@@ -196,14 +206,81 @@ async function refreshLiveTranslatorHint() {
 }
 
 /**
- * 開始擷取系統音訊
+ * 記住的音源。store 沒這顆 key 或讀失敗就維持系統聲音（跟改版前一樣）。
+ */
+async function loadLiveSource() {
+  try {
+    const saved = await electronAPI.store.get('liveAudioSource', 'system')
+    liveSource = saved === 'mic' ? 'mic' : 'system'
+  } catch {
+    liveSource = 'system'
+  }
+  if (liveAudioSource && !isCapturing && !isStarting) {
+    liveAudioSource.value = liveSource
+    syncCustomSelects()
+  }
+  updateMeterTitle()
+}
+
+/** 字幕進行中不讓換音源：換的話要先停掉舊的那條，否則麥克風會開兩條關不掉 */
+function onLiveSourceChange() {
+  if (!liveAudioSource) return
+  if (isCapturing || isStarting) {
+    liveAudioSource.value = liveSource
+    syncCustomSelects()
+    return
+  }
+  liveSource = liveAudioSource.value === 'mic' ? 'mic' : 'system'
+  updateMeterTitle()
+  electronAPI.store.set('liveAudioSource', liveSource).catch(() => {})
+}
+
+function updateMeterTitle() {
+  const meter = liveStatus?.querySelector('.level-meter')
+  if (meter) meter.title = liveSource === 'mic' ? '麥克風音量' : '系統音訊音量'
+}
+
+/**
+ * 只開一條。系統聲音維持原本的 getDisplayMedia（main 強制 loopback）；
+ * 麥克風走 getUserMedia。呼叫前不得已有另一條 mediaStream。
+ * @param {'system'|'mic'} source
+ * @returns {Promise<MediaStream>}
+ */
+async function openCaptureStream(source) {
+  if (source === 'mic') {
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    })
+  }
+  const display = await navigator.mediaDevices.getDisplayMedia({
+    audio: true,
+    video: { width: 1, height: 1, frameRate: 1 }
+  })
+  const audioTracks = display.getAudioTracks()
+  if (audioTracks.length === 0) {
+    display.getTracks().forEach((track) => track.stop())
+    throw new Error('無法取得系統音訊')
+  }
+  display.getVideoTracks().forEach((track) => track.stop())
+  return display
+}
+
+/**
+ * 開始擷取目前選的音源（系統聲音或麥克風）
  */
 async function startCapture() {
-  // 重入防護：按鈕 disabled 遲至 getDisplayMedia 後才設，雙擊會起兩條錄音管線
+  // 重入防護：按鈕 disabled 遲至音源到手後才設，雙擊會起兩條錄音管線
   if (isCapturing || isStarting) return
   isStarting = true
   updateUI()
   try {
+    await liveSourceReady
+    const source = liveSource
     settings = await getSettings()
     targetLanguage = liveLanguage.value
     const needsTranslationBackend = targetLanguage !== 'auto'
@@ -246,19 +323,18 @@ async function startCapture() {
     }
 
     try {
-      // 1) 先要權限（取消則不載模型）
-      mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
-        video: { width: 1, height: 1, frameRate: 1 }
-      })
-
+      // 1) 先要音源（取消則不載模型）。上一條一定先停掉，避免系統聲音與麥克風同時開著
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => track.stop())
+        mediaStream = null
+      }
+      mediaStream = await openCaptureStream(source)
       const audioTracks = mediaStream.getAudioTracks()
       if (audioTracks.length === 0) {
-        throw new Error('無法取得系統音訊')
+        throw new Error(source === 'mic' ? '無法取得麥克風' : '無法取得系統音訊')
       }
-      mediaStream.getVideoTracks().forEach(track => track.stop())
       const audioStream = new MediaStream(audioTracks)
-      // 音訊來源被系統收回（切換輸出裝置、藍牙斷線）時主動停止，避免殭屍 session
+      // 音訊來源被系統收回（切換輸出裝置、藍牙斷線、麥克風被拔）時主動停止
       audioTracks.forEach(t => t.addEventListener('ended', () => {
         if (isCapturing) stopCapture()
       }))
@@ -299,7 +375,9 @@ async function startCapture() {
         mediaStream = null
       }
       if (error.name === 'NotAllowedError') {
-        showToast('使用者取消了權限請求', 'error')
+        showToast(source === 'mic' ? '沒有麥克風權限' : '使用者取消了權限請求', 'error')
+      } else if (error.name === 'NotFoundError' && source === 'mic') {
+        showToast('找不到可用的麥克風', 'error')
       } else {
         showToast(`開始失敗: ${error.message}`, 'error')
       }
@@ -662,6 +740,9 @@ function updateUI() {
   startLiveBtn.disabled = isStarting
   stopLiveBtn.classList.toggle('hidden', !isCapturing)
   liveLanguage.disabled = isStarting || isCapturing
+  // 錄到一半換音源會再 getUserMedia 一條，舊的不一定關得掉。先停字幕再換。
+  if (liveAudioSource) liveAudioSource.disabled = isStarting || isCapturing
+  updateMeterTitle()
   liveStatus.classList.toggle('active', isCapturing)
   statusText.textContent = isCapturing ? '擷取中' : isStarting ? '準備中…' : '未啟動'
 

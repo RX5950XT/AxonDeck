@@ -21,6 +21,8 @@ const { createFanEngine } = require('./fans')
 const { createOcEngine } = require('./oc')
 const pawnio = require('./pawnio')
 const metrics = require('./metrics')
+const { createProcessIcons } = require('./process-icons')
+const { processNetworkRate } = require('./process-network')
 const { createDiskTree } = require('./disktree')
 const { resolveProbeExe } = require('../native-probe')
 
@@ -129,6 +131,7 @@ function createSysmonService(deps = {}) {
   const sampler = createSampler(deps.samplerDeps)
   const gpu = createGpuFeed(deps.gpuDeps)
   const sensors = createSensorBridge(deps.sensorDeps)
+  const icons = createProcessIcons(deps.iconDeps)
   const stress = createStressRunner()
   const fans = createFanEngine({ sensors })
   const oc = createOcEngine({ sensors })
@@ -146,9 +149,14 @@ function createSysmonService(deps = {}) {
   let lastFeed = null
 
   sampler.setSampleHandler((sample) => {
+    const network = sensors.read().processNetwork
+    const processes = (sample.processes || []).map((p) => ({
+      ...p, network: processNetworkRate(network, p)
+    }))
     const data = {
       ...sample,
-      processes: metrics.mergeProcesses(sample.processes || []),
+      processes: metrics.mergeProcesses(processes).map((p) => ({ ...p, icon: icons.read(p.exePath) })),
+      processNetwork: { available: Boolean(network), t: network?.t || 0, source: 'etw' },
       gpu: gpu.read(),
       // 帶上 status 是為了讓畫面能自己更新提示：裝了 PawnIO 之後 `Computer.Open()`
       // 要載一堆核心模組，第一筆讀數實測約 10 秒才到，中間得有話講
@@ -221,8 +229,12 @@ function createSysmonService(deps = {}) {
       // gpu／sensors 各自有自己的子程序，順便用當下的讀數蓋過取樣當下那一格。
       if (lastFeed) {
         const gpuNow = gpu.read()
+        const networkFresh = Boolean(sensors.read().processNetwork)
+          && Date.now() - lastFeed.processNetwork.t < 5000
         lastFeed = {
           ...lastFeed,
+          processes: lastFeed.processes.map((p) => ({ ...p, network: networkFresh ? p.network : null, icon: icons.read(p.exePath) })),
+          processNetwork: { ...lastFeed.processNetwork, available: networkFresh },
           gpu: gpuNow.available ? gpuNow : lastFeed.gpu,
           sensors: { ...sensorStatus(), groups: sensors.read().groups }
         }

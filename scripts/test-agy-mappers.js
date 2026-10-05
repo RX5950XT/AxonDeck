@@ -141,6 +141,39 @@ test('OpenRouter 風格的斜線模型名可以透傳', () => {
   assert.strictEqual(modelMap.resolveModel('google/gemini-3-flash').mapped, 'google/gemini-3-flash')
 })
 
+/** 型錄列（catalog.parseCatalog 的形狀，只取 resolveModel 用到的欄位） */
+const liveRow = (id, extra = {}) => ({ id, chatCapable: true, deprecated: false, replacedBy: '', ...extra })
+const LIVE_55 = [liveRow('claude-opus-5-5-thinking'), liveRow('claude-opus-4-6-thinking'),
+  liveRow('claude-sonnet-4-6'), liveRow('gemini-3.8-flash-high')]
+const LIVE_46 = [liveRow('claude-opus-4-6-thinking'), liveRow('claude-sonnet-4-6')]
+
+test('即時型錄有的 Claude ID 原樣送出，不被前綴規則改回舊模型', () => {
+  assert.strictEqual(modelMap.resolveModel('claude-opus-5-5-thinking', LIVE_55).mapped, 'claude-opus-5-5-thinking')
+})
+
+test('Claude Code 送的名字對到型錄裡同代同家族', () => {
+  assert.strictEqual(modelMap.resolveModel('claude-opus-5-5', LIVE_55).mapped, 'claude-opus-5-5-thinking')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-5-5[1m]', LIVE_55).mapped, 'claude-opus-5-5-thinking')
+  // 沒有同代就挑同家族最新的
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-1-20250805', LIVE_55).mapped, 'claude-opus-5-5-thinking')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-5-5', LIVE_46).mapped, 'claude-opus-4-6-thinking')
+  assert.strictEqual(modelMap.resolveModel('claude-sonnet-5-5', LIVE_55).mapped, 'claude-sonnet-4-6')
+  // 上游沒有 Haiku，退到 Sonnet
+  assert.strictEqual(modelMap.resolveModel('claude-haiku-4-5-20251001', LIVE_55).mapped, 'claude-sonnet-4-6')
+})
+
+test('型錄標記淘汰的模型跟著 replacedBy 走', () => {
+  const live = [liveRow('claude-opus-4-6-thinking', { deprecated: true, replacedBy: 'claude-opus-5-5-thinking' }),
+    liveRow('claude-opus-5-5-thinking'), liveRow('claude-sonnet-4-6')]
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-6-thinking', live).mapped, 'claude-opus-5-5-thinking')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-6', live).mapped, 'claude-opus-5-5-thinking')
+})
+
+test('拿不到型錄時維持靜態表行為', () => {
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-1-20250805', null).mapped, 'claude-opus-4-6-thinking')
+  assert.strictEqual(modelMap.resolveModel('gemini-3-flash', null).mapped, 'gemini-3-flash')
+})
+
 test('listModels 回 OpenAI 形狀', () => {
   const list = modelMap.listModels(1_700_000_000_000)
   assert.ok(list.length >= 5)
@@ -286,6 +319,62 @@ test('anyOf 的 null 變體改成 nullable，只剩一支就攤平', () => {
   assert.strictEqual(framework.description, '框架', '父層描述不可被變體蓋掉')
   assert.strictEqual(cleaned.properties.value.anyOf.length, 2)
   assert.strictEqual(cleaned.properties.value.nullable, true)
+})
+
+test('沒寫 type 的 anyOf 分支沿用父層型別（Claude Code 的 SendMessage.to）', () => {
+  // 補成 object 的話，Claude 模型的上游會整包 400「input_schema: JSON schema is invalid」
+  const cleaned = gemini.sanitizeSchema({
+    type: 'object',
+    properties: { to: { type: 'string', anyOf: [{ pattern: '^[^\\n]*$' }, { pattern: '^.{0,300}$' }] } }
+  })
+  const variants = cleaned.properties.to.anyOf
+  assert.ok(variants.every((v) => v.type === 'string' && !v.properties), JSON.stringify(variants))
+})
+
+test('送 Claude 模型時工具 schema 不留 anyOf（cloudcode-pa 轉回 JSON Schema 一律 400）', () => {
+  const tool = {
+    name: 'Send',
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', anyOf: [{ pattern: '^a' }, { pattern: '^b' }] },
+        n: { anyOf: [{ type: 'number' }, { type: 'string' }] },
+        list: { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'null' }, { type: 'number' }] } }
+      }
+    }
+  }
+  const body = { messages: [{ role: 'user', content: 'hi' }], tools: [tool] }
+  const claude = JSON.stringify(anthropic.toGeminiRequest(body, 'claude-opus-4-6-thinking').tools)
+  assert.ok(!claude.includes('anyOf'), claude)
+  const params = anthropic.toGeminiRequest(body, 'claude-opus-4-6-thinking').tools[0].functionDeclarations[0].parameters
+  assert.strictEqual(params.properties.to.type, 'string')
+  assert.strictEqual(params.properties.to.pattern, undefined)
+  assert.strictEqual(params.properties.n.type, 'number')
+  const openaiTools = openai.toGeminiRequest({
+    messages: [{ role: 'user', content: 'hi' }],
+    tools: [{ type: 'function', function: { name: 'Send', parameters: tool.input_schema } }]
+  }, 'claude-sonnet-4-6').tools
+  assert.ok(!JSON.stringify(openaiTools).includes('anyOf'))
+  // Gemini 吃得下 anyOf，保留
+  assert.ok(JSON.stringify(anthropic.toGeminiRequest(body, 'gemini-3.7-flash-high').tools).includes('anyOf'))
+})
+
+test('工具往返帶 id（Claude 模型上游要 tool_use.id，少了第二輪 400）', () => {
+  const inner = anthropic.toGeminiRequest({ messages: [
+    { role: 'user', content: 'run' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'echo' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] }
+  ] }, 'claude-opus-4-6-thinking')
+  const parts = inner.contents.flatMap((c) => c.parts)
+  assert.strictEqual(parts.find((p) => p.functionCall).functionCall.id, 'toolu_1')
+  assert.strictEqual(parts.find((p) => p.functionResponse).functionResponse.id, 'toolu_1')
+  const viaOpenai = openai.toGeminiRequest({ messages: [
+    { role: 'user', content: 'run' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'Bash', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call_1', content: 'ok' }
+  ] }, 'claude-sonnet-4-6').contents.flatMap((c) => c.parts)
+  assert.strictEqual(viaOpenai.find((p) => p.functionCall).functionCall.id, 'call_1')
+  assert.strictEqual(viaOpenai.find((p) => p.functionResponse).functionResponse.id, 'call_1')
 })
 
 test('空 object 補 properties，避免上游 400', () => {

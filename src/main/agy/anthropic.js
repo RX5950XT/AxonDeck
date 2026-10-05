@@ -4,7 +4,7 @@ const { randomUUID } = require('crypto')
 const {
   finishReasonOf,
   firstCandidate,
-  sanitizeSchema,
+  schemaFor,
   splitParts,
   unwrapEnvelope,
   usageFrom
@@ -76,21 +76,22 @@ function blocksToParts(content, toolNames) {
     if (block.type === 'tool_use' && typeof block.name === 'string' && block.name) {
       if (typeof block.id === 'string') toolNames.set(block.id, block.name)
       const args = block.input && typeof block.input === 'object' ? block.input : {}
-      parts.push({ functionCall: { name: block.name, args } })
+      // Claude 模型的上游把 functionCall／functionResponse 轉回 tool_use／tool_result，id 是必填
+      parts.push({ functionCall: { name: block.name, args, ...(typeof block.id === 'string' && block.id ? { id: block.id } : {}) } })
       continue
     }
     if (block.type === 'tool_result') {
       const id = typeof block.tool_use_id === 'string' ? block.tool_use_id : ''
       const name = toolNames.get(id) || 'tool'
       parts.push({
-        functionResponse: { name, response: { content: toolResultText(block.content) } }
+        functionResponse: { name, response: { content: toolResultText(block.content) }, ...(id ? { id } : {}) }
       })
     }
   }
   return parts
 }
 
-function toolsToDeclarations(tools) {
+function toolsToDeclarations(tools, mapped) {
   if (!Array.isArray(tools)) return null
   const declarations = []
   for (const tool of tools) {
@@ -101,7 +102,7 @@ function toolsToDeclarations(tools) {
     if (typeof tool.description === 'string' && tool.description) {
       declaration.description = tool.description.slice(0, 4000)
     }
-    const parameters = sanitizeSchema(tool.input_schema)
+    const parameters = schemaFor(tool.input_schema, mapped)
     if (parameters) declaration.parameters = parameters
     declarations.push(declaration)
   }
@@ -155,7 +156,7 @@ function toGeminiRequest(body, mapped) {
   const system = systemToText(body.system)
   if (system) inner.systemInstruction = { role: 'user', parts: [{ text: system }] }
 
-  const tools = toolsToDeclarations(body.tools)
+  const tools = toolsToDeclarations(body.tools, mapped)
   if (tools) {
     inner.tools = tools
     const choice = body.tool_choice?.type

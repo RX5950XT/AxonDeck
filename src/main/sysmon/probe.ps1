@@ -517,9 +517,16 @@ function Emit-Tick([string]$seq) {
   # 一次查詢就有 pid／名稱／CPU／記憶體／執行緒／磁碟 I/O／handle／父程序。
   # 名稱來自執行檔檔名（Windows 路徑不可能含 |），所以這裡不再逐筆呼叫 Esc。
   $procs = Get-CimInstance Win32_PerfRawData_PerfProc_Process -Property IDProcess,Name,PercentProcessorTime,Timestamp_Sys100NS,WorkingSet,PrivateBytes,ThreadCount,IOReadBytesPersec,IOWriteBytesPersec,HandleCount,CreatingProcessID -EA SilentlyContinue
+  # 一次批次查路徑，不對每個 PID 開一個 WMI 查詢；不可讀時留空。
+  $images = @{}
+  foreach ($image in @(Get-CimInstance Win32_Process -Property ProcessId,ExecutablePath,CreationDate -EA SilentlyContinue)) {
+    $images[[int]$image.ProcessId] = $image
+  }
   $rows += foreach ($p in $procs) {
     if ($null -eq $p.IDProcess) { continue }
-    "P|$($p.IDProcess)|$($p.Name)|$($p.PercentProcessorTime)|$($p.Timestamp_Sys100NS)|$($p.WorkingSet)|$($p.PrivateBytes)|$($p.ThreadCount)|$($p.IOReadBytesPersec)|$($p.IOWriteBytesPersec)|$($p.HandleCount)|$($p.CreatingProcessID)"
+    $image = $images[[int]$p.IDProcess]
+    $started = if ($image.CreationDate) { [long]([DateTimeOffset]$image.CreationDate).ToUnixTimeMilliseconds() } else { 0 }
+    "P|$($p.IDProcess)|$($p.Name)|$($p.PercentProcessorTime)|$($p.Timestamp_Sys100NS)|$($p.WorkingSet)|$($p.PrivateBytes)|$($p.ThreadCount)|$($p.IOReadBytesPersec)|$($p.IOWriteBytesPersec)|$($p.HandleCount)|$($p.CreatingProcessID)|$(Esc $image.ExecutablePath)|$started"
   }
 
   [Console]::Out.Write("#B tick $seq`n" + ($rows -join "`n") + "`n#E tick $seq`n")

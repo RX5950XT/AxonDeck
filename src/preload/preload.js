@@ -414,8 +414,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     /** 本機轉換閘道的狀態（回傳不含任何上游 token） */
     gatewayStatus: () => ipcRenderer.invoke('ccswitch:gatewayStatus'),
-    startGateway: () => ipcRenderer.invoke('ccswitch:startGateway'),
-    stopGateway: () => ipcRenderer.invoke('ccswitch:stopGateway'),
 
     listMcp: () => ipcRenderer.invoke('ccswitch:listMcp'),
     /** @param {string} id @param {object} spec @param {boolean} enabled */
@@ -436,8 +434,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     /** 逐一跑 `<工具> --version` 並查 npm registry；離線時仍回本機版本 */
     checkVersions: () => ipcRenderer.invoke('ccswitch:checkVersions'),
-    /** @param {string} key 更新指令字串（由 main 組，交給終端機分頁執行） */
-    updateCommand: (key) => ipcRenderer.invoke('ccswitch:updateCommand', key)
+    /** @param {string} key main 背景安裝或更新，只收固定工具 key */
+    runCliTask: (key) => ipcRenderer.invoke('ccswitch:runCliTask', key),
+    cliTaskStatus: (key) => ipcRenderer.invoke('ccswitch:cliTaskStatus', key)
   },
 
   // ===== 本機 token 用量統計 =====
@@ -582,6 +581,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 回傳一律 { ok, data } / { ok, error }；檔名與 id 由 main 驗樣式，組不出別的路徑
   sttArchive: {
     recordings: () => ipcRenderer.invoke('sttArchive:recordings'),
+    /** 只收 rec-<13 位毫秒>.webm，路徑由 main 組 @param {string} name */
+    resolveRecording: (name) => ipcRenderer.invoke('sttArchive:resolveRecording', name),
     /** @param {string} name @param {Uint8Array} bytes */
     appendRecording: (name, bytes) => ipcRenderer.invoke('sttArchive:appendRecording', name, bytes),
     readRecording: (name) => ipcRenderer.invoke('sttArchive:readRecording', name),

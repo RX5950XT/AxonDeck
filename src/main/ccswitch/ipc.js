@@ -51,12 +51,6 @@ function registerCcSwitchIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('ccswitch:gatewayStatus', (event) => (
     invoke(event, () => service.gatewayStatus())
   ))
-  ipcMain.handle('ccswitch:startGateway', (event) => (
-    invoke(event, () => service.startGateway())
-  ))
-  ipcMain.handle('ccswitch:stopGateway', (event) => (
-    invoke(event, () => service.stopGateway())
-  ))
 
   ipcMain.handle('ccswitch:listMcp', (event) => invoke(event, () => service.listMcp()))
   ipcMain.handle('ccswitch:saveMcp', (event, id, spec, enabled) => (
@@ -88,8 +82,11 @@ function registerCcSwitchIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('ccswitch:checkVersions', (event) => (
     invoke(event, () => service.checkVersions())
   ))
-  ipcMain.handle('ccswitch:updateCommand', (event, key) => (
-    invoke(event, () => service.versionUpdateCommand(key))
+  ipcMain.handle('ccswitch:runCliTask', (event, key) => (
+    invoke(event, () => service.runCliTask(key))
+  ))
+  ipcMain.handle('ccswitch:cliTaskStatus', (event, key) => (
+    invoke(event, () => service.cliTaskStatus(key))
   ))
 }
 

@@ -86,7 +86,7 @@ async function main() {
       throw new Error(`unexpected gguf path: ${rel}`)
     }
     if (!models.isLlmKey('linguaforge08q4')) throw new Error('not in whitelist')
-    if (!models.status().models.linguaforge08) throw new Error('missing in status')
+    if (!models.status().models.linguaforge08q4) throw new Error('missing in status')
     pass('registry v5e path', rel)
   } catch (e) {
     fail('registry v5e path', e)

@@ -12,6 +12,7 @@
  */
 const { spawnSync } = require('child_process')
 const path = require('path')
+const fs = require('fs')
 const { resolveProbeExe } = require('../src/main/native-probe')
 
 const ROOT = path.join(__dirname, '..')
@@ -51,6 +52,12 @@ const byKind = (rows) => rows.reduce((m, r) => {
   return m
 }, {})
 
+function imageIdentity(value) {
+  const file = value.replace(/^\\\\\?\\(?=[a-z]:\\)/i, '')
+  if (!/^[a-z]:\\/i.test(file)) return file.toLowerCase()
+  try { return fs.realpathSync.native(file).toLowerCase() } catch { return file.toLowerCase() }
+}
+
 function compareStatic(ps, rs) {
   const a = ps.map(stable).sort()
   const b = rs.map(stable).sort()
@@ -79,6 +86,18 @@ function compareTick(ps, rs) {
   const psP = new Map((a.P || []).map((r) => r.split('|')).map((f) => [f[1], f[2].replace(/#\d+$/, '')]))
   const wrong = (b.P || []).map((r) => r.split('|')).filter((f) => psP.has(f[1]) && psP.get(f[1]) !== f[2])
   check('tick P 同一個 pid 名稱相同', wrong.length === 0, wrong.slice(0, 5).map((f) => `${f[1]} ${psP.get(f[1])} ≠ ${f[2]}`).join('; '))
+  const psImages = new Map((a.P || []).map((r) => r.split('|')).map((f) => [f[1], f]))
+  const imageMismatch = (b.P || []).map((r) => r.split('|')).filter((f) => {
+    const other = psImages.get(f[1])
+    // 程序結束或 PID 重用可跨兩次取樣；僅比較同一個建立時間的可讀路徑。
+    return other && f[13] === other[13] && f[12] && other[12] && imageIdentity(f[12]) !== imageIdentity(other[12])
+  })
+  check('tick P 執行檔路徑一致（同建立時間）', imageMismatch.length === 0,
+    imageMismatch.slice(0, 5).map((f) => `${f[1]} ${psImages.get(f[1])[12]} ≠ ${f[12]}`).join('; '))
+  check('tick P 新增路徑／建立時間確實有值', (b.P || []).some((r) => {
+    const f = r.split('|')
+    return /^[A-Za-z]:\\/.test(f[12] || '') && Number(f[13]) > 0
+  }))
 }
 
 function compareDetail(ps, rs) {

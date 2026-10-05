@@ -1,14 +1,14 @@
 /**
- * VoiceInk - 語音轉文字頁（檔案轉錄／即時字幕／語音輸入）
+ * VoiceInk - 語音轉文字頁（檔案與錄音／即時字幕／語音輸入）
  *
  * 這一頁只負責兩件事：子分頁切換、**每個子分頁各自的模型選單**。
  *
- * 三個子分頁做的是三件不同的事，共用一組模型會互相打架（即時字幕想用 GPU 那顆、
- * 語音輸入想用 CPU 那顆），所以各存一份選擇（`fileAsr`/`fileLlm`、`liveAsr`/`liveLlm`、
- * `dictationAsr`/`dictationLlm`），選單就放在各自的頁面內容裡、不擺在標題旁。
+ * 檔案轉入與錄音機在同一個子分頁（左右兩欄）。三個用途各存一份模型選擇
+ * （`fileAsr`/`fileLlm`、`liveAsr`/`liveLlm`、`dictationAsr`/`dictationLlm`），
+ * 選單放在各自的內容裡、不擺在標題旁。
  *
- * 檔案轉錄與即時字幕的邏輯留在 `transcribe.js`／`live-caption.js`，
- * 語音輸入留在 `dictation-page.js`；那三支的 DOM id 都沒動。
+ * 檔案轉入與即時字幕的邏輯留在 `transcribe.js`／`live-caption.js`，
+ * 錄音機在 `recorder.js`，語音輸入留在 `dictation-page.js`。
  */
 
 import { electronAPI, getSettings } from './app.js'
@@ -23,8 +23,8 @@ import {
 } from './model-picker.js'
 import { syncCustomSelects } from './custom-select.js'
 
-/** 子分頁：檔案轉錄／錄音機／即時字幕／語音輸入（錄音機沒有模型選單） */
-const SUBTABS = new Set(['file', 'recorder', 'live', 'dictation'])
+/** 子分頁：檔案與錄音／即時字幕／語音輸入（錄音機跟檔案轉入同一頁，沒有自己的模型選單） */
+const SUBTABS = new Set(['file', 'live', 'dictation'])
 
 /**
  * 每個 scope 的選單 DOM id。語音輸入的整理模型選單與提示列由 `dictation-page.js`
@@ -37,7 +37,7 @@ const PICKERS = {
   dictation: { asr: 'dictationAsrModel', llm: null, hint: null }
 }
 
-/** @type {'file'|'recorder'|'live'|'dictation'} */
+/** @type {'file'|'live'|'dictation'} */
 let activeSubtab = 'file'
 let bound = false
 
@@ -49,14 +49,14 @@ const opts = {
 }
 
 /**
- * @returns {'file'|'recorder'|'live'|'dictation'}
+ * @returns {'file'|'live'|'dictation'}
  */
 export function currentSubtab() {
   return activeSubtab
 }
 
 /**
- * @param {'file'|'recorder'|'live'|'dictation'} name
+ * @param {'file'|'live'|'dictation'} name
  */
 export function showSubtab(name) {
   activeSubtab = SUBTABS.has(name) ? name : 'file'
@@ -92,7 +92,7 @@ function bindOnce() {
 
   document.querySelectorAll('#sttSubtabs .subtab').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const name = /** @type {'file'|'recorder'|'live'|'dictation'} */ (btn.dataset.subtab)
+      const name = /** @type {'file'|'live'|'dictation'} */ (btn.dataset.subtab)
       showSubtab(name)
       document.dispatchEvent(new CustomEvent('stt-subtab-changed', { detail: { subtab: name } }))
     })

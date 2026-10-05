@@ -51,6 +51,13 @@ fs.writeFileSync(path.join(root, 'recordings', 'rec-1700000200000.webm'), '')
 ok('[B] 空檔不列', archive.listRecordings().length === 2)
 archive.deleteRecording(b)
 ok('[B] 刪掉', archive.listRecordings().length === 1)
+const resolved = archive.resolveRecording(a)
+ok('[B] resolve 只吃檔名、路徑在 recordings',
+  resolved.name === a && resolved.size === 3 && resolved.path === path.join(root, 'recordings', a))
+assert.throws(() => archive.resolveRecording('rec-1700000200000.webm'), /錄音檔是空的/)
+assert.throws(() => archive.resolveRecording('rec-1999999999999.webm'), /找不到這段錄音/)
+assert.throws(() => archive.resolveRecording(path.join(root, 'recordings', a)), /錄音檔名無效/)
+passed += 3
 
 // [C] 單塊上限
 assert.throws(() => archive.appendRecording(a, new Uint8Array(8 * 1024 * 1024 + 1)), /錄音資料過大/)
@@ -90,6 +97,13 @@ archive.registerSttArchiveIpc({
   ok('[E] 壞檔名回固定訊息', bad.ok === false && bad.error.message === '錄音檔名無效')
   const good = await handlers['sttArchive:recordings']('main')
   ok('[E] 正常回清單', good.ok === true && Array.isArray(good.data))
+  const badResolve = await handlers['sttArchive:resolveRecording']('main', '../rec-1700000000000.webm')
+  ok('[E] resolve 不收路徑', badResolve.ok === false && badResolve.error.message === '錄音檔名無效')
+  const deniedResolve = await handlers['sttArchive:resolveRecording']('other', a)
+  ok('[E] resolve 非主視窗擋掉', deniedResolve.ok === false && deniedResolve.error.code === 'FORBIDDEN')
+  const goodResolve = await handlers['sttArchive:resolveRecording']('main', a)
+  ok('[E] resolve 回目錄內路徑',
+    goodResolve.ok === true && goodResolve.data.path === path.join(root, 'recordings', a))
   console.log(`test-stt-archive: ${passed} passed`)
 })().catch((e) => {
   console.error(e)

@@ -12,6 +12,8 @@ const presets = require('./presets')
 const convert = require('./gateway/convert')
 const { fetchModels } = require('../chat-models')
 const cliVersion = require('./cli-version')
+const { randomUUID } = require('crypto')
+const clientHeaders = require('./gateway/client-headers')
 
 const API_FORMATS = new Set(['anthropic', 'openai_chat', 'openai_responses'])
 const TEST_TIMEOUT_MS = 15_000
@@ -32,6 +34,49 @@ function configure(options = {}) {
  */
 function acquireFn() {
   return deps.acquire || require('./gateway/credential').acquire
+}
+
+/** OpenRouter 上架超過一年的模型不列（舊到不值得拿來跑 Claude Code） */
+const OPENROUTER_MAX_AGE_S = 365 * 24 * 3600
+/** OpenRouter 下拉最多幾顆：照綜合智力分數取前段班 */
+const OPENROUTER_MAX_MODELS = 100
+
+/**
+ * OpenRouter 一次回四百多顆，大半接不了 Claude Code：只留「吃文字、只吐文字、支援工具呼叫」
+ * 而且一年內上架的。`:batch`（離線批次）、`:free`（同一顆的限流版）、`~` 開頭（「最新版」別名）
+ * 都是重複的入口，不列。
+ * @param {any} row
+ * @param {number} [nowMs]
+ * @returns {boolean}
+ */
+function keepOpenRouterModel(row, nowMs = Date.now()) {
+  if (typeof row?.id !== 'string' || /:(?:batch|free)$/.test(row.id) || row.id.startsWith('~')) return false
+  const output = row.architecture?.output_modalities
+  const input = row.architecture?.input_modalities
+  if (!Array.isArray(output) || output.length !== 1 || output[0] !== 'text') return false
+  if (!Array.isArray(input) || !input.includes('text')) return false
+  if (!Array.isArray(row.supported_parameters) || !row.supported_parameters.includes('tools')) return false
+  return Number.isFinite(row.created) && nowMs / 1000 - row.created < OPENROUTER_MAX_AGE_S
+}
+
+/** OpenRouter 清單附的 Artificial Analysis 綜合智力分數；沒有＝沒被評測過 */
+function openRouterScore(row) {
+  const value = row?.benchmarks?.artificial_analysis?.intelligence_index
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * 篩完再照分數由高到低取前 100：沒分數的多半是預覽版、pro 加價版或冷門小廠，先不列
+ * （要用清單外的 id 直接在輸入框打就好）。分類與新舊排序交給畫面的 `groupCcModels`。
+ * @param {any[]} rows
+ * @param {number} [nowMs]
+ * @returns {any[]}
+ */
+function pickOpenRouterModels(rows, nowMs = Date.now()) {
+  return rows
+    .filter((row) => keepOpenRouterModel(row, nowMs) && openRouterScore(row) !== null)
+    .sort((a, b) => openRouterScore(b) - openRouterScore(a))
+    .slice(0, OPENROUTER_MAX_MODELS)
 }
 
 /**
@@ -108,8 +153,14 @@ function probeBody(format, model, codex = false) {
       stream: false
     }
   }
+  if (codex) {
+    // Codex 後端只收 input 陣列與串流；沿用閘道轉換，避免測試鍵誤報 400。
+    return convert.forCodexBackend(convert.toResponsesRequest({
+      system: 'Reply briefly', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1
+    }, model))
+  }
   const responses = { model, input: 'ping', max_output_tokens: 1, stream: false }
-  return codex ? convert.forCodexBackend(responses) : responses
+  return responses
 }
 
 /**
@@ -124,13 +175,17 @@ async function testProvider(provider, options = {}) {
 
   const preset = presets.getPreset(provider?.presetId)
   const model = String(
-    provider?.model || provider?.sonnetModel || provider?.haikuModel || provider?.opusModel ||
-    preset?.env?.ANTHROPIC_MODEL || ''
+    provider?.sonnetModel || provider?.opusModel || provider?.haikuModel ||
+    preset?.env?.ANTHROPIC_DEFAULT_SONNET_MODEL || ''
   ).trim()
   if (!model) return { ok: false, responded: false, code: 'MISSING_MODEL', error: '請先填一個模型再測試' }
 
   /** @type {Record<string, string>} */
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' }
+  if (target.codex && target.format === 'openai_responses') headers.Accept = 'text/event-stream'
+  if (preset.id === 'opencode-go') {
+    Object.assign(headers, clientHeaders.forOpenCode({}, { metadata: { session_id: randomUUID() } }))
+  }
   if (target.format === 'anthropic') headers['anthropic-version'] = '2023-06-01'
   if (target.auth === 'cli') {
     try {
@@ -151,7 +206,10 @@ async function testProvider(provider, options = {}) {
   } else {
     const key = String(provider?.apiKey || '').trim()
     if (!key) return { ok: false, responded: false, code: 'MISSING_API_KEY', error: '請先填 API 金鑰再測試' }
-    if (target.authField === 'ANTHROPIC_API_KEY') headers['x-api-key'] = key
+    // Go 的 x-api-key 是 Claude Messages 端點專用；OpenAI 端點仍收 Bearer。
+    const useApiKey = target.authField === 'ANTHROPIC_API_KEY' &&
+      !(preset.id === 'opencode-go' && target.format !== 'anthropic')
+    if (useApiKey) headers['x-api-key'] = key
     else headers.Authorization = `Bearer ${key}`
   }
 
@@ -246,7 +304,8 @@ async function scanProviderModels(provider, options = {}) {
     if (version) parsed.searchParams.set('client_version', version)
     url = parsed.href
   }
-  const result = await fetchModels({ url, apiKey, headers, fetchImpl: options.fetchImpl, allowEmpty: true })
+  const pickRows = provider?.presetId === 'openrouter' ? (rows) => pickOpenRouterModels(rows) : null
+  const result = await fetchModels({ url, apiKey, headers, fetchImpl: options.fetchImpl, allowEmpty: true, pickRows })
   if (!result.ok && result.code === 'HTTP_401' && target.auth === 'cli' && !options.force) {
     return scanProviderModels(provider, { ...options, force: true })
   }
@@ -257,4 +316,4 @@ async function scanProviderModels(provider, options = {}) {
   return result
 }
 
-module.exports = { configure, resolveScanTarget, resolveProbeTarget, testProvider, probeBody, scanProviderModels }
+module.exports = { configure, resolveScanTarget, resolveProbeTarget, testProvider, probeBody, scanProviderModels, keepOpenRouterModel, pickOpenRouterModels }

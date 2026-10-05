@@ -1,7 +1,7 @@
 /**
  * Claude Code 工作台頁（renderer）。
  *
- * 三個子分頁：供應商切換／MCP 伺服器／CLI 版本。端點、檔案路徑與 npm 套件名都在
+ * 子分頁：供應商切換／AGY 反代／MCP 伺服器／CLI 版本／用量統計。端點、檔案路徑與 npm 套件名都在
  * main 的固定表；上游格式由使用者在供應商彈窗選擇，這裡只送受限的格式值。
  *
  * DOM 全程 `createElement` ＋ `textContent`，零 innerHTML（跟 `markdown.js` 同一條規矩）。
@@ -11,6 +11,7 @@
 import { syncCustomSelects } from './custom-select.js'
 import { createGridReorder } from './grid-reorder.js'
 import { groupCcModels } from './cc-model-groups.js'
+import { attachModelCombo } from './model-combo.js'
 
 const electronAPI = window.electronAPI
 
@@ -47,6 +48,9 @@ let loginTimer = 0
 // 每次開始／停止登入輪詢都換一代：連點登入時，晚回來的那次不能再開第二條 interval
 let loginSeq = 0
 let loginProvider = ''
+/** AGY 反代子分頁的模組（第一次點進去才載） */
+let agyMod = null
+let agyRunning = false
 
 // ===== 共用小工具 =====
 
@@ -177,7 +181,7 @@ function presetById(id) {
 // ===== 子分頁 =====
 
 /**
- * @param {'providers'|'mcp'|'version'|'stats'} name
+ * @param {'providers'|'agy'|'mcp'|'version'|'stats'} name
  */
 function showSubtab(name) {
   activeSubtab = name
@@ -189,10 +193,22 @@ function showSubtab(name) {
   document.querySelectorAll('#page-ccswitch .subtab-panel').forEach((panel) => {
     panel.classList.toggle('active', panel.dataset.subtab === name)
   })
+  // AGY 反代原本是獨立一頁，模組與輪詢照舊由它自己管；這裡只負責開／收
+  if (name === 'agy') void loadAgy().then((mod) => mod.refreshAgyPage())
+  else agyMod?.cooldownAgyPage()
+  // 頁首的「重新整理」拿掉了：點回子分頁就是重讀
+  if (name === 'providers') void reloadProviders().catch(() => {})
   if (name === 'mcp') void reloadMcp()
   if (name === 'version') void reloadVersions()
   // 用量統計會掃 GB 等級的本機記錄，程式碼也另外 dynamic import：沒點進來就不載
   if (name === 'stats') void refreshStats()
+}
+
+function loadAgy() {
+  return import('./app.js').then((app) => app.loadAgyPage()).then((mod) => {
+    agyMod = mod
+    return mod
+  })
 }
 
 function refreshStats() {
@@ -201,48 +217,25 @@ function refreshStats() {
 
 // ===== 供應商 =====
 
-/** 閘道狀態與單一手動開關。 */
+/** 閘道狀態：跟著供應商自動開關，這裡只顯示。 */
 async function reloadGateway() {
-  const host = document.getElementById('ccGateway')
-  if (!host) return
-  host.classList.remove('hidden')
-
   try {
     gateway = await call(electronAPI.ccswitch.gatewayStatus(), '讀取閘道狀態失敗')
   } catch {
     return
   }
+  const dot = document.getElementById('ccGatewayDot')
+  if (dot) dot.className = `agy-dot ${gateway.running ? 'is-running' : 'is-stopped'}`
   const text = document.getElementById('ccGatewayText')
-  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('ccGatewayToggleBtn'))
-  btn?.setAttribute('aria-checked', gateway.running ? 'true' : 'false')
-  if (text) {
-    const missing = []
-    // 在 App 裡登入並綁定的帳號閘道也會用（優先於 CLI 憑證），有的話就不算缺
-    const hasAccount = (provider) => accounts.some((a) => a.provider === provider)
-    if (!gateway.credentials?.codex && !hasAccount('codex')) missing.push('Codex')
-    if (!gateway.credentials?.grok && !hasAccount('grok-build')) missing.push('Grok')
-    text.textContent = gateway.running
-      ? `已開啟 · ${gateway.baseUrl}${missing.length ? ` · ${missing.join('、')} 尚未登入 CLI` : ''}`
-      : '已關閉 · 需要轉換格式時請先手動開啟'
-  }
-}
-
-async function toggleGateway() {
-  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('ccGatewayToggleBtn'))
-  if (btn) btn.disabled = true
-  try {
-    gateway = await call(
-      gateway?.running ? electronAPI.ccswitch.stopGateway() : electronAPI.ccswitch.startGateway(),
-      '切換閘道失敗'
-    )
-    await reloadProviders()
-  } catch (error) {
-    await reloadGateway()
-    // reloadGateway 成功時會把錯誤藏掉，補顯示回來，不然開關閃一下就沒下文
-    showError(error instanceof Error ? error.message : '切換閘道失敗')
-  } finally {
-    if (btn) btn.disabled = false
-  }
+  if (!text) return
+  const missing = []
+  // 在 App 裡登入並綁定的帳號閘道也會用（優先於 CLI 憑證），有的話就不算缺
+  const hasAccount = (provider) => accounts.some((a) => a.provider === provider)
+  if (!gateway.credentials?.codex && !hasAccount('codex')) missing.push('Codex')
+  if (!gateway.credentials?.grok && !hasAccount('grok-build')) missing.push('Grok')
+  text.textContent = gateway.running
+    ? `執行中 · ${gateway.baseUrl}${missing.length ? ` · ${missing.join('、')} 尚未登入` : ''}`
+    : '未使用 · 切到要轉換格式的供應商時會自動開啟'
 }
 
 async function reloadProviders() {
@@ -252,6 +245,7 @@ async function reloadProviders() {
   providers = Array.isArray(data?.providers) ? data.providers : []
   currentId = data?.currentId || ''
   activeId = data?.activeId || ''
+  agyRunning = data?.agyRunning === true
   const pathEl = document.getElementById('ccLivePath')
   if (pathEl) {
     pathEl.textContent = data?.settingsExists
@@ -261,12 +255,12 @@ async function reloadProviders() {
   renderProviders()
   await reloadGateway()
   // currentId 有值但 activeId 空＝設定檔被別的工具或使用者手改過；
-  // 但經閘道的家在閘道沒開時也比不上（每次重開 App 閘道都是關的），那要講真正的原因
+  // 經閘道的家在閘道沒開時也比不上（App 剛開、閘道還在自動啟動），那要講真正的原因
   const current = providers.find((p) => p.id === currentId)
   showStatus(!currentId || activeId
     ? ''
     : current?.route === 'gateway' && !gateway?.running
-      ? `「${current.name}」要經轉換閘道，但閘道沒開，Claude Code 現在連不上；打開上面的「轉換閘道」即可。`
+      ? `「${current.name}」要經轉換閘道，但閘道沒在跑；再按一次「啟用」會自動開啟。`
       : 'settings.json 的 Base URL 與記錄不符（被其他工具改過？）。再按一次「啟用」會寫回。', { page: true })
   // 閘道狀態會影響「需要閘道」那個標記，拿到之後重畫一次
   renderProviders()
@@ -322,19 +316,21 @@ const tileReorder = createGridReorder({
  * @returns {{ text: string, warn: boolean }}
  */
 function tileMeta(item, preset) {
-  if (preset?.auth === 'none') return { text: '不動任何 env · 用你原本的登入', warn: false }
-  // 路由是 main 算好的（自訂那筆看協議，內建看表），renderer 不自己推
-  const route = item.route === 'gateway' ? '需轉換閘道' : '直連'
-  const format = API_FORMAT_LABELS[item.apiFormat]?.label?.replace('（直連）', '') || item.apiFormat
+  if (preset?.auth === 'none') return { text: '原本的登入', warn: false }
+  if (preset?.auth === 'agy') return { text: agyRunning ? '本機反代' : '本機反代 · 未啟動', warn: false }
+  // 路由是 main 算好的（自訂那筆看協議，內建看表），renderer 不自己推；直連一定是 Messages，不用再講
+  const route = item.route === 'gateway' ? `閘道 · ${SHORT_FORMATS[item.apiFormat] || item.apiFormat}` : '直連'
   const auth = preset?.auth === 'cli'
-    ? (item.oauthAccountId ? '已登入帳號' : '用 CLI 憑證')
-    : item.hasKey ? `金鑰 ····${item.keyTail}` : '尚未填金鑰'
-  const warn = (preset?.auth === 'key' && !item.hasKey) ||
-    (item.route === 'gateway' && !gateway?.running)
+    ? (item.oauthAccountId ? '已登入' : 'CLI 憑證')
+    : item.hasKey ? `金鑰 ····${item.keyTail}` : '缺金鑰'
+  const warn = preset?.auth === 'key' && !item.hasKey
   // 宣告了 1M 就講出來——不然開了之後在卡片上完全看不出來，只能一筆一筆點進去看
   const oneM = item.context1m ? ' · 1M' : ''
-  return { text: `${route} · ${format} · ${auth}${oneM}`, warn }
+  return { text: `${route} · ${auth}${oneM}`, warn }
 }
+
+/** 卡片上的上游格式短名 */
+const SHORT_FORMATS = Object.freeze({ anthropic: 'Messages', openai_chat: 'Chat', openai_responses: 'Responses' })
 
 /**
  * 一張供應商 tile：上面是名稱與狀態，底下一列**常駐**的「啟用／編輯」兩顆實體按鈕
@@ -440,7 +436,7 @@ async function activateProvider(id) {
     showStatus((official
       ? '已回到官方登入'
       : item?.route === 'gateway'
-        ? '已寫入 settings.json（這家需要轉換閘道）'
+        ? '已寫入 settings.json，轉換閘道已自動開啟'
         : '已寫入 settings.json') + '；開著的 Claude Code 要重開才生效')
   } catch {
     // call() 已經顯示訊息
@@ -499,7 +495,7 @@ function openProviderDialog(id = '', { activateOnSave = false } = {}) {
   // 編輯使用中那家（或從「啟用」被帶來填金鑰）存檔後要再套用一次，不然 settings.json 還是舊的
   applyOnSave = activateOnSave || (id !== '' && id === activeId)
   clearDialogMessages(dialog)
-  document.getElementById('ccScanHint').textContent = '留空用預設值（灰字）。'
+  document.getElementById('ccScanHint').textContent = ''
   document.getElementById('ccProviderCancelBtn').textContent = '取消'
   const item = id ? providers.find((entry) => entry.id === id) : null
   const nameInput = /** @type {HTMLInputElement} */ (document.getElementById('ccNameInput'))
@@ -513,9 +509,6 @@ function openProviderDialog(id = '', { activateOnSave = false } = {}) {
   // 每次開都歸位：不重設的話上一次編輯留下的協議會被新的一筆沿用。
   // 一定要先把選項建好——空的 select 設 value 是沒有作用的。
   ensureApiFormatOptions().value = item?.apiFormat || dialogPreset()?.apiFormat || 'anthropic'
-  // 模型四格歸位成下拉模式；值先進 input，再由 rebuild 建選項
-  modelManual = false
-  applyModelMode()
   for (const cell of MODEL_FIELDS) field(cell.input).value = item?.[cell.key] || ''
   context1mCheck().checked = item?.context1m === true
   rebuildModelSelects(null)
@@ -525,6 +518,11 @@ function openProviderDialog(id = '', { activateOnSave = false } = {}) {
   const accountSelect = /** @type {HTMLSelectElement} */ (document.getElementById('ccAccountSelect'))
   accountSelect.value = item?.oauthAccountId || ''
   syncProviderDialogFields()
+  // 進階設定平常收著；自訂一定要選上游格式，所以自訂打開
+  ;/** @type {HTMLDetailsElement} */ (document.getElementById('ccAdvanced')).open = dialogPreset()?.id === 'custom'
+  // 使用中那筆存檔本來就會重新套用；官方訂閱沒東西可存
+  document.getElementById('ccProviderSaveUseBtn')?.classList.toggle('hidden',
+    applyOnSave || dialogPreset()?.auth === 'none')
   dialog.showModal()
   syncCustomSelects()
   void reloadAccounts().then(() => {
@@ -536,7 +534,7 @@ function openProviderDialog(id = '', { activateOnSave = false } = {}) {
   })
 }
 
-/** 「宣告支援 1M 上下文」那顆勾（模型四格下面） */
+/** 「宣告支援 1M 上下文」那顆勾（進階設定裡） */
 function context1mCheck() {
   return /** @type {HTMLInputElement} */ (document.getElementById('ccContext1mCheck'))
 }
@@ -554,92 +552,32 @@ const API_FORMAT_LABELS = Object.freeze({
   openai_responses: { label: 'OpenAI Responses', route: 'gateway' }
 })
 
-/** 四個等級的模型欄位：select（下拉）與 input（手動）各一格，值共用 */
+/** 三個等級的模型欄位：各一格可搜尋的輸入框（`model-combo.js`） */
 const MODEL_FIELDS = Object.freeze([
-  { select: 'ccModelSelect', input: 'ccModelInput', key: 'model' },
-  { select: 'ccHaikuSelect', input: 'ccHaikuInput', key: 'haikuModel' },
-  { select: 'ccSonnetSelect', input: 'ccSonnetInput', key: 'sonnetModel' },
-  { select: 'ccOpusSelect', input: 'ccOpusInput', key: 'opusModel' }
+  { input: 'ccOpusInput', key: 'opusModel' },
+  { input: 'ccSonnetInput', key: 'sonnetModel' },
+  { input: 'ccHaikuInput', key: 'haikuModel' }
 ])
 
-/** 模型四格目前用什麼輸入：false＝下拉（掃描結果）、true＝手動輸入 */
-let modelManual = false
+/** 留空時的提示：有預設就直接顯示那顆模型 id，沒有（AGY、自訂）＝交給上游決定 */
+const AUTO_MODEL_LABEL = '自動'
 
-/** 模型那格現在的值（看目前在哪個模式） */
-function modelValue(cell) {
-  return (modelManual ? field(cell.input) : field(cell.select)).value
-}
-
-/** 只同步顯隱與按鈕文字，不動值 */
-function applyModelMode() {
-  for (const cell of MODEL_FIELDS) {
-    const selectEl = /** @type {HTMLSelectElement} */ (document.getElementById(cell.select))
-    // 要收的是 custom-select 包出來的外層，藏原生 select 只會留下一顆孤兒觸發鈕
-    ;(selectEl.closest('.custom-select') || selectEl).classList.toggle('hidden', modelManual)
-    field(cell.input).classList.toggle('hidden', !modelManual)
-  }
-  document.getElementById('ccManualModelsBtn').textContent = modelManual ? '改用下拉' : '手動輸入'
-}
-
-/** 下拉↔手動切換，值會帶過去 */
-function toggleModelMode() {
-  for (const cell of MODEL_FIELDS) {
-    const selectEl = /** @type {HTMLSelectElement} */ (document.getElementById(cell.select))
-    const inputEl = field(cell.input)
-    if (modelManual) {
-      selectEl.value = [...selectEl.options].some((option) => option.value === inputEl.value) ? inputEl.value : ''
-    } else {
-      inputEl.value = selectEl.value
-    }
-  }
-  modelManual = !modelManual
-  applyModelMode()
-  syncCustomSelects()
-}
+/** 目前這筆的模型清單（已依 AI lab 分組、由新到舊），三格共用 */
+/** @type {{ label: string, models: string[] }[]} */
+let modelGroups = []
+/** @type {Array<{ close: () => void, refresh: () => void }>} */
+let modelCombos = []
 
 /**
- * 成功掃描後以下架後的清單為準；清單外的既有設定／草稿留在手動欄位。
+ * 換這筆的模型清單（打開彈窗、掃描完、背景更新）。輸入框的值不動：
+ * 清單外的舊設定照樣留著，使用者自己決定要不要換。
  * @param {string[] | null} models
  */
 function rebuildModelSelects(models) {
   const item = editingProviderId ? providers.find((entry) => entry.id === editingProviderId) : null
-  const preset = dialogPreset()
   const available = Array.isArray(models) ? models : item?.availableModels
-  const groups = Array.isArray(available) ? groupCcModels(available) : null
-  let missing = false
-  for (const cell of MODEL_FIELDS) {
-    const selectEl = /** @type {HTMLSelectElement} */ (document.getElementById(cell.select))
-    const current = document.getElementById('ccProviderDialog')?.open ? modelValue(cell) : field(cell.input).value
-    const def = preset?.defaults?.[cell.key] || ''
-    selectEl.replaceChildren()
-    const empty = document.createElement('option')
-    empty.value = ''
-    empty.textContent = def && (!Array.isArray(available) || available.includes(def)) ? `（預設：${def}）` : '（沿用上游預設）'
-    selectEl.append(empty)
-    const seen = new Set([''])
-    for (const group of groups || [{ models: [current, def] }]) {
-      const parent = groups ? document.createElement('optgroup') : selectEl
-      if (groups) parent.label = group.label
-      for (const value of group.models) {
-        if (!value || seen.has(value)) continue
-        seen.add(value)
-        const option = document.createElement('option')
-        option.value = value
-        option.textContent = value
-        parent.append(option)
-      }
-      if (groups) selectEl.append(parent)
-    }
-    selectEl.value = seen.has(current) ? current : ''
-    field(cell.input).value = current
-    if (current && !seen.has(current)) missing = true
-  }
-  if (missing) {
-    modelManual = true
-    document.getElementById('ccScanHint').textContent = '清單外的設定已保留在手動欄位；按「改用下拉」選最新模型。'
-  }
-  applyModelMode()
-  syncCustomSelects()
+  modelGroups = Array.isArray(available) ? groupCcModels(available) : []
+  for (const combo of modelCombos) combo.refresh()
 }
 
 /**
@@ -681,11 +619,11 @@ function syncProviderDialogFields() {
   const formatSelect = ensureApiFormatOptions()
 
   // 官方訂閱沒有要測的上游；其餘內建與 custom 都能自己選上游格式。
-  document.getElementById('ccApiFormatGroup')?.classList.toggle('hidden', isOfficial)
+  document.getElementById('ccApiFormatGroup')?.classList.toggle('hidden', isOfficial || preset?.auth === 'agy')
   const apiFormat = formatSelect.value || preset?.apiFormat || 'anthropic'
   const isGateway = API_FORMAT_LABELS[apiFormat]?.route === 'gateway'
   document.getElementById('ccApiFormatHint').textContent = isGateway
-    ? `${API_FORMAT_LABELS[apiFormat]?.label || apiFormat} → 需要手動開啟本機轉換閘道。`
+    ? `${API_FORMAT_LABELS[apiFormat]?.label || apiFormat} → 經本機轉換閘道（切換時自動開啟）。`
     : `${API_FORMAT_LABELS[apiFormat]?.label || apiFormat} → 不經閘道，Claude Code 直連。`
 
   document.getElementById('ccProviderDialogDesc').textContent = preset?.hint || ''
@@ -729,7 +667,7 @@ function syncProviderDialogFields() {
   if (flow) renderAccounts(flow)
 
   for (const cell of MODEL_FIELDS) {
-    field(cell.input).placeholder = preset?.defaults?.[cell.key] || '（沿用上游預設）'
+    field(cell.input).placeholder = preset?.defaults?.[cell.key] || AUTO_MODEL_LABEL
   }
   field('ccNameInput').placeholder = preset?.name || ''
 }
@@ -923,7 +861,7 @@ async function persistProvider() {
     oauthAccountId: accountSelect.value,
     context1m: context1mCheck().checked
   }
-  for (const cell of MODEL_FIELDS) payload[cell.key] = modelValue(cell)
+  for (const cell of MODEL_FIELDS) payload[cell.key] = field(cell.input).value.trim()
   const apiKey = field('ccKeyInput').value
 
   // 自訂沒有預設端點，空著存下去只會在「切換」時才報錯，離填錯的地方太遠
@@ -959,12 +897,13 @@ async function persistProvider() {
   }
 }
 
-async function saveProvider() {
+/** @param {{ activate?: boolean }} [opts] activate：「儲存並啟用」 */
+async function saveProvider({ activate = false } = {}) {
   const dialog = /** @type {HTMLDialogElement} */ (document.getElementById('ccProviderDialog'))
   const id = await persistProvider()
   if (!id) return
   dialog.close()
-  if (applyOnSave) await activateProvider(id)
+  if (applyOnSave || activate) await activateProvider(id)
   else await reloadProviders()
 }
 
@@ -1001,7 +940,7 @@ async function loadModels() {
     if (scan?.ok) {
       providers = providers.map((item) => item.id === id ? { ...item, availableModels: scan.models } : item)
       rebuildModelSelects(scan.models)
-      hint.textContent = `已先儲存並載入 ${scan.models.length} 個模型。${modelManual ? '手動設定已保留；按「改用下拉」選最新模型。' : '直接從下拉挑。'}`
+      hint.textContent = `已先儲存並載入 ${scan.models.length} 個模型。點模型欄位挑選或打字搜尋。`
     } else {
       hint.textContent = `已先儲存；${scan?.error || '掃描失敗，改用手動輸入。'}`
     }
@@ -1187,6 +1126,7 @@ async function saveMcp() {
 // ===== CLI 版本 =====
 
 async function reloadVersions() {
+  if (reloadVersions.pending) return reloadVersions.pending
   const list = document.getElementById('ccVersionList')
   if (list && !versions.length) {
     list.replaceChildren(el('p', 'cc-empty', '檢查中…'))
@@ -1199,11 +1139,13 @@ async function reloadVersions() {
     btn.textContent = '檢查中…'
   }
   try {
-    versions = await call(electronAPI.ccswitch.checkVersions(), '檢查 CLI 版本失敗')
+    reloadVersions.pending = call(electronAPI.ccswitch.checkVersions(), '檢查 CLI 版本失敗')
+    versions = await reloadVersions.pending
     renderVersions()
   } catch {
     // call() 已經顯示訊息
   } finally {
+    reloadVersions.pending = null
     if (btn) {
       btn.disabled = false
       btn.textContent = label
@@ -1230,23 +1172,28 @@ function renderVersions() {
     main.append(title)
 
     const bits = []
-    if (!tool.installed) bits.push('本機找不到，請先安裝這個 CLI')
+    if (!tool.installed) bits.push('尚未安裝')
     else {
       bits.push(`本機 ${tool.local}`)
-      if (tool.latest) bits.push(`最新 ${tool.latest}`)
-      else if (tool.pkg) bits.push('查不到最新版，按「更新」讓 CLI 自查')
-      else bits.push('沒有版本清單，按「更新」讓 CLI 自己檢查')
-      if (tool.updateCommand) bits.push(tool.updateCommand)
     }
+    if (tool.latest) bits.push(`最新 ${tool.latest}`)
+    else bits.push('暫時查不到最新版')
+    if (tool.task?.message) bits.push(tool.task.message)
+    if (tool.task?.summary) bits.push(tool.task.summary)
     main.append(el('div', 'cc-row-sub', bits.join(' · ')))
     row.append(main)
 
     const actions = el('div', 'cc-row-actions')
-    if (tool.installed && tool.updateCommand) {
+    {
+      const busy = tool.task?.phase === 'running'
+      const label = busy ? tool.task.message || '執行中…' : tool.installed ? '更新' : '安裝'
       const btn = /** @type {HTMLButtonElement} */ (
-        el('button', 'btn btn-sm ' + (tool.outdated ? 'btn-primary' : 'btn-secondary'), '更新')
+        el('button', 'btn btn-sm ' + (tool.outdated || !tool.installed ? 'btn-primary' : 'btn-secondary'), label)
       )
       btn.type = 'button'
+      btn.disabled = busy
+      row.setAttribute('aria-busy', String(busy))
+      btn.setAttribute('aria-label', `${tool.label}：${label}`)
       btn.addEventListener('click', () => void runUpdate(tool))
       actions.append(btn)
     }
@@ -1256,22 +1203,36 @@ function renderVersions() {
 }
 
 /**
- * 更新＝在終端機分頁開一個工作階段跑 npm 指令，整個過程使用者看得到。
+ * 安裝／更新在 main 背景執行，這裡只傳工具 key 並顯示狀態。
  * @param {{ key: string, label: string }} tool
  */
 async function runUpdate(tool) {
+  if (versions.find(item => item.key === tool.key)?.task?.phase === 'running') return
+  const setTask = (task) => {
+    versions = versions.map(item => item.key === tool.key ? { ...item, task } : item)
+    renderVersions()
+  }
+  setTask({ phase: 'running', message: tool.installed ? '更新中…' : '安裝中…' })
+  let polling = false
+  let finished = false
+  const timer = window.setInterval(async () => {
+    if (polling) return
+    polling = true
+    try {
+      const result = await electronAPI.ccswitch.cliTaskStatus(tool.key)
+      if (!finished && result.ok && result.data.phase === 'running') setTask(result.data)
+    } catch { /* 完成結果仍由 runCliTask 回傳 */ }
+    finally { polling = false }
+  }, 1000)
   try {
-    const command = await call(electronAPI.ccswitch.updateCommand(tool.key), '取得更新指令失敗')
-    const [{ switchPage, setChatPaneMode }, terminal] = await Promise.all([
-      import('./app.js'),
-      import('./terminal-page.js')
-    ])
-    // 終端機跟聊天共用一頁：切過去並把主區換成終端機
-    switchPage('chat')
-    setChatPaneMode('workspace')
-    await terminal.runInNewTerminal(`更新 ${tool.label}`, command)
+    setTask(await call(electronAPI.ccswitch.runCliTask(tool.key), '安裝或更新失敗'))
   } catch {
-    // call() 已經顯示訊息
+    setTask({ phase: 'failed', message: '安裝或更新失敗' })
+  } finally {
+    finished = true
+    window.clearInterval(timer)
+    await reloadVersions.pending?.catch(() => {})
+    await reloadVersions()
   }
 }
 
@@ -1285,27 +1246,20 @@ function bindOnce() {
 
   document.querySelectorAll('#ccSubtabs .subtab').forEach((btn) => {
     btn.addEventListener('click', () => showSubtab(
-      /** @type {'providers'|'mcp'|'version'|'stats'} */ (btn.dataset.subtab)
+      /** @type {'providers'|'agy'|'mcp'|'version'|'stats'} */ (btn.dataset.subtab)
     ))
   })
 
-  document.getElementById('ccRefreshBtn')?.addEventListener('click', () => {
-    if (activeSubtab === 'mcp') void reloadMcp()
-    else if (activeSubtab === 'version') void reloadVersions()
-    else if (activeSubtab === 'stats') void refreshStats()
-    else void reloadProviders()
-  })
-
-  document.getElementById('ccGatewayToggleBtn')?.addEventListener('click', () => void toggleGateway())
   // 換協議＝換路由，下面那行「會不會走閘道」與 Base URL 的說明都要跟著改
   document.getElementById('ccApiFormatSelect')?.addEventListener('change', syncProviderDialogFields)
   // 模型：從 API 掃這家的清單填下拉；掃不到或要填清單外的就手動輸入
   document.getElementById('ccScanModelsBtn')?.addEventListener('click', () => void loadModels())
-  document.getElementById('ccManualModelsBtn')?.addEventListener('click', toggleModelMode)
+  modelCombos = MODEL_FIELDS.map((cell) => attachModelCombo(field(cell.input), () => modelGroups))
   document.getElementById('ccProviderCancelBtn')?.addEventListener('click', () => {
     /** @type {HTMLDialogElement} */ (document.getElementById('ccProviderDialog')).close()
   })
   document.getElementById('ccProviderSaveBtn')?.addEventListener('click', () => void saveProvider())
+  document.getElementById('ccProviderSaveUseBtn')?.addEventListener('click', () => void saveProvider({ activate: true }))
   // 彈窗用 Esc 關掉也要收輪詢與那條還開著的登入流程（PKCE 會佔著本機 1455 埠）
   document.getElementById('ccProviderDialog')?.addEventListener('close', () => void cancelLogin())
   document.getElementById('ccLoginBtn')?.addEventListener('click', () => void startLogin())
@@ -1332,6 +1286,7 @@ export function refreshCcSwitchPage() {
       // 回到頁面時停在別的子分頁（例如去終端機更新完 CLI 回來）也要重查那一頁，不然還掛著「有新版」
       if (activeSubtab === 'version' && versions.length) void reloadVersions()
       else if (activeSubtab === 'mcp') void reloadMcp()
+      else if (activeSubtab === 'agy') void loadAgy().then((mod) => mod.refreshAgyPage())
     } catch {
       // call() 已經顯示訊息
     }

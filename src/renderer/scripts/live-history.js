@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 即時字幕的紀錄（過去每一場的逐字稿）
+ * AxonDeck - 即時字幕的紀錄（過去每一場的逐字稿）
  *
  * 寫入在 `live-caption.js`：每次字幕 upsert 就 append 一行到 main 的 `live-transcripts/`。
  * 這支只管讀：列出每一場、展開看全文、複製／下載／刪除。

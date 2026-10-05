@@ -7,7 +7,7 @@
  *
  * 安全設計（很重要）：
  *   - 插入是模擬 Ctrl+V，會貼進**當下的前景視窗**。所以開始前先把焦點放進
- *     VoiceInk 自己的字典輸入框，並確認 `document.hasFocus()`；不成立就中止，
+ *     AxonDeck 自己的字典輸入框，並確認 `document.hasFocus()`；不成立就中止，
  *     絕不亂送按鍵。
  *   - 整理模型設成「不整理」，不打任何雲端端點、不花使用者的額度。
  *   - 用使用者的真實 profile（本機 ASR 模型在那裡），所以動到的三個 store key
@@ -22,8 +22,8 @@ const fs = require('fs')
 
 const PORT = 9248
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const SENTENCE = '今天天氣很好，我們一起去公園散步吧。'
 const RIGHT_ALT = 3640
 const HOLD_MS = 4000
@@ -144,7 +144,7 @@ async function main() {
         if (page) return page
         await sleep(400)
       }
-      throw new Error('等不到主視窗（使用者的 VoiceInk 是不是開著？單一實例鎖會擋掉這一份）')
+      throw new Error('等不到主視窗（使用者的 AxonDeck 是不是開著？單一實例鎖會擋掉這一份）')
     })()
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
@@ -176,7 +176,7 @@ async function main() {
     console.log(`      熱鍵在聽：${setup.listening}／ASR：${setup.asr}`)
     if (!setup.listening) throw new Error('全域熱鍵沒掛上，後面不用試了')
 
-    // 貼上會進「前景視窗」→ 先把焦點放進 VoiceInk 自己的字典輸入框
+    // 貼上會進「前景視窗」→ 先把焦點放進 AxonDeck 自己的字典輸入框
     await cdp.send('Page.enable').catch(() => {})
     await cdp.send('Page.bringToFront').catch(() => {})
     await sleep(800)
@@ -188,7 +188,7 @@ async function main() {
     })()`)
     console.log(`      視窗焦點：${focus.hasFocus}／作用中元素：${focus.active}`)
     if (!focus.hasFocus || focus.active !== 'dictationTermFrom') {
-      throw new Error('VoiceInk 沒拿到前景焦點，為了不把文字貼到別人的視窗，這裡中止')
+      throw new Error('AxonDeck 沒拿到前景焦點，為了不把文字貼到別人的視窗，這裡中止')
     }
 
     console.log(`[4/5] 送出真的右 Alt（按住 ${HOLD_MS / 1000}s）`)

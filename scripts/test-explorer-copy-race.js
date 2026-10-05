@@ -9,7 +9,7 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 const files = require('../src/main/explorer/fs')
 
 async function main() {
-  const root = tempDir('voiceink-copy-race-')
+  const root = tempDir('axondeck-copy-race-')
   const copy = fsp.cp
   const rename = fsp.rename
   try {

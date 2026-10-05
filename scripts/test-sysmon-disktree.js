@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 磁碟空間：假的子程序測逐行解析，有 voiceink-probe.exe 再對暫存資料夾掃一次。
+ * 磁碟空間：假的子程序測逐行解析，有 axondeck-probe.exe 再對暫存資料夾掃一次。
  */
 'use strict'
 
@@ -64,7 +64,7 @@ function harness(emit) {
   const children = []
   const calls = []
   const tree = createDiskTree({
-    exe: 'C:\\voiceink-probe.exe',
+    exe: 'C:\\axondeck-probe.exe',
     emit,
     statFn: async () => ({ isDirectory: () => true }),
     spawnFn: (file, args, opts) => {
@@ -149,11 +149,11 @@ async function testErrors() {
 async function testPaths() {
   console.log('\n[路徑]')
   const none = createDiskTree({ exe: '' })
-  await rejects(none.scan('D:\\data'), 'DISKTREE_NO_PROBE', '需要先建置 voiceink-probe（npm run build:probe）')
+  await rejects(none.scan('D:\\data'), 'DISKTREE_NO_PROBE', '需要先建置 axondeck-probe（npm run build:probe）')
 
   let spawned = false
   const tree = createDiskTree({
-    exe: 'C:\\voiceink-probe.exe',
+    exe: 'C:\\axondeck-probe.exe',
     spawnFn: () => { spawned = true; return makeChild() }
   })
   await rejects(tree.scan('relative\\dir'), 'DISKTREE_BAD_PATH', '請選擇一個資料夾')
@@ -181,7 +181,7 @@ async function testService() {
   const events = []
   let child = null
   const service = createSysmonService({
-    diskTreeExe: 'C:\\voiceink-probe.exe',
+    diskTreeExe: 'C:\\axondeck-probe.exe',
     diskTreeStat: async () => ({ isDirectory: () => true }),
     diskTreeSpawn: () => {
       child = makeChild()
@@ -189,7 +189,7 @@ async function testService() {
     }
   })
   service.setEmitter((payload) => events.push(payload))
-  const pending = capture(service.diskTree('D:\\VoiceInk'))
+  const pending = capture(service.diskTree('D:\\AxonDeck'))
   await tick()
   child.stdout.emit('data', 'P 5 1 0\n')
   await tick()
@@ -213,9 +213,9 @@ function testLists() {
 
 async function testRealExe() {
   console.log('\n[真的 probe]')
-  const exe = path.join(ROOT, 'resources', 'probe', 'voiceink-probe.exe')
+  const exe = path.join(ROOT, 'resources', 'probe', 'axondeck-probe.exe')
   if (!fs.existsSync(exe)) {
-    console.log('  SKIP 沒有 voiceink-probe.exe')
+    console.log('  SKIP 沒有 axondeck-probe.exe')
     return
   }
   const dir = tempDir('disktree-live-')

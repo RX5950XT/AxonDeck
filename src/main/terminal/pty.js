@@ -380,11 +380,11 @@ const CLAUDE_SESSION_VARS = [
  * 時，main 根本不會把命令送過來，這裡拿到的就是空字串。
  *
  * `editorDir` 接到 PATH 最前面：AGY 把 `$EDITOR` 用空白切開再 spawn，所以值必須是
- * 短檔名 `voiceink-edit.cmd`，真正的資料夾靠 PATH 找。
+ * 短檔名 `axondeck-edit.cmd`，真正的資料夾靠 PATH 找。
  *
  * @param {string} [editor]
  * @param {string} [editorDir]
- * @param {string} [terminalId] 工作階段 id，給 Claude hook 的 `VOICEINK_TERMINAL_ID`
+ * @param {string} [terminalId] 工作階段 id，給 Claude hook 的 `AXONDECK_TERMINAL_ID`
  */
 function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   const env = { ...process.env, TERM: 'xterm-256color' }
@@ -400,8 +400,8 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
     if (folder) prependPath(env, folder)
   }
   // 不合法就連繼承來的也拿掉，免得子程序沿用別的分頁的 id。
-  if (store.isSessionId(terminalId)) env.VOICEINK_TERMINAL_ID = terminalId
-  else delete env.VOICEINK_TERMINAL_ID
+  if (store.isSessionId(terminalId)) env.AXONDECK_TERMINAL_ID = terminalId
+  else delete env.AXONDECK_TERMINAL_ID
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
   if (homeKey && typeof agentHome === 'string' && /^[A-Za-z]:[\\/]/.test(agentHome)
     && agentHome.length <= 1024 && !/[\u0000-\u001f]/.test(agentHome) && !agentHome.replace(/\\/g, '/').split('/').includes('..')) {

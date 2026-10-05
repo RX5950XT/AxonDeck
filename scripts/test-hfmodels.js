@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 「HF模型」分頁的純邏輯回歸（node 直跑，不需 electron、不下載任何東西）
+ * AxonDeck — 「HF模型」分頁的純邏輯回歸（node 直跑，不需 electron、不下載任何東西）
  *
  * 三個模組各有一條最容易錯的：
  *   - gguf.js：詞表陣列動輒十幾萬筆，會把檔頭推到 1MB 之外 → Reader 要能自己續讀
@@ -73,7 +73,7 @@ function buildGguf() {
   ])
 }
 
-const tmp = tempDir('voiceink-hfmodels-')
+const tmp = tempDir('axondeck-hfmodels-')
 try {
   console.log('\n[A] GGUF 檔頭解析')
   {
@@ -517,7 +517,7 @@ function fakeFetch(spec) {
 }
 
 async function asyncSections() {
-  const tmp2 = tempDir('voiceink-hfmodels-b-')
+  const tmp2 = tempDir('axondeck-hfmodels-b-')
   try {
     console.log('\n[G2] Hub Range 回應邊界')
     {

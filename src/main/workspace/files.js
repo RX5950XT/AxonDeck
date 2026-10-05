@@ -330,7 +330,7 @@ async function writeFile(root, relPath, content, expectedMtimeMs) {
       // mtime 是浮點毫秒，某些檔案系統的精度只到毫秒 → 差 1ms 以內當成同一版
       if (Math.abs(stat.mtimeMs - expected) > 1) throw fail('STALE', '這個檔案在外部被改過了')
     }
-    const tmp = `${full}.${process.pid}-${(tmpSeq += 1)}.voiceink-tmp`
+    const tmp = `${full}.${process.pid}-${(tmpSeq += 1)}.axondeck-tmp`
     try {
       await fsp.writeFile(tmp, content, 'utf8')
       await fsp.rename(tmp, full)

@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 即時字幕功能
+ * AxonDeck - 即時字幕功能
  *
  * - 音訊：AudioContext(16kHz) 直接取 PCM → VAD 在停頓處切句 → ASR
  * - ASR 與翻譯管線分離

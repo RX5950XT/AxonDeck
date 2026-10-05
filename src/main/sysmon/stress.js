@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — CPU 與記憶體壓力測試。
+ * AxonDeck — CPU 與記憶體壓力測試。
  *
  * 兩個都放 main 而不是 renderer，理由不同但都很實際：
  *  - CPU：renderer 的 Web Worker 跟畫面共用同一個 process 的排程，量到的是「瀏覽器分給你多少」
@@ -60,7 +60,7 @@ spin()
 `
 
 /**
- * 吃記憶體的子程序。用 `ELECTRON_RUN_AS_NODE` 把 VoiceInk.exe 當成 node 跑（打包後沒有
+ * 吃記憶體的子程序。用 `ELECTRON_RUN_AS_NODE` 把 AxonDeck.exe 當成 node 跑（打包後沒有
  * 另一支 node 可用），`-e` 直接餵原始碼——不必為了它在 asar 裡放一個檔案。
  *
  * 配完之後把「實際配到幾塊」印到 stdout；父程序讀那一行才知道真的吃了多少。

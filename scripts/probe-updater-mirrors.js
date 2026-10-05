@@ -13,7 +13,7 @@ const { OWNER, REPO, MIRRORS, downloadUrls } = require('../src/main/update-mirro
 
 const SAMPLE_MS = 5000
 const MIN_MIRROR_KBS = 500
-const EXE = `https://github.com/${OWNER}/${REPO}/releases/download/v1.24.0/VoiceInk-Setup-1.24.0.exe`
+const EXE = `https://github.com/${OWNER}/${REPO}/releases/download/v1.24.0/AxonDeck-Setup-1.24.0.exe`
 
 async function sample(url) {
   const ac = new AbortController()

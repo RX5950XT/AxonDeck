@@ -12,7 +12,7 @@
  *  [C] 組完字（commit）之後，字有沒有真的送進 pty。
  *
  * 用法：node scripts/probe-terminal-ime.js
- *      VOICEINK_EXE=... node scripts/probe-terminal-ime.js
+ *      AXONDECK_EXE=... node scripts/probe-terminal-ime.js
  */
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
@@ -22,8 +22,8 @@ const os = require('os')
 const fs = require('fs')
 
 const PORT = 9251
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-probe-ime-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-probe-ime-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const PROJECT_DIR = path.join(USER_DATA_DIR, 'project')
 fs.mkdirSync(PROJECT_DIR)

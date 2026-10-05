@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 系統監控純邏輯回歸（node 直跑，不開 PowerShell、不需 electron）
+ * AxonDeck — 系統監控純邏輯回歸（node 直跑，不開 PowerShell、不需 electron）
  *
  * 重點在「計數器語意」：PerfRawData 的 PercentProcessorTime / UtilizationPercentage 是**累計
  * 100 奈秒**，不是百分比；DiskReadBytesPersec 是**累計 bytes**，不是速率。把它們當成已經算好的
@@ -603,7 +603,7 @@ async function testPawnIo() {
     return child
   }
   const fakeFetch = async () => new Response(new Uint8Array(64))
-  const tmp = tempDir('voiceink-pawnio-test-')
+  const tmp = tempDir('axondeck-pawnio-test-')
   try {
     // isInstalledFn 固定回 false，測試機本來就裝了 PawnIO 也走得到驗簽那一段
     await pawnio.install({ fetchFn: fakeFetch, spawnFn: fakeSpawn, tmpDir: tmp, isInstalledFn: () => false })

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 檔案頁「每個資料夾各自記住檢視／大小／排序」＋ Google Drive 綠勾（打包版 CDP）
+ * AxonDeck — 檔案頁「每個資料夾各自記住檢視／大小／排序」＋ Google Drive 綠勾（打包版 CDP）
  *
  * [1] A 資料夾 Ctrl+滾輪放大、改排序；B 沒調過還是預設；回 A 還是調過的樣子
  * [2] 關掉重開，A 的樣子還在（explorer.json 的 folderViews）
@@ -19,9 +19,9 @@ const http = require('http')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
 const PORT = 9291
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const DRIVE_DIR = 'G:\\我的雲端硬碟'
-const USER_DATA_DIR = tempDir('voiceink-e2e-fv-')
+const USER_DATA_DIR = tempDir('axondeck-e2e-fv-')
 const DIR_A = path.join(USER_DATA_DIR, 'folder-a')
 const DIR_B = path.join(USER_DATA_DIR, 'folder-b')
 for (const dir of [DIR_A, DIR_B]) {

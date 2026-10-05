@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 用量統計的獨立稽核（`npx electron scripts/probe-code-usage-audit.js`）
+ * AxonDeck — 用量統計的獨立稽核（`npx electron scripts/probe-code-usage-audit.js`）
  *
  * `test-code-usage.js` 用假資料證明「解析器照規格算」，`e2e-code-usage.js` 證明
  * 「真的讀得到本機記錄」。**兩支都證明不了「算出來的數字對不對」**——因為它們都是用
@@ -186,7 +186,7 @@ function auditCodexForkReplay() {
   ok('重播的每一筆都能在母檔裡核銷（＝丟掉不會少算）', missing === 0, `${missing} 筆對不到`)
 }
 
-const tmpUserData = tempDir('voiceink-usage-audit-')
+const tmpUserData = tempDir('axondeck-usage-audit-')
 app.setPath('userData', tmpUserData)
 
 app.whenReady().then(async () => {

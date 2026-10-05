@@ -6,6 +6,22 @@
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 
+# 2026-10-06 — 改名 AxonDeck＋新 logo
+
+- [x] 機械改名 VoiceInk → AxonDeck（含 native 路徑、exe、csproj、crate），tasks/ 歷史不動。
+- [x] 保留舊名（升級不斷線）：`com.voiceink.app`、userData `%APPDATA%oiceink`、媒體 ProgID `VoiceInk.Media.*`、終端機 host 舊 pipe 前綴、媒體 mutex。
+- [x] 舊資料銜接：開機自啟動路徑、Claude hooks 舊標記、HF `voiceink-meta.json`、更新快取、工作列釘選、感測器排程（Grok）、媒體登錄檔與資料夾（Codex）。
+- [x] GitHub repo 改名 AxonDeck（舊網址 301，舊版 `releases.atom`／`latest.yml` 實測轉得到）。
+- [x] logo：去白底透明 PNG、ico、頂欄 logo＋漸層字、README 橫幅。頂排 SI → Super Intelligence（兩行疊字）。
+- [x] Git 面板：暫存的改名（git mv）只顯示 +N 沒有 −N → 暫存 numstat 帶 `-M`、parseNumstat 認改名列。
+- [x] 單元 111/111；打包 CDP chat 75、sysmon 114、workspace 196。
+
+## Review
+
+- 機械改名後要逐一找「寫進使用者電腦」的名字：資料夾、登錄檔、排程、hooks、模型 meta 檔、更新快取、開機自啟動路徑；改名但不銜接 = 升級後資料不見或殘留孤兒。
+- 測試腳本裡指向「這台電腦真實 userData」的路徑不能跟著改名（真實資料夾仍叫 voiceink）。
+- `resources/` 的舊名建置產物不會自己消失，要手動清，否則一起被打包。
+
 # 2026-10-06 — 頂排改名、CC Proxy 精簡、CLI 自動安裝、處理程序、語音頁合併
 
 - [x] 頂排：AI → SI（換 SI 單色圖示）、HF模型 → Local SI。

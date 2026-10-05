@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 本地 GPU ASR（llama-server sidecar）
+ * AxonDeck - 本地 GPU ASR（llama-server sidecar）
  *
  * 為什麼是 sidecar 而不是 in-process：
  * - npm 的 `sherpa-onnx-win-x64` 是 CPU-only 編譯，provider 傳 cuda 只會靜默退回 CPU

@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 語音輸入的全域熱鍵（右 Alt）
+ * AxonDeck - 語音輸入的全域熱鍵（右 Alt）
  *
  * `uiohook-napi` 是低階鍵盤 hook：它看得到所有按鍵，所以這裡只做一件事——
  * 認出右 Alt 與 Esc，其餘一律不看、不記、不送出去。
@@ -123,7 +123,7 @@ function neutralizeAlt(uIOhook) {
  * 開始監聽。重複呼叫是 no-op。
  *
  * 兩條路徑，優先用第一條：
- *   1. **原生 sidecar**（`hook.js` → `VoiceInkHook.exe`）：真的把熱鍵吞掉，前景程式收不到。
+ *   1. **原生 sidecar**（`hook.js` → `AxonDeckHook.exe`）：真的把熱鍵吞掉，前景程式收不到。
  *   2. **uiohook 退路**：只監聽、攔不下來，所以要補送 F24 中和「單獨一顆 Alt」。
  *      sidecar 沒建置（乾淨 clone 沒跑 `npm run build:hook`）或起不來時才走這條。
  *

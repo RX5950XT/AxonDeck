@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 聊天頁（雲端串流 + 多會話）
+ * AxonDeck - 聊天頁（雲端串流 + 多會話）
  *
  * 純雲端，不佔用 ASR／LLM 引擎，所以不做 engine.acquire。
  * 訊息與 model 的所有權在 main：這裡只送 conversationId、文字與圖片 data URL，

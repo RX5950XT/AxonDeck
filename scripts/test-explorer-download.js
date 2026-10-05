@@ -7,7 +7,7 @@ const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const { spawnSync } = require('node:child_process')
 
-const root = tempDir('voiceink-download-test-')
+const root = tempDir('axondeck-download-test-')
 try {
   fs.mkdirSync(path.join(root, 'uffs', 'uffs-windows-x64.zip.part'), { recursive: true })
   const script = `

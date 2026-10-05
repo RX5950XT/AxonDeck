@@ -8,7 +8,7 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 const Module = require('node:module')
 const drives = require('../src/main/explorer/drives')
 
-const root = tempDir('voiceink-places-test-')
+const root = tempDir('axondeck-places-test-')
 const originalLoad = Module._load
 const originalHome = os.homedir
 const folders = ['Desktop', 'Downloads', 'Documents', 'Pictures', 'Music', 'Videos']

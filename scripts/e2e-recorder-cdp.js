@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP：錄音機子分頁 ＋ 檔案轉錄接錄音 ＋ 即時字幕的紀錄
- * 用法：node scripts/e2e-recorder-cdp.js（會自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/e2e-recorder-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 暫存 user-data-dir ＋ Chromium 假麥克風（`--use-fake-device-for-media-stream`，一段 beep），
  * 不碰使用者的錄音與設定。錄出來的檔再用 ffmpeg 量一次「真的是 opus、解得出聲音」。
@@ -13,10 +13,10 @@ const http = require('http')
 const { tempDir } = require('./lib/test-temp')
 
 const PORT = 9247
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-rec-cdp-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-rec-cdp-')
 /** 設了才截圖（會把視窗秀出來，不搶焦點但看得到） */
-const SHOT_DIR = process.env.VOICEINK_SHOT_DIR || ''
+const SHOT_DIR = process.env.AXONDECK_SHOT_DIR || ''
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -66,7 +66,7 @@ class Cdp {
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text)
     return r.result?.value
   }
-  /** 只在設了 VOICEINK_SHOT_DIR 時截（那時才秀視窗；--hidden 的視窗不出畫面，截圖會一直等） */
+  /** 只在設了 AXONDECK_SHOT_DIR 時截（那時才秀視窗；--hidden 的視窗不出畫面，截圖會一直等） */
   async shot(name) {
     if (!SHOT_DIR) return
     const r = await Promise.race([
@@ -178,7 +178,7 @@ async function main() {
     const recFile = path.join(USER_DATA_DIR, 'recordings', recName)
     ok('錄音檔落在 userData/recordings', /^rec-\d{13}\.webm$/.test(recName) && fs.existsSync(recFile))
     const probe = probeWebm(recFile)
-    if (!probe.opus && process.env.VOICEINK_SHOT_DIR) fs.copyFileSync(recFile, path.join(process.env.VOICEINK_SHOT_DIR, 'bad.webm'))
+    if (!probe.opus && process.env.AXONDECK_SHOT_DIR) fs.copyFileSync(recFile, path.join(process.env.AXONDECK_SHOT_DIR, 'bad.webm'))
     // 16kHz s16 mono ＝ 32000 bytes/秒；錄了約 2.6 秒，至少要有 1.5 秒
     ok('ffmpeg 解得開：opus 且約兩秒以上的聲音', probe.opus && probe.pcmBytes > 48000, JSON.stringify(probe))
     await cdp.shot('rec-list.png')
@@ -206,7 +206,7 @@ async function main() {
       const row = document.querySelector('#recList .rec-item')
       const zone = document.getElementById('sttFileCol')
       const dt = new DataTransfer()
-      dt.setData('application/x-voiceink-recording', row.dataset.name)
+      dt.setData('application/x-axondeck-recording', row.dataset.name)
       dt.setData('text/plain', row.dataset.name)
       for (const type of ['dragenter', 'dragover', 'drop']) {
         zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }))

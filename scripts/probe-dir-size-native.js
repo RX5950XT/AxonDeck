@@ -2,7 +2,7 @@
 'use strict'
 
 /**
- * 資料夾大小：原生版（voiceink-probe dir-size）與 JS `walk` 比對＋計時，外加取消與根目錄讀不到。
+ * 資料夾大小：原生版（axondeck-probe dir-size）與 JS `walk` 比對＋計時，外加取消與根目錄讀不到。
  * 需要先 `npm run build:probe`。改 dirsize.rs 或 explorer/size.js 任何一邊都要跑。
  */
 
@@ -23,7 +23,7 @@ async function timed(dir, opts) {
 }
 
 async function main() {
-  assert.ok(exe, '找不到 voiceink-probe.exe，先跑 npm run build:probe')
+  assert.ok(exe, '找不到 axondeck-probe.exe，先跑 npm run build:probe')
 
   // 自種一棵樹：巢狀、空資料夾、junction（兩邊都不能跟進去）
   const tmp = tempDir('vi-dirsize-')

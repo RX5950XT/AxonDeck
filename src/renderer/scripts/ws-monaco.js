@@ -95,8 +95,8 @@ function configure(monaco) {
   // 背景給全透明（`#00000000`）讓底下的玻璃面板透出來——
   // 寫死顏色的話深／淺主題一切換就會看到一塊突兀的方塊。
   const shared = { 'editor.background': '#00000000', 'editorGutter.background': '#00000000' }
-  monaco.editor.defineTheme('voiceink-dark', { base: 'vs-dark', inherit: true, rules: [], colors: shared })
-  monaco.editor.defineTheme('voiceink-light', { base: 'vs', inherit: true, rules: [], colors: shared })
+  monaco.editor.defineTheme('axondeck-dark', { base: 'vs-dark', inherit: true, rules: [], colors: shared })
+  monaco.editor.defineTheme('axondeck-light', { base: 'vs', inherit: true, rules: [], colors: shared })
   applyTheme(monaco)
   // 主題是改 <html> 的 data-theme，沒有事件可以聽——盯著那個屬性就好
   new MutationObserver(() => applyTheme(monaco))
@@ -110,7 +110,7 @@ function configure(monaco) {
 function applyTheme(monaco) {
   if (!monaco) return
   const light = document.documentElement.getAttribute('data-theme') === 'light'
-  monaco.editor.setTheme(light ? 'voiceink-light' : 'voiceink-dark')
+  monaco.editor.setTheme(light ? 'axondeck-light' : 'axondeck-dark')
 }
 
 /**
@@ -527,6 +527,6 @@ export function runAction(id) {
   }
   // 有些是「命令」不是「動作」（`closeFindWidget` 就是），`getAction` 找不到，
   // 要用 `trigger` 送進去。
-  editor.trigger('voiceink', id, null)
+  editor.trigger('axondeck', id, null)
   return true
 }

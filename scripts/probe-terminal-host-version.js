@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 這台機器上**真的跑著**的終端機宿主是哪一版（唯讀，不動任何東西）
+ * AxonDeck — 這台機器上**真的跑著**的終端機宿主是哪一版（唯讀，不動任何東西）
  *
  * PTY 不在 App 裡：宿主是 `<userData>/terminal-host/runtime-<內容雜湊>/` 底下的獨立
  * 程序，而且刻意在 App 更新時活下來（跑著的 shell 才不會被拖走）。代價是
@@ -20,7 +20,7 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 
-const userData = process.env.VOICEINK_USER_DATA || path.join(os.homedir(), 'AppData', 'Roaming', 'voiceink')
+const userData = process.env.AXONDECK_USER_DATA || path.join(os.homedir(), 'AppData', 'Roaming', 'voiceink')
 const root = path.join(userData, 'terminal-host')
 
 function fail(message) {
@@ -33,7 +33,7 @@ function readConfig() {
   if (!fs.existsSync(file)) fail(`找不到 ${file}（這台機器沒開過終端機？）`)
   const config = JSON.parse(fs.readFileSync(file, 'utf8'))
   const name = crypto.createHash('sha256').update(fs.realpathSync.native(root).toLowerCase()).digest('hex').slice(0, 24)
-  return { token: config.token, protocol: config.protocol, pipe: `\\\\.\\pipe\\voiceink-terminal-v${config.protocol}-${name}` }
+  return { token: config.token, protocol: config.protocol, pipe: `\\\\.\\pipe\\axondeck-terminal-v${config.protocol}-${name}` }
 }
 
 /** 只送 auth 與 list：這支不准改到使用者跑著的東西 */

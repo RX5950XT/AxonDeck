@@ -1,4 +1,4 @@
-﻿# VoiceInk — 系統監控常駐取樣器
+﻿# AxonDeck — 系統監控常駐取樣器
 #
 # 由 src/main/sysmon/sampler.js 以 -File 拉起，之後一直活著：stdin 收固定指令、stdout 吐框住的資料塊。
 # **不接受任何來自 renderer 的字串**——指令只有 static / tick / bye 三個，全是 main 的固定表。
@@ -47,7 +47,7 @@ function Ensure-SmartType {
     Add-Type -ErrorAction Stop -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public static class VoiceInkDisk {
+public static class AxonDeckDisk {
   [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
   public static extern IntPtr CreateFileW(string path, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr template);
   [DllImport("kernel32.dll", SetLastError = true)]
@@ -65,7 +65,7 @@ public static class VoiceInkDisk {
 
 function Open-PhysicalDrive([int]$n) {
   # access=0（純查詢）、share=READ|WRITE、OPEN_EXISTING
-  $h = [VoiceInkDisk]::CreateFileW(($script:DrivePrefix + $n), 0, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+  $h = [AxonDeckDisk]::CreateFileW(($script:DrivePrefix + $n), 0, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
   if ($h -eq [IntPtr](-1)) { return [IntPtr]::Zero }
   return $h
 }
@@ -86,7 +86,7 @@ function Get-NvmeBlock([IntPtr]$h, [uint32]$propId, [uint32]$dataType, [uint32]$
   [BitConverter]::GetBytes([uint32]$len).CopyTo($inb, 28)
   $outb = New-Object byte[] ($hdr + $psd + $len)
   $got = 0
-  $ok = [VoiceInkDisk]::DeviceIoControl($h, 0x2D1400, $inb, $inb.Length, $outb, $outb.Length, [ref]$got, [IntPtr]::Zero)
+  $ok = [AxonDeckDisk]::DeviceIoControl($h, 0x2D1400, $inb, $inb.Length, $outb, $outb.Length, [ref]$got, [IntPtr]::Zero)
   if (-not $ok) { return $null }
   return $outb[($hdr + $psd)..($hdr + $psd + $len - 1)]
 }
@@ -114,7 +114,7 @@ function Get-AtaSmartBuffer([IntPtr]$h, [int]$drive, [byte]$feature) {
   $inb[12] = [byte]$drive
   $outb = New-Object byte[] 548
   $got = 0
-  $ok = [VoiceInkDisk]::DeviceIoControl($h, 0x7C088, $inb, $inb.Length, $outb, $outb.Length, [ref]$got, [IntPtr]::Zero)
+  $ok = [AxonDeckDisk]::DeviceIoControl($h, 0x7C088, $inb, $inb.Length, $outb, $outb.Length, [ref]$got, [IntPtr]::Zero)
   if (-not $ok -or $got -lt 528) { return $null }
   # 16 bytes SENDCMDOUTPARAMS 表頭 + 2 bytes 版本 → 屬性表從這裡開始
   return $outb[18..529]
@@ -191,7 +191,7 @@ function Emit-Smart($add, $indexes) {
       # 單顆讀不到不該讓整個 static 框掛掉
       continue
     } finally {
-      if ($h -ne [IntPtr]::Zero) { [void][VoiceInkDisk]::CloseHandle($h) }
+      if ($h -ne [IntPtr]::Zero) { [void][AxonDeckDisk]::CloseHandle($h) }
     }
   }
 }
@@ -492,7 +492,7 @@ function Emit-Tick([string]$seq) {
       } catch {
         # 硬碟被拔掉之類的暫時性失敗：這一輪沒有溫度就算了，不能讓整輪掛掉
       } finally {
-        if ($dh -ne [IntPtr]::Zero) { [void][VoiceInkDisk]::CloseHandle($dh) }
+        if ($dh -ne [IntPtr]::Zero) { [void][AxonDeckDisk]::CloseHandle($dh) }
       }
     }
   }

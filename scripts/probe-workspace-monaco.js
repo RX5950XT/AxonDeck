@@ -128,7 +128,7 @@ async function main() {
   app.exit(pass ? 0 : 1)
 }
 
-app.setPath('userData', path.join(app.getPath('appData'), 'voiceink-probe-monaco'))
+app.setPath('userData', path.join(app.getPath('appData'), 'axondeck-probe-monaco'))
 app.whenReady().then(main).catch((error) => {
   console.error(error)
   for (const one of [PAGE, PROBE_JS]) { try { fs.unlinkSync(one) } catch { /* 已經沒了 */ } }

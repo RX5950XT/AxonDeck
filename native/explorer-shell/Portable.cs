@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     /// <summary>
     /// 手機／相機（MTP）。它們沒有磁碟代號，只能走殼層：`IShellItem` 列舉子項、

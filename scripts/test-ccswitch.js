@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — Claude Code 供應商切換的純邏輯回歸測試（node 直跑，不需 electron）
+ * AxonDeck — Claude Code 供應商切換的純邏輯回歸測試（node 直跑，不需 electron）
  *
  * 重點在「寫使用者的 ~/.claude/settings.json」這一段：那是本功能唯一會動到 App 之外
  * 真實資料的地方。測試把家目錄指到暫存夾，確認：
@@ -35,7 +35,7 @@ function ok(name, cond, detail = '') {
   }
 }
 
-const tmpHome = tempDir('voiceink-ccswitch-')
+const tmpHome = tempDir('axondeck-ccswitch-')
 claudeSettings.configure({
   homeDir: tmpHome,
   backupDir: path.join(tmpHome, 'backup')
@@ -130,7 +130,7 @@ console.log('\n[B] settings.json 外科式寫入')
   ok('切回官方不動 hooks', Boolean(official.hooks))
 
   // 沒有 tmp 殘留
-  const leftovers = fs.readdirSync(claudeSettings.claudeDir()).filter((n) => n.includes('voiceink-tmp'))
+  const leftovers = fs.readdirSync(claudeSettings.claudeDir()).filter((n) => n.includes('axondeck-tmp'))
   ok('沒有留下暫存檔', leftovers.length === 0, leftovers.join(','))
 }
 

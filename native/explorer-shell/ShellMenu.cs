@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     internal sealed class MenuNode
     {
@@ -27,8 +27,8 @@ namespace VoiceInkShell
         /// <summary>子選單最多展開幾層：殼層擴充不會做很深，遞迴無上限只會被壞掉的擴充拖住。</summary>
         private const int MaxDepth = 4;
 
-        /// <summary>設了 VOICEINK_SHELL_DEBUG 才往 stderr 印 HRESULT。一般執行完全安靜。</summary>
-        private static readonly bool Debug = Environment.GetEnvironmentVariable("VOICEINK_SHELL_DEBUG") == "1";
+        /// <summary>設了 AXONDECK_SHELL_DEBUG 才往 stderr 印 HRESULT。一般執行完全安靜。</summary>
+        private static readonly bool Debug = Environment.GetEnvironmentVariable("AXONDECK_SHELL_DEBUG") == "1";
 
         private static void Trace(string step, int hr)
         {
@@ -276,7 +276,7 @@ namespace VoiceInkShell
             }
         }
 
-        /// <summary>跑使用者選的那一項。`hwndOwner` 是 VoiceInk 的視窗，「內容」那種對話框才會開在前面。</summary>
+        /// <summary>跑使用者選的那一項。`hwndOwner` 是 AxonDeck 的視窗，「內容」那種對話框才會開在前面。</summary>
         public bool Invoke(uint id, IntPtr hwndOwner, string directory)
         {
             if (_cm == null) return false;

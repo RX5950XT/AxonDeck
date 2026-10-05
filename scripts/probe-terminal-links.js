@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 終端機連結的座標探針（`npx electron scripts/probe-terminal-links.js`）
+ * AxonDeck — 終端機連結的座標探針（`npx electron scripts/probe-terminal-links.js`）
  *
  * 單元測試只驗得到「掃出哪些字」，驗不到 xterm 那邊的座標約定：
  * `provideLinks` 收到的列號是**整個緩衝區**的 1-based 列號（不是畫面上的第幾列），

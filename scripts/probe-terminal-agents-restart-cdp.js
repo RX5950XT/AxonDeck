@@ -8,7 +8,7 @@ const { spawn, execFileSync } = require('node:child_process')
 const { tempDir } = require('./lib/test-temp')
 const { seedAgentFixtures } = require('./lib/workspace-agent-fixtures')
 const root = path.resolve(__dirname, '..')
-const exe = process.env.VOICEINK_EXE || path.join(root, 'dist/win-unpacked/VoiceInk.exe')
+const exe = process.env.AXONDECK_EXE || path.join(root, 'dist/win-unpacked/AxonDeck.exe')
 const profile = tempDir('agents-restart-profile-'), project = tempDir('agents-restart-project-')
 const fixture = seedAgentFixtures(tempDir('agents-restart-home-'), project)
 const projectId = 'w_agents_restart'

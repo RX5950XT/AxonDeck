@@ -46,7 +46,7 @@ assert.ok(isLoginPopup('https://github.com/login/oauth/authorize'))
 assert.ok(!isLoginPopup('https://github.com/user/repo'), '回答裡的 GitHub 連結交給系統瀏覽器')
 assert.ok(!isLoginPopup('https://x.com/someone/status/1'))
 assert.ok(!isLoginPopup('http://accounts.google.com/'), '只收 https')
-assert.equal(chromeUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) voiceink/1.38.4 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'),
+assert.equal(chromeUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) axondeck/1.38.4 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'),
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36', 'UA 跟真 Chrome 一樣')
 assert.ok(allowPermission('clipboard-sanitized-write'))
 assert.ok(allowPermission('media', { mediaTypes: ['audio'] }), '語音輸入可以用麥克風')

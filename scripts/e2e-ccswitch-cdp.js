@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — Claude Code 工作台頁的打包版回歸（CDP）
+ * AxonDeck — Claude Code 工作台頁的打包版回歸（CDP）
  *
  * **這支刻意不碰 `~/.claude/settings.json` 與 `~/.claude.json`**：那是使用者的真實設定，
  * 測試把它改壞的代價遠大於多驗一條。寫入路徑由 `scripts/test-ccswitch.js` 用暫存家目錄涵蓋，
  * 這裡只驗 UI 有沒有接對——清單渲染、彈窗、供應商增修刪（只落到暫存 profile 的
  * `cc-providers.json`）、MCP 與版本清單讀得出來。
  *
- * 用暫存 `--user-data-dir`，收尾只以自己的 pid 收程序（禁止 `/IM VoiceInk.exe`，
+ * 用暫存 `--user-data-dir`，收尾只以自己的 pid 收程序（禁止 `/IM AxonDeck.exe`，
  * 那會把使用者的安裝版一起關掉）。
  */
 
@@ -22,11 +22,11 @@ const http = require('http')
 
 const PORT = 9247
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-ccswitch-')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-ccswitch-')
 // 切換供應商會寫 `~/.claude/settings.json`：測試實例的家目錄指到暫存，真的設定檔一個字都不碰
-const HOME_DIR = tempDir('voiceink-e2e-ccswitch-home-')
+const HOME_DIR = tempDir('axondeck-e2e-ccswitch-home-')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -48,7 +48,7 @@ function getJson(url) {
  *
  * 先砍 pid 樹；實測有時候還會剩下幾個孤兒（常駐系統匣讓主程序活著，子程序被重新收養），
  * 所以再掃一次「命令列帶著我們這個暫存 user-data-dir」的程序——那是這一份 App 獨有的指紋。
- * **絕對不能用 `/IM VoiceInk.exe`**：那會把使用者自己開著的安裝版一起關掉。
+ * **絕對不能用 `/IM AxonDeck.exe`**：那會把使用者自己開著的安裝版一起關掉。
  * 沒收乾淨的話下一次 `electron:pack` 會卡在 `d3dcompiler_47.dll: Access is denied`。
  *
  * @param {import('child_process').ChildProcess | null} child
@@ -62,7 +62,7 @@ function stopTestApp(child) {
   try {
     execFileSync('powershell', [
       '-NoProfile', '-Command',
-      `Get-CimInstance Win32_Process -Filter "Name='VoiceInk.exe'" |` +
+      `Get-CimInstance Win32_Process -Filter "Name='AxonDeck.exe'" |` +
       // -like 的萬用字元只有 * 與 ?，反斜線是字面值，不要再跳脫
       ` Where-Object { $_.CommandLine -like '*${USER_DATA_DIR}*' } |` +
       ' ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'

@@ -285,7 +285,7 @@ async function githubUrl(cwd) {
  * - 未追蹤的新檔整份都是新增：自己數行（git 不 diff 它）
  *
  * 全新的 repo 沒有 HEAD 也跑得動（`--cached` 會跟空樹比）；任何一條失敗都當成沒有數字，不是錯誤。
- * 一定要 `--no-renames`（見 `parseNumstat`：帶改名偵測會多一格，欄位整排錯位）。
+ * 暫存區那條帶 `-M`：改名列（status 的 `2`）才拿得到真正改了幾行。
  *
  * @param {string} cwd
  * @param {Array<{ path: string, index?: string, added?: number, removed?: number, binary?: boolean, stagedAdded?: number, stagedRemoved?: number, stagedBinary?: boolean }>} files
@@ -294,7 +294,9 @@ async function githubUrl(cwd) {
 async function attachLineCounts(cwd, files) {
   if (!files.length) return
   const [staged, worktree] = await Promise.all([
-    run(cwd, ['diff', '--cached', '--numstat', '-z', '--no-renames', '--']),
+    // 暫存的改名（git mv）要跟 status 一樣偵測改名，否則新檔名只拿到「整份新增」、
+    // 舊檔名的「整份刪除」沒有列可以掛，面板就只剩一大坨 +N 沒有 −N
+    run(cwd, ['diff', '--cached', '--numstat', '-z', '-M', '--']),
     run(cwd, ['diff', '--numstat', '-z', '--no-renames', '--'])
   ])
   const mapOf = (res) => new Map(res.code === 0 ? parseNumstat(res.stdout).map((e) => [e.path, e]) : [])
@@ -770,29 +772,32 @@ async function branches(projectId) {
 }
 
 /**
- * 解析 `git diff --numstat -z --no-renames`：每筆是 `新增\t刪除\t路徑\0`。
- * 二進位檔的兩個數字是 `-`。純函式，可直接 node 測。
- *
- * **一定要 `--no-renames`**：帶改名偵測時那一筆會變成三格（`add\0from\0to`），
- * 欄位一錯位後面每一筆檔名都跟著錯。
+ * 解析 `git diff --numstat -z`：每筆是 `新增	刪除	路徑 `；二進位檔的兩個數字是 `-`。
+ * 帶改名偵測（`-M`）時改名那筆路徑欄是空的，後面跟兩格 `原檔名 新檔名 `。
+ * 純函式，可直接 node 測。
  *
  * @param {string} raw
- * @returns {Array<{ path: string, additions: number, deletions: number, binary: boolean }>}
+ * @returns {Array<{ path: string, from?: string, additions: number, deletions: number, binary: boolean }>}
  */
 function parseNumstat(raw) {
   const out = []
-  for (const record of String(raw || '').split('\0')) {
-    if (!record) continue
-    const parts = record.split('\t')
+  const fields = String(raw || '').split(' ')
+  for (let i = 0; i < fields.length && out.length < MAX_FILES; i += 1) {
+    const parts = fields[i].split('	')
     if (parts.length < 3) continue
     const binary = parts[0] === '-' || parts[1] === '-'
-    out.push({
-      path: parts.slice(2).join('\t'),
+    const row = {
+      path: parts.slice(2).join('	'),
       additions: binary ? 0 : Number(parts[0]) || 0,
       deletions: binary ? 0 : Number(parts[1]) || 0,
       binary
-    })
-    if (out.length >= MAX_FILES) break
+    }
+    if (!row.path) {
+      row.from = fields[i + 1] || ''
+      row.path = fields[i + 2] || ''
+      i += 2
+    }
+    if (row.path) out.push(row)
   }
   return out
 }

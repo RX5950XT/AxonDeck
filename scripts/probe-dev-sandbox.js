@@ -6,8 +6,8 @@
  * 這兩件事 mock 證明不了——要真的把打包版用沙箱的 userData 開起來，
  * 一邊確認它讀得到你的模型與供應商，一邊確認你原本那份一個位元組都沒動。
  *
- * 需要先跑過 `npm run electron:pack`（或用 `VOICEINK_EXE` 指到別的建置版）。
- * 收尾只 `taskkill` 自己 spawn 的 pid，**不會碰你開著的 VoiceInk**。
+ * 需要先跑過 `npm run electron:pack`（或用 `AXONDECK_EXE` 指到別的建置版）。
+ * 收尾只 `taskkill` 自己 spawn 的 pid，**不會碰你開著的 AxonDeck**。
  */
 
 const { spawn } = require('node:child_process')
@@ -16,10 +16,10 @@ const fs = require('node:fs')
 const http = require('node:http')
 const path = require('node:path')
 
-const EXE = process.env.VOICEINK_EXE
-  || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+const EXE = process.env.AXONDECK_EXE
+  || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const REAL = path.join(process.env.APPDATA, 'voiceink')
-const SANDBOX = path.join(process.env.APPDATA, 'voiceink-dev')
+const SANDBOX = path.join(process.env.APPDATA, 'axondeck-dev')
 const PORT = 9333
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const hashDir = () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 檔案總管 Ctrl+滾輪縮放 ＋ 終端機貼上截圖的回歸（node 直跑，不開 Electron）
+ * AxonDeck — 檔案總管 Ctrl+滾輪縮放 ＋ 終端機貼上截圖的回歸（node 直跑，不開 Electron）
  *
  *  [A] 縮放級距：往上滾一級一級變大、在最小的方格往下滾掉回清單、兩端不會滾出界
  *  [B] `explorer/store.js` 的 `tile` 消毒：只收級距裡的值，怪值靠回最近的一級
@@ -94,7 +94,7 @@ async function main() {
 
   console.log('\n[D] 剪貼簿截圖的落檔資料夾')
   {
-    const userData = tempDir('voiceink-clipimg-')
+    const userData = tempDir('axondeck-clipimg-')
     clipboardImage.configure(userData)
     const dir = path.join(userData, 'clipboard-images')
     fs.mkdirSync(dir, { recursive: true })

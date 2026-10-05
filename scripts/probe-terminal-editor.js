@@ -43,17 +43,17 @@ async function until(check, timeoutMs = 15000) {
 }
 
 async function main() {
-  const userData = tempDir('voiceink-editbridge-')
+  const userData = tempDir('axondeck-editbridge-')
   const target = path.join(userData, '提示詞.md')
   fs.writeFileSync(target, '原本的提示詞\n', 'utf8')
 
   bridge.configure(userData)
   const command = bridge.shimCommand()
-  assert.equal(command, 'voiceink-edit.cmd', `EDITOR 必須是不含空白的短檔名：${command}`)
+  assert.equal(command, 'axondeck-edit.cmd', `EDITOR 必須是不含空白的短檔名：${command}`)
   const folder = bridge.shimDir()
   const shim = path.join(folder, command)
   assert.ok(fs.existsSync(shim), 'batch 要真的落在磁碟上')
-  ok('EDITOR 是短檔名 voiceink-edit.cmd，完整路徑靠 PATH')
+  ok('EDITOR 是短檔名 axondeck-edit.cmd，完整路徑靠 PATH')
 
   /** @type {object[]} */
   const events = []

@@ -1,5 +1,5 @@
 /**
- * VoiceInk — 「檔案」分頁：本機檔案總管 + UFFS 整機檔名搜尋。
+ * AxonDeck — 「檔案」分頁：本機檔案總管 + UFFS 整機檔名搜尋。
  *
  * DOM 一律 createElement + textContent（零 innerHTML）。路徑是外部輸入。
  */

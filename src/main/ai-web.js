@@ -89,7 +89,7 @@ function isLoginPopup(value) {
 
 /** Electron 的 UA 拿掉 Electron／App 字樣，版本縮成真 Chrome 送的 `Chrome/150.0.0.0`（完整版號是機器人特徵） */
 function chromeUserAgent(fallback) {
-  return String(fallback).replace(/\s(Electron|voiceink)\/\S+/gi, '').replace(/Chrome\/(\d+)[\d.]+/, 'Chrome/$1.0.0.0')
+  return String(fallback).replace(/\s(Electron|axondeck)\/\S+/gi, '').replace(/Chrome\/(\d+)[\d.]+/, 'Chrome/$1.0.0.0')
 }
 
 // Electron 沒設處理器時所有權限一律放行（通知、相機、定位…），真 Chrome 會先問；兩者都不對。
@@ -110,7 +110,7 @@ function allowPermission(permission, details) {
  */
 function setupSession(ses, { userAgent, shimPath }) {
   ses.setUserAgent(chromeUserAgent(userAgent))
-  ses.registerPreloadScript({ type: 'frame', id: 'voiceink-ai-web-shim', filePath: shimPath })
+  ses.registerPreloadScript({ type: 'frame', id: 'axondeck-ai-web-shim', filePath: shimPath })
   ses.setPermissionRequestHandler((_contents, permission, callback, details) => callback(allowPermission(permission, details)))
   ses.setPermissionCheckHandler((_contents, permission, _origin, details) => allowPermission(permission, details))
   installGoogleLoginFix(ses)

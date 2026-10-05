@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     /// <summary>
     /// 檔案「內容 › 詳細資料」那一頁：用 Windows 屬性系統讀指定的屬性（相片 EXIF、文件頁數、

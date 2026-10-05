@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 語音輸入的文字處理（純函式，無 electron 依賴，可 `node` 直測）
+ * AxonDeck - 語音輸入的文字處理（純函式，無 electron 依賴，可 `node` 直測）
  *
  * 三件事：
  *   1. 個人字典的套用（ASR 出來先做一次直接取代）

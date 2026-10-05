@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 主應用程式邏輯
+ * AxonDeck - 主應用程式邏輯
  */
 
 import {
@@ -605,7 +605,7 @@ async function loadStartupSettings() {
 
   trayInput.addEventListener('change', async () => {
     await electronAPI.store.set('closeToTray', trayInput.checked)
-    showToast(trayInput.checked ? '關閉視窗後會留在系統匣' : '關閉視窗會結束 VoiceInk')
+    showToast(trayInput.checked ? '關閉視窗後會留在系統匣' : '關閉視窗會結束 AxonDeck')
   })
 
   loginInput.addEventListener('change', async () => {
@@ -628,7 +628,7 @@ let termBgName = ''
 
 /** 改完就叫終端機頁重讀（它自己去跟 main 要 data: URI） */
 function notifyTermAppearance() {
-  window.dispatchEvent(new CustomEvent('voiceink:term-appearance'))
+  window.dispatchEvent(new CustomEvent('axondeck:term-appearance'))
 }
 
 /**

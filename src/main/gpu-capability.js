@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 本地 LLM GPU 能力偵測（Main Process）
+ * AxonDeck - 本地 LLM GPU 能力偵測（Main Process）
  * 門檻：NVIDIA 顯示卡且 VRAM ≥ 6GB 才允許開啟 GPU 推論。
  * 另回報 CUDA Runtime / Vulkan 狀態（供設定頁與自動安裝）。
  */

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 「HF模型」後端的端到端驗證（`npx electron scripts/e2e-hfmodels.js`）
+ * AxonDeck — 「HF模型」後端的端到端驗證（`npx electron scripts/e2e-hfmodels.js`）
  *
  * 真的起一台 llama.cpp router、真的載一顆本機的 GGUF、真的發一次 `/v1/chat/completions`。
  * mock 綠燈證明不了 router 長什麼樣，這一支才是「這條路真的通」的證據。
  *
  * **不碰使用者的模型庫**：`hfmodels.init()` 指到暫存資料夾，裡面的 GGUF 用硬連結
  * （連不了才複製）接回真的檔案，跑完整個暫存資料夾刪掉。
- * app 的 userData 仍指向真的 `voiceink`——`llamaruntime` 在那底下，換掉就找不到 llama-server。
+ * app 的 userData 仍指向真的 `axondeck`——`llamaruntime` 在那底下，換掉就找不到 llama-server。
  */
 
 'use strict'
@@ -65,7 +65,7 @@ function findGguf() {
 const MODEL_ID = 'e2e-probe-model'
 
 async function main() {
-  const tmp = tempDir('voiceink-hfmodels-e2e-')
+  const tmp = tempDir('axondeck-hfmodels-e2e-')
   const before = countLlamaServers()
   try {
     hfmodels.init({ userDataPath: tmp })

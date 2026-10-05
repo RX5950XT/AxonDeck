@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — 感測器 sidecar 的「免 UAC 啟動」排程工作。
+ * AxonDeck — 感測器 sidecar 的「免 UAC 啟動」排程工作。
  *
  * 為什麼要這個：sidecar 必須提權（讀 Super I/O 與寫風扇 PWM），而 `Start-Process -Verb RunAs`
  * **每次啟動都會彈 UAC**。風扇控制要在開機自啟動時就接管，那條路等於不可用。
@@ -24,15 +24,53 @@ const os = require('os')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
 
-const TASK_NAME = 'VoiceInk Sensors'
+const TASK_NAME = 'AxonDeck Sensors'
+/**
+ * 改名前寫進這台電腦的名字：排程工作、Program Files 目錄、還在跑的舊 exe。
+ * 三者都是用系統管理員建立的，一般權限刪不掉。升級後新名字對不上，會再提權裝一次；
+ * 清掉的動作夾在同一次提權安裝裡，不再多跳一次 UAC。舊的不存在就略過，不當成失敗。
+ */
+const LEGACY_TASK_NAME = 'VoiceInk Sensors'
+const LEGACY_DIR_NAME = 'VoiceInk Sensors'
+const LEGACY_PROCESS_NAME = 'VoiceInkSensors'
 const RUN_TIMEOUT_MS = 15_000
 /** 註冊要等使用者按 UAC */
 const INSTALL_TIMEOUT_MS = 120_000
 
+function programFiles64() {
+  return process.env.ProgramW6432 || process.env.ProgramFiles || ''
+}
+
 /** 單檔 helper 固定放在受保護位置，預覽／per-user 安裝也能共用。 */
 function protectedExe() {
-  const root = process.env.ProgramW6432 || process.env.ProgramFiles
-  return root ? path.join(root, 'VoiceInk Sensors', 'VoiceInkSensors.exe') : ''
+  const root = programFiles64()
+  return root ? path.join(root, 'AxonDeck Sensors', 'AxonDeckSensors.exe') : ''
+}
+
+/** 改名前的 helper 目錄。跟現在一樣放在 64 位元 Program Files。 */
+function legacyHelperDir() {
+  const root = programFiles64()
+  return root ? path.join(root, LEGACY_DIR_NAME) : ''
+}
+
+/**
+ * 接在 Register-ScheduledTask 之後。前面是 ErrorAction Stop，這裡改成略過：
+ * 舊工作或舊目錄不在、檔案被鎖、目錄是 reparse，都不讓這次安裝失敗。
+ * reparse 直接跳過，避免 Remove-Item 穿過去刪到別處。
+ * @returns {string[]}
+ */
+function legacyCleanupLines() {
+  const dir = legacyHelperDir()
+  if (!dir) return []
+  return [
+    `$ErrorActionPreference='SilentlyContinue'`,
+    `Unregister-ScheduledTask -TaskName ${psQuote(LEGACY_TASK_NAME)} -Confirm:$false -ErrorAction SilentlyContinue`,
+    `Get-Process -Name ${psQuote(LEGACY_PROCESS_NAME)} -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue`,
+    `$legacy = ${psQuote(dir)}`,
+    `if ((Test-Path -LiteralPath $legacy) -and -not ((Get-Item -LiteralPath $legacy -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { Remove-Item -LiteralPath $legacy -Recurse -Force -ErrorAction SilentlyContinue }`,
+    // 刪不掉（被鎖）時 $? 是 false，-Command 會把它變成 exit 1，新工作明明裝好了卻被當失敗
+    'exit 0'
+  ]
 }
 
 /** 檔案沒變就不重算：每次重拉都在主執行緒同步讀兩個 37MB 檔太貴 */
@@ -249,7 +287,8 @@ function createSensorTask(deps = {}) {
         `$principal = New-ScheduledTaskPrincipal -UserId ${psQuote(`${process.env.USERDOMAIN || '.'}\\${process.env.USERNAME || ''}`)} -LogonType Interactive -RunLevel Highest`,
         `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries`
           + ` -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances Parallel -StartWhenAvailable`,
-        `Register-ScheduledTask -TaskName ${psQuote(TASK_NAME)} -Action $action -Principal $principal -Settings $settings -Force | Out-Null`
+        `Register-ScheduledTask -TaskName ${psQuote(TASK_NAME)} -Action $action -Principal $principal -Settings $settings -Force | Out-Null`,
+        ...legacyCleanupLines()
       ].join('; ')
 
       const { code } = await runPowerShell(script, { elevate: true, timeoutMs: INSTALL_TIMEOUT_MS, spawnFn })
@@ -283,7 +322,7 @@ function createSensorTask(deps = {}) {
       if (!isProtectedInstall(target) || !sameBinary(exePath, target)) return false
       const found = await query(target)
       if (!found.installed || found.stale) return false
-      const file = (await lookup()).arg || handoffPath() || path.join(os.tmpdir(), 'voiceink-sensors-handoff.txt')
+      const file = (await lookup()).arg || handoffPath() || path.join(os.tmpdir(), 'axondeck-sensors-handoff.txt')
       let wrote = 0
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -303,4 +342,10 @@ function createSensorTask(deps = {}) {
   }
 }
 
-module.exports = { createSensorTask, TASK_NAME }
+module.exports = {
+  createSensorTask,
+  TASK_NAME,
+  LEGACY_TASK_NAME,
+  LEGACY_DIR_NAME,
+  LEGACY_PROCESS_NAME
+}

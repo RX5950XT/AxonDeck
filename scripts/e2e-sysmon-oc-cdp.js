@@ -13,8 +13,8 @@ const fs = require('fs')
 const http = require('http')
 
 const PORT = 9249
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-oc-cdp-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-oc-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

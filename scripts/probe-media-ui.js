@@ -5,8 +5,8 @@ const path = require('path')
 const assert = require('assert/strict')
 const { spawn, spawnSync } = require('child_process')
 const { tempDir } = require('./lib/test-temp')
-const runtime = path.resolve(process.env.VOICEINK_MEDIA_DIR || 'resources/media')
-const output = path.resolve(process.env.VOICEINK_MEDIA_REPORT_DIR || tempDir('media-ui-'))
+const runtime = path.resolve(process.env.AXONDECK_MEDIA_DIR || 'resources/media')
+const output = path.resolve(process.env.AXONDECK_MEDIA_REPORT_DIR || tempDir('media-ui-'))
 const ffmpeg = require('ffmpeg-static')
 fs.mkdirSync(output, { recursive: true })
 function generate(exe, args) {
@@ -15,7 +15,7 @@ function generate(exe, args) {
 }
 async function play(file, action, extraArgs = [], additionalFiles = []) {
   const report = path.join(output, `${action}.json`)
-  const child = spawn(path.join(runtime, 'voiceink-media.exe'), ['--hidden', `--probe=${report}`, `--probe-action=${action}`, '--probe-wait=5.2', ...extraArgs, '--', file, ...additionalFiles], { windowsHide: true, stdio: 'ignore' })
+  const child = spawn(path.join(runtime, 'axondeck-media.exe'), ['--hidden', `--probe=${report}`, `--probe-action=${action}`, '--probe-wait=5.2', ...extraArgs, '--', file, ...additionalFiles], { windowsHide: true, stdio: 'ignore' })
   try {
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => { child.kill(); reject(new Error(`${action}: timeout`)) }, 15000)
@@ -42,7 +42,7 @@ async function main() {
   const video = path.join(output,'video.mp4')
   generate(ffmpeg, ['-y','-f','lavfi','-i','testsrc2=size=640x360:rate=12','-t','12','-c:v','libx264','-pix_fmt','yuv420p',video])
   const audio = path.join(output,'audio.flac')
-  generate(ffmpeg, ['-y','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','12','-c:a','flac','-metadata','title=午後的片刻','-metadata','artist=VoiceInk','-metadata','album=Aurora Sessions',audio])
+  generate(ffmpeg, ['-y','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','12','-c:a','flac','-metadata','title=午後的片刻','-metadata','artist=AxonDeck','-metadata','album=Aurora Sessions',audio])
   for (const [file,action] of [[video,'ui-video'],[audio,'ui-audio']]) {
     const data = await play(file,action)
     assert.equal(data.pause,true); assert.equal(data.mute,true); assert.equal(data.speed,1.25)

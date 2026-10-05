@@ -28,10 +28,10 @@ $entries = foreach ($kind in $formats.PSObject.Properties) {
     $ext = '.' + $extension
     $progId = [MediaAssociationProbe]::Default($ext)
     $executable = [MediaAssociationProbe]::Query($progId, 2)
-    [pscustomobject]@{ extension=$ext; progId=$progId; executable=$executable; expected=('VoiceInk.Media.'+$kind.Name); matches=($progId -eq ('VoiceInk.Media.'+$kind.Name) -and (-not $ExpectedExe -or $executable -eq $ExpectedExe)) }
+    [pscustomobject]@{ extension=$ext; progId=$progId; executable=$executable; expected=('AxonDeck.Media.'+$kind.Name); matches=($progId -eq ('AxonDeck.Media.'+$kind.Name) -and (-not $ExpectedExe -or $executable -eq $ExpectedExe)) }
   }
 }
 if ($Output) { $entries | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Output -Encoding UTF8 }
 $failed = @($entries | Where-Object { -not $_.matches })
-Write-Output "Windows association API: $($entries.Count-$failed.Count)/$($entries.Count) VoiceInk Media"
+Write-Output "Windows association API: $($entries.Count-$failed.Count)/$($entries.Count) AxonDeck Media"
 if (-not $Baseline -and $failed.Count -gt 0) { $failed | Select-Object -First 8 extension,progId; throw 'Default associations mismatch' }

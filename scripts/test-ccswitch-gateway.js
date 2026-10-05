@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — Claude Code 轉換閘道的純函式回歸（node 直跑）
+ * AxonDeck — Claude Code 轉換閘道的純函式回歸（node 直跑）
  *
  * Claude Code 只會講 Anthropic Messages；上游可用 Responses 或 Chat Completions。
  * 這裡把兩個方向的轉換釘住：
@@ -268,7 +268,7 @@ console.log('\n[G] OpenCode Go 客戶端與對話識別')
     account_uuid: 'private-account', session_id: 'session-123456' }) } }
   const first = clientHeaders.forOpenCode({}, modern)
   ok('新版 Claude metadata JSON 只取對話識別', first['x-opencode-session'] === 'session-123456')
-  ok('有自己的 User-Agent，不沿用通用 HTTP library', first['User-Agent'].startsWith('VoiceInk-CCSwitch/'))
+  ok('有自己的 User-Agent，不沿用通用 HTTP library', first['User-Agent'].startsWith('AxonDeck-CCSwitch/'))
   ok('工具往返與重試沿用同一對話識別',
     clientHeaders.forOpenCode({}, modern)['x-opencode-session'] === first['x-opencode-session'])
   ok('不轉送使用者／裝置資料', !JSON.stringify(first).includes('private-'))

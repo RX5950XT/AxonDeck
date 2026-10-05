@@ -8,7 +8,7 @@ const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const { spawn, execFileSync } = require('node:child_process')
 const root = path.join(__dirname, '..')
-const dir = tempDir('voiceink-translate-long-')
+const dir = tempDir('axondeck-translate-long-')
 const cfg = JSON.parse(fs.readFileSync(path.join(process.env.APPDATA, 'voiceink/config.json'), 'utf8'))
 fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
   translator: 'cloud', chatProviders: cfg.chatProviders,
@@ -16,7 +16,7 @@ fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
   dictationEnabled: false, agyEnabled: false, closeToTray: false
 }))
 const port = 9258
-const exe = process.env.VOICEINK_EXE || path.join(root, 'dist/win-unpacked/VoiceInk.exe')
+const exe = process.env.AXONDECK_EXE || path.join(root, 'dist/win-unpacked/AxonDeck.exe')
 const child = spawn(exe, [`--user-data-dir=${dir}`, `--remote-debugging-port=${port}`, '--hidden'], { stdio: 'ignore' })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let ws, next = 0

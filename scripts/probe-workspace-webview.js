@@ -29,7 +29,7 @@ function startServer() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end('<!doctype html><title>probe-ok</title><h1>VoiceInk webview probe</h1>')
+      res.end('<!doctype html><title>probe-ok</title><h1>AxonDeck webview probe</h1>')
     })
     server.listen(0, '127.0.0.1', () => {
       resolve({ server, port: /** @type {import('net').AddressInfo} */ (server.address()).port })

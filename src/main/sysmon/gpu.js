@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — GPU 即時讀數（GPU-Z 那一塊）。
+ * AxonDeck — GPU 即時讀數（GPU-Z 那一塊）。
  *
  * `nvidia-smi` 自己就有輪詢模式（`-l <秒>`），所以開**一顆常駐子程序**讓它自己每 N 秒印一行，
  * 而不是每輪 spawn 一次（spawn 一次約 100～200ms，跟真正要的資料一樣貴）。

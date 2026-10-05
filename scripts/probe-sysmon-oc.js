@@ -13,7 +13,7 @@ const os = require('os')
 const path = require('path')
 const { tempFile } = require('./lib/test-temp')
 
-const EXE = path.join(__dirname, '..', 'resources', 'sensors', 'VoiceInkSensors.exe')
+const EXE = path.join(__dirname, '..', 'resources', 'sensors', 'AxonDeckSensors.exe')
 const LOG = tempFile('oc-probe.jsonl')
 
 function smi() {
@@ -40,7 +40,7 @@ function parseSmiField(raw, index) {
 
 function main() {
   if (!fs.existsSync(EXE)) {
-    console.error('找不到 VoiceInkSensors.exe')
+    console.error('找不到 AxonDeckSensors.exe')
     process.exitCode = 1
     return
   }

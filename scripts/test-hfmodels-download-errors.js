@@ -18,7 +18,7 @@ async function main() {
     console.log('PASS 寫入失敗回傳 rejection')
     return
   }
-  const dir = tempDir('voiceink-hf-errors-')
+  const dir = tempDir('axondeck-hf-errors-')
   let failed = 0
   async function check(name, fn) {
     try { await fn(); console.log(`PASS ${name}`) }

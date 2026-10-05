@@ -6,7 +6,7 @@
  *
  * 1. 環境變數（臨時覆蓋、CI／probe 用）
  * 2. OpenCode CLI 的 `auth.json`（**只讀不寫**，跟其他家的 CLI 憑證同一條規矩）
- * 3. VoiceInk 自己的 CC 代理供應商清單（只用 CC 代理頁設定、沒裝 OpenCode CLI 的人）
+ * 3. AxonDeck 自己的 CC 代理供應商清單（只用 CC 代理頁設定、沒裝 OpenCode CLI 的人）
  *
  * 三個都拿不到就回空字串，呼叫端顯示「未連線」。
  */
@@ -80,7 +80,7 @@ async function resolveApiKey({ homeDir, envVar, serviceId, presetId, env = proce
  *
  * 1. 環境變數（用 CLI 自己認的 `COMMAND_CODE_API_KEY`）
  * 2. `~/.commandcode/auth.json`（**只讀不寫**）
- * 3. VoiceInk 自己的 CC 代理供應商清單
+ * 3. AxonDeck 自己的 CC 代理供應商清單
  *
  * 第三段不能省：**在 Studio 開一把 API key 是官方支援的用法，不是每個人都跑過 `cmd login`**，
  * 只認那個檔案的話，有金鑰的人在 App 裡沒有任何地方填得進去。

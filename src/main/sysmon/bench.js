@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — 磁碟序列讀寫測速（CrystalDiskMark 的 SEQ 那兩條）。
+ * AxonDeck — 磁碟序列讀寫測速（CrystalDiskMark 的 SEQ 那兩條）。
  *
  * 只做序列，而且只有**寫入**的數字是真的：
  * ponytail: 讀取走系統快取，Node 沒有 FILE_FLAG_NO_BUFFERING（Windows 上唯一能繞過快取的方式），
@@ -17,7 +17,7 @@ const crypto = require('crypto')
 const CHUNK_BYTES = 8 * 1024 * 1024
 const MIN_SIZE_MB = 128
 const MAX_SIZE_MB = 8192
-const TEST_FILE = '.voiceink-disk-bench.tmp'
+const TEST_FILE = '.axondeck-disk-bench.tmp'
 
 let busy = false
 let cancelled = false

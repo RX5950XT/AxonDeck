@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 提權感測器 sidecar 端到端測試
+ * AxonDeck — 提權感測器 sidecar 端到端測試
  *
  *   node scripts/e2e-sysmon-sensors.js
  *
@@ -39,16 +39,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 function sensorPids() {
   try {
-    const out = execFileSync('tasklist.exe', ['/FI', 'IMAGENAME eq VoiceInkSensors.exe', '/NH', '/FO', 'CSV'], {
+    const out = execFileSync('tasklist.exe', ['/FI', 'IMAGENAME eq AxonDeckSensors.exe', '/NH', '/FO', 'CSV'], {
       windowsHide: true, encoding: 'utf8'
     })
-    return [...out.matchAll(/"VoiceInkSensors\.exe","(\d+)"/g)].map((m) => Number(m[1]))
+    return [...out.matchAll(/"AxonDeckSensors\.exe","(\d+)"/g)].map((m) => Number(m[1]))
   } catch {
     return []
   }
 }
 
-// 使用者自己開著的 VoiceInk 也有一顆 sidecar：只數這支測試拉起來的
+// 使用者自己開著的 AxonDeck 也有一顆 sidecar：只數這支測試拉起來的
 const PREEXISTING = new Set(sensorPids())
 function sensorProcessCount() {
   return sensorPids().filter((pid) => !PREEXISTING.has(pid)).length
@@ -79,7 +79,7 @@ async function main() {
     resourcesPath: path.join(ROOT, 'resources'),
     spawnFn: (cmd, args) => {
       const text = args.join(' ')
-      const match = /voiceink-sensors-([0-9a-f]+)/.exec(text)
+      const match = /axondeck-sensors-([0-9a-f]+)/.exec(text)
       if (match) seen.push(match[1])
       // 不真的拉起 sidecar，直接假裝 Start-Process 失敗
       const { EventEmitter } = require('events')

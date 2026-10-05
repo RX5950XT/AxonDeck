@@ -10,7 +10,7 @@
     <link rel="icon" type="image/png" href="../../assets/icon.png" />
     <!-- xterm 的樣式直接吃 node_modules（renderer 無 bundler，vendoring 只會多一份要同步的複本） -->
     <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
-    <title>VoiceInk</title>
+    <title>AxonDeck</title>
     <link rel="stylesheet" href="./styles/themes.css" />
     <link rel="stylesheet" href="./styles/main.css" />
     <link rel="stylesheet" href="./styles/explorer-operations.css" />
@@ -19,18 +19,14 @@
     <div id="app" class="app-container">
       <!-- 頂部導航列（frameless 標題列合併：可拖曳區 + 窗控） -->
       <header class="header" id="appHeader">
-        <div class="header-brand" title="VoiceInk">
-          <span class="brand-mark" aria-hidden="true">
-            <span class="brand-mark-bar cool"></span>
-            <span class="brand-mark-bar warm"></span>
-            <span class="brand-mark-bar mint"></span>
-          </span>
-          <span class="logo-text">VoiceInk</span>
+        <div class="header-brand" title="AxonDeck">
+          <img class="brand-logo" src="../../assets/icon_64.png" alt="" aria-hidden="true" />
+          <span class="logo-text">Axon<span class="logo-accent">Deck</span></span>
         </div>
         <nav class="header-nav">
-          <button class="nav-tab active" data-page="chat" title="SI" aria-label="SI" aria-current="page">
+          <button class="nav-tab active" data-page="chat" title="Super Intelligence" aria-label="Super Intelligence" aria-current="page">
             <span class="nav-icon" data-icon="ai"></span>
-            <span class="nav-text">SI</span>
+            <span class="nav-text nav-text-stack"><span>Super</span> <span>Intelligence</span></span>
           </button>
           <button class="nav-tab" data-page="telegram" title="Telegram" aria-label="Telegram">
             <span class="nav-icon" data-icon="telegram"></span>
@@ -2316,7 +2312,7 @@
                         </label>
                         <p class="setting-hint">
                           背景執行時 AGY 反代不會中斷，token 也會自動續期。
-                          要真的結束請用系統匣圖示的「結束 VoiceInk」。
+                          要真的結束請用系統匣圖示的「結束 AxonDeck」。
                         </p>
                         <p id="startupHint" class="setting-hint hidden"></p>
                       </div>
@@ -2324,7 +2320,7 @@
                         <label>更新</label>
                         <label class="setting-check">
                           <input id="autoUpdateInput" type="checkbox" />
-                          <span>自動下載新版本（結束 VoiceInk 時安裝）</span>
+                          <span>自動下載新版本（結束 AxonDeck 時安裝）</span>
                         </label>
                         <div class="update-row">
                           <span id="updateVersion" class="update-version">目前版本 …</span>

@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 雲端 ASR（OpenRouter / OpenAI 相容 /audio/transcriptions）
+ * AxonDeck - 雲端 ASR（OpenRouter / OpenAI 相容 /audio/transcriptions）
  */
 
 const { Buffer } = require('buffer')

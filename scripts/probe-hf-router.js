@@ -172,7 +172,7 @@ async function main() {
   console.log(`白老鼠模型：${pickedKey} → ${path.basename(pickedGguf)}\n`)
 
   // ---- 佈置暫存 models-dir：一顆單檔（junction 省複製）、一顆多模態子資料夾 ----
-  const root = tempDir('voiceink-router-')
+  const root = tempDir('axondeck-router-')
   const modelsDir = path.join(root, 'hf-models')
   fs.mkdirSync(modelsDir, { recursive: true })
 

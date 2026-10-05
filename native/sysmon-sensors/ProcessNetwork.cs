@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-namespace VoiceInkSensors
+namespace AxonDeckSensors
 {
     // ETW 只在既有 sidecar 的權限內開啟，沒有 RunAs、排程安裝或驅動。
     // 不儲存位址／封包內容；只收 manifest 的 PID 與 size，含 TCP/UDP、IPv4/IPv6。
@@ -17,7 +17,7 @@ namespace VoiceInkSensors
         private readonly Dictionary<uint, ulong> _bytes = new Dictionary<uint, ulong>();
         private readonly EventCallback _eventCallback;
         private readonly BufferCallback _bufferCallback;
-        private readonly string _name = "voiceink-network-" + Guid.NewGuid().ToString("N");
+        private readonly string _name = "axondeck-network-" + Guid.NewGuid().ToString("N");
         private ulong _session;
         private ulong _consumer = ulong.MaxValue;
         private IntPtr _properties;

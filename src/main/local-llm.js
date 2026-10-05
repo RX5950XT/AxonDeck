@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 翻譯（Main Process）
+ * AxonDeck - 翻譯（Main Process）
  * 雲端 chat completions / 本地 node-llama-cpp（多 GGUF + 可選 CUDA）
  * 支援上下文、live tokens、serial mutex、warm/unload（可 dispose）
  */
@@ -707,7 +707,7 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     }
 
     let { out, stopReason } = await runOnce(promptOpts)
-    if (process.env.VOICEINK_DEBUG_RAW) console.log('[linguaforge raw]', JSON.stringify(out))
+    if (process.env.AXONDECK_DEBUG_RAW) console.log('[linguaforge raw]', JSON.stringify(out))
     let cleaned = stripTranslationNoise(stripThink(out), text)
 
     // 退化迴圈救援：出貨 zhtw 禁 rep-penalty，條列／多段輸入偶爾整段吐重複片段並吃掉內容。

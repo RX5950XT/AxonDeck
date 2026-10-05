@@ -1,5 +1,5 @@
 /**
- * VoiceInk - CUDA 執行環境偵測與自動安裝（Windows）
+ * AxonDeck - CUDA 執行環境偵測與自動安裝（Windows）
  * node-llama-cpp 需要 cudart + cublas + cublasLt（11/12/13）。
  */
 
@@ -279,7 +279,7 @@ async function installCudaEnv(onProgress = () => {}) {
           onProgress({ phase: 'done', message: 'CUDA Runtime 安裝成功', percent: 100 })
           return {
             ok: true,
-            message: 'CUDA Toolkit 已安裝。建議重新啟動 VoiceInk 後再啟用 GPU。',
+            message: 'CUDA Toolkit 已安裝。建議重新啟動 AxonDeck 後再啟用 GPU。',
             needsRestart: true
           }
         }
@@ -329,8 +329,8 @@ async function installCudaEnv(onProgress = () => {}) {
         ok: true,
         message:
           code === 3010
-            ? '安裝完成，請先重新開機再啟動 VoiceInk。'
-            : 'CUDA Toolkit 已安裝。請重新啟動 VoiceInk 後啟用 GPU。',
+            ? '安裝完成，請先重新開機再啟動 AxonDeck。'
+            : 'CUDA Toolkit 已安裝。請重新啟動 AxonDeck 後啟用 GPU。',
         needsRestart: true
       }
     }

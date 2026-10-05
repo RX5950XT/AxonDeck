@@ -1,6 +1,6 @@
 /**
  * 壓力測試到底有沒有壓到——**實機量測**，不是看按鈕會不會動。
- * 用法：node scripts/probe-sysmon-stress.js（會自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/probe-sysmon-stress.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 為什麼要有這一支：`e2e-sysmon-cdp.js` 只驗「按了開始之後狀態變成執行中」，
  * 而「執行中」跟「滿載」是兩件事。GPU 那項就是這樣漏掉的——`requestAnimationFrame`
@@ -22,7 +22,7 @@ const path = require('path')
 const http = require('http')
 
 const PORT = 9248
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 /** 每一項壓多久（秒）。太短的話 GPU 的自動加壓還沒爬到預算就結束了 */
 const LOAD_SEC = 10
 /** 判定門檻：低於這個就算「沒壓到」 */

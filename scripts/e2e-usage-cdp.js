@@ -7,11 +7,11 @@ const http = require('http')
 
 const PORT = 9241
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 const EXPECTED_ORDER = ['chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
 /** 條上每一家把東西全打開（含未連線的那幾家），結構斷言才有固定的七顆 */
 const BAR_ALL = { kinds: ['rolling-5h', 'weekly', 'monthly'], showReset: true, showPlan: true, compact: false, hideDisconnected: false, showLastSync: true }
@@ -569,7 +569,7 @@ async function main() {
     pass('單價彈窗取消關得掉')
 
 
-    if (process.env.VOICEINK_USAGE_SCREENSHOT) {
+    if (process.env.AXONDECK_USAGE_SCREENSHOT) {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
         height: 1000,
@@ -580,7 +580,7 @@ async function main() {
         format: 'png',
         captureBeyondViewport: true
       })
-      fs.writeFileSync(process.env.VOICEINK_USAGE_SCREENSHOT, capture.data, 'base64')
+      fs.writeFileSync(process.env.AXONDECK_USAGE_SCREENSHOT, capture.data, 'base64')
     }
 
     if (cdp.exceptions.length || cdp.consoleErrors.length) {

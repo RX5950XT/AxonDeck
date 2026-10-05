@@ -32,7 +32,7 @@
  * 不要為了測試在 App 裡開一個收路徑的後門。
  *
  * 用法：node scripts/e2e-workspace-cdp.js
- *      （要驗別的建置版：VOICEINK_EXE=... node scripts/e2e-workspace-cdp.js）
+ *      （要驗別的建置版：AXONDECK_EXE=... node scripts/e2e-workspace-cdp.js）
  */
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
@@ -42,16 +42,16 @@ const os = require('os')
 const fs = require('fs')
 
 const PORT = 9274
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-ws-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-ws-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
-const PROJECT_DIR = tempDir('voiceink-proj-')
-const DROP_DIR = tempDir('voiceink-drop-')
+const PROJECT_DIR = tempDir('axondeck-proj-')
+const DROP_DIR = tempDir('axondeck-drop-')
 /** 專案外面的資料夾：用來驗「專案裡的資料夾連結指到這裡會被擋下來」 */
-const OUTSIDE_DIR = tempDir('voiceink-outside-')
+const OUTSIDE_DIR = tempDir('axondeck-outside-')
 const PROJECT_ID = 'w_e2e_workspace'
 /** 第二個專案：只用來驗「每個專案自己一組分頁」，裡面不放東西 */
-const PROJECT2_DIR = tempDir('voiceink-proj2-')
+const PROJECT2_DIR = tempDir('axondeck-proj2-')
 const PROJECT2_ID = 'w_e2e_workspace_2'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -671,12 +671,12 @@ async function main() {
     await cdp.send('Input.dispatchDragEvent', { type: 'drop', x: dropAt.x, y: dropAt.y, data: dragData })
     ok('[M] 拖資料夾真的進了專案清單',
       await waitInPage(cdp, `[...document.querySelectorAll('#projList [data-id]')]
-        .some((n) => (n.textContent || '').includes('voiceink-drop'))`, 10000))
+        .some((n) => (n.textContent || '').includes('axondeck-drop'))`, 10000))
 
     const dropInfo = JSON.parse(String(await cdp.eval(`(async () => {
       const r = await window.electronAPI.workspace.listProjects()
       if (!r.ok) return 'ERR'
-      const hit = r.data.find((p) => p.path.toLowerCase().includes('voiceink-drop'))
+      const hit = r.data.find((p) => p.path.toLowerCase().includes('axondeck-drop'))
       return JSON.stringify({
         total: r.data.length,
         hitId: hit ? hit.id : '',

@@ -23,7 +23,7 @@ async function settledMemory(loaded) {
 }
 
 async function main() {
-  uffs.configure(process.env.VOICEINK_USER_DATA || path.join(process.env.APPDATA, 'voiceink'))
+  uffs.configure(process.env.AXONDECK_USER_DATA || path.join(process.env.APPDATA, 'voiceink'))
   const initial = await uffs.status()
   assert(initial.installed && initial.broker.installed, '需要已安裝 UFFS／broker，探針不裝工具或跳 UAC')
   assert(!initial.daemon.running, '現有 daemon 正在使用，不碰；待其自行結束再驗')

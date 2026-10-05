@@ -7,7 +7,7 @@
  *   `data` 是一份 JSON，assistant 訊息帶 `cost`／`tokens`／`modelID`。
  *   **自帶花費**，不必靠單價表。
  * - **Antigravity**：本機沒有 session 記錄可讀（`~/.antigravitycli` 只有專案清單），
- *   唯一有 token 數字的是 **VoiceInk 自己的 AGY 反代日誌** `<userData>/agy-logs.db`。
+ *   唯一有 token 數字的是 **AxonDeck 自己的 AGY 反代日誌** `<userData>/agy-logs.db`。
  *   所以這一家統計到的是「經過本 App 反代的流量」，不含使用者直接用 IDE／CLI 打的那些。
  *   這個限制要讓 UI 講清楚，不能假裝是完整用量。
  *
@@ -122,7 +122,7 @@ function readOpencode(sinceMs, dbPath = opencodeDbPath()) {
 }
 
 /**
- * Antigravity：讀 VoiceInk 自己的 AGY 反代日誌。
+ * Antigravity：讀 AxonDeck 自己的 AGY 反代日誌。
  *
  * @param {number} sinceMs 結束時間游標
  * @param {string} dbPath `<userData>/agy-logs.db`

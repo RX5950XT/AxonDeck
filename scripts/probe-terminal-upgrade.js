@@ -8,7 +8,7 @@
  * 測完會把自己建立的工作階段刪掉，不留在你的 terminals.json 裡。
  *
  * 用法：node scripts/probe-terminal-upgrade.js
- * （先 `npm run electron:pack`；或用 `VOICEINK_EXE` 指到別處的 win-unpacked）
+ * （先 `npm run electron:pack`；或用 `AXONDECK_EXE` 指到別處的 win-unpacked）
  */
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
@@ -18,8 +18,8 @@ const os = require('os')
 const fs = require('fs')
 
 const PORT = 9251
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-probe-termup-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-probe-termup-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -130,7 +130,7 @@ async function main() {
   }
 
   if (!fs.existsSync(EXE)) {
-    console.error(`找不到打包版：${EXE}\n先跑 npm run electron:pack，或設 VOICEINK_EXE`)
+    console.error(`找不到打包版：${EXE}\n先跑 npm run electron:pack，或設 AXONDECK_EXE`)
     process.exit(1)
   }
 
@@ -243,14 +243,14 @@ async function main() {
     ok('[C] Ctrl+0 回到預設 17', await cdp.eval(`window.__vi.term().options.fontSize`) === 17)
 
     // ===== [D] 搜尋 =====
-    await cdp.eval(`window.__vi.term().write('haystack VOICEINKNEEDLE haystack\\r\\nVOICEINKNEEDLE again\\r\\n')`)
+    await cdp.eval(`window.__vi.term().write('haystack AXONDECKNEEDLE haystack\\r\\nAXONDECKNEEDLE again\\r\\n')`)
     await sleep(400)
     await cdp.eval(pressKey({ key: 'f', ctrlKey: true }))
     ok('[D] Ctrl+F 開得出搜尋列',
       await waitInPage(cdp, `!document.getElementById('termFind').classList.contains('hidden')`))
     await cdp.eval(`(() => {
       const input = document.getElementById('termFindInput')
-      input.value = 'VOICEINKNEEDLE'
+      input.value = 'AXONDECKNEEDLE'
       input.dispatchEvent(new Event('input', { bubbles: true }))
       return true
     })()`)

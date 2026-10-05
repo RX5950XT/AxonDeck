@@ -123,7 +123,7 @@ async function realFfmpeg() {
   try { bin = require('ffmpeg-static') } catch { bin = '' }
   if (!bin || !fs.existsSync(bin)) { console.log('[E] SKIP 沒有 ffmpeg-static'); return }
   console.log('[E] 真的 ffmpeg：自己產一支有聲音的影片')
-  const dir = tempDir('voiceink-details-')
+  const dir = tempDir('axondeck-details-')
   const file = path.join(dir, 'clip.mp4')
   execFileSync(bin, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=25',
     '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '1', '-c:v', 'libx264', '-c:a', 'aac', '-b:a', '128k',

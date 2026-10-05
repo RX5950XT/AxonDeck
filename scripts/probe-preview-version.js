@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 「我開的到底是不是新版」的現場證據
+ * AxonDeck — 「我開的到底是不是新版」的現場證據
  *
- * 把指定的 VoiceInk.exe 用暫存 `--user-data-dir` 拉起來，切到 Claude Code 工作台，
+ * 把指定的 AxonDeck.exe 用暫存 `--user-data-dir` 拉起來，切到 Claude Code 工作台，
  * 直接把畫面上真的渲染出來的東西讀回來：供應商預設清單有幾筆、分組標題是什麼、
  * 「上游協議」下拉在不在、彈窗關著的時候高度是不是 0。
  *
- * 收尾只以自己的 pid 收程序（禁止 `/IM VoiceInk.exe`）。
+ * 收尾只以自己的 pid 收程序（禁止 `/IM AxonDeck.exe`）。
  */
 
 'use strict'
@@ -19,8 +19,8 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
 
 const PORT = 9271
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-probe-preview-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-probe-preview-')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -44,7 +44,7 @@ function stopTestApp(child) {
   try {
     execFileSync('powershell', [
       '-NoProfile', '-Command',
-      `Get-CimInstance Win32_Process -Filter "Name='VoiceInk.exe'" |` +
+      `Get-CimInstance Win32_Process -Filter "Name='AxonDeck.exe'" |` +
       ` Where-Object { $_.CommandLine -like '*${USER_DATA_DIR}*' } |` +
       ' ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'
     ], { stdio: 'ignore' })

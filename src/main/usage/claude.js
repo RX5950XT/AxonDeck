@@ -13,7 +13,7 @@ const {
 
 /**
  * 額度 API 的限流是看 User-Agent 分的（實測 2026-09-23，同一顆 token 連打）：
- * `claude-code/…` 穩定 200；Node 預設的 `node`、`VoiceInk/…` 或任何別的名字打兩三下就一直 429
+ * `claude-code/…` 穩定 200；Node 預設的 `node`、`AxonDeck/…` 或任何別的名字打兩三下就一直 429
  * （`retry-after: 0`）。這顆 token 本來就是發給 Claude Code 的（續期也照 CLI 的協定），
  * 所以照 CLI 報身分。看的是前綴，版本號舊了也照樣過（2.0.0 實測 200）。
  */

@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — CPU／GPU 效能調整。
+ * AxonDeck — CPU／GPU 效能調整。
  *
  * 跟風扇控制同一顆 sidecar、同一條提權邊界，但寫入路徑完全不同（不能沿用 S／D／R）：
  *   G <coreMHz> <memMHz> <powerPct> [voltMv] [tempC]  NVIDIA 時脈／功耗／電壓／溫度牆

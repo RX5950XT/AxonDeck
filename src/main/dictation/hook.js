@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk - 語音輸入熱鍵的原生 sidecar（`VoiceInkHook.exe`）
+ * AxonDeck - 語音輸入熱鍵的原生 sidecar（`AxonDeckHook.exe`）
  *
  * 它是一支 .NET 小程式，裝一個 Windows 低階鍵盤 hook（WH_KEYBOARD_LL）並**把熱鍵吞掉**：
  * 前景程式收不到那顆鍵，所以不會再有「單獨一顆 Alt 把選單列叫出來」的副作用，
@@ -12,7 +12,7 @@
  *
  * 協定（sidecar 的 stdout，一行一個）：`READY` / `D` / `U` / `E`
  *
- * **優先用 Rust 版 `voiceink-probe.exe hook`**（native/voiceink-probe/src/hook.rs，同一份協定）：
+ * **優先用 Rust 版 `axondeck-probe.exe hook`**（native/axondeck-probe/src/hook.rs，同一份協定）：
  * .NET 那支光 runtime 就佔 30MB 級的工作集，Rust 版個位數 MB。找不到才退回 .NET 那支。
  */
 
@@ -36,8 +36,8 @@ const MAX_RESTARTS = 3
 function resolveExePath(deps = {}) {
   const resourcesPath = deps.resourcesPath || process.resourcesPath || ''
   const candidates = [
-    resourcesPath ? path.join(resourcesPath, 'hook', 'VoiceInkHook.exe') : '',
-    path.join(__dirname, '..', '..', '..', 'resources', 'hook', 'VoiceInkHook.exe')
+    resourcesPath ? path.join(resourcesPath, 'hook', 'AxonDeckHook.exe') : '',
+    path.join(__dirname, '..', '..', '..', 'resources', 'hook', 'AxonDeckHook.exe')
   ].filter(Boolean)
   for (const candidate of candidates) {
     try {
@@ -50,7 +50,7 @@ function resolveExePath(deps = {}) {
 }
 
 /**
- * 要 spawn 什麼：有 Rust 版就 `voiceink-probe.exe hook`，否則 .NET 那支。
+ * 要 spawn 什麼：有 Rust 版就 `axondeck-probe.exe hook`，否則 .NET 那支。
  * @param {{ exePath?: string, resourcesPath?: string, probeExe?: string }} [deps]
  * @returns {{ file: string, args: string[] }}
  */

@@ -23,7 +23,7 @@
  * 而且用的是**真實尺寸**的圖（2.5MB，見 `inflateToSize`）。
  *
  * 用法：node scripts/probe-terminal-background.js
- *      VOICEINK_EXE=... node scripts/probe-terminal-background.js
+ *      AXONDECK_EXE=... node scripts/probe-terminal-background.js
  */
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
@@ -34,8 +34,8 @@ const fs = require('fs')
 const zlib = require('zlib')
 
 const PORT = 9257
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-probe-bg-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-probe-bg-')
 
 /** 8×8 的純紅 PNG（夠大到量得出 background-image，夠小到寫死在這裡） */
 const RED_PNG = Buffer.from(

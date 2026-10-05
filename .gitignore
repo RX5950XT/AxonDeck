@@ -69,7 +69,7 @@ resources/shell/
 
 # 系統監控取樣＋使用時長觀測（Rust，取代兩支常駐 PowerShell）
 # 打包前跑 `npm run build:probe` 產生；沒建置會退回 PowerShell
-native/voiceink-probe/target/
+native/axondeck-probe/target/
 resources/probe/
 resources/media/
 dist-media-qa/

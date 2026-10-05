@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 終端機真 pty 端到端測試
+ * AxonDeck — 終端機真 pty 端到端測試
  *
  *   node_modules/electron/dist/electron.exe scripts/e2e-terminal.js
  *
@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
       cwd: path.join(__dirname, '..')
     })
     ok('建立工作階段', Boolean(meta.id) && meta.state === 'stopped')
-    // 資料夾名不寫死：worktree 裡跑時專案根目錄不叫 VoiceInk
+    // 資料夾名不寫死：worktree 裡跑時專案根目錄不叫 AxonDeck
     ok('標題預設用資料夾名', meta.title === path.basename(path.join(__dirname, '..')), meta.title)
 
     const opened = await terminal.openSession(meta.id, 100, 30)

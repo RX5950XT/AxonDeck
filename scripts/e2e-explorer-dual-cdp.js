@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 檔案總管「雙欄」的真畫面驗收（CDP）。
+ * AxonDeck — 檔案總管「雙欄」的真畫面驗收（CDP）。
  *
  * 雙欄原本只有一份唯讀清單：上面那排指令列、右鍵選單、鍵盤、拖放、側欄導覽
  * 全部只服務左欄。這支驗的是「作用欄」——點哪一欄，那些東西就對哪一欄生效：
@@ -27,8 +27,8 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 // 與其他 explorer e2e 平行跑時不能共用埠或 profile。
 const PORT = 9297
 const INSPECT_PORT = 9298
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-dual-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-dual-')
 
 /** 超過一頁（BROWSE_PAGE_SIZE=500）才會出現「未載入頁面是洞」的稀疏陣列。 */
 const BIG_COUNT = 2600
@@ -199,7 +199,7 @@ async function fitWindow(cdp) {
 
 let child
 ;(async () => {
-  // VOICEINK_EXE 指到 electron.exe 時是跑原始碼（要先起 vite），得補上 app 目錄。
+  // AXONDECK_EXE 指到 electron.exe 時是跑原始碼（要先起 vite），得補上 app 目錄。
   const args = /electron\.exe$/i.test(EXE) ? ['.'] : []
   child = spawn(EXE, [
     ...args,

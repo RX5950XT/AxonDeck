@@ -12,10 +12,10 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 
 const PORT = 9251
 const ROOT = path.join(__dirname, '..')
-const EXE = process.env.VOICEINK_EXE ||
+const EXE = process.env.AXONDECK_EXE ||
   path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
-const APP_ARGS = process.env.VOICEINK_EXE ? [] : [ROOT]
-const USER_DATA_DIR = tempDir('voiceink-probe-lang-')
+const APP_ARGS = process.env.AXONDECK_EXE ? [] : [ROOT]
+const USER_DATA_DIR = tempDir('axondeck-probe-lang-')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {

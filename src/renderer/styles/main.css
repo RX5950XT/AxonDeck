@@ -102,38 +102,12 @@ a:hover {
   /* drag 區 */
 }
 
-.brand-mark {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  width: 24px;
-  height: 24px;
-  padding: 3px 2px;
-}
-
-.brand-mark-bar {
+.brand-logo {
   display: block;
-  width: 5px;
-  border-radius: var(--radius-pill);
-  box-shadow: 0 0 14px color-mix(in srgb, currentColor 34%, transparent);
-}
-
-.brand-mark-bar.cool {
-  height: 13px;
-  color: #77a9bc;
-  background: currentColor;
-}
-
-.brand-mark-bar.warm {
-  height: 19px;
-  color: #d9aa5b;
-  background: currentColor;
-}
-
-.brand-mark-bar.mint {
-  height: 9px;
-  color: #65c795;
-  background: currentColor;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  -webkit-user-drag: none;
 }
 
 .logo-text {
@@ -141,6 +115,14 @@ a:hover {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+/* 跟 logo 字樣一樣：Deck 走藍→紫漸層 */
+.logo-accent {
+  background: linear-gradient(90deg, #1e8fff, #7b3cff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /* ===== Header 導航 ===== */
@@ -240,6 +222,15 @@ body.is-maximized .win-btn#winMax {
 
 .nav-tab:active:hover {
   transform: scale(0.97);
+}
+
+/* 名字太長就疊兩行，寬度跟四個字的中文標籤差不多 */
+.nav-text-stack {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 11px;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
 }
 
 .nav-tab.active {

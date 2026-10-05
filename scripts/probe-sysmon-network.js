@@ -41,7 +41,7 @@ using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using VoiceInkSensors;
+using AxonDeckSensors;
 
 class Probe {
   [StructLayout(LayoutKind.Sequential)] struct TcpRow { public uint state, localAddr, localPort, remoteAddr, remotePort; }

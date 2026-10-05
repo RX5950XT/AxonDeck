@@ -16,11 +16,11 @@ const http = require('http')
 
 const PORT = 9245
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 const DEFAULT_CHAT_MODEL = 'google/gemini-3-flash-preview'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -824,7 +824,7 @@ async function checkAiWeb(cdp, check) {
     buttons: [...document.querySelectorAll('.chat-panel-actions .btn')].map((b) => b.textContent.trim() || b.getAttribute('aria-label')),
     icons: document.querySelectorAll('.chat-panel-actions .ws-tool-icon').length
   }))()`)
-  check('導覽列叫 SI、側欄叫 Agent／Chat', labels.nav === 'SI' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
+  check('導覽列叫 Super Intelligence、側欄叫 Agent／Chat', labels.nav === 'Super Intelligence' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
   check('六顆按鈕：Local、資料夾、ChatGPT、Gemini、Claude、Grok（四家只留圖示）',
     labels.buttons.join() === 'Local,資料夾,ChatGPT,Gemini,Claude,Grok' && labels.icons === 5, JSON.stringify(labels))
 
@@ -947,7 +947,7 @@ async function checkAiWeb(cdp, check) {
 function appMemoryMb() {
   const tag = path.basename(USER_DATA_DIR).replace(/'/g, "''")
   const out = execFileSync('powershell', ['-NoProfile', '-Command',
-    `$p = Get-CimInstance Win32_Process -Filter "Name='VoiceInk.exe'" | Where-Object { $_.CommandLine -like '*${tag}*' }; ` +
+    `$p = Get-CimInstance Win32_Process -Filter "Name='AxonDeck.exe'" | Where-Object { $_.CommandLine -like '*${tag}*' }; ` +
     "'{0} {1}' -f @($p).Count, [math]::Round((($p | Measure-Object WorkingSetSize -Sum).Sum) / 1MB)"],
   { encoding: 'utf8', windowsHide: true }).trim().split(/\s+/)
   return { count: Number(out[0]), total: Number(out[1]) }

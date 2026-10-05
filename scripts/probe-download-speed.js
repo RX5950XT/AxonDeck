@@ -4,8 +4,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const moduleRoot = process.env.VOICEINK_EXE
-  ? path.join(path.dirname(path.resolve(process.env.VOICEINK_EXE)), 'resources', 'app.asar')
+const moduleRoot = process.env.AXONDECK_EXE
+  ? path.join(path.dirname(path.resolve(process.env.AXONDECK_EXE)), 'resources', 'app.asar')
   : path.join(__dirname, '..')
 const { downloadFile } = require(path.join(moduleRoot, 'src/main/hfmodels/download'))
 const SAMPLE = 32 * 1024 * 1024

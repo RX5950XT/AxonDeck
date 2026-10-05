@@ -1,4 +1,4 @@
-﻿# VoiceInk — 前景視窗觀測（每秒一列 JSON）
+﻿# AxonDeck — 前景視窗觀測（每秒一列 JSON）
 $ErrorActionPreference = 'SilentlyContinue'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = $utf8

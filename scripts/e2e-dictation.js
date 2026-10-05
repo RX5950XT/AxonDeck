@@ -74,7 +74,7 @@ function makeStore(values) {
 
 async function main() {
   // 紀錄與字典會落在 userData，測試用暫存目錄，不碰使用者的檔案
-  const tmp = tempDir('voiceink-dictation-')
+  const tmp = tempDir('axondeck-dictation-')
   app.setPath('userData', tmp)
   await app.whenReady()
 

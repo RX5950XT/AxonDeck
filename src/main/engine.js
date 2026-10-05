@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 引擎生命週期（Main Process）
+ * AxonDeck - 引擎生命週期（Main Process）
  * live / file 共用 refcount；引用歸零才 unload
  * warm / unload 經 serial chain + 與各模組 generation 配合
  */

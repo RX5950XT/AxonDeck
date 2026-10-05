@@ -13,7 +13,7 @@ const script = `
   Module._load = function(request, ...args) {
     if (request === uffsPath) return {
       configure: value => configured = value,
-      findUffs: () => configured === process.env.VOICEINK_USER_DATA ? 'test-uffs.exe' : '',
+      findUffs: () => configured === process.env.AXONDECK_USER_DATA ? 'test-uffs.exe' : '',
       status: async () => ({ installed: true, daemon: {}, broker: {} }),
       search: async () => ({ hits: [{ path: 'C:\\\\test.txt', name: 'test.txt' }], warming: false })
     }
@@ -23,7 +23,7 @@ const script = `
 `
 const result = spawnSync(process.execPath, ['-e', script], {
   cwd: path.join(__dirname, '..'), encoding: 'utf8', windowsHide: true,
-  env: { ...process.env, VOICEINK_USER_DATA: home }
+  env: { ...process.env, AXONDECK_USER_DATA: home }
 })
 assert.equal(result.status, 0, result.stderr)
 assert.match(result.stdout, /PASS 真搜尋/)

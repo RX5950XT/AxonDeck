@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 雲端 ASR 請求形狀實測
+ * AxonDeck - 雲端 ASR 請求形狀實測
  *
  * 用途：確認使用者設定的端點到底吃哪一種請求（JSON input_audio ／ multipart ／
  * chat.completions 的 input_audio content part），以及各自回什麼狀態碼。

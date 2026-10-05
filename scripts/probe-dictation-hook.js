@@ -56,7 +56,7 @@ async function main() {
 
   res.stop?.()
   await new Promise((resolve) => setTimeout(resolve, 800))
-  // 認 pid 不認映像名：Rust 版跟系統監控的取樣器同一支 voiceink-probe.exe
+  // 認 pid 不認映像名：Rust 版跟系統監控的取樣器同一支 axondeck-probe.exe
   let alive = true
   try { process.kill(pid, 0) } catch { alive = false }
   check('停止後沒有留下孤兒程序', pid > 0 && !alive, `pid ${pid}`)

@@ -1,5 +1,5 @@
 /**
- * VoiceInk - Edge TTS facade（Main Process）
+ * AxonDeck - Edge TTS facade（Main Process）
  * MIT 套件 node-edge-tts；對外只暴露記憶體 bytes
  */
 
@@ -153,7 +153,7 @@ async function synthesizeChunk(text, voice, rate = 'default') {
   const locale = voice.split('-').slice(0, 2).join('-') // zh-TW / en-US
   const tmp = path.join(
     os.tmpdir(),
-    `voiceink-tts-${process.pid}-${randomBytes(8).toString('hex')}.mp3`
+    `axondeck-tts-${process.pid}-${randomBytes(8).toString('hex')}.mp3`
   )
 
   const tts = new EdgeTTS({

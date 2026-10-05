@@ -25,7 +25,7 @@ $Theme = 'dark'
 $foregroundBefore = [MediaWindowProbe]::GetForegroundWindow()
 $report = Join-Path $Output 'state.json'
 $playerArgs = @('--offscreen','--theme=dark',"--probe=`"$report`"",'--probe-wait=24','--',"`"$File`"")
-$playerProcess = Start-Process (Join-Path ([IO.Path]::GetFullPath($Runtime)) 'voiceink-media.exe') -ArgumentList $playerArgs -WindowStyle Hidden -PassThru
+$playerProcess = Start-Process (Join-Path ([IO.Path]::GetFullPath($Runtime)) 'axondeck-media.exe') -ArgumentList $playerArgs -WindowStyle Hidden -PassThru
 $checks = [ordered]@{}
 try {
   Start-Sleep -Milliseconds 1000
@@ -33,7 +33,7 @@ try {
   [void][MediaWindowProbe]::EnumWindows({ param($h,$p)
     [uint32]$windowPid=0; [void][MediaWindowProbe]::GetWindowThreadProcessId($h,[ref]$windowPid)
     $name=New-Object Text.StringBuilder 128; [void][MediaWindowProbe]::GetClassName($h,$name,128)
-    if ($windowPid -eq $playerProcess.Id -and $name.ToString() -eq 'VoiceInkMedia') { $script:mediaHandle=$h; return $false }
+    if ($windowPid -eq $playerProcess.Id -and $name.ToString() -eq 'AxonDeckMedia') { $script:mediaHandle=$h; return $false }
     return $true
   },[IntPtr]::Zero)
   if ($script:mediaHandle -eq [IntPtr]::Zero) { throw '找不到本輪播放器' }

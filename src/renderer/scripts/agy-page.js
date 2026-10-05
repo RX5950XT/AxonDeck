@@ -170,7 +170,7 @@ const ANTIGRAVITY_DOCS_URL = 'https://antigravity.google/docs'
  * 原本只丟一句「請先在 Antigravity 登入」——對沒裝過的人是死路：
  * 不知道要裝什麼、去哪裝、裝完做什麼。依偵測到的來源給不同指引。
  *
- * 維護 token 的是 Antigravity CLI 或 IDE（誰在跑誰續期），VoiceInk 只讀不寫，
+ * 維護 token 的是 Antigravity CLI 或 IDE（誰在跑誰續期），AxonDeck 只讀不寫，
  * 所以這裡能做的就是把使用者導回那兩個工具。
  */
 function credentialGuidance(info) {

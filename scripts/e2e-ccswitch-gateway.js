@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — Claude Code 轉換閘道的端到端回歸（node 直跑，自己開一個假上游）
+ * AxonDeck — Claude Code 轉換閘道的端到端回歸（node 直跑，自己開一個假上游）
  *
  * 驗的是整條路：Anthropic 請求 → 轉成 OpenAI 形狀送上游 → 上游 SSE → 轉回 Anthropic SSE。
  * 外加那幾條不能鬆的防護：只收本機 Host、強制金鑰、上游狀態碼不透傳、上游 body 不外洩。
@@ -59,7 +59,7 @@ function startUpstream() {
           lastUpstream = { path: req.url, headers: req.headers, body: null }
         }
 
-        if (req.url === '/opencode-go' && (!req.headers['user-agent']?.startsWith('VoiceInk-CCSwitch/') ||
+        if (req.url === '/opencode-go' && (!req.headers['user-agent']?.startsWith('AxonDeck-CCSwitch/') ||
           req.headers['x-opencode-session'] !== 'claude-session-123456')) {
           res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: { message: FAKE_UPSTREAM_SECRET } }))
@@ -259,7 +259,7 @@ async function main() {
     } })
     ok('OpenCode OpenAI 測試送 Bearer，而非 Claude 專用 x-api-key',
       probeHeaders.Authorization === 'Bearer test-go-key' && !probeHeaders['x-api-key'])
-    ok('最小測試也帶客戶端與對話識別', probeHeaders['User-Agent']?.startsWith('VoiceInk-CCSwitch/') &&
+    ok('最小測試也帶客戶端與對話識別', probeHeaders['User-Agent']?.startsWith('AxonDeck-CCSwitch/') &&
       /^[A-Za-z0-9_-]{6,128}$/.test(probeHeaders['x-opencode-session']))
 
     console.log('\n[D2] 自訂供應商（動態路由）')

@@ -102,7 +102,7 @@ async function main() {
     assert.strictEqual(cat.classifyApp('Palworld-Win64-Shipping', '', ''), '遊戲')
     assert.strictEqual(cat.classifyApp('HD-Player', '', 'BlueStacks'), '遊戲')
     assert.strictEqual(cat.classifyApp('olk', '', 'Microsoft Outlook'), '生產力')
-    assert.strictEqual(cat.classifyApp('VoiceInk', '', 'VoiceInk'), '開發')
+    assert.strictEqual(cat.classifyApp('AxonDeck', '', 'AxonDeck'), '開發')
     assert.strictEqual(cat.classifySite('shopee.tw'), '購物')
     assert.strictEqual(cat.classifySite('www.reuters.com'), '資訊')
   })
@@ -176,9 +176,9 @@ async function main() {
     dbMod.closeDb(db)
   })
 
-  await check('忽略系統行程與 Tai，但記 VoiceInk 自己', () => {
+  await check('忽略系統行程與 Tai，但記 AxonDeck 自己', () => {
     assert.strictEqual(util.isIgnoredName('Tai'), true)
-    assert.strictEqual(util.isIgnoredName('VoiceInk'), false)
+    assert.strictEqual(util.isIgnoredName('AxonDeck'), false)
     assert.strictEqual(util.isIgnoredName('dwm'), true)
     assert.strictEqual(util.isIgnoredName('msedge'), false)
     assert.strictEqual(util.isIgnoredName('explorer'), false)
@@ -339,13 +339,13 @@ async function main() {
     const when = new Date(2026, 8, 4, 11, 0, 0)
     svc.recordApp('ProbeApp', 90, when, 'C:\\ProbeApp.exe')
     svc.recordWeb({
-      Url: 'https://voiceink-probe.example/test', Title: 'Probe', Duration: 15,
+      Url: 'https://axondeck-probe.example/test', Title: 'Probe', Duration: 15,
       ActiveTime: Math.floor(when.getTime() / 1000)
     })
     const app = svc.stats({ kind: 'app', range: 'day', date: '2026-09-04' })
     const web = svc.stats({ kind: 'web', range: 'day', date: '2026-09-04' })
     assert.ok(app.list.some((r) => r.name === 'ProbeApp' && r.time === 90))
-    assert.ok(web.list.some((r) => r.domain === 'voiceink-probe.example' && r.time === 15),
+    assert.ok(web.list.some((r) => r.domain === 'axondeck-probe.example' && r.time === 15),
       JSON.stringify(web.list.slice(0, 3)))
     return svc.shutdown()
   })

@@ -3,13 +3,13 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-namespace VoiceInkHook
+namespace AxonDeckHook
 {
     /// <summary>
-    /// VoiceInk 語音輸入的全域熱鍵 sidecar（Windows 低階鍵盤 hook）。
+    /// AxonDeck 語音輸入的全域熱鍵 sidecar（Windows 低階鍵盤 hook）。
     ///
-    /// 用法：VoiceInkHook.exe            （預設綁右 Alt）
-    ///       VoiceInkHook.exe --key 0xA5 （綁別的虛擬鍵碼）
+    /// 用法：AxonDeckHook.exe            （預設綁右 Alt）
+    ///       AxonDeckHook.exe --key 0xA5 （綁別的虛擬鍵碼）
     ///
     /// stdout 一行一個事件（父程序靠這個驅動狀態機）：
     ///   READY   hook 掛上了

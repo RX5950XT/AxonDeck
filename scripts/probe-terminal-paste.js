@@ -19,8 +19,8 @@ const MOUSE = process.env.PROBE_MOUSE !== '0'
 const REAL_CLI = process.env.PROBE_REAL_CLI || ''
 const DROP = process.env.PROBE_DROP === '1'
 const PASTE_TEXT = process.env.PROBE_LONG === '1' ? 'PASTEPROBE-' + 'x'.repeat(180) : 'PASTEPROBE'
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-probe-paste-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-probe-paste-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const PROJECT_DIR = path.join(USER_DATA_DIR, 'project')
 fs.mkdirSync(PROJECT_DIR)

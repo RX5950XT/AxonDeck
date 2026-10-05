@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     /// <summary>一張 32bpp 的圖，位元組順序是 BGRA（跟 Windows DIB 一樣，renderer 自己換成 RGBA）。</summary>
     internal sealed class Bgra

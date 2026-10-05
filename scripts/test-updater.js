@@ -177,7 +177,7 @@ async function main() {
       'package.json 少了 publish 設定 → electron-builder 不會產 latest.yml，更新永遠檢查不到')
     assert.ok(pkg.dependencies['electron-updater'], 'electron-updater 要在 dependencies（打包要進 asar）')
     // latest.yml 裡的 url 是連字號版（electron-builder 自己轉的），而預設 artifactName 帶空白 →
-    // 上傳到 GitHub 會被改名成 `VoiceInk.Setup.x.y.z.exe`，跟 latest.yml 對不上，下載時 404
+    // 上傳到 GitHub 會被改名成 `AxonDeck.Setup.x.y.z.exe`，跟 latest.yml 對不上，下載時 404
     assert.strictEqual(pkg.build.nsis.artifactName, '${productName}-Setup-${version}.${ext}',
       '安裝檔檔名要跟 latest.yml 裡的 url 一模一樣，否則更新下載會 404')
     // 假的 autoUpdater 收得下任何屬性名，打錯字一樣全綠 → 對真的那顆型別定義核一次
@@ -205,7 +205,7 @@ async function main() {
       assert.ok(prefix.startsWith('https://') && prefix.endsWith('/'), `代理前綴要是 https://…/：${prefix}`)
     }
 
-    const exe = `https://github.com/${pub.owner}/${pub.repo}/releases/download/v1.24.0/VoiceInk-Setup-1.24.0.exe`
+    const exe = `https://github.com/${pub.owner}/${pub.repo}/releases/download/v1.24.0/AxonDeck-Setup-1.24.0.exe`
     const urls = mirrors.downloadUrls(exe).map((u) => String(u))
     assert.strictEqual(urls[urls.length - 1], exe, '最後一個一定是官方 GitHub，代理全掛才走它')
     assert.ok(urls[0].startsWith(mirrors.MIRRORS[0]), '第一個要走第一條代理')

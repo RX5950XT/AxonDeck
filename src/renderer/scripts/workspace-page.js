@@ -190,7 +190,7 @@ function patchSessionChip(chip, item) {
  * （跑的時候轉圈圈，停下來是一個靜止的標示）。
  *
  * **只有圖示不放文字**：一個專案同時開三四顆很正常，每顆再帶一行
- * 「Claude Code · VoiceInk · 暫無輸出」的話，側欄整個被狀態文字塞滿，
+ * 「Claude Code · AxonDeck · 暫無輸出」的話，側欄整個被狀態文字塞滿，
  * 而專案名稱反而看不見。完整的一句話留在 `title` 裡。
  *
  * @param {{ id: string, title: string, preset?: string, state: string, stateLabel: string, exitCode?: number | null }} item

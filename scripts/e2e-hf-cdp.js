@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 「HF模型」分頁的打包版回歸（CDP）
+ * AxonDeck — 「HF模型」分頁的打包版回歸（CDP）
  *
  * **這支不下載任何模型、也不打 Hugging Face**（搜尋要網路、下載動輒好幾 GB）：
  * 網路那一段由 `probe-hf-hub.js` 打真流量驗，router 生命週期由 `e2e-hfmodels.js` 驗。
@@ -8,7 +8,7 @@
  * 執行環境資訊，以及幾條 UI 地雷（彈窗會不會捲、沒開的彈窗會不會浮出來、
  * 空的 `<dd>` 會不會讓整列塌掉）。
  *
- * 用暫存 `--user-data-dir`，收尾只以自己的 pid 收程序（禁止 `/IM VoiceInk.exe`）。
+ * 用暫存 `--user-data-dir`，收尾只以自己的 pid 收程序（禁止 `/IM AxonDeck.exe`）。
  * 模型庫指到暫存資料夾並種一顆真的 gguf 進去，**不碰使用者的模型**。
  */
 
@@ -22,8 +22,8 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
 
 const PORT = 9249
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-hf-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-hf-')
 /** 模型庫指到這裡（不是使用者的 hf-models） */
 const MODELS_DIR = path.join(USER_DATA_DIR, 'hf-models-test')
 /** 種進去的模型 id；用 `[data-id]` 指涉自己建的東西，不用「第一列」 */
@@ -45,7 +45,7 @@ function getJson(url) {
 }
 
 /**
- * 收掉測試自己開的那份 App。**絕對不能用 `/IM VoiceInk.exe`**：
+ * 收掉測試自己開的那份 App。**絕對不能用 `/IM AxonDeck.exe`**：
  * 那會把使用者自己開著的安裝版一起關掉。
  * @param {import('child_process').ChildProcess | null} child
  */
@@ -55,7 +55,7 @@ function stopTestApp(child) {
       execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
     } catch { /* 程序已結束 */ }
   }
-  for (const name of ['VoiceInk.exe', 'llama-server.exe']) {
+  for (const name of ['AxonDeck.exe', 'llama-server.exe']) {
     try {
       execFileSync('powershell', [
         '-NoProfile', '-Command',
@@ -162,7 +162,7 @@ function seedModel() {
   const target = path.join(dir, path.basename(source))
   try { fs.linkSync(source, target) } catch { fs.copyFileSync(source, target) }
   fs.writeFileSync(
-    path.join(dir, 'voiceink-meta.json'),
+    path.join(dir, 'axondeck-meta.json'),
     JSON.stringify({ source: 'e2e', repoId: 'e2e/probe', quant: 'Q4_K_M', multimodal: false }, null, 2)
   )
   return true

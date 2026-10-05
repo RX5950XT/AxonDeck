@@ -314,17 +314,17 @@ function startCallbackServer(flow, state) {
       const returnedState = url.searchParams.get('state') || ''
       const returnedCode = url.searchParams.get('code') || ''
       const html = (text) =>
-        `<!doctype html><meta charset="utf-8"><title>VoiceInk</title>` +
+        `<!doctype html><meta charset="utf-8"><title>AxonDeck</title>` +
         `<body style="font:16px/1.6 system-ui;padding:48px;text-align:center">${text}</body>`
       // state 對不上就當作不是我們發起的那一次，不可以拿去換 token
       if (!returnedCode || returnedState !== state) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end(html('登入失敗，請回到 VoiceInk 再試一次。'))
+        res.end(html('登入失敗，請回到 AxonDeck 再試一次。'))
         failCode(authError('OAUTH_STATE_MISMATCH', '登入回呼對不上，請再試一次'))
         return
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(html('登入完成，可以關掉這個分頁回到 VoiceInk。'))
+      res.end(html('登入完成，可以關掉這個分頁回到 AxonDeck。'))
       settleCode(returnedCode)
     })
 

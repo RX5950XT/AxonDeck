@@ -1,7 +1,7 @@
 /**
  * 測試／探針腳本共用的暫存資料夾。**腳本裡不准自己 `os.tmpdir()`／`mkdtemp`**（`test-temp-hygiene.js` 會擋）。
  *
- * - 全部放在 `%TEMP%\voiceink-tests\<這次執行>\` 底下，使用者看 `%TEMP%` 只會多一個資料夾。
+ * - 全部放在 `%TEMP%\axondeck-tests\<這次執行>\` 底下，使用者看 `%TEMP%` 只會多一個資料夾。
  * - 程序結束（正常結束、例外、Ctrl+C）整個刪掉。
  * - 上一次當掉、或子程序還抓著檔案沒刪成功的，下一支用到這裡的腳本會把超過 `STALE_MS` 的順手清掉。
  *
@@ -14,7 +14,7 @@ const path = require('path')
 // 暫存 userData 裡常有 junction 指回真的模型資料夾：Node 24 的 rmSync 遞迴會穿過去刪掉，一律用這支
 const { removeTreeSync } = require('../../src/main/safe-rm')
 
-const ROOT = path.join(os.tmpdir(), 'voiceink-tests')
+const ROOT = path.join(os.tmpdir(), 'axondeck-tests')
 // ponytail: 靠時間判斷別的執行是不是還活著；同時跑超過 6 小時的測試才會被誤清
 const STALE_MS = 6 * 60 * 60 * 1000
 

@@ -1,10 +1,10 @@
 'use strict'
 
 /**
- * VoiceInk — PawnIO 核心驅動的自動安裝。
+ * AxonDeck — PawnIO 核心驅動的自動安裝。
  *
  * 為什麼需要它：LibreHardwareMonitor 0.9.4 起把 WinRing0 換成 PawnIO，沒裝的話
- * CPU／主機板那一整組感測器**不報錯、只回 0**（跟壞掉一模一樣）。這是 VoiceInk
+ * CPU／主機板那一整組感測器**不報錯、只回 0**（跟壞掉一模一樣）。這是 AxonDeck
  * 唯一一個沒辦法自己帶著走的外部相依——它是核心驅動，必須真的安裝到系統裡。
  *
  * 三個實測踩過的地雷，動這支之前先看：
@@ -139,7 +139,7 @@ async function install(deps = {}) {
   if (installedFn()) return { installed: true, already: true }
 
   const tmpDir = deps.tmpDir || os.tmpdir()
-  const file = path.join(tmpDir, `voiceink-pawnio-${process.pid}.exe`)
+  const file = path.join(tmpDir, `axondeck-pawnio-${process.pid}.exe`)
   try {
     await download(SETUP_URL, deps.fetchFn, file)
 

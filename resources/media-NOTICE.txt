@@ -1,6 +1,6 @@
-VoiceInk 原生媒體播放器
+AxonDeck 原生媒體播放器
 
-介面：VoiceInk 原生 Win32/Rust 程式；未嵌入 Electron、WebView 或 libmpv。
+介面：AxonDeck 原生 Win32/Rust 程式；未嵌入 Electron、WebView 或 libmpv。
 解碼器以獨立程序執行，未修改上游 binary。
 
 mpv：mpv-player 與各上游作者，GPL。授權全文 mpv-LICENSE-GPL.txt。
@@ -10,8 +10,8 @@ mpv 原始碼：https://github.com/mpv-player/mpv/tree/e470f8986e
 建置與相依套件：https://github.com/shinchiro/mpv-winbuild-cmake
 說明書：mpv-docs/manual.pdf。
 對外散布安裝檔時，須一併提供該 binary 完整對應原始碼與建置資料；上游連結不取代此要求。
-本版隨附解碼器原始碼與建置資料：VoiceInk-Media-Sources-1.38.0.zip。
-https://github.com/RX5950XT/VoiceInk/releases/tag/v1.38.0
+本版隨附解碼器原始碼與建置資料：AxonDeck-Media-Sources-1.38.0.zip。
+https://github.com/RX5950XT/AxonDeck/releases/tag/v1.38.0
 
 ImageMagick：ImageMagick Studio LLC，7.1.2-32，ImageMagick License。
 授權全文 imagemagick-LICENSE.txt、NOTICE.txt。

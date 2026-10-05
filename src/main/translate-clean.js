@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 譯文清理（純文字，無 electron 依賴 → 可 `node` 直測）
+ * AxonDeck - 譯文清理（純文字，無 electron 依賴 → 可 `node` 直測）
  * 0.8B 模型偶爾把 persona／SFT 指令／列點編號混進譯文，出 UI 前一律剝除。
  */
 

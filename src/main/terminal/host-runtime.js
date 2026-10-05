@@ -6,6 +6,10 @@ const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 
 const PROTOCOL = 1
+// 管道名是舊宿主的連線地址；保留它才能接回更新前仍在跑的 shell。
+const HOST_PIPE_PREFIX = 'voiceink-terminal-v'
+// 舊 runtime 裡的 exe 也要檢查鎖定並清理，不能因改名永久累積。
+const LEGACY_HOST_EXE = 'VoiceInkTerminalHost.exe'
 const HOST_FILES = ['host.js', 'host-runtime.js', 'pty.js', 'store.js', 'status.js', 'admin.js', 'admin-host.js']
 const RUNTIME_FILES = ['icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin']
 
@@ -58,7 +62,7 @@ function connection(userData, create = false) {
   const config = JSON.parse(fs.readFileSync(file, 'utf8'))
   if (config.protocol !== PROTOCOL || !/^[a-f0-9]{64}$/.test(config.token)) throw hostError('HOST_CONFIG')
   const name = crypto.createHash('sha256').update(root.toLowerCase()).digest('hex').slice(0, 24)
-  return { root, token: config.token, protocol: PROTOCOL, pipe: `\\\\.\\pipe\\voiceink-terminal-v${PROTOCOL}-${name}` }
+  return { root, token: config.token, protocol: PROTOCOL, pipe: `\\\\.\\pipe\\${HOST_PIPE_PREFIX}${PROTOCOL}-${name}` }
 }
 
 /**
@@ -73,7 +77,7 @@ function runtimeName(execPath = process.execPath) {
   const native = nativeHostExe()
   if (native) {
     // Rust 宿主：整份就是一支 exe，內容雜湊就是版本
-    const hash = crypto.createHash('sha256').update(`voiceink-term-${PROTOCOL}`).update(fs.readFileSync(native))
+    const hash = crypto.createHash('sha256').update(`axondeck-term-${PROTOCOL}`).update(fs.readFileSync(native))
     return { name: `runtime-${hash.digest('hex').slice(0, 24)}`, version: 'native', ptyRoot: '', native }
   }
   const version = process.versions.electron || fs.readFileSync(path.join(path.dirname(execPath), 'version'), 'utf8').trim()
@@ -87,13 +91,13 @@ function runtimeName(execPath = process.execPath) {
 }
 
 /**
- * `voiceink-term.exe`（native/voiceink-probe/src/bin/voiceink-term，Rust）：取代「把整支 Electron
+ * `axondeck-term.exe`（native/axondeck-probe/src/bin/axondeck-term，Rust）：取代「把整支 Electron
  * 複製進 userData 當 Node 跑」（工作集 277MB → 個位數 MB）。找不到（沒跑 build:probe）才退回。
  * 在函式裡才 require：這支也會被複製進 Electron 版宿主的執行環境，那裡沒有 native-probe.js。
  */
 function nativeHostExe() {
-  if (process.env.VOICEINK_TERM_HOST === 'electron') return ''
-  return require('../native-probe').resolveProbeExe({ name: 'voiceink-term.exe' })
+  if (process.env.AXONDECK_TERM_HOST === 'electron') return ''
+  return require('../native-probe').resolveProbeExe({ name: 'axondeck-term.exe' })
 }
 
 /** 原生檔案不能鎖住安裝目錄；執行環境按內容分版，運行中的版本永不覆寫。 */
@@ -105,12 +109,12 @@ function stageRuntime(root, execPath = process.execPath) {
     try {
       if (native) {
         // 同樣複製一份出來跑：安裝目錄的 exe 不能被常駐程序鎖住（更新要覆寫它）
-        fs.copyFileSync(native, path.join(staging, 'VoiceInkTerminalHost.exe'))
+        fs.copyFileSync(native, path.join(staging, 'AxonDeckTerminalHost.exe'))
         fs.writeFileSync(path.join(staging, 'ready'), version)
         fs.renameSync(staging, dir)
         return finishRuntime(root, dir, true)
       }
-      fs.copyFileSync(execPath, path.join(staging, 'VoiceInkTerminalHost.exe'))
+      fs.copyFileSync(execPath, path.join(staging, 'AxonDeckTerminalHost.exe'))
       for (const file of RUNTIME_FILES) fs.copyFileSync(path.join(path.dirname(execPath), file), path.join(staging, file))
       // 這幾支在 app.asar 裡：copyFileSync 會先解壓成 %TEMP%\<uuid>.tmp.js 當中繼，程序被強制結束就留在那裡；
       // readFileSync 直接讀 archive，不經暫存檔
@@ -135,7 +139,7 @@ function stageRuntime(root, execPath = process.execPath) {
 function finishRuntime(root, dir, native) {
   if (fs.lstatSync(dir).isSymbolicLink() || fs.realpathSync.native(dir) !== dir) throw hostError('HOST_PATH')
   pruneRuntimes(root, path.basename(dir))
-  return { exe: path.join(dir, 'VoiceInkTerminalHost.exe'), entry: native ? '' : path.join(dir, 'host.js'), dir, native }
+  return { exe: path.join(dir, 'AxonDeckTerminalHost.exe'), entry: native ? '' : path.join(dir, 'host.js'), dir, native }
 }
 
 /** 每次改版就多一份 248MB；執行中的宿主鎖著自己的 exe，開得起來才代表沒人在用。 */
@@ -146,7 +150,9 @@ function pruneRuntimes(root, keep) {
     // 沒有 ready 的是別人正在建立或建到一半的，交給下一次收。
     if (!fs.existsSync(path.join(dir, 'ready'))) continue
     try {
-      fs.closeSync(fs.openSync(path.join(dir, 'VoiceInkTerminalHost.exe'), 'r+'))
+      const exe = ['AxonDeckTerminalHost.exe', LEGACY_HOST_EXE].map(file => path.join(dir, file)).find(file => fs.existsSync(file))
+      if (!exe) continue
+      fs.closeSync(fs.openSync(exe, 'r+'))
       require('../safe-rm').removeTreeSync(dir)
     } catch { /* 還有宿主跑在這一份，或檔案被鎖住 */ }
   }

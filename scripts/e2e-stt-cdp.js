@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP：語音轉文字合併頁 ＋ 設定頁四分區 ＋ 語音試聽
- * 用法：node scripts/e2e-stt-cdp.js（會自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/e2e-stt-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 這支會改到三個子分頁各自的模型選擇（`fileAsr`／`fileLlm`／`liveAsr`／`liveLlm`／
  * `dictationAsr`）與翻譯頁的全域那組，**開頭先讀下來、finally 一定寫回**，
@@ -15,11 +15,11 @@ const http = require('http')
 
 const PORT = 9243
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 const RESTORE_KEYS = [
   'fileAsr', 'fileLlm', 'liveAsr', 'liveLlm', 'dictationAsr',
   'translator', 'localTranslateModel'

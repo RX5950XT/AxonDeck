@@ -25,7 +25,7 @@ function tinyPdf() {
     '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n',
     '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Contents 4 0 R'
       + '/Resources<</Font<</F1 5 0 R>>>>>>endobj\n',
-    '4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 20 40 Td (VoiceInk PDF) Tj ET\nendstream endobj\n',
+    '4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 20 40 Td (AxonDeck PDF) Tj ET\nendstream endobj\n',
     '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n'
   ]
   let body = '%PDF-1.4\n'

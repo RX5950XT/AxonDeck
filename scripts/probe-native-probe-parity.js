@@ -1,6 +1,6 @@
 /**
- * voiceink-probe.exe（Rust）跟兩支 PowerShell 的輸出要一模一樣：metrics.js／observer.js
- * 逐格解析，對面換了人它們不會知道。改 native/voiceink-probe 或 probe.ps1 之後跑這支。
+ * axondeck-probe.exe（Rust）跟兩支 PowerShell 的輸出要一模一樣：metrics.js／observer.js
+ * 逐格解析，對面換了人它們不會知道。改 native/axondeck-probe 或 probe.ps1 之後跑這支。
  *
  * 用法：npm run build:probe && node scripts/probe-native-probe-parity.js
  *
@@ -122,7 +122,7 @@ function compareObserver() {
 
 function main() {
   if (!EXE) {
-    console.error('找不到 resources/probe/voiceink-probe.exe，先跑 npm run build:probe')
+    console.error('找不到 resources/probe/axondeck-probe.exe，先跑 npm run build:probe')
     process.exit(1)
   }
   const explorer = spawnSync('tasklist', ['/FI', 'IMAGENAME eq explorer.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8' })

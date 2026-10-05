@@ -165,7 +165,7 @@ async function writeBack(configDir, postedRefreshToken, update) {
   const onDisk = current.claudeAiOauth?.refreshToken
   if (!current.claudeAiOauth || (onDisk !== '' && onDisk !== postedRefreshToken)) return false
   const next = { ...current, claudeAiOauth: { ...current.claudeAiOauth, ...update } }
-  const tmp = `${file}.voiceink-${process.pid}-${Date.now()}.tmp`
+  const tmp = `${file}.axondeck-${process.pid}-${Date.now()}.tmp`
   try {
     await fs.writeFile(tmp, JSON.stringify(next), { encoding: 'utf8', mode: 0o600 })
     await fs.rename(tmp, file)

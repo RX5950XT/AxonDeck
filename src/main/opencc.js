@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 簡體→台灣繁體轉換（opencc-js，lazy 單例）
+ * AxonDeck - 簡體→台灣繁體轉換（opencc-js，lazy 單例）
  * ASR 來源與翻譯輸出共用，避免 0.8B 譯文夾簡體字。
  */
 

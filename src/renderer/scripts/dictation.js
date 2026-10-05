@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 語音輸入的錄音端（Renderer）
+ * AxonDeck - 語音輸入的錄音端（Renderer）
  *
  * main 那邊管熱鍵（右 Alt）、ASR、整理與貼上；這裡只負責一件事：把麥克風的
  * 16kHz mono PCM 錄下來，收到 stop 就整段送回 main。
@@ -70,7 +70,7 @@ function emit(state, detail = {}) {
 }
 
 /**
- * 開始／結束的提示音。使用者多半正在別的程式裡打字，看不到 VoiceInk 的畫面，
+ * 開始／結束的提示音。使用者多半正在別的程式裡打字，看不到 AxonDeck 的畫面，
  * 用聲音回饋比什麼都沒有好（音量很小，不會蓋掉自己的講話）。
  * @param {number} freq
  */
@@ -310,7 +310,7 @@ const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'email', 'tel', 'pass
 /**
  * 把整理好的文字插進游標現在的位置。
  *
- * main 只有在「焦點就在 VoiceInk 自己的視窗」時才呼叫這支（`dictation/insert.js` 的
+ * main 只有在「焦點就在 AxonDeck 自己的視窗」時才呼叫這支（`dictation/insert.js` 的
  * `insertIntoOwnWindow`），走這條路**一個位元組都不會寫進剪貼簿**——使用者原本複製的
  * 東西不會被擠到 Win+V 歷史後面去。這裡回 false（沒有焦點、焦點在不能打字的東西上）
  * main 就退回剪貼簿 ＋ 模擬 Ctrl+V。

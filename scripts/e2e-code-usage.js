@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 本機 token 用量統計的真實資料驗證（`npx electron scripts/e2e-code-usage.js`）
+ * AxonDeck — 本機 token 用量統計的真實資料驗證（`npx electron scripts/e2e-code-usage.js`）
  *
  * 純函式那層由 `scripts/test-code-usage.js` 涵蓋；這一支跑的是**真的去讀使用者本機的
  * session 記錄**——那才看得出解析器有沒有漏掉真實世界的變化形（`<synthetic>` 那條就是這樣抓到的）。
@@ -30,7 +30,7 @@ function ok(name, cond, detail = '') {
   }
 }
 
-const tmpUserData = tempDir('voiceink-codeusage-e2e-')
+const tmpUserData = tempDir('axondeck-codeusage-e2e-')
 app.setPath('userData', tmpUserData)
 
 app.whenReady().then(async () => {

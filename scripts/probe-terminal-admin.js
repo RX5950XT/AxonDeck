@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 管理員終端機的宿主協定實測（node 直跑，**不需要 UAC**）
+ * AxonDeck — 管理員終端機的宿主協定實測（node 直跑，**不需要 UAC**）
  *
  * 提權那一段只差在 `Start-Process -Verb RunAs`；管道協定、pty 轉發與「主程序斷線
  * 就自己收掉」這三件事在一般權限下就驗得完，所以這裡自己當一次主程序：
- * 建管道 → 直接 spawn 一份 `--terminal-admin-host=` 的 VoiceInk → 開 shell → 對話 → 收工。
+ * 建管道 → 直接 spawn 一份 `--terminal-admin-host=` 的 AxonDeck → 開 shell → 對話 → 收工。
  *
  * 真的要看提權有沒有生效，跑起來的 shell 會印自己的完整性等級（提權時是 High）。
  *
  * 用法：node scripts/probe-terminal-admin.js
- *       VOICEINK_TERM_HOST=native node scripts/probe-terminal-admin.js（改測 Rust 版 voiceink-term.exe）
+ *       AXONDECK_TERM_HOST=native node scripts/probe-terminal-admin.js（改測 Rust 版 axondeck-term.exe）
  */
 
 'use strict'
@@ -21,9 +21,9 @@ const { spawn } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
 const ELECTRON = path.join(ROOT, 'node_modules/electron/dist/electron.exe')
-const PIPE = `\\\\.\\pipe\\voiceink-term-probe-${crypto.randomBytes(8).toString('hex')}`
+const PIPE = `\\\\.\\pipe\\axondeck-term-probe-${crypto.randomBytes(8).toString('hex')}`
 const SESSION_ID = 't_probe'
-const MARK = 'VOICEINK_PROBE_OK'
+const MARK = 'AXONDECK_PROBE_OK'
 
 let passed = 0
 let failed = 0
@@ -75,10 +75,10 @@ async function main() {
   })
   await new Promise((resolve) => server.listen(PIPE, resolve))
 
-  const native = process.env.VOICEINK_TERM_HOST === 'native'
-    ? require(path.join(ROOT, 'src/main/native-probe.js')).resolveProbeExe({ name: 'voiceink-term.exe' })
+  const native = process.env.AXONDECK_TERM_HOST === 'native'
+    ? require(path.join(ROOT, 'src/main/native-probe.js')).resolveProbeExe({ name: 'axondeck-term.exe' })
     : ''
-  if (process.env.VOICEINK_TERM_HOST === 'native' && !native) throw new Error('找不到 voiceink-term.exe，先跑 npm run build:probe')
+  if (process.env.AXONDECK_TERM_HOST === 'native' && !native) throw new Error('找不到 axondeck-term.exe，先跑 npm run build:probe')
   const child = spawn(native || ELECTRON, native ? [`--terminal-admin-host=${PIPE}`] : [ROOT, `--terminal-admin-host=${PIPE}`], {
     stdio: 'ignore',
     windowsHide: true

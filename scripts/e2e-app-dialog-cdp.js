@@ -15,8 +15,8 @@ const http = require('http')
 
 const PORT = 9241
 const ROOT = path.join(__dirname, '..')
-const EXE = process.env.VOICEINK_EXE || path.join(ROOT, 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-dialog-')
+const EXE = process.env.AXONDECK_EXE || path.join(ROOT, 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-dialog-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false, dictationEnabled: false }))
 const IS_WIN = process.platform === 'win32'
 

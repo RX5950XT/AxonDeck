@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP：系統監控頁
- * 用法：node scripts/e2e-sysmon-cdp.js（會自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/e2e-sysmon-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 驗證重點：
  *  - probe.ps1 在打包版真的跑得起來（asarUnpack 有生效；PowerShell 執行不了 asar 內的檔案）
@@ -23,11 +23,11 @@ const http = require('http')
 
 const PORT = 9247
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const RESTORE_KEYS = ['sysmonInterval', 'sysmonSort', 'sysmonSensors']
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -461,7 +461,7 @@ async function main() {
     const beforeFilter = await cdp.eval(`document.getElementById('sysmonProcCount').textContent`)
     await cdp.eval(`(() => {
       const input = document.getElementById('sysmonSearch')
-      input.value = 'VoiceInk'
+      input.value = 'AxonDeck'
       input.dispatchEvent(new Event('input'))
     })()`)
     await sleep(200)
@@ -473,7 +473,7 @@ async function main() {
     ok('搜尋會過濾', filtered.count !== beforeFilter && filtered.count.includes('/'),
       `${beforeFilter} → ${filtered.count}`)
     ok('過濾結果都符合關鍵字',
-      filtered.names.length > 0 && filtered.names.every((n) => n.toLowerCase().includes('voiceink')),
+      filtered.names.length > 0 && filtered.names.every((n) => n.toLowerCase().includes('axondeck')),
       JSON.stringify(filtered.names))
 
     await cdp.eval(`(() => {
@@ -719,7 +719,7 @@ async function main() {
       }
     }
     cdp?.close()
-    // 只殺自己 spawn 的那棵樹；禁止 /IM VoiceInk.exe（會關掉使用者的安裝版）。
+    // 只殺自己 spawn 的那棵樹；禁止 /IM AxonDeck.exe（會關掉使用者的安裝版）。
     // 要趁主程序還活著整棵殺（同步等完）：先 kill 主程序樹就斷了，detached 的 nvidia-smi 會活下來抱著 CDP 埠
     if (child.pid) {
       try { spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }

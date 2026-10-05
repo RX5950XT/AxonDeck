@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 語音輸入子分頁（設定、狀態、轉錄紀錄、個人字典）
+ * AxonDeck - 語音輸入子分頁（設定、狀態、轉錄紀錄、個人字典）
  *
  * 錄音與整條管線在 `dictation.js`（renderer 常駐）與 main 那一側；
  * 這一支只管畫面：開關、兩個選單、目前狀態、紀錄與字典的增刪。
@@ -229,7 +229,7 @@ function bindOnce() {
     await refreshDictationRuntime()
     const status = await electronAPI.dictation.status().catch(() => null)
     if (enabledInput.checked && status?.ok && status.data?.listening !== true) {
-      showToast('熱鍵沒有掛上，請重開 VoiceInk', 'error')
+      showToast('熱鍵沒有掛上，請重開 AxonDeck', 'error')
     } else {
       showToast(enabledInput.checked ? '語音輸入已啟用，按住右 Alt 講話' : '語音輸入已停用')
     }

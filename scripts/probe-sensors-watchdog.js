@@ -1,6 +1,6 @@
 'use strict'
 /**
- * 真機驗感測器 sidecar 的看門狗（要先裝好「VoiceInk Sensors」排程工作；不會跳 UAC）。
+ * 真機驗感測器 sidecar 的看門狗（要先裝好「AxonDeck Sensors」排程工作；不會跳 UAC）。
  *
  * 模擬主程式：每秒送 P＋S（第一條可控通道、寫它目前的 PWM，轉速不變）。
  * 1. 開記憶體組那 6 秒多讀取執行緒卡在 Gate 上，以前會被當成主程式沒聲音 → 8 秒自殺。
@@ -15,7 +15,7 @@ const crypto = require('crypto')
 const assert = require('assert')
 const { execFileSync } = require('child_process')
 
-const PIPE = `\\\\.\\pipe\\voiceink-sensors-${crypto.randomBytes(16).toString('hex')}`
+const PIPE = `\\\\.\\pipe\\axondeck-sensors-${crypto.randomBytes(16).toString('hex')}`
 const HANDOFF = path.join(process.env.APPDATA, 'voiceink', 'sensors-handoff.txt')
 const SILENT_FROM = 14_000
 const SILENT_TO = 24_000
@@ -76,6 +76,6 @@ const server = net.createServer((conn) => {
 
 server.listen(PIPE, () => {
   fs.writeFileSync(HANDOFF, PIPE, 'utf8')
-  execFileSync('schtasks.exe', ['/run', '/tn', 'VoiceInk Sensors'])
+  execFileSync('schtasks.exe', ['/run', '/tn', 'AxonDeck Sensors'])
 })
 setTimeout(() => { console.error('逾時：sidecar 沒連上或沒結束'); process.exit(1) }, END + 30_000)

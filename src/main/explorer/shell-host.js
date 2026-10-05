@@ -1,12 +1,12 @@
 'use strict'
 
 /**
- * VoiceInk - Windows 殼層 sidecar 的宿主（`VoiceInkShell.exe`）
+ * AxonDeck - Windows 殼層 sidecar 的宿主（`AxonDeckShell.exe`）
  *
  * 右鍵選單裡的 7-Zip／WinRAR／Git／「傳送到」／「內容」都是 COM 動態處理常式，
  * 登錄檔裡查不到項目文字——只能真的把 `IContextMenu` 叫起來看它塞了什麼。
  * Google Drive 的綠勾也是同一顆程序用 `SHGetFileInfo` 問來的。細節見
- * `native/explorer-shell/VoiceInkShell.csproj` 的註解。
+ * `native/explorer-shell/AxonDeckShell.csproj` 的註解。
  *
  * 這裡只管：找到執行檔、拉起來、一行一個 JSON 來回、程序不見時下次再開。
  * 沒有它也不影響檔案總管——選單少掉殼層那幾項、綠勾不畫，其餘照常。
@@ -34,8 +34,8 @@ const MAX_LINE = 8 * 1024 * 1024
 function resolveExePath(deps = {}) {
   const resourcesPath = deps.resourcesPath || process.resourcesPath || ''
   const candidates = [
-    resourcesPath ? path.join(resourcesPath, 'shell', 'VoiceInkShell.exe') : '',
-    path.join(__dirname, '..', '..', '..', 'resources', 'shell', 'VoiceInkShell.exe')
+    resourcesPath ? path.join(resourcesPath, 'shell', 'AxonDeckShell.exe') : '',
+    path.join(__dirname, '..', '..', '..', 'resources', 'shell', 'AxonDeckShell.exe')
   ].filter(Boolean)
   for (const candidate of candidates) {
     try {

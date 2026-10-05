@@ -1,7 +1,7 @@
 {
-  "name": "voiceink",
-  "version": "1.39.3",
-  "description": "VoiceInk - Windows Desktop Speech-to-Text Application",
+  "name": "axondeck",
+  "version": "1.40.0",
+  "description": "AxonDeck - Windows Desktop AI Workbench",
   "main": "src/main/main.js",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,7 @@
     "build:sensors": "dotnet publish native/sysmon-sensors -c Release -o resources/sensors",
     "build:hook": "dotnet publish native/dictation-hook -c Release -o resources/hook",
     "build:shell": "dotnet publish native/explorer-shell -c Release -o resources/shell",
-    "build:probe": "cargo build --release --manifest-path native/voiceink-probe/Cargo.toml && node scripts/copy-probe.js",
+    "build:probe": "cargo build --release --manifest-path native/axondeck-probe/Cargo.toml && node scripts/copy-probe.js",
     "build:media": "node scripts/build-media.js"
   },
   "author": "",
@@ -47,7 +47,7 @@
   },
   "build": {
     "appId": "com.voiceink.app",
-    "productName": "VoiceInk",
+    "productName": "AxonDeck",
     "directories": {
       "output": "dist"
     },
@@ -92,7 +92,7 @@
       {
         "provider": "github",
         "owner": "RX5950XT",
-        "repo": "VoiceInk"
+        "repo": "AxonDeck"
       }
     ],
     "win": {

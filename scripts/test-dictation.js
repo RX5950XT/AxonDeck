@@ -75,8 +75,8 @@ section('A. 字典套用')
   )
   check(
     '中文詞沒有詞界問題（照樣換得到）',
-    text.applyDictionary('語音輸入很好用', [{ from: '語音輸入', to: 'VoiceInk', active: true }]) ===
-      'VoiceInk很好用'
+    text.applyDictionary('語音輸入很好用', [{ from: '語音輸入', to: 'AxonDeck', active: true }]) ===
+      'AxonDeck很好用'
   )
 }
 

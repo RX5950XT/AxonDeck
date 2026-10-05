@@ -2,7 +2,7 @@
 'use strict'
 
 /**
- * 用量統計：原生解析（voiceink-probe usage-scan）與 JS（parsers.js）逐筆比對。
+ * 用量統計：原生解析（axondeck-probe usage-scan）與 JS（parsers.js）逐筆比對。
  *
  * 1. 本機真實記錄（~/.claude、~/.codex、~/.grok）各掃一次：事件、游標（含去重集合／模型／重播旗標）要完全一樣。
  * 2. 把 test-code-usage.js 的增量掃描案例改成走原生再跑一次（截斷、半行、跨次去重、fork 重播、搬檔）。
@@ -92,7 +92,7 @@ process.on('exit', () => {
 })
 
 async function main() {
-  if (!nativeProbe.resolveProbeExe()) throw new Error('找不到 voiceink-probe.exe，先跑 npm run build:probe')
+  if (!nativeProbe.resolveProbeExe()) throw new Error('找不到 axondeck-probe.exe，先跑 npm run build:probe')
   await realData()
   console.log('\n--- test-code-usage.js（原生路徑）---')
   await suiteThroughNative()

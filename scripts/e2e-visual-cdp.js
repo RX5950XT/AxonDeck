@@ -7,9 +7,9 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 
 const PORT = 9243
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-visual-')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-visual-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 fs.writeFileSync(path.join(USER_DATA_DIR, 'explorer.json'), JSON.stringify({ uffsAuto: false }))
 const PAGES = ['chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
@@ -193,7 +193,7 @@ async function main() {
       'renderer 初始化'
     )
 
-    const outputDir = process.env.VOICEINK_VISUAL_DIR || ''
+    const outputDir = process.env.AXONDECK_VISUAL_DIR || ''
     for (const viewport of VIEWPORTS) {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         ...viewport,

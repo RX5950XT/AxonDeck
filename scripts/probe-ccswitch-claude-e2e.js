@@ -3,7 +3,7 @@
 
 // 真實 Claude Code + 真實上游；只讀正式 store，所有 set 都留在記憶體。
 // 用法：node scripts/probe-ccswitch-claude-e2e.js [--provider=codex] [--defaults]
-// 可用 VOICEINK_CC_SCRATCHPAD / VOICEINK_CC_STORE / CLAUDE_EXE 指定測試路徑。
+// 可用 AXONDECK_CC_SCRATCHPAD / AXONDECK_CC_STORE / CLAUDE_EXE 指定測試路徑。
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -20,10 +20,10 @@ const credential = require('../src/main/ccswitch/gateway/credential')
 const oauth = require('../src/main/ccswitch/gateway/oauth')
 const scan = require('../src/main/ccswitch/models-scan')
 
-const scratchpad = process.env.VOICEINK_CC_SCRATCHPAD || path.join(os.homedir(),
+const scratchpad = process.env.AXONDECK_CC_SCRATCHPAD || path.join(os.homedir(),
   'AppData/Local/Temp/claude/D--Workspace-Personal-Project-VoiceInk',
   '65106a55-8401-4f14-b8ff-2ad92723c437/scratchpad')
-const source = process.env.VOICEINK_CC_STORE || path.join(process.env.APPDATA, 'voiceink/cc-providers.json')
+const source = process.env.AXONDECK_CC_STORE || path.join(process.env.APPDATA, 'voiceink/cc-providers.json')
 const args = process.argv.slice(2)
 const only = args.find((arg) => arg.startsWith('--provider='))?.slice(11)
 const useDefaults = args.includes('--defaults')
@@ -100,7 +100,7 @@ function runClaude(exe, provider, kind, config, cwd, base) {
       if (process.platform === 'win32') spawnSync(path.join(process.env.SystemRoot, 'System32/taskkill.exe'),
         ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
       child.kill()
-    }, Number(process.env.VOICEINK_CC_TIMEOUT_MS) || 150_000)
+    }, Number(process.env.AXONDECK_CC_TIMEOUT_MS) || 150_000)
     child.stdout.on('data', (chunk) => { stdout += chunk })
     child.stderr.on('data', (chunk) => { stderr += chunk })
     child.on('error', () => { clearTimeout(timer); resolve({ pass: false, code: 'CLI_START_FAILED' }) })

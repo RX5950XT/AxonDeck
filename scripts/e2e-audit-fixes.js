@@ -7,7 +7,7 @@ const path = require('path')
 const { join } = path
 
 app.whenReady().then(async () => {
-  // e2e 時 app 名是 Electron → 指回 voiceink 才能找到模型
+  // e2e 時 app 名是 Electron → 指回 axondeck 才能找到模型
   app.setPath('userData', join(app.getPath('appData'), 'voiceink'))
 
   const localAsr = require('../src/main/local-asr')

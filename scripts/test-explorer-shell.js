@@ -64,7 +64,7 @@ console.log('\n[A] 殼層選單去重')
 console.log('\n[B] sidecar 找不到執行檔時安靜降級')
 {
   const resolved = resolveExePath({ resourcesPath: path.join(ROOT, 'this-does-not-exist') })
-  const fallback = path.join(ROOT, 'resources', 'shell', 'VoiceInkShell.exe')
+  const fallback = path.join(ROOT, 'resources', 'shell', 'AxonDeckShell.exe')
   ok('開發路徑指到 resources/shell', resolved === fallback || resolved === '', resolved)
 }
 
@@ -100,8 +100,8 @@ console.log('\n[C] 宿主行協定（假 spawn，不碰真 COM）')
     ok: true,
     data: { items: [{ name: 'secret.txt', hidden: true, system: false }, { name: 'plain.txt', hidden: false, system: false }] }
   })
-  const exe = path.join(ROOT, 'resources', 'shell', 'VoiceInkShell.exe')
-  startShell({ spawnFn: fakeSpawn, exePath: exe || 'VoiceInkShell.exe' }).then(async (shell) => {
+  const exe = path.join(ROOT, 'resources', 'shell', 'AxonDeckShell.exe')
+  startShell({ spawnFn: fakeSpawn, exePath: exe || 'AxonDeckShell.exe' }).then(async (shell) => {
     ok('假 sidecar 起得來', shell.ok === true, shell.error)
     const menu = await shell.send({ op: 'menu', paths: ['C:\\a.txt'] })
     ok('選單帶 token', menu.ok && menu.data.token === 7)

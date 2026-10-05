@@ -51,7 +51,7 @@ app.whenReady().then(async () => {
   const fakeHuge = tempFile('huge.wav')
   // 不真的建 200MB，只測 validate 對 path 不存在／副檔名
   try {
-    fileTranscribe.validateFilePath(tempFile('no-such-voiceink-xyz.mp3'))
+    fileTranscribe.validateFilePath(tempFile('no-such-axondeck-xyz.mp3'))
     ok('missing file throws', false)
   } catch (e) {
     ok('missing file throws', /不存在/.test(e.message), e.message)

@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP：系統監控 ▸ 風扇控制
- * 用法：node scripts/e2e-sysmon-fans-cdp.js（自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/e2e-sysmon-fans-cdp.js（自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * **不接管真風扇**（會改到使用者正在用的機器）：關掉感測器自動啟用，
  * 只驗 UI 骨架與 IPC 守衛。真的去轉風扇是 `probe-sysmon-fans.js` 的職責。
@@ -19,8 +19,8 @@ const fs = require('fs')
 const http = require('http')
 
 const PORT = 9248
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-fans-cdp-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-fans-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

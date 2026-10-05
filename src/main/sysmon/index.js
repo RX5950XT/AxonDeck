@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — 系統監控服務門面。
+ * AxonDeck — 系統監控服務門面。
  *
  * renderer 拿不到任何路徑、指令或 SQL：它只能送「開始／停止」「換取樣間隔」「結束這個 pid」，
  * 其餘（PowerShell 腳本、nvidia-smi 參數、taskkill 參數、測速目錄）全部固定在這一層。
@@ -49,7 +49,7 @@ function validateKillPids(input) {
   const pids = list.map((pid) => {
     const check = metrics.validateKillPid(pid)
     if (!check.ok) throw killError('SYSMON_BAD_PID', check.reason)
-    if (check.pid === process.pid) throw killError('SYSMON_SELF', '不能從這裡結束 VoiceInk 自己')
+    if (check.pid === process.pid) throw killError('SYSMON_SELF', '不能從這裡結束 AxonDeck 自己')
     return check.pid
   })
   return [...new Set(pids)]

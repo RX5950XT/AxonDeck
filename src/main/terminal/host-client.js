@@ -119,7 +119,7 @@ class HostClient {
       if (!start) return false
     }
     const runtime = stageRuntime(config.root)
-    // Rust 宿主（voiceink-term.exe）直接拿管道名與資料夾；Electron 版要切成 Node 模式跑 host.js
+    // Rust 宿主（axondeck-term.exe）直接拿管道名與資料夾；Electron 版要切成 Node 模式跑 host.js
     const child = runtime.native
       ? spawn(runtime.exe, [`--pipe=${config.pipe}`, `--root=${config.root}`], {
         cwd: runtime.dir, detached: true, windowsHide: true, stdio: 'ignore', env: process.env

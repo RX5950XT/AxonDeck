@@ -61,7 +61,7 @@ async function main() {
     diagnostics: ['[2026-09-29T07:18:27.383Z] claude: API OK windows=2'], lastSyncedAt: Date.now() + 3600_000 })
   state.accounts[0].hasConnected = false // 模擬本機：升級前已失效，舊版不知道曾經連線
   fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify({ state }))
-  const exe = process.env.VOICEINK_EXE || path.join(__dirname, '../dist/win-unpacked/VoiceInk.exe')
+  const exe = process.env.AXONDECK_EXE || path.join(__dirname, '../dist/win-unpacked/AxonDeck.exe')
   let child, renderer, mainCdp
   const stop = () => {
     renderer?.ws.close(); mainCdp?.ws.close()

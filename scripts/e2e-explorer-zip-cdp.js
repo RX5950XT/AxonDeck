@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 檔案頁補齊 Windows 檔案總管的差距（打包版 CDP）
+ * AxonDeck — 檔案頁補齊 Windows 檔案總管的差距（打包版 CDP）
  *
  * - 原生右鍵選單（殼層 sidecar）有東西、Alt+Enter 叫得出 Windows 的「內容」視窗
  *   （sidecar 主執行緒沒跑訊息迴圈時，InvokeCommand 回報成功但視窗永遠不出來）
@@ -17,16 +17,16 @@ const path = require('path')
 const http = require('http')
 const ROOT = path.join(__dirname, '..')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const EXE = process.env.VOICEINK_EXE || path.join(ROOT, 'dist', 'win-unpacked', 'VoiceInk.exe'), PORT = 9293
-const UD = tempDir('voiceink-zipcdp-'); const SEED = path.join(UD, 'seed'); fs.mkdirSync(path.join(SEED, 'src', 'docs'), { recursive: true })
+const EXE = process.env.AXONDECK_EXE || path.join(ROOT, 'dist', 'win-unpacked', 'AxonDeck.exe'), PORT = 9293
+const UD = tempDir('axondeck-zipcdp-'); const SEED = path.join(UD, 'seed'); fs.mkdirSync(path.join(SEED, 'src', 'docs'), { recursive: true })
 fs.writeFileSync(path.join(SEED, 'src', 'readme.txt'), 'hello from zip')
 fs.writeFileSync(path.join(SEED, 'src', 'docs', 'a.md'), '# 標題\n內容')
 execFileSync('powershell.exe', ['-NoProfile', '-Command', `Compress-Archive -Path '${path.join(SEED, 'src')}\\*' -DestinationPath '${path.join(SEED, 'pack.zip')}'`])
 removeTree(path.join(SEED, 'src'))
 fs.writeFileSync(path.join(SEED, 'plain.txt'), 'x')
-/** 列出 VoiceInkShell.exe 的頂層視窗（「內容」視窗開在 sidecar 裡） */
+/** 列出 AxonDeckShell.exe 的頂層視窗（「內容」視窗開在 sidecar 裡） */
 const WINS_PS1 = path.join(UD, 'wins.ps1')
-fs.writeFileSync(WINS_PS1, "Add-Type @\"\nusing System;\nusing System.Text;\nusing System.Collections.Generic;\nusing System.Runtime.InteropServices;\npublic static class W {\n  public delegate bool P(IntPtr h, IntPtr l);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(P cb, IntPtr l);\n  [DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr h);\n  public static List<string> List(uint[] pids) {\n    var outp = new List<string>();\n    EnumWindows((h, l) => { uint pid; GetWindowThreadProcessId(h, out pid);\n      if (Array.IndexOf(pids, pid) >= 0) { var sb = new StringBuilder(256); GetWindowTextW(h, sb, 256);\n        if (sb.Length > 0) outp.Add(pid + \":\" + (IsWindowVisible(h) ? \"V:\" : \"H:\") + sb); }\n      return true; }, IntPtr.Zero);\n    return outp;\n  }\n}\n\"@\n$pids = @(Get-Process VoiceInkShell -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })\nif ($pids.Count -eq 0) { \"no sidecar\"; exit }\n[W]::List($pids) -join \"`n\"\n")
+fs.writeFileSync(WINS_PS1, "Add-Type @\"\nusing System;\nusing System.Text;\nusing System.Collections.Generic;\nusing System.Runtime.InteropServices;\npublic static class W {\n  public delegate bool P(IntPtr h, IntPtr l);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(P cb, IntPtr l);\n  [DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr h);\n  public static List<string> List(uint[] pids) {\n    var outp = new List<string>();\n    EnumWindows((h, l) => { uint pid; GetWindowThreadProcessId(h, out pid);\n      if (Array.IndexOf(pids, pid) >= 0) { var sb = new StringBuilder(256); GetWindowTextW(h, sb, 256);\n        if (sb.Length > 0) outp.Add(pid + \":\" + (IsWindowVisible(h) ? \"V:\" : \"H:\") + sb); }\n      return true; }, IntPtr.Zero);\n    return outp;\n  }\n}\n\"@\n$pids = @(Get-Process AxonDeckShell -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })\nif ($pids.Count -eq 0) { \"no sidecar\"; exit }\n[W]::List($pids) -join \"`n\"\n")
 fs.writeFileSync(path.join(UD, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 fs.writeFileSync(path.join(UD, 'explorer.json'), JSON.stringify({ uffsAuto: false, lastPath: SEED, view: 'list' }))
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
@@ -52,7 +52,7 @@ const toastHas = (text) => `[...document.querySelectorAll('[class*=toast]')].som
   const child = spawn(EXE, ['--inspect=127.0.0.1:9294', `--remote-debugging-port=${PORT}`, `--user-data-dir=${UD}`], {
     stdio: 'ignore',
     // 開檔／詳情解出來的暫存副本留在自己的暫存資料夾，測完一起刪
-    env: { ...process.env, VOICEINK_ZIP_TEMP: path.join(UD, 'zip-temp') }
+    env: { ...process.env, AXONDECK_ZIP_TEMP: path.join(UD, 'zip-temp') }
   })
   try {
     let t; for (let i = 0; i < 100 && !t; i++) { await sleep(300); try { t = (await getJson(`http://127.0.0.1:${PORT}/json/list`)).find(x => x.type === 'page' && /index\.html/.test(x.url)) } catch {} }

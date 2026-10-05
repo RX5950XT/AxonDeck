@@ -6,21 +6,23 @@ const vm = require('node:vm')
 const { EventEmitter } = require('node:events')
 
 async function main() {
+  const registration = fs.readFileSync(path.join(__dirname, '../native/axondeck-probe/src/bin/axondeck-media/registration.rs'), 'utf8')
+  assert.match(registration, /const PROGID_PREFIX: &str = "VoiceInk\.Media\.";/, '改名後必須保留 Windows 已雜湊的 ProgID')
   const calls = []
   const associationLaunches = []
   const storedFiles = new Map()
-  const resourcesPath = path.resolve('C:/installed/VoiceInk/resources')
-  const userDataPath = path.resolve('C:/users/test/AppData/Roaming/voiceink')
+  const resourcesPath = path.resolve('C:/installed/AxonDeck/resources')
+  const userDataPath = path.resolve('C:/users/test/AppData/Roaming/axondeck')
   const updateManifest = path.join(resourcesPath, 'app-update.yml')
   const initMarker = path.join(userDataPath, 'media-associations-initialized')
-  const initExitCodes = [1, 0]
+  const initExitCodes = [1, 0, 0]
   let hasUpdateManifest = true
   let markerReadFileCalls = 0
   const markerReads = []
   const context = { Buffer, module: { exports: {} }, __dirname: path.join(__dirname, '../src/main'), process: { env: {} },
     require: (name) => {
       if (name === 'path') return path
-      if (name === './native-probe') return { resolveProbeExe: ({ resourcesPath: root } = {}) => path.join(root || path.resolve('C:/workspace/resources'), 'media', 'voiceink-media.exe') }
+      if (name === './native-probe') return { resolveProbeExe: ({ resourcesPath: root } = {}) => path.join(root || path.resolve('C:/workspace/resources'), 'media', 'axondeck-media.exe') }
       if (name === './media-formats.json') return require('../src/main/media-formats.json')
       if (name === './raw-fs') return { promises: {
         stat: async (file) => ({ isFile: () => !file.endsWith('missing.png') }),
@@ -75,15 +77,15 @@ async function main() {
   assert.equal(launch.options.detached, true)
   assert.equal(launch.options.windowsHide, false, '正常開啟不可隱藏播放器視窗')
   assert.equal(launch.options.stdio, 'ignore')
-  assert.ok(launch.exe.endsWith(path.join('resources', 'media', 'voiceink-media.exe')))
+  assert.ok(launch.exe.endsWith(path.join('resources', 'media', 'axondeck-media.exe')))
   await api.openMedia(file, { hidden: true })
   assert.equal(calls.at(-1).options.windowsHide, true)
   assert.ok(calls.at(-1).args.includes('--hidden'))
-  context.process.env.VOICEINK_MEDIA_HIDDEN = '1'
+  context.process.env.AXONDECK_MEDIA_HIDDEN = '1'
   await api.openMedia(file)
   assert.equal(calls.at(-1).options.windowsHide, true)
   assert.ok(calls.at(-1).args.includes('--hidden'))
-  delete context.process.env.VOICEINK_MEDIA_HIDDEN
+  delete context.process.env.AXONDECK_MEDIA_HIDDEN
   await assert.rejects(api.openMedia('relative.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')
   await assert.rejects(api.openMedia(path.resolve('missing.png')), (error) => error.code === 'MEDIA_OPEN_FAILED')
   await assert.rejects(api.openMedia('https://example.com/image.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')
@@ -115,6 +117,12 @@ async function main() {
   assert.equal(associationLaunches.length, 2, '下次啟動讀到成功標記後不再 spawn')
   assert.equal(markerReadFileCalls, 0, '初始化標記不得無上限讀取')
   assert.ok(markerReads.length > 0 && markerReads.every((size) => size <= 16))
+  storedFiles.set(initMarker, '1')
+  const upgraded = { ...context, module: { exports: {} } }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), upgraded)
+  assert.equal(await upgraded.module.exports.initializeAssociations(initOptions), true)
+  assert.equal(associationLaunches.length, 3, '舊成功標記也要執行改名搬移；Rust 初始化狀態仍保護使用者選擇')
+  assert.equal(storedFiles.get(initMarker), '2')
   console.log('media-player：格式、路徑、獨立程序、開啟入口、初始化重試與背景 once PASS')
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

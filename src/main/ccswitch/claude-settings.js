@@ -7,7 +7,7 @@
  *
  * 1. **`applyEnv` 只動 `env` 裡我們自己管的那幾個鍵**（`MANAGED_ENV_KEYS`）。使用者的 `hooks`、
  *    `enabledPlugins`、`statusLine`、`permissions`、`model` 通通原樣留著。
- *    hooks 另走 `applyHooks`：只加／更新 command 含 `voiceink-claude-hook.exe` 的那幾筆。
+ *    hooks 另走 `applyHooks`：只加／更新 command 含 `axondeck-claude-hook.exe` 的那幾筆。
  *    上游 cc-switch 是把整份 settings.json 換成供應商的設定（SSOT 模型），照抄過來
  *    等於使用者換一次供應商就把自己的 hooks 與外掛清單全部弄丟。
  * 2. **切換時先清掉前一家留下的鍵**：A 家有 `ANTHROPIC_API_KEY`、B 家用
@@ -85,7 +85,7 @@ function claudeJsonPath() {
 
 /** @returns {string} */
 function backupDir() {
-  return paths.backupDir || path.join(claudeDir(), '.voiceink-backup')
+  return paths.backupDir || path.join(claudeDir(), '.axondeck-backup')
 }
 
 // ===== 純函式 =====
@@ -260,7 +260,7 @@ function pruneBackups(dir, tag) {
  */
 function writeJsonFile(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.voiceink-tmp.${process.pid}.${Date.now()}`
+  const tmp = `${file}.axondeck-tmp.${process.pid}.${Date.now()}`
   fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
   try {
     fs.renameSync(tmp, file)
@@ -317,7 +317,9 @@ function readManagedEnv() {
 // ===== Claude hooks（只動我們自己的那幾筆）=====
 
 /** command 裡有這個檔名才算我們的 hook，Orca 那些一個字都不碰。 */
-const HOOK_MARKER = 'voiceink-claude-hook.exe'
+const HOOK_MARKER = 'axondeck-claude-hook.exe'
+/** 改名前（VoiceInk）寫進去的那幾筆也是我們的：認得才會被新的換掉，不會兩份一起跑 */
+const LEGACY_HOOK_MARKER = 'voiceink-claude-hook.exe'
 
 /**
  * 事件與 matcher。沒寫 matcher 的就是「全部」（Claude 省略 matcher ＝ 全收）。
@@ -341,7 +343,8 @@ const HOOK_EVENT_NAMES = Object.freeze(HOOK_SPECS.map((spec) => spec.name))
  * @returns {boolean}
  */
 function isOurHook(hook) {
-  return Boolean(hook && typeof hook === 'object' && typeof hook.command === 'string' && hook.command.includes(HOOK_MARKER))
+  return Boolean(hook && typeof hook === 'object' && typeof hook.command === 'string'
+    && (hook.command.includes(HOOK_MARKER) || hook.command.includes(LEGACY_HOOK_MARKER)))
 }
 
 /**

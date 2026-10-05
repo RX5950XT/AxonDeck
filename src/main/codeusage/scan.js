@@ -139,7 +139,7 @@ async function streamFile(file, offset, parseLine, state, onEvent) {
  *   整個 session 的用量算兩次（實測重現）。key 必須跟著檔案走：Codex 與
  *   Claude 用檔名（唯一 UUID），Grok 用上一層資料夾名（session UUID，
  *   檔名一律叫 updates.jsonl 不能用）。省略時退回絕對路徑（相容舊行為）。
- * @param {string} [source.native] 原生解析器名稱（`claude`／`codex`／`grok`）；有 voiceink-probe.exe 時
+ * @param {string} [source.native] 原生解析器名稱（`claude`／`codex`／`grok`）；有 axondeck-probe.exe 時
  *   改走 `runNative`，`parseLine` 只剩退路用途
  * @param {Record<string, { offset: number, mtimeMs: number, seen?: string[] }>} cursors 就地更新
  * @param {(event: object) => void} onEvent
@@ -249,7 +249,7 @@ function seenList(seen) {
 }
 
 /**
- * `voiceink-probe usage-scan <parser>`（native/voiceink-probe/src/usage.rs）：同一份解析規則，
+ * `axondeck-probe usage-scan <parser>`（native/axondeck-probe/src/usage.rs）：同一份解析規則，
  * 但幾 GB 的 JSON.parse 不在主程序上跑、而且多執行緒。實測本機 2.8GB 全量 28.5s → 1.3s。
  * 任何失敗都回 null（並留 log），呼叫端整批退回 JS 的 `streamFile`。
  *

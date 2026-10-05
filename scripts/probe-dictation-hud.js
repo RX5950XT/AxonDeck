@@ -23,8 +23,8 @@ async function main() {
   await app.whenReady()
   fs.mkdirSync(OUT, { recursive: true })
 
-  const root = process.env.VOICEINK_EXE
-    ? path.join(path.dirname(path.resolve(process.env.VOICEINK_EXE)), 'resources', 'app.asar')
+  const root = process.env.AXONDECK_EXE
+    ? path.join(path.dirname(path.resolve(process.env.AXONDECK_EXE)), 'resources', 'app.asar')
     : path.join(__dirname, '..')
   const hud = require(path.join(root, 'src', 'main', 'dictation', 'hud.js'))
   hud.configure({ isDev: false, preload: path.join(root, 'src', 'preload', 'preload.js') })

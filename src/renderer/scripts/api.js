@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 雲端 API 預設值
+ * AxonDeck - 雲端 API 預設值
  */
 
 export const DEFAULT_MODEL = 'google/gemini-3-flash-preview'

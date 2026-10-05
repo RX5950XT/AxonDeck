@@ -18,8 +18,8 @@ const os = require('os')
 const fs = require('fs')
 
 const PORT = 9271
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-ux-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-ux-')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 

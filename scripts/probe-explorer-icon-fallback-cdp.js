@@ -60,7 +60,7 @@ async function main() {
   spawnSync('attrib', ['+H', '+S', path.join(folders, 'Music', 'desktop.ini')])
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ sysmonSensors: false, dictationEnabled: false, closeToTray: false }))
   fs.writeFileSync(path.join(dir, 'explorer.json'), JSON.stringify({ lastPath: files, view: 'list', uffsAuto: false }))
-  const exe = process.env.VOICEINK_EXE || path.join(__dirname, '../dist/win-unpacked/VoiceInk.exe')
+  const exe = process.env.AXONDECK_EXE || path.join(__dirname, '../dist/win-unpacked/AxonDeck.exe')
   let child, renderer, mainCdp
   try {
     child = spawn(exe, ['--hidden', '--disable-gpu', `--user-data-dir=${dir}`, '--remote-debugging-port=9284', '--inspect=127.0.0.1:9285'],
@@ -95,8 +95,8 @@ async function main() {
     assert.match(photos.data.previews[0].url, /^data:image\/png;base64,/)
     assert.equal(photos.data.previews[0].fallback, undefined, '資料夾裡的照片真縮圖要保留')
     assert.deepEqual((await icon(path.join(folders, 'Empty'), { thumb: true })).data.previews, [])
-    if (process.env.VOICEINK_FOLDER_TARGET) {
-      const actual = await icon(process.env.VOICEINK_FOLDER_TARGET, { thumb: true, size: 128 })
+    if (process.env.AXONDECK_FOLDER_TARGET) {
+      const actual = await icon(process.env.AXONDECK_FOLDER_TARGET, { thumb: true, size: 128 })
       assert.equal(actual.ok, true)
       assert.ok(actual.data.previews.length > 0, '使用者目前資料夾保留內容預覽')
       assert.ok(actual.data.previews.every(p => p.fallback), '使用者音樂資料夾內的 logo 全改音訊預設圖')
@@ -173,8 +173,8 @@ async function main() {
       assert.equal((await icon(path.join(files, 'sample.wav'), { thumb: true, size })).data.fallback, true,
         `${size}px 真 Windows WAV 圖示仍要排除 App logo`)
     }
-    if (process.env.VOICEINK_ICON_TARGET) {
-      const actual = await icon(process.env.VOICEINK_ICON_TARGET, { thumb: true, size: 128 })
+    if (process.env.AXONDECK_ICON_TARGET) {
+      const actual = await icon(process.env.AXONDECK_ICON_TARGET, { thumb: true, size: 128 })
       assert.equal(actual.ok, true)
       assert.equal(actual.data.fallback, true, '使用者實際發生問題的 WAV 檔')
     }

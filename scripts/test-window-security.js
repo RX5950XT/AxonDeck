@@ -10,7 +10,7 @@ const body = source.slice(source.indexOf('function attachWindowSecurity('), sour
 const handlers = {}
 const context = { URL, isDev: false, shell: { openExternal: async () => {} } }
 vm.runInNewContext(`${body}; this.attach = attachWindowSecurity`, context)
-const current = 'file:///C:/VoiceInk/src/renderer/index.html'
+const current = 'file:///C:/AxonDeck/src/renderer/index.html'
 context.attach({ webContents: { on: (name, fn) => { handlers[name] = fn },
   getURL: () => current, setWindowOpenHandler: () => {} } })
 let blocked = false

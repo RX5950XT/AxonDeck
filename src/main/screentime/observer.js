@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * 前景視窗觀測：常駐子程序每秒吐一列 JSON。優先用 voiceink-probe.exe（Rust），
+ * 前景視窗觀測：常駐子程序每秒吐一列 JSON。優先用 axondeck-probe.exe（Rust），
  * 沒建置才退回 PowerShell；打包後 .ps1 在 asar 裡，powershell.exe 執行不了，路徑要換成 app.asar.unpacked。
  */
 

@@ -355,7 +355,7 @@ function toBlobUrl(dataUri) {
 }
 
 /**
- * 讀設定並把外觀套到所有已開的分頁上。設定頁改完會發 `voiceink:term-appearance`
+ * 讀設定並把外觀套到所有已開的分頁上。設定頁改完會發 `axondeck:term-appearance`
  * 事件叫這支，切到終端機頁時也會再對一次（主題可能在別頁被切過）。
  *
  * 桌布的圖片本體不進 store：這裡拿到的是檔名，圖要跟 main 要。
@@ -1260,7 +1260,7 @@ export function initTerminalPage() {
 
   // 外觀（配色＋桌布）先讀一次；設定頁存檔後會再發這個事件叫我們重讀
   void refreshTerminalAppearance()
-  window.addEventListener('voiceink:term-appearance', () => void refreshTerminalAppearance())
+  window.addEventListener('axondeck:term-appearance', () => void refreshTerminalAppearance())
 
   // 視窗或側欄寬度變了就重新量欄列數；xterm 不會自己跟著容器縮放
   resizeObserver = new ResizeObserver(() => scheduleFit())

@@ -32,7 +32,7 @@ async function main() {
   const userDataPath = require('path').join(process.env.APPDATA || '', 'voiceink')
   const exe = resolveSensorExe({})
   if (!exe) {
-    console.log('找不到 VoiceInkSensors.exe，先跑 npm run build:sensors')
+    console.log('找不到 AxonDeckSensors.exe，先跑 npm run build:sensors')
     process.exitCode = 1
     return
   }

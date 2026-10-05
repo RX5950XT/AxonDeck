@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 本地 ASR（sherpa-onnx，Main Process）
+ * AxonDeck - 本地 ASR（sherpa-onnx，Main Process）
  * 固定使用 Qwen3-ASR-0.6B
  * 支援 warm / unload（generation 防幽靈載入 + serial lock 防並行雙載）
  */
@@ -155,7 +155,7 @@ function parseSherpaJson(jsonStr) {
  */
 function patchSherpaJsonSafety(sherpaMod) {
   const OR = sherpaMod && sherpaMod.OfflineRecognizer
-  if (!OR || !OR.prototype || OR.prototype.__voiceinkJsonPatched) return
+  if (!OR || !OR.prototype || OR.prototype.__axondeckJsonPatched) return
 
   let addon
   try {
@@ -181,7 +181,7 @@ function patchSherpaJsonSafety(sherpaMod) {
     }
   }
 
-  OR.prototype.__voiceinkJsonPatched = true
+  OR.prototype.__axondeckJsonPatched = true
 }
 
 /**

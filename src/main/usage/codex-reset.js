@@ -96,7 +96,7 @@ function consumeCodexReset(creditId, deps = {}) {
     send({
       id: 1,
       method: 'initialize',
-      params: { clientInfo: { name: 'voiceink', title: 'VoiceInk', version: deps.version || '0.0.0' } }
+      params: { clientInfo: { name: 'axondeck', title: 'AxonDeck', version: deps.version || '0.0.0' } }
     })
   })
 }

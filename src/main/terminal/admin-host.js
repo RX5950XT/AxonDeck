@@ -3,7 +3,7 @@
 /**
  * 管理員終端機的提權宿主（Host）。
  *
- * 跑的是**同一支 VoiceInk.exe**，只是帶了 `--terminal-admin-host=<管道名>`：
+ * 跑的是**同一支 AxonDeck.exe**，只是帶了 `--terminal-admin-host=<管道名>`：
  * main.js 開頭看到這個旗標就直接進來這裡，不建視窗、不搶 single instance lock、
  * 不註冊任何 IPC。
  *

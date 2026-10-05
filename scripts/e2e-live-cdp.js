@@ -11,11 +11,11 @@ const http = require('http')
 
 const PORT = 9238
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 // 模型放在 `<userData>/models`，換了 user-data-dir 就等於一顆模型都沒裝（即時字幕起不來）。
 // 用 junction 把真正的模型資料夾接進來——只讀不寫，設定仍然各自獨立。
 {
@@ -242,14 +242,14 @@ async function main() {
     )
     console.log(`PASS  loopback → VAD → ASR → 字幕 — ${recognized.trim()}`)
 
-    if (process.env.VOICEINK_VISUAL_DIR) {
-      fs.mkdirSync(process.env.VOICEINK_VISUAL_DIR, { recursive: true })
+    if (process.env.AXONDECK_VISUAL_DIR) {
+      fs.mkdirSync(process.env.AXONDECK_VISUAL_DIR, { recursive: true })
       const capture = await subtitleCdp.send('Page.captureScreenshot', {
         format: 'png',
         captureBeyondViewport: true
       })
       fs.writeFileSync(
-        path.join(process.env.VOICEINK_VISUAL_DIR, 'dark-subtitle.png'),
+        path.join(process.env.AXONDECK_VISUAL_DIR, 'dark-subtitle.png'),
         capture.data,
         'base64'
       )

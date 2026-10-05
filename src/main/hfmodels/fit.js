@@ -10,7 +10,7 @@
  * 那個東西手寫不出來也估不出來。
  *
  * 代價是它要花時間（要載一次模型），所以**只在下載完成後跑一次**並把結果快取進該模型的
- * `voiceink-meta.json`；下載前的預覽仍然走 `plan.js` 的估算。
+ * `axondeck-meta.json`；下載前的預覽仍然走 `plan.js` 的估算。
  *
  * 已知上游 bug（ggml-org/llama.cpp#20308）：Windows 上 `--fit-target` 超過 4095 MiB 會溢位，
  * 所以 margin 一律夾在 4095。

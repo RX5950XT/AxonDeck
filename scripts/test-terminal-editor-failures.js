@@ -8,12 +8,12 @@ const { spawn, execFileSync } = require('node:child_process')
 const bridge = require('../src/main/terminal/editor-bridge')
 
 async function main() {
-  const root = tempDir('voiceink-editor-failure-')
+  const root = tempDir('axondeck-editor-failure-')
   const failures = []
   const children = []
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
   function launch(target) {
-    const child = spawn(`"${path.join(bridge.shimDir(), 'voiceink-edit.cmd')}" "${target}"`, { shell: true, windowsHide: true, stdio: 'ignore' })
+    const child = spawn(`"${path.join(bridge.shimDir(), 'axondeck-edit.cmd')}" "${target}"`, { shell: true, windowsHide: true, stdio: 'ignore' })
     children.push(child)
     return child
   }

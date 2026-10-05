@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 參考 Files 的五批檔案總管改進，打包版真畫面驗收（CDP）。
+ * AxonDeck — 參考 Files 的五批檔案總管改進，打包版真畫面驗收（CDP）。
  *
  * 舊有的檔案總管回歸請跑 `e2e-explorer-cdp.js`；這支只驗這五批新東西：
  *   1 操作中心（進度、逐筆結果、取消）
@@ -23,8 +23,8 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 // 與既有 e2e-explorer-cdp.js 平行執行時不能共用埠或 profile。
 const PORT = 9291
 const INSPECT_PORT = 9292
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-files-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-files-')
 
 /** 大資料夾要夠大才看得出分批與虛擬清單；2,600 已超過舊的 2,000 上限。 */
 const BIG_COUNT = 2600
@@ -209,7 +209,7 @@ async function fitWindow(cdp) {
 
 /** 開一個連上打包版的 CDP session；重開 App 驗證狀態還原時會再叫一次。 */
 async function launch() {
-  // VOICEINK_EXE 指到 electron.exe 時是跑原始碼（要先起 vite），得補上 app 目錄。
+  // AXONDECK_EXE 指到 electron.exe 時是跑原始碼（要先起 vite），得補上 app 目錄。
   const appArgs = /electron\.exe$/i.test(EXE) ? ['.'] : []
   const child = spawn(EXE, [
     ...appArgs,

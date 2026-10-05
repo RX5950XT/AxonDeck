@@ -1,9 +1,9 @@
 'use strict'
 
 /**
- * VoiceInk — 系統監控取樣器的生命週期。
+ * AxonDeck — 系統監控取樣器的生命週期。
  *
- * 取樣器是**常駐**子程序：`voiceink-probe.exe sysmon`（Rust，native/voiceink-probe），
+ * 取樣器是**常駐**子程序：`axondeck-probe.exe sysmon`（Rust，native/axondeck-probe），
  * 沒建置時退回 probe.ps1（PowerShell 冷啟動 ~190ms、每輪 ~310ms、常駐 ~180MB）。
  * 兩者同一套協定：開一次、之後用 stdin 送 `tick <seq>` 驅動。
  *
@@ -229,7 +229,7 @@ function createSampler(deps = {}) {
 
     let proc
     try {
-      // 有 voiceink-probe.exe 就用它（同一套協定），沒建置才退回 PowerShell
+      // 有 axondeck-probe.exe 就用它（同一套協定），沒建置才退回 PowerShell
       const cmd = probeCommand('sysmon', resolveProbePath())
       proc = spawnFn(cmd.file, cmd.args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch {

@@ -13,7 +13,7 @@ const rawFs = require('../src/main/raw-fs')
 
 const C_ROOT = 'C:\\'
 const D_ROOT = 'D:\\'
-const RUN_PREFIX = `voiceink-ops-probe-${process.pid}-${Date.now()}-`
+const RUN_PREFIX = `axondeck-ops-probe-${process.pid}-${Date.now()}-`
 
 function makeRunDir(root) {
   assert.equal(fs.existsSync(root), true, `drive is unavailable: ${root}`)

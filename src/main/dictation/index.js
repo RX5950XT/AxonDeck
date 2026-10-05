@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 語音輸入服務（Main Process）
+ * AxonDeck - 語音輸入服務（Main Process）
  *
  * 一條管線：右 Alt → renderer 錄音 → ASR → 個人字典 → LLM 整理 → 插入游標處 → 存紀錄。
  *

@@ -5,7 +5,7 @@
  *
  * 為什麼不會自己跳：Windows 只准「現在在前景的那個程序」把視窗搶到前面。ConPTY 沒有
  * 視窗，而真正跑 shell 的是 App 外面那個獨立宿主（`terminal/host.js`），兩個都不是前景，
- * 所以記事本開起來只會在工作列閃一下，視窗留在 VoiceInk 後面。
+ * 所以記事本開起來只會在工作列閃一下，視窗留在 AxonDeck 後面。
  *
  * 作法：使用者按下 Ctrl+G（PTY 收到的是 `\x07`）時，先記下現在每個有視窗的程序長怎樣，
  * 接下來幾秒裡「多出來的視窗」就把它抬到前面並設成最上層。抬的手法是標準的
@@ -51,7 +51,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class VoiceInkFg {
+public class AxonDeckFg {
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
@@ -73,7 +73,7 @@ public class VoiceInkFg {
     SetForegroundWindow(target);
     AttachThreadInput(mine, front, false);
     // 使用者要的是「置頂」：留在最上層，關掉那個視窗就沒事了。
-    // 只 SetForegroundWindow 的話，回頭點一下 VoiceInk 記事本就被蓋掉。
+    // 只 SetForegroundWindow 的話，回頭點一下 AxonDeck 記事本就被蓋掉。
     SetWindowPos(target, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
   }
 }
@@ -91,12 +91,12 @@ while ((Get-Date) -lt $deadline) {
     $now = "$h|$($p.MainWindowTitle)"
     if (-not $known.ContainsKey($p.Id)) {
       # 全新的程序開了視窗：不設限，這是最可靠的一條
-      [VoiceInkFg]::Raise($h)
+      [AxonDeckFg]::Raise($h)
       exit 0
     }
     # 既有程序換了視窗或換了標題：只有會重用視窗的編輯器算數
     if ($known[$p.Id] -ne $now -and $reuse -contains $p.ProcessName.ToLower()) {
-      [VoiceInkFg]::Raise($h)
+      [AxonDeckFg]::Raise($h)
       exit 0
     }
   }

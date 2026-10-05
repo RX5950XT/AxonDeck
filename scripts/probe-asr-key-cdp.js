@@ -76,7 +76,7 @@ async function main() {
     sysmonSensors: false, dictationEnabled: false, closeToTray: false
   }))
   const port = 9258
-  const exe = process.env.VOICEINK_EXE || path.join(__dirname, '../dist/win-unpacked/VoiceInk.exe')
+  const exe = process.env.AXONDECK_EXE || path.join(__dirname, '../dist/win-unpacked/AxonDeck.exe')
   const start = () => spawn(exe, ['--hidden', `--user-data-dir=${dir}`, `--remote-debugging-port=${port}`, '--inspect=127.0.0.1:9259'], { stdio: 'ignore' })
   let child = start()
   const cdp = new Cdp()

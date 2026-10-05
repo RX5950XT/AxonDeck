@@ -4,7 +4,7 @@
  * 工作列身分與圖示的回歸測試。
  *
  * 擋三個實際發生過的症狀：
- *  - 更新後工作列多出第二顆 VoiceInk（app 沒設 AppUserModelID，跟 NSIS 捷徑上的對不起來）
+ *  - 更新後工作列多出第二顆 AxonDeck（app 沒設 AppUserModelID，跟 NSIS 捷徑上的對不起來）
  *  - 那顆的圖示一片白（frameless 視窗沒給 icon，Windows 拿不到視窗圖示）
  *  - 視窗圖示明明是對的，工作列還是一張白紙（更新換掉 exe，捷徑裡的時間戳過期）
  *

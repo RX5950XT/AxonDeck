@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 擋掉 CLI 滑鼠回報的探針（`npx electron scripts/probe-terminal-mouse.js`）
+ * AxonDeck — 擋掉 CLI 滑鼠回報的探針（`npx electron scripts/probe-terminal-mouse.js`）
  *
  * 要證明的是「xterm 收到 `CSI ? 1000 h` 之後**沒有**進入滑鼠模式」——而 `mouseTrackingMode`
  * 正是 xterm 自己用來決定「左鍵要交給應用程式還是拿來選字」的那個開關，所以量它就夠，

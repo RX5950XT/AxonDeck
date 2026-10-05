@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 錄音機（語音轉文字頁的子分頁）
+ * AxonDeck - 錄音機（語音轉文字頁的子分頁）
  *
  * 麥克風 → MediaRecorder（webm／opus）→ 每秒一塊送 main append 進 `recordings/`。
  * 不在 renderer 累積整段：錄到一半 App 當掉，檔案裡最多只少最後一秒。
@@ -12,7 +12,7 @@ import { showToast, electronAPI, cleanIpcError, openInFilesPage } from './app.js
 const BITS_PER_SECOND = 64000
 const MIME = 'audio/webm;codecs=opus'
 /** 拖到檔案轉入區時只放檔名；跟 transcribe.js 的讀取端同一條 */
-const REC_DRAG = 'application/x-voiceink-recording'
+const REC_DRAG = 'application/x-axondeck-recording'
 
 let bound = false
 /** @type {MediaRecorder|null} */

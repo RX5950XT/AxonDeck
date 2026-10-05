@@ -1,22 +1,22 @@
 /**
  * 量「沒開系統監控頁」時常駐取樣子程序吃多少 CPU／記憶體（背景 30 秒一輪＋Rust 取樣器的驗收）。
- * 用法：node scripts/probe-sysmon-idle-cpu.js（啟動 dist/win-unpacked/VoiceInk.exe，暫存 userData）
+ * 用法：node scripts/probe-sysmon-idle-cpu.js（啟動 dist/win-unpacked/AxonDeck.exe，暫存 userData）
  * 同時量正在跑的正式版當對照（沒有就只印打包版）。
  */
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const WINDOW_MS = 60_000
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * 常駐取樣子程序（Rust 的 voiceink-probe.exe，或退回時的 probe.ps1／observer.ps1）的
+ * 常駐取樣子程序（Rust 的 axondeck-probe.exe，或退回時的 probe.ps1／observer.ps1）的
  * { pid, parent, kind, cpuSec, privMB }
  */
 function probes() {
-  const script = "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'voiceink-probe.exe' -or $_.CommandLine -like '*probe.ps1*' -or $_.CommandLine -like '*observer.ps1*' } | ForEach-Object { $p = Get-Process -Id $_.ProcessId -EA SilentlyContinue; $k = if ($_.CommandLine -match 'observer') { 'observer' } else { 'sysmon' }; if ($p) { '{0}|{1}|{2}|{3}|{4}|{5}' -f $_.ProcessId, $_.ParentProcessId, $p.CPU, [math]::Round($p.PrivateMemorySize64/1MB, 1), $k, $_.Name } }"
+  const script = "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'axondeck-probe.exe' -or $_.CommandLine -like '*probe.ps1*' -or $_.CommandLine -like '*observer.ps1*' } | ForEach-Object { $p = Get-Process -Id $_.ProcessId -EA SilentlyContinue; $k = if ($_.CommandLine -match 'observer') { 'observer' } else { 'sysmon' }; if ($p) { '{0}|{1}|{2}|{3}|{4}|{5}' -f $_.ProcessId, $_.ParentProcessId, $p.CPU, [math]::Round($p.PrivateMemorySize64/1MB, 1), $k, $_.Name } }"
   const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { encoding: 'utf8' })
   return out.trim().split(/\r?\n/).filter(Boolean).map((line) => {
     const [pid, parent, cpu, mb, kind, name] = line.split('|')
@@ -25,7 +25,7 @@ function probes() {
 }
 
 async function main() {
-  const userData = tempDir('voiceink-idle-')
+  const userData = tempDir('axondeck-idle-')
   const app = spawn(EXE, ['--hidden', `--user-data-dir=${userData}`], { stdio: 'ignore', windowsHide: true })
   try {
     let mine = null

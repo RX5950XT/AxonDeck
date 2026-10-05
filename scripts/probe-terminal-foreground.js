@@ -18,8 +18,8 @@ const { tempFile } = require('./lib/test-temp')
 const fs = require('fs')
 const os = require('os')
 
-// `VOICEINK_FG` 是給「修復前先跑一次確認會紅」用的：指到 git 取出來的舊版檔案
-const foreground = require(process.env.VOICEINK_FG || '../src/main/terminal/foreground')
+// `AXONDECK_FG` 是給「修復前先跑一次確認會紅」用的：指到 git 取出來的舊版檔案
+const foreground = require(process.env.AXONDECK_FG || '../src/main/terminal/foreground')
 
 const POWERSHELL = path.join(
   process.env.SystemRoot || 'C:\\Windows',

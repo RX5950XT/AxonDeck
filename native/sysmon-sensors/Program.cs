@@ -8,12 +8,12 @@ using System.Text;
 using System.Threading;
 using LibreHardwareMonitor.Hardware;
 
-namespace VoiceInkSensors
+namespace AxonDeckSensors
 {
     /// <summary>
-    /// VoiceInk 的感測器 sidecar。
+    /// AxonDeck 的感測器 sidecar。
     ///
-    /// 用法：VoiceInkSensors.exe \\.\pipe\voiceink-sensors-&lt;亂數&gt;
+    /// 用法：AxonDeckSensors.exe \\.\pipe\axondeck-sensors-&lt;亂數&gt;
     /// 主程式先建好管道伺服器再用 Start-Process -Verb RunAs 拉起這支；管道名就是共享密鑰
     /// （128 bit 亂數），而且主程式只接受第一個連線。
     ///

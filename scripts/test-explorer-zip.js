@@ -77,7 +77,7 @@ function buildZip(items) {
 
 async function main() {
   const dir = tempDir('vi-zip-')
-  process.env.VOICEINK_ZIP_TEMP = path.join(dir, 'zip-temp')
+  process.env.AXONDECK_ZIP_TEMP = path.join(dir, 'zip-temp')
   try {
     const big5 = Buffer.from([0xa4, 0xa4, 0xa4, 0xe5, 0x2e, 0x74, 0x78, 0x74]) // 「中文.txt」的 Big5
     const good = path.join(dir, 'good.zip')

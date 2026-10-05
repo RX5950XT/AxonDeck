@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 本地模型下載與管理（Main Process）
+ * AxonDeck - 本地模型下載與管理（Main Process）
  */
 
 const { app } = require('electron')

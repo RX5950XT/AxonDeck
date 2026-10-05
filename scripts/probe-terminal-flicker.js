@@ -373,7 +373,7 @@ async function main() {
   app.exit(failed ? 1 : 0)
 }
 
-app.setPath('userData', path.join(app.getPath('appData'), 'voiceink-probe-flicker'))
+app.setPath('userData', path.join(app.getPath('appData'), 'axondeck-probe-flicker'))
 app.whenReady().then(main).catch((error) => {
   console.error(error)
   app.exit(1)

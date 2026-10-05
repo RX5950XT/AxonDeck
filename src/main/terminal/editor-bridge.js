@@ -7,7 +7,7 @@
  * 編輯器程序結束**才把檔案讀回輸入框。所以我們要塞給它的不是「開一個視窗」，而是一支
  * 會乖乖卡住的命令：
  *
- *   1. `EDITOR`／`VISUAL` 設成短檔名 `voiceink-edit.cmd`，並把
+ *   1. `EDITOR`／`VISUAL` 設成短檔名 `axondeck-edit.cmd`，並把
  *      `<userData>/editor-bridge` 接到 PATH 最前面（AGY 用 `split(' ')` 再 spawn，
  *      完整路徑一加引號就會被切壞）
  *   2. 那支 batch 把**檔案本身**複製成 `<id>.in`，然後每秒看一次 `<id>.done` 出現了沒
@@ -43,7 +43,7 @@ const SHIM_VERSION = 2
  *   （CLI 用 `stdio: 'inherit'` 大多沒事，但管線一包起來就會踩到）。
  */
 const SHIM = `@echo off
-rem VoiceInk editor bridge v${SHIM_VERSION} - generated file, edits are overwritten
+rem AxonDeck editor bridge v${SHIM_VERSION} - generated file, edits are overwritten
 setlocal
 set "REQ=%~dp0requests"
 if not exist "%REQ%" mkdir "%REQ%"
@@ -103,7 +103,7 @@ function ensureShim() {
   if (!dir) return ''
   try {
     fs.mkdirSync(path.join(dir, 'requests'), { recursive: true })
-    const file = path.join(dir, 'voiceink-edit.cmd')
+    const file = path.join(dir, 'axondeck-edit.cmd')
     let current = ''
     try { current = fs.readFileSync(file, 'utf8') } catch { current = '' }
     if (current !== SHIM) fs.writeFileSync(file, SHIM, 'utf8')
@@ -122,7 +122,7 @@ function ensureShim() {
  * @returns {string} 失敗時回空字串（Ctrl+G 就退回原本的記事本，不是壞掉）
  */
 function shimCommand() {
-  return ensureShim() ? 'voiceink-edit.cmd' : ''
+  return ensureShim() ? 'axondeck-edit.cmd' : ''
 }
 
 /** @returns {string} 失敗時回空字串 */

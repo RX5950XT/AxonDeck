@@ -16,7 +16,7 @@ const fs = require('fs')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
 
-const USER_DATA_DIR = tempDir('voiceink-probe-clean-')
+const USER_DATA_DIR = tempDir('axondeck-probe-clean-')
 app.setPath('userData', USER_DATA_DIR)
 
 let passed = 0

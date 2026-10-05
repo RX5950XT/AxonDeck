@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP：語音輸入子分頁
- * 用法：node scripts/e2e-dictation-cdp.js（會自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/e2e-dictation-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 用**暫存 user-data-dir**：這一頁會寫紀錄與字典，不該在使用者的資料裡留測試痕跡；
  * 收尾也只以自己的 PID 收程序（禁止 taskkill /IM，會把使用者的安裝版一起關掉）。
@@ -17,8 +17,8 @@ const fs = require('fs')
 
 const PORT = 9247
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -94,7 +94,7 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
-  const userDataDir = tempDir('voiceink-dict-cdp-')
+  const userDataDir = tempDir('axondeck-dict-cdp-')
   const child = spawn(EXE, [
     `--remote-debugging-port=${PORT}`,
     `--user-data-dir=${userDataDir}`,
@@ -229,7 +229,7 @@ async function main() {
     ok('關掉開關就拔掉熱鍵', toggled?.off?.listening === false && toggled?.stored === false,
       JSON.stringify(toggled?.off))
     // 打包版一定要走原生 sidecar：那是「右 Alt 真的被吞掉、不會影響前景程式」的前提。
-    // 退回 uiohook 代表 resources/hook/VoiceInkHook.exe 沒進打包或起不來
+    // 退回 uiohook 代表 resources/hook/AxonDeckHook.exe 沒進打包或起不來
     ok('熱鍵走原生 sidecar（真的攔下按鍵）', toggled?.on?.mode === 'native',
       JSON.stringify(toggled?.on?.mode))
 

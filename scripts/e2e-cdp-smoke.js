@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP 煙霧測試：分頁、設定、字幕窗
- * 用法：先啟動 dist/win-unpacked/VoiceInk.exe --remote-debugging-port=9229
+ * 用法：先啟動 dist/win-unpacked/AxonDeck.exe --remote-debugging-port=9229
  *      再 node scripts/e2e-cdp-smoke.js
  * 或本腳本自動啟動。
  */
@@ -14,7 +14,7 @@ const http = require('http')
 const PORT = 9235
 // 暫存 user-data-dir：使用者正在用（常駐）的 App 佔著 single-instance lock，
 // 沒有自己的資料夾會被它擋掉（second-instance 轉交後退出，CDP 連不上）
-const USER_DATA_DIR = tempDir('voiceink-smoke-')
+const USER_DATA_DIR = tempDir('axondeck-smoke-')
 // 模型 registry 在 userData/models（正式環境 7GB）。暫存環境用 junction 接過去，
 // 翻譯那段才跑得起來；junction 刪掉不動原資料夾。
 const REAL_MODELS = path.join(process.env.APPDATA, 'voiceink', 'models')
@@ -24,8 +24,8 @@ try {
   }
 } catch { /* 建不出來就沒模型，翻譯那段會以 FAIL 收場，其餘不受影響 */ }
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
@@ -126,7 +126,7 @@ async function main() {
     await sleep(2500)
     const pages = await waitTargets()
     // 只認 index.html：語音輸入開著時會多一扇指示器視窗（dictation-hud.html），
-    // 而它的路徑同樣含有 "VoiceInk"，用路徑關鍵字比對會抓到那一扇
+    // 而它的路徑同樣含有 "AxonDeck"，用路徑關鍵字比對會抓到那一扇
     const mainPage = pages.find((p) => /index\.html/i.test(p.url))
     ok('main page target', !!mainPage, mainPage?.url)
 
@@ -159,7 +159,7 @@ async function main() {
       const body = getComputedStyle(document.body)
       const header = getComputedStyle(document.querySelector('.header'))
       return {
-        logoBars: document.querySelectorAll('.brand-mark-bar').length,
+        logo: !!document.querySelector('.header-brand img.brand-logo')?.naturalWidth,
         font: body.fontFamily,
         radius: getComputedStyle(root).getPropertyValue('--radius-card').trim(),
         surface: getComputedStyle(root).getPropertyValue('--surface-glass').trim(),
@@ -168,7 +168,7 @@ async function main() {
     })()`)
     ok(
       'Token Anxiety visual shell',
-      visualShell.logoBars === 3 &&
+      visualShell.logo &&
         /Segoe UI/.test(visualShell.font) &&
         visualShell.radius === '12px' &&
         !!visualShell.surface &&

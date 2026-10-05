@@ -2,7 +2,7 @@
 
 /**
  * 磁碟空間掃描。renderer 只送一個絕對路徑；執行檔、上限與輸出解析都在這裡。
- * 沒有 voiceink-probe 就不掃——整碟用 JS 走一次太慢，也不做那條退路。
+ * 沒有 axondeck-probe 就不掃——整碟用 JS 走一次太慢，也不做那條退路。
  *
  * 進度走 sysmon 既有的 emit：`{ type: 'diskTreeProgress', data: { bytes, files, dirs } }`。
  */
@@ -147,7 +147,7 @@ function createDiskTree(options = {}) {
    */
   async function scan(rootPath) {
     if (!exe) {
-      throw fail('DISKTREE_NO_PROBE', '需要先建置 voiceink-probe（npm run build:probe）')
+      throw fail('DISKTREE_NO_PROBE', '需要先建置 axondeck-probe（npm run build:probe）')
     }
     if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath) || isDevicePath(rootPath)) {
       throw fail('DISKTREE_BAD_PATH', '請選擇一個資料夾')

@@ -2,7 +2,7 @@
 
 /**
  * 打包後 CUDA／Vulkan 的 llama addon 留在 asar 裡（開機才不會被 Defender 掃一整排 DLL）。
- * `.node` 不能從 asar dlopen，第一次開 GPU 拷到 `%APPDATA%/voiceink/native-modules/`，
+ * `.node` 不能從 asar dlopen，第一次開 GPU 拷到 `%APPDATA%/axondeck/native-modules/`，
  * 再用 module.registerHooks 讓 `import('@node-llama-cpp/win-x64-cuda')` 指到那裡。
  * 絕不能寫進安裝目錄的 app.asar.unpacked：Program Files 一般使用者沒有寫入權限。
  */

@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 檔案轉錄功能（本地 Qwen3-ASR）
+ * AxonDeck - 檔案轉錄功能（本地 Qwen3-ASR）
  *
  * 長檔走 main 端 ffmpeg 串流切段（≥2 小時／≥100MB），
  * 不再整檔 decodeAudioData 進 renderer RAM。
@@ -153,7 +153,7 @@ function setupFileSelection() {
 
 /** 跟 main `stt-archive` 的錄音檔名同一條：renderer 只帶這個，路徑由 main 組 */
 const REC_NAME = /^rec-\d{13}\.webm$/
-const REC_DRAG = 'application/x-voiceink-recording'
+const REC_DRAG = 'application/x-axondeck-recording'
 
 /**
  * 錄音機的檔當成這一頁的檔案。只收檔名，路徑向 main 要（不採用拖曳資料裡的路徑）。

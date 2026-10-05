@@ -4,12 +4,12 @@
 
 ## 概況
 
-VoiceInk：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.39.1**（2026-10-04）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.40.0**（2026-10-06）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
-| AI | `chat` | 側欄 Agent（專案）／Chat（對話）；主區三選一 `setChatPaneMode('chat'\|'workspace'\|'web')` |
+| SI | `chat` | 側欄 Agent（專案）／Chat（對話）；主區三選一 `setChatPaneMode('chat'\|'workspace'\|'web')` |
 | Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格並排、共用 `persist:telegram` |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
 | CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP／CLI 版本／用量統計 |
@@ -29,11 +29,11 @@ src/main/
   chat*.js           雲端聊天 SSE（每對話一條 inflight）、會話＋側欄資料夾、取樣參數、自動標題、圖片
   ai-web.js          網頁版 AI：網址把關、標題、Google 登入修正、登入小視窗、分區 UA
   grok-clearance.js  Grok 被 Cloudflare 擋時開 Edge／Chrome 拿通行證（cf_clearance＋UA）帶回 App
-  terminal/          service.js（門面）→ 獨立宿主 host*.js／Rust voiceink-term；claude-hooks.js、editor-bridge.js、
+  terminal/          service.js（門面）→ 獨立宿主 host*.js／Rust axondeck-term；claude-hooks.js、editor-bridge.js、
                      links.js、clipboard-image.js、admin*.js
   workspace/         files.js（resolveIn）、git.js、agents.js（五家 AI 記錄）、worktree.js、watch.js、media.js（vi-media://）
   explorer/          paths.js、fs.js、recycle.js、drives.js、watch.js、uffs.js、zip*.js、mtp.js、details.js、size.js、shell*.js
-  media-player.js    本機圖片／影音分流到原生彈窗 voiceink-media.exe
+  media-player.js    本機圖片／影音分流到原生彈窗 axondeck-media.exe
   hfmodels/          hub／gguf／fit／download.js（共用續傳＋分段下載）／presets／runtime（router）
   ccswitch/          claude-settings.js、providers.js（routeFor）、models-scan.js、mcp.js、versions.js、gateway/
   codeusage/         scan.js（游標）、parsers.js（五家）、pricing.js（RULES_VERSION）
@@ -49,7 +49,7 @@ src/renderer/scripts/
   explorer-page.js  explorer-*.js  quota-bar.js  code-usage-page.js  ccswitch-page.js  cc-model-groups.js
   sysmon-*.js  disk-treemap.js  stt-page.js  recorder.js  live-caption.js  live-history.js  dictation.js  custom-select.js  app-dialog.js
 native/
-  voiceink-probe/    Rust：sysmon／usage-scan／dir-size／disk-tree／hook／claude-hook 子指令；bin/voiceink-term、bin/voiceink-media
+  axondeck-probe/    Rust：sysmon／usage-scan／dir-size／disk-tree／hook／claude-hook 子指令；bin/axondeck-term、bin/axondeck-media
   explorer-shell/    .NET 殼層 sidecar（IContextMenu、縮圖、overlay、內容視窗、MTP、屬性）
   sysmon-sensors/    .NET LHM 提權 sidecar；dictation-hook/ 熱鍵 .NET 退路
 ```
@@ -78,16 +78,16 @@ native/
 - UFFS：進頁只準備授權，搜尋時才載索引，閒置 60 秒或 App 結束時休眠。
 
 ### 原生媒體播放器
-- `native/voiceink-probe/src/bin/voiceink-media/`：Rust＋Win32，mpv／ImageMagick 解碼，放 Windows Job object；跟主 App 完全分開。
-- 自繪選單、播放清單（搜尋、拖入、續播）、倍速滑桿、快捷鍵表；偏好存 `%LOCALAPPDATA%/VoiceInk Media/preferences.json`。
+- `native/axondeck-probe/src/bin/axondeck-media/`：Rust＋Win32，mpv／ImageMagick 解碼，放 Windows Job object；跟主 App 完全分開。
+- 自繪選單、播放清單（搜尋、拖入、續播）、倍速滑桿、快捷鍵表；偏好存 `%LOCALAPPDATA%/AxonDeck Media/preferences.json`。
 - 預設關聯：新安裝或首次更新背景套用（同時寫 UserChoice 與 UserChoiceLatest 有效 Hash 並回讀），備份在 `association-backups/`，之後不覆寫使用者自選；解除安裝還原。
 - `npm run build:media` 固定 runtime 版本與 SHA-256；GPL 授權見 `resources/media-NOTICE.txt`。
 
 ### 系統監控
-- 取樣器 `voiceink-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；nvidia-smi 常駐；多 GPU 各自一卡。
+- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；nvidia-smi 常駐；多 GPU 各自一卡。
 - 提權感測器 sidecar 走排程工作，斷線一直重拉；風扇曲線每秒重送；效能調整不開機自動套用。
 - 處理程序：`sysmon-procs.js` 管理圖示、整機占用與保存的欄序（名稱固定第一欄）；取樣器帶執行檔路徑，main 非同步快取圖示。網路沿用感測器 sidecar 的 Kernel-Network ETW（TCP／UDP、IPv4／IPv6），未啟用、權限不足、遺失事件或資料過期顯示「—」，不新增 UAC。
-- 磁碟空間：`voiceink-probe disk-tree` 平行掃＋treemap，刪除只丟回收筒。強制結束權限不足會跳一次 UAC。
+- 磁碟空間：`axondeck-probe disk-tree` 平行掃＋treemap，刪除只丟回收筒。強制結束權限不足會跳一次 UAC。
 
 ### 額度與用量統計
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
@@ -113,7 +113,7 @@ native/
 - 手動「重新啟動並安裝」顯示進度、裝完自己開回；結束 App 時靜默安裝；關機／登出不安裝。
 - `electron:build` 走 `pack-preview.js --release`：磁碟根完整 NSIS → 驗 asar／`app-update.yml`／latest.yml 雜湊 → 同步回 dist → 清理。
 
-## 資料落點（`%APPDATA%/voiceink/`）
+## 資料落點（`%APPDATA%/axondeck/`）
 
 | 檔案 | 內容 |
 |---|---|

@@ -49,7 +49,7 @@ Module._load = originalLoad
 
 async function main() {
   const file = path.join(dir, 'model.gguf')
-  const exe = path.join(dir, 'VoiceInk.exe')
+  const exe = path.join(dir, 'AxonDeck.exe')
   fs.writeFileSync(file, 'x'); fs.writeFileSync(exe, 'x')
   assert.equal((await explorer.fileIcon(file)).fallback, true, '一般檔案不能拿 App logo 當圖示')
   assert.equal((await explorer.fileIcon(exe)).url, LOGO, '執行檔保留自己的圖示')

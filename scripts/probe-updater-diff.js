@@ -15,7 +15,7 @@ const assert = require('assert')
 const zlib = require('zlib')
 const { execFileSync } = require('child_process')
 
-const REPO = 'RX5950XT/VoiceInk'
+const REPO = 'RX5950XT/AxonDeck'
 const SAMPLES = Number(process.argv[2]) || 8
 const { computeOperations, OperationKind } = require('electron-updater/out/differentialDownloader/downloadPlanBuilder')
 
@@ -34,7 +34,7 @@ function recentTags() {
 
 function assetUrl(tag, suffix) {
   const ver = tag.replace(/^v/, '')
-  return `https://github.com/${REPO}/releases/download/${tag}/VoiceInk-Setup-${ver}.exe${suffix}`
+  return `https://github.com/${REPO}/releases/download/${tag}/AxonDeck-Setup-${ver}.exe${suffix}`
 }
 
 /** blockmap 是 deflate／gzip 過的 JSON，兩種格式都見過 */

@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 聊天會話持久化（Main Process）
+ * AxonDeck - 聊天會話持久化（Main Process）
  *
  * 獨立於設定用的 electron-store，寫在 `<userData>/chats.json`。
  * 設定的 store 有 key allowlist，不適合塞大量對話資料 → 另開一個實例。

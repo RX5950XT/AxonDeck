@@ -9,7 +9,7 @@ const path = require('path')
 const { spawn } = require('child_process')
 const { app } = require('electron')
 
-// 打包外執行時 app 名是 Electron → userData 會找不到 voiceink 的模型
+// 打包外執行時 app 名是 Electron → userData 會找不到 axondeck 的模型
 app.setPath('userData', path.join(app.getPath('appData'), 'voiceink'))
 
 const localAsr = require('../src/main/local-asr')

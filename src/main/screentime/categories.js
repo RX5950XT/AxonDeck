@@ -31,7 +31,7 @@ const APP_RULES = Object.freeze([
   { name: '瀏覽器', re: /^(chrome|msedge|firefox|brave|opera|vivaldi|arc|iexplore|comet|fellou)$/i },
   {
     name: '開發',
-    re: /^(Code|Cursor|devenv|WindowsTerminal|wezterm-gui|wezterm|windowsterminal|claude|codex|idea64|pycharm64|webstorm64|goland64|rider64|sublime_text|notepad\+\+|GitHubDesktop|WinSCP|putty|Orca|Antigravity|antigravity_tools|zed|Trae|Windsurf|OpenCode|DevToys|mintty|pwsh|cmd|node|python|electron|ollama|ComfyUI|WindTerm|cc-switch|Chatbox|DeepChat|Perplexity|Copilot|ChatGPT|Qoder|qemu-system-x86_64|docker desktop|android-studio|VoiceInk|chimera-ui|token-anxiety-dashboard|codexbar|DiscordChatExporter|LunaTranslator|Super-Agent-Party)$/i
+    re: /^(Code|Cursor|devenv|WindowsTerminal|wezterm-gui|wezterm|windowsterminal|claude|codex|idea64|pycharm64|webstorm64|goland64|rider64|sublime_text|notepad\+\+|GitHubDesktop|WinSCP|putty|Orca|Antigravity|antigravity_tools|zed|Trae|Windsurf|OpenCode|DevToys|mintty|pwsh|cmd|node|python|electron|ollama|ComfyUI|WindTerm|cc-switch|Chatbox|DeepChat|Perplexity|Copilot|ChatGPT|Qoder|qemu-system-x86_64|docker desktop|android-studio|AxonDeck|VoiceInk|chimera-ui|token-anxiety-dashboard|codexbar|DiscordChatExporter|LunaTranslator|Super-Agent-Party)$/i
   },
   { name: '通訊', re: /^(Discord|Telegram|LINE|LineLauncher|Slack|Teams|ms-teams|Skype|Zoom|WhatsApp)$/i },
   {

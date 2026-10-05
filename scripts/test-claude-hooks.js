@@ -4,7 +4,7 @@
  *
  * 家目錄指到暫存。這支**不可以**寫到使用者的 ~/.claude/settings.json。
  * 最後一節才用真的 `claude -p` 打暫存 settings，確認 Windows 上 hook 真的會被叫到
- * （`VOICEINK_LIVE_CLAUDE=1` 才跑）。
+ * （`AXONDECK_LIVE_CLAUDE=1` 才跑）。
  */
 
 'use strict'
@@ -32,7 +32,7 @@ function ok(name, cond, detail = '') {
   }
 }
 
-const tmpHome = tempDir('voiceink-claude-hooks-')
+const tmpHome = tempDir('axondeck-claude-hooks-')
 claudeSettings.configure({
   homeDir: tmpHome,
   backupDir: path.join(tmpHome, 'backup')
@@ -46,7 +46,7 @@ const realBefore = realStamp()
 
 const SID = '3d5f2c1a-9b8e-4d7c-a6f5-112233445566'
 const SID2 = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
-const CMD = '"C:/Users/a b/AppData/Roaming/voiceink/claude-hook/voiceink-claude-hook.exe" claude-hook'
+const CMD = '"C:/Users/a b/AppData/Roaming/axondeck/claude-hook/axondeck-claude-hook.exe" claude-hook'
 
 function writeLive(obj) {
   const file = claudeSettings.settingsPath()
@@ -65,7 +65,7 @@ function countOurs(settings) {
     if (!Array.isArray(list)) continue
     for (const group of list) {
       for (const hook of (group && group.hooks) || []) {
-        if (hook && String(hook.command).includes('voiceink-claude-hook.exe')) n += 1
+        if (hook && String(hook.command).includes('axondeck-claude-hook.exe')) n += 1
       }
     }
   }
@@ -97,9 +97,9 @@ function settingsMerge() {
   ok('Orca 的 Stop hook 還在',
     once.hooks.Stop.some((group) => (group.hooks || []).some((hook) => hook.command === 'C:/orca/stop.exe')))
   ok('八個事件各一筆我們的 hook', countOurs(once) === claudeSettings.HOOK_SPECS.length)
-  const pre = once.hooks.PreToolUse.find((group) => (group.hooks || []).some((hook) => String(hook.command).includes('voiceink-claude-hook.exe')))
+  const pre = once.hooks.PreToolUse.find((group) => (group.hooks || []).some((hook) => String(hook.command).includes('axondeck-claude-hook.exe')))
   ok('PreToolUse 的 matcher 是那兩個會卡住的工具', Boolean(pre && pre.matcher === 'AskUserQuestion|ExitPlanMode'))
-  const perm = once.hooks.PermissionRequest.find((group) => (group.hooks || []).some((hook) => String(hook.command).includes('voiceink-claude-hook.exe')))
+  const perm = once.hooks.PermissionRequest.find((group) => (group.hooks || []).some((hook) => String(hook.command).includes('axondeck-claude-hook.exe')))
   ok('PermissionRequest matcher 是 *', Boolean(perm && perm.matcher === '*'))
   ok('timeout 是 5', Boolean(pre && pre.hooks[0].timeout === 5 && pre.hooks[0].type === 'command'))
 
@@ -123,8 +123,8 @@ function settingsMerge() {
   const created = claudeSettings.applyHooks(CMD)
   ok('沒有 settings.json 時會新建只含我們的 hooks', created.ok === true && created.changed === true && countOurs(readLive()) === 8)
 
-  const quoted = hooks.hookCommand('C:\\Users\\a b\\voiceink')
-  ok('command 用斜線與引號', quoted === '"C:/Users/a b/voiceink/claude-hook/voiceink-claude-hook.exe" claude-hook')
+  const quoted = hooks.hookCommand('C:\\Users\\a b\\axondeck')
+  ok('command 用斜線與引號', quoted === '"C:/Users/a b/axondeck/claude-hook/axondeck-claude-hook.exe" claude-hook')
   ok('路徑裡有引號就不組', hooks.hookCommand('C:\\a"b') === '')
 }
 
@@ -251,7 +251,7 @@ async function resumeChecks() {
   }])
   ok('路徑裡的 .. 不留', dotdot[0].claudeTranscript === undefined)
 
-  const dir = tempDir('voiceink-claude-resume-')
+  const dir = tempDir('axondeck-claude-resume-')
   const liveFile = path.join(dir, `${SID}.jsonl`)
   const meta = {
     id: 't_resume', preset: 'claude', shell: 'pwsh', cwd: dir,
@@ -302,9 +302,9 @@ function eventFiles(dir) {
 
 async function liveHook() {
   console.log('\n[真的叫起 Claude]')
-  const probe = path.join(ROOT, 'resources', 'probe', 'voiceink-probe.exe')
+  const probe = path.join(ROOT, 'resources', 'probe', 'axondeck-probe.exe')
   if (!fs.existsSync(probe)) {
-    ok('有 build 出來的 voiceink-probe.exe', false, probe)
+    ok('有 build 出來的 axondeck-probe.exe', false, probe)
     return
   }
   if (!fs.readFileSync(probe).includes(Buffer.from('claude-hook'))) {
@@ -316,8 +316,8 @@ async function liveHook() {
     ok('PATH 上找得到 claude', false)
     return
   }
-  const dir = tempDir('voiceink-claude-live-')
-  const exe = path.join(dir, 'voiceink-claude-hook.exe')
+  const dir = tempDir('axondeck-claude-live-')
+  const exe = path.join(dir, 'axondeck-claude-hook.exe')
   fs.writeFileSync(exe, fs.readFileSync(probe))
   const events = path.join(dir, 'events')
   const settings = path.join(dir, 'settings.json')
@@ -337,7 +337,7 @@ async function liveHook() {
 
   const baseEnv = { ...process.env }
   delete baseEnv.CLAUDE_JOB_DIR
-  const env = { ...baseEnv, VOICEINK_TERMINAL_ID: 't_hooklive01' }
+  const env = { ...baseEnv, AXONDECK_TERMINAL_ID: 't_hooklive01' }
   const args = ['-p', 'reply with exactly: ok', '--settings', settings, ...extra]
   console.log(`  claude ${bin}`)
   const ran = await runClaude(bin, args, env, 180000)
@@ -356,15 +356,15 @@ async function liveHook() {
   ok('終端機 id 與版本對', records.length > 0 && records.every((rec) => rec.v === 1 && rec.terminalId === 't_hooklive01' && typeof rec.sessionId === 'string' && rec.sessionId.includes('-')))
   const out = ran.stdout || ''
   ok('Claude 的輸出沒有被 hook 的 JSON 汙染',
-    out.trim().length > 0 && !out.includes('hook_event_name') && !out.includes('voiceink-claude-hook') && !out.includes('"terminalId"') && !out.includes('SessionStart'))
+    out.trim().length > 0 && !out.includes('hook_event_name') && !out.includes('axondeck-claude-hook') && !out.includes('"terminalId"') && !out.includes('SessionStart'))
 
   const before = new Set(eventFiles(events))
   const quiet = { ...baseEnv }
-  delete quiet.VOICEINK_TERMINAL_ID
+  delete quiet.AXONDECK_TERMINAL_ID
   const second = await runClaude(bin, args, quiet, 180000)
   const after = eventFiles(events).filter((name) => !before.has(name))
   console.log(`  沒有 id 的那次 exit ${second.code}，新檔 ${after.length}`)
-  ok('沒有 VOICEINK_TERMINAL_ID 就不寫事件', after.length === 0)
+  ok('沒有 AXONDECK_TERMINAL_ID 就不寫事件', after.length === 0)
 }
 
 async function main() {
@@ -374,8 +374,8 @@ async function main() {
   await resumeChecks()
   ok('單元測試沒有改到真的 settings.json', realStamp() === realBefore)
   // 真的叫 claude 會花額度、在 ~/.claude/projects 留對話，只在明講時跑
-  if (process.env.VOICEINK_LIVE_CLAUDE === '1') await liveHook()
-  else console.log('\n[真的叫起 Claude] 略過（設 VOICEINK_LIVE_CLAUDE=1 才跑）')
+  if (process.env.AXONDECK_LIVE_CLAUDE === '1') await liveHook()
+  else console.log('\n[真的叫起 Claude] 略過（設 AXONDECK_LIVE_CLAUDE=1 才跑）')
   console.log(`\n${passed} passed, ${failed} failed`)
   process.exit(failed === 0 ? 0 : 1)
 }

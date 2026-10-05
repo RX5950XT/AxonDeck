@@ -8,12 +8,12 @@ const net = require('node:net')
 const { spawn, execFileSync } = require('node:child_process')
 
 const root = path.resolve(__dirname, '..')
-const sourceExe = process.env.VOICEINK_EXE || path.join(root, 'dist/win-unpacked/VoiceInk.exe')
+const sourceExe = process.env.AXONDECK_EXE || path.join(root, 'dist/win-unpacked/AxonDeck.exe')
 const testRoot = fs.mkdtempSync(path.join(root, 'dist/terminal-restart-'))
 const install = path.join(testRoot, 'install')
 const userData = path.join(testRoot, 'user-data')
 const project = path.join(testRoot, 'project')
-const exe = path.join(install, 'VoiceInk.exe')
+const exe = path.join(install, 'AxonDeck.exe')
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 let child, cdp, sessionId = '', shellPid = 0
 
@@ -127,7 +127,7 @@ async function main() {
   console.log('PASS App 已結束，原 shell PID 與磁碟心跳繼續')
 
   // 只覆寫本測試自己的安裝副本。這些檔案若仍被宿主使用，Windows 會拒絕覆寫。
-  for (const rel of ['VoiceInk.exe', 'resources/app.asar']) {
+  for (const rel of ['AxonDeck.exe', 'resources/app.asar']) {
     fs.copyFileSync(path.join(path.dirname(sourceExe), rel), path.join(install, rel))
   }
   const nativeRoot = 'resources/app.asar.unpacked/node_modules/@lydell/node-pty-win32-x64'

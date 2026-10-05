@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 系統監控端到端測試（真的拉起 PowerShell 取樣器）
+ * AxonDeck — 系統監控端到端測試（真的拉起 PowerShell 取樣器）
  *
  *   node_modules/electron/dist/electron.exe scripts/e2e-sysmon.js
  *

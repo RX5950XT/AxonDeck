@@ -10,7 +10,7 @@ $source = @'
 using System;
 using System.Runtime.InteropServices;
 
-public static class VoiceInkCredentialReader {
+public static class AxonDeckCredentialReader {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
   public struct CREDENTIAL {
     public UInt32 Flags;
@@ -50,7 +50,7 @@ public static class VoiceInkCredentialReader {
 
 try {
   Add-Type -TypeDefinition $source -Language CSharp
-  $value = [VoiceInkCredentialReader]::Read($Target)
+  $value = [AxonDeckCredentialReader]::Read($Target)
   if ([string]::IsNullOrEmpty($value)) {
     [Console]::Error.WriteLine('Credential not found')
     exit 2

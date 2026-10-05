@@ -18,7 +18,7 @@ function sessionId(headers, body) {
 
 function forOpenCode(headers = {}, body = {}) {
   const id = sessionId(headers, body)
-  return { 'User-Agent': 'VoiceInk-CCSwitch/1.0', ...(id ? { 'x-opencode-session': id } : {}) }
+  return { 'User-Agent': 'AxonDeck-CCSwitch/1.0', ...(id ? { 'x-opencode-session': id } : {}) }
 }
 
 module.exports = { sessionId, forOpenCode }

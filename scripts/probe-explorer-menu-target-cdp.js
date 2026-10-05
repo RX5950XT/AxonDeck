@@ -19,8 +19,8 @@ const http = require('http')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
 const PORT = 9291
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-probe-menu-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-probe-menu-')
 const SEED_DIR = path.join(USER_DATA_DIR, 'seed-folder')
 fs.mkdirSync(path.join(SEED_DIR, 'sub'), { recursive: true })
 fs.writeFileSync(path.join(SEED_DIR, 'target-file.txt'), 'hello\r\nworld\r\n')

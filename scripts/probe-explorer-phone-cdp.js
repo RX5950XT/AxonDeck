@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 檔案頁瀏覽手機（MTP）：**要真的插著一支手機**（解鎖、USB 選「檔案傳輸」），沒插就 SKIP。
+ * AxonDeck — 檔案頁瀏覽手機（MTP）：**要真的插著一支手機**（解鎖、USB 選「檔案傳輸」），沒插就 SKIP。
  *
  * 打包版 CDP：本機首頁的手機卡 → 點進去 → 儲存空間 → Download；
  * Ctrl+V 把電腦的檔案複製進手機 → F2 被擋 → Ctrl+C 複製出來貼回電腦 → 詳情 → Delete 永久刪掉。
- * 手機上只會暫時多一個 `voiceink-probe-*.txt`，最後刪掉並確認不見。
+ * 手機上只會暫時多一個 `axondeck-probe-*.txt`，最後刪掉並確認不見。
  *
  * 先 npm run electron:pack（改了 native/explorer-shell 要先 npm run build:shell）。收尾只 taskkill 自己的 pid。
  */
@@ -18,7 +18,7 @@ const ROOT = path.join(__dirname, '..')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const drives = require('../src/main/explorer/drives')
 
-const EXE = process.env.VOICEINK_EXE || path.join(ROOT, 'dist', 'win-unpacked', 'VoiceInk.exe')
+const EXE = process.env.AXONDECK_EXE || path.join(ROOT, 'dist', 'win-unpacked', 'AxonDeck.exe')
 const PORT = 9295
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const getJson = (u) => new Promise((res, rej) => {
@@ -55,17 +55,17 @@ const toastHas = (text) => `[...document.querySelectorAll('[class*=toast]')].som
     console.log('SKIP 沒有插著的手機（要解鎖、USB 選「檔案傳輸」）')
     return
   }
-  const UD = tempDir('voiceink-phonecdp-')
+  const UD = tempDir('axondeck-phonecdp-')
   const SEED = path.join(UD, 'seed')
   fs.mkdirSync(SEED, { recursive: true })
-  const name = `voiceink-probe-${Date.now()}.txt`
+  const name = `axondeck-probe-${Date.now()}.txt`
   const body = `手機 probe ${Date.now()}`
   fs.writeFileSync(path.join(SEED, name), body)
   fs.writeFileSync(path.join(UD, 'config.json'), JSON.stringify({ sysmonSensors: false }))
   fs.writeFileSync(path.join(UD, 'explorer.json'), JSON.stringify({ uffsAuto: false, lastPath: 'thispc', view: 'list' }))
   const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${UD}`], {
     stdio: 'ignore',
-    env: { ...process.env, VOICEINK_ZIP_TEMP: path.join(UD, 'zip-temp') }
+    env: { ...process.env, AXONDECK_ZIP_TEMP: path.join(UD, 'zip-temp') }
   })
   let dl = ''
   let c = null

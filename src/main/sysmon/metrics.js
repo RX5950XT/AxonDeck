@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — 系統監控的純計算層。
+ * AxonDeck — 系統監控的純計算層。
  *
  * 這個檔案**不 require electron、不開程序、不碰檔案**，所以 `node scripts/test-sysmon.js`
  * 可以直接載入它跑回歸。probe.ps1 只負責把作業系統的**累計計數器**原封不動吐出來，

@@ -143,7 +143,7 @@ function ensureHost() {
   if (starting) return starting
 
   const env = hostEnv()
-  const pipeName = `\\\\.\\pipe\\voiceink-term-${crypto.randomBytes(16).toString('hex')}`
+  const pipeName = `\\\\.\\pipe\\axondeck-term-${crypto.randomBytes(16).toString('hex')}`
   starting = new Promise((resolve, reject) => {
     const fail = (message) => {
       cleanup()

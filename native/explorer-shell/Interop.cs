@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     /// <summary>
     /// 殼層 COM 介面與 Win32 宣告。

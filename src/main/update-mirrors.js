@@ -9,7 +9,7 @@
 const fs = require('fs')
 
 const OWNER = 'RX5950XT'
-const REPO = 'VoiceInk'
+const REPO = 'AxonDeck'
 /** 先代理、官方放最後。官方慢但會成功，排前面就永遠輪不到代理。 */
 const MIRRORS = [
   'https://ghfast.top/',

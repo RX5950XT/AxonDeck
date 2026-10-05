@@ -3,7 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     /// <summary>
     /// 真正的檔案縮圖（照片／影片／PDF 預覽），不是 SHGetFileInfo 的類型圖示。

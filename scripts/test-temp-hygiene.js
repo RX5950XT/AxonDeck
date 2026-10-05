@@ -2,7 +2,7 @@
  * 兩條守門規則（掃原始碼，不跑任何東西）：
  *
  * 1. 測試／探針腳本不准自己往 `%TEMP%` 撒資料夾：一律走 `scripts/lib/test-temp.js`
- *    （統一放 `%TEMP%\voiceink-tests`、結束自動刪、過期自動清）。
+ *    （統一放 `%TEMP%\axondeck-tests`、結束自動刪、過期自動清）。
  * 2. `scripts/` 與 `src/main/` 不准用 `fs.rmSync(..., { recursive: true })`：Node 24（＝Electron 43）的
  *    同步遞迴刪除會穿過 junction 刪掉對面的真資料（暫存 userData 裡的 junction 指著使用者的模型）。
  *    一律用 `src/main/safe-rm.js` 的 `removeTreeSync`（腳本裡是 `test-temp.js` 的 `removeTree`）。

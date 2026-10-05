@@ -8,7 +8,7 @@ const scan = require('../src/main/ccswitch/models-scan')
 const cli = require('../src/main/ccswitch/cli-version')
 const credential = require('../src/main/ccswitch/gateway/credential')
 const oauth = require('../src/main/ccswitch/gateway/oauth')
-const home = tempDir('voiceink-cli-models-')
+const home = tempDir('axondeck-cli-models-')
 const originalVersion = cli.runVersion
 const bag = new Map()
 oauth.configure({ getStore: async () => ({ get: (key, fallback) => bag.get(key) ?? fallback, set: (key, value) => bag.set(key, value) }) })

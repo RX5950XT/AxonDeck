@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 機器上真的有 UFFS 才打真搜尋（可選）。
+ * AxonDeck — 機器上真的有 UFFS 才打真搜尋（可選）。
  *
  * 沒裝就跳過（exit 0）。不改磁碟、不停 daemon。
  * 沒提權時搜尋必須丟 `UFFS_BROKER`（不准默默回空清單）。
@@ -13,7 +13,7 @@ const path = require('path')
 const uffs = require(path.join(__dirname, '..', 'src/main/explorer/uffs.js'))
 
 async function main() {
-  const userData = process.env.VOICEINK_USER_DATA
+  const userData = process.env.AXONDECK_USER_DATA
     || path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'voiceink')
   uffs.configure(userData)
   const exe = uffs.findUffs()

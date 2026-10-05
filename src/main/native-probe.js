@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * `voiceink-probe.exe`（native/voiceink-probe，Rust）：取代系統監控的 `probe.ps1`
+ * `axondeck-probe.exe`（native/axondeck-probe，Rust）：取代系統監控的 `probe.ps1`
  * 與使用時長的 `observer.ps1` 兩支常駐 PowerShell（實測 180MB＋70MB → 各幾 MB）。
  * 協定與輸出格式跟 ps1 一模一樣，所以找不到執行檔（沒跑 `npm run build:probe`）就退回
  * PowerShell，功能不變、只是比較重。
@@ -12,11 +12,11 @@
 const fs = require('fs')
 const path = require('path')
 
-const EXE_NAME = 'voiceink-probe.exe'
+const EXE_NAME = 'axondeck-probe.exe'
 
 /**
  * @param {{ resourcesPath?: string, projectRoot?: string, name?: string, folder?: string }} [deps]
- *   `name` 換成同一個 crate 的另一支（`voiceink-term.exe`＝終端機宿主）
+ *   `name` 換成同一個 crate 的另一支（`axondeck-term.exe`＝終端機宿主）
  * @returns {string} 找不到回空字串
  */
 function resolveProbeExe(deps = {}) {

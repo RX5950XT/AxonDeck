@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — Hugging Face Hub 的真流量實測（打真上游，不下載模型本體）
+ * AxonDeck — Hugging Face Hub 的真流量實測（打真上游，不下載模型本體）
  *
  * `hub.js` 押在四個假設上，全部只能用真流量驗：
  *   [A] `GET /api/models?filter=gguf` 搜得到東西，欄位名對得上

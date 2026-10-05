@@ -1,4 +1,4 @@
-# VoiceInk — 專案規範與 AI 作業守則
+# AxonDeck — 專案規範與 AI 作業守則
 
 > 規則正文；`CLAUDE.md` 只是入口。現況與架構見 [CONTEXT.md](./CONTEXT.md)，判斷原則見 [tasks/lessons.md](./tasks/lessons.md)。
 > 「地雷」每一條都實際改壞過；細節查 git log。
@@ -12,15 +12,15 @@ nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網�
 
 ```bash
 npm run electron:dev     # 開發（vite + electron）
-npm run dev:sandbox      # 沙箱實例（%APPDATA%\voiceink-dev），不干擾使用中那份
+npm run dev:sandbox      # 沙箱實例（%APPDATA%\axondeck-dev），不干擾使用中那份
 npm run electron:pack    # 免安裝預覽 → dist/win-unpacked（UI／功能改完必跑；打到磁碟根→驗 asar→同步→清理）
 npm run electron:build   # 正式 NSIS（pack-preview --release），只在發版時打
-npm run build:probe      # Rust：voiceink-probe.exe＋voiceink-term.exe → resources/probe/
+npm run build:probe      # Rust：axondeck-probe.exe＋axondeck-term.exe → resources/probe/
 npm run build:shell      # .NET 殼層 sidecar → resources/shell/（改 C# 後必跑）
 npm run build:sensors / build:hook / build:media   # 感測器 sidecar／熱鍵退路／原生媒體 runtime
 ```
 
-`resources/{sensors,hook,shell,probe,media}/` 不進版控；沒建也打得起來，只是對應功能降級。打包前關掉 `dist/win-unpacked/VoiceInk.exe`。
+`resources/{sensors,hook,shell,probe,media}/` 不進版控；沒建也打得起來，只是對應功能降級。打包前關掉 `dist/win-unpacked/AxonDeck.exe`。
 
 ### 發行流程（漏一步舊版就永遠檢查不到更新，而且不報錯）
 ```bash
@@ -28,7 +28,7 @@ npm run build:sensors / build:hook / build:media   # 感測器 sidecar／熱鍵�
 git commit -am "feat: 發行 vX.Y.Z — <一句話>" && git tag vX.Y.Z && git push && git push --tags
 npm run electron:build
 gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."   # 不可 --draft／--prerelease
-gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z.exe.blockmap dist/latest.yml
+gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z.exe.blockmap dist/latest.yml
 ```
 
 缺 `.exe` → 下載 404；缺 `latest.yml` → 「沒有附帶更新資訊」。發版禁止 `--prepackaged`（會少 `app-update.yml`），要拆安裝檔確認有它。
@@ -71,6 +71,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 - 更新：`disableDifferentialDownload` 必須開（GitHub 逐段序列下載慢 36 倍）；`nsis.artifactName` 不能改回預設；`.exe` 走 `update-mirrors.js` 鏡像、`latest.yml` 只從 GitHub 讀。回歸 `test-updater.js`。
 - 手動「重新啟動並安裝」不可改回 `/S`（兩三分鐘沒畫面，使用者重開機會把 App 弄沒）；結束 App 時的 `installOnQuit` 保留靜默；Windows 關機／登出不開安裝程式。`installOnQuit()` 要在 `app.exit(0)` 前一行。
 - `app.setAppUserModelId('com.voiceink.app')` 要在搶鎖前；改 AUMID 會讓開機自啟動值變孤兒（`migrateLoginItemName`）。更新後捷徑變白紙由 `installer.nsh` 的 `customInstall` 重寫。
+- v1.40 由 VoiceInk 改名 AxonDeck。刻意留舊名（改了升級會斷）：`com.voiceink.app`（NSIS 解除安裝 GUID、捷徑 AUMID、開機自啟動值名）、userData 已有 `%APPDATA%oiceink` 就沿用（設定裡存絕對路徑）、媒體 ProgID `VoiceInk.Media.*`（UserChoice 雜湊綁 ProgID）。GitHub repo 已改名 AxonDeck，舊網址（含舊版 App 的 `releases.atom`／`latest.yml`）靠 GitHub 自動轉址——**永遠不要再建名為 VoiceInk 的 repo**，否則轉址失效、舊版收不到更新。其餘舊名殘留由各模組啟動時清掉（Claude hooks、更新快取、工作列釘選、感測器排程、媒體登錄檔）。
 
 ### 啟動與常駐
 - `whenReady` 立刻建窗不 await store；重模組第一次用到才 require。
@@ -111,7 +112,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 - Ctrl+滾輪要 `{ passive: false }`；縮圖快取鍵帶尺寸；影片縮圖抓完要放掉 `<video>`（不然檔案被鎖）；插拔裝置靠 `hookWindowMessage(0x0219)`，不輪詢。
 
 ### 終端機
-- PTY 在 App 外的獨立宿主（優先 Rust `voiceink-term.exe`，退路 Electron 版）；**改終端機行為要兩邊一起改**（`host.rs`↔`host.js` 逐條對應）。`before-quit` 只 `disconnect()`。
+- PTY 在 App 外的獨立宿主（優先 Rust `axondeck-term.exe`，退路 Electron 版）；**改終端機行為要兩邊一起改**（`host.rs`↔`host.js` 逐條對應）。`before-quit` 只 `disconnect()`。
 - 宿主活得比 App 久：auth 回報 `runtime`，跟 `runtimeName()` 對不上就是舊宿主（要重開才生效）。
 - 環境不沿用宿主繼承的：Rust 用 `CreateEnvironmentBlock`；濾掉 `CLAUDECODE`／`CLAUDE_CODE_*`；從 Claude Code 裡開 App 驗收也要先拿掉它們。
 - 狀態＝宿主結束 → Claude hook → 畫面 → 靜默（`term-agent.js` 的 `mergeState`）；hook 說 idle 最弱。hook exe 的 stdout 一個字都不能寫；`--user-data-dir` 時不寫真的 `~/.claude/settings.json`。畫面規則照 `scripts/fixtures/term-agent/` 真實畫面校正。
@@ -155,7 +156,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 
 ### 系統監控／風扇／效能調整
 - 一律 `Win32_PerfRawData_*`（配 `Timestamp_Sys100NS` 差值）；GPU 引擎 key 含 LUID＋索引；不顯示 Idle。
-- 取樣優先 Rust `voiceink-probe.exe`，退路 `probe.ps1`；兩邊格式完全一致，改任一邊跑 `probe-native-probe-parity.js`；`usage.rs` 改了跑 `probe-usage-native-parity.js`。probe 是 GUI 子系統（不掛 conhost）。
+- 取樣優先 Rust `axondeck-probe.exe`，退路 `probe.ps1`；兩邊格式完全一致，改任一邊跑 `probe-native-probe-parity.js`；`usage.rs` 改了跑 `probe-usage-native-parity.js`。probe 是 GUI 子系統（不掛 conhost）。
 - 取樣器開機常駐、沒人看走 `idle()`；nvidia-smi 看門狗從 spawn 就武裝。
 - 感測器 sidecar：只有它提權、AboveNormal＋Highest、斷線指數退避一直重拉；看門狗不算 `_inCommand`、只交還不結束；寫管道 `lock (writer)`；管道 `PipeOptions.Asynchronous`。硬碟溫度排除 `Warning|Critical` 門檻值。
 - 風扇手動 PWM 會留在晶片：`minPwm` ≥20、5 秒看門狗、目標值每秒重送。效能調整卡住要還原、≥95°C 立刻還原、開機不自動套用、CDP 不准按套用。
@@ -170,13 +171,13 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 
 ### 測試（CDP／e2e）
 - 在這個 App 裡開發這個 App 一律 `npm run dev:sandbox`（寫沙箱前先 `rm` 目的地，免得跟著連結寫回真資料）。
-- 暫存一律 `scripts/lib/test-temp.js`；CDP 用暫存 `--user-data-dir`，只 `taskkill /PID /T` 自己 spawn 的 pid（先 taskkill 再 `child.kill()`），**禁止 `/IM VoiceInk.exe`**。
+- 暫存一律 `scripts/lib/test-temp.js`；CDP 用暫存 `--user-data-dir`，只 `taskkill /PID /T` 自己 spawn 的 pid（先 taskkill 再 `child.kill()`），**禁止 `/IM AxonDeck.exe`**。
 - 只用 `[data-id]` 指涉自己建的東西；同時只跑一支 CDP；主視窗用 `/index\.html/` 挑；開頭關 `sysmonSensors`。
 - 用 node `spawn({ detached: true })` 開測試實例（PowerShell `Start-Process` 會被連帶收掉）；`npx electron <script>` 要補 `app.setPath('userData', ...)`；UI 斷言等「量得到尺寸」不睡固定時間；批次 sed 改識別字後逐條看 `git diff`。
 
 ## 驗證方式
 
-純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `VOICEINK_EXE`）。
+純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `AXONDECK_EXE`）。
 全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。
 
 | 範圍 | 主要腳本 |
@@ -191,7 +192,7 @@ gh release upload vX.Y.Z dist/VoiceInk-Setup-X.Y.Z.exe dist/VoiceInk-Setup-X.Y.Z
 | 系統監控 | `test-sysmon*.js` `e2e-sysmon-cdp.js` `e2e-sysmon-disk-cdp.js` `cargo test` |
 | 語音／ASR | `test-dictation.js` `e2e-dictation.js` `test-stt-archive.js` `e2e-stt-cdp.js` `e2e-recorder-cdp.js` |
 | HF模型 | `test-hfmodels.js` `e2e-hfmodels.js` `probe-hf-router.js` |
-| 原生媒體 | `test-media-player.js` `cargo test --bin voiceink-media` `probe-native-media.js` `probe-media-packaged.js` |
+| 原生媒體 | `test-media-player.js` `cargo test --bin axondeck-media` `probe-native-media.js` `probe-media-packaged.js` |
 | 跨模組 | `test-error-hygiene.js` `test-ipc-invoke.js` `test-updater.js` `test-temp-hygiene.js` `test-safe-rm.js` `e2e-cdp-smoke.js` `e2e-visual-cdp.js` |
 
 標註會跳 UAC／搶焦點的：`e2e-sysmon-sensors.js`、`probe-terminal-admin-elevate.js`（UAC）；`probe-terminal-flicker.js`、`probe-dictation-live.js`、`e2e-app-dialog-cdp.js`（搶前景）；`probe-claude-refresh.js --force` 會真的續 Claude 登入。

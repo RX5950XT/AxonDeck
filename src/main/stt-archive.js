@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk - 語音轉文字頁的兩份存檔：錄音機的錄音檔、即時字幕的逐字稿。
+ * AxonDeck - 語音轉文字頁的兩份存檔：錄音機的錄音檔、即時字幕的逐字稿。
  *
  * 都在 userData 底下、檔名由規則決定（renderer 只送得出符合樣式的名字，組不出別的路徑）：
  * - `recordings/rec-<毫秒時間戳>.webm`：MediaRecorder 每秒一塊，邊錄邊 append，當掉也只少最後一秒。

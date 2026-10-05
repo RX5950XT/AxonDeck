@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 整機檔案總管回歸（node 直跑，不開 Electron）
+ * AxonDeck — 整機檔案總管回歸（node 直跑，不開 Electron）
  *
  * 路徑守衛、單層列目錄、新增／改名／刪／複製／搬移、UFFS pattern 消毒、
  * 三份 IPC 清單。暫存目錄自種檔案，測完刪掉。
@@ -396,7 +396,7 @@ console.log('\n[I] 預設刪除進資源回收筒，可還原；永久刪除是�
 
   const dir = tempDir('vi-ex-bin-')
   const file = path.join(dir, `gone-${Date.now()}.txt`)
-  const marker = `voiceink-recycle-${Date.now()}`
+  const marker = `axondeck-recycle-${Date.now()}`
   fs.writeFileSync(file, marker)
   try {
     await files.removeEntry(file)

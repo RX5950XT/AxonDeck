@@ -209,7 +209,7 @@ function jsonlSources() {
   return [
     {
       provider: 'claude',
-      // 有 voiceink-probe.exe 就走原生解析（usage.rs），規則與 parsers.js 一致
+      // 有 axondeck-probe.exe 就走原生解析（usage.rs），規則與 parsers.js 一致
       native: 'claude',
       roots: [path.join(home, '.claude', 'projects')],
       match: (name) => name.endsWith('.jsonl'),

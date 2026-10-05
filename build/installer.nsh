@@ -1,8 +1,8 @@
-; VoiceInk 的 NSIS 自訂掛勾（electron-builder 會自動 include buildResources 底下的 installer.nsh）
+; AxonDeck 的 NSIS 自訂掛勾（electron-builder 會自動 include buildResources 底下的 installer.nsh）
 ;
 ; 為什麼需要這一支：
 ;   更新時 electron-builder 走 keepShortcuts，刻意不重建捷徑（怕把使用者釘選的那顆弄掉）。
-;   但更新會把整個安裝資料夾與 VoiceInk.exe 換掉，捷徑 .lnk 裡的 IDList 記著的是舊檔案的
+;   但更新會把整個安裝資料夾與 AxonDeck.exe 換掉，捷徑 .lnk 裡的 IDList 記著的是舊檔案的
 ;   時間戳 —— 時間戳對不上，Windows 就解析不到目標，圖示直接退回「一張白紙加捷徑箭頭」。
 ;   實測：把 .lnk 的 IDList 時間戳改成現在這支 exe 的，同一個檔案的圖示立刻正常。
 ;   所以每次安裝都把「本來就存在」的那幾份捷徑重寫一次（使用者刪掉的不要自己長回來），
@@ -14,7 +14,7 @@
 ; （症狀是 dist 只剩 `.nsis.7z`，連 `win-unpacked` 都被收走，而且錯誤訊息在很上面）。
 ; 路徑當字面值傳進 macro 就好——NSIS 的 macro 參數本來就是純文字替換。
 
-!macro voiceInkRefreshShortcut link
+!macro axonDeckRefreshShortcut link
   ${if} ${FileExists} "${link}"
     CreateShortCut "${link}" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
     ; 捷徑已存在時 CreateShortCut 會設 error flag，清掉免得後面誤判
@@ -24,19 +24,22 @@
 !macroend
 
 !macro customInstall
-  ${if} ${FileExists} "$INSTDIR\resources\media\voiceink-media.exe"
+  ${if} ${FileExists} "$INSTDIR\resources\media\axondeck-media.exe"
     ${if} $installMode == "all"
-      nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --register --machine'
+      nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --register --machine'
     ${else}
-      nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --initialize'
+      nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --initialize'
     ${endIf}
     Pop $0
   ${endIf}
-  !insertmacro voiceInkRefreshShortcut "$newStartMenuLink"
-  !insertmacro voiceInkRefreshShortcut "$newDesktopLink"
+  !insertmacro axonDeckRefreshShortcut "$newStartMenuLink"
+  !insertmacro axonDeckRefreshShortcut "$newDesktopLink"
 
   ; 工作列顯示的是「已釘選」的那一份，跟開始功能表是兩個不同的檔案
-  !insertmacro voiceInkRefreshShortcut "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\${SHORTCUT_NAME}.lnk"
+  !insertmacro axonDeckRefreshShortcut "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\${SHORTCUT_NAME}.lnk"
+  ; 改名前釘選的那顆還叫 VoiceInk.lnk（開始功能表／桌面的 electron-builder 會自己改名，釘選的不會）：
+  ; 不改檔名（改了工作列就認不得這顆釘選），只把目標換成新的 exe
+  !insertmacro axonDeckRefreshShortcut "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\VoiceInk.lnk"
 
   ; SHCNE_ASSOCCHANGED：叫檔案總管重讀圖示
   System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
@@ -44,11 +47,11 @@
 
 !macro customUnInstall
   ${ifNot} ${isUpdated}
-    ${if} ${FileExists} "$INSTDIR\resources\media\voiceink-media.exe"
+    ${if} ${FileExists} "$INSTDIR\resources\media\axondeck-media.exe"
       ${if} $installMode == "all"
-        nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --unregister --machine'
+        nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --unregister --machine'
       ${else}
-        nsExec::ExecToLog '"$INSTDIR\resources\media\voiceink-media.exe" --unregister'
+        nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --unregister'
       ${endIf}
       Pop $0
     ${endIf}
@@ -68,7 +71,7 @@
   ${endIf}
 !macroend
 
-; 完成頁：更新時直接把 App 開回來、安裝視窗自己關掉；全新安裝照舊顯示「執行 VoiceInk」勾選框
+; 完成頁：更新時直接把 App 開回來、安裝視窗自己關掉；全新安裝照舊顯示「執行 AxonDeck」勾選框
 !macro customFinishPage
   Function StartApp
     ${if} ${isUpdated}
@@ -79,14 +82,14 @@
     ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
   FunctionEnd
 
-  Function voiceInkFinishPre
+  Function axonDeckFinishPre
     ${if} ${isUpdated}
       Call StartApp
       Abort
     ${endIf}
   FunctionEnd
 
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE voiceInkFinishPre
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE axonDeckFinishPre
   !define MUI_FINISHPAGE_RUN
   !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
   !insertmacro MUI_PAGE_FINISH

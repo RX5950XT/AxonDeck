@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
-namespace VoiceInkSensors
+namespace AxonDeckSensors
 {
     /// <summary>
     /// Ryzen PBO 三牆與 scalar。PawnIO 的 RyzenSMU 模組已有 ioctl_send_smu_command，

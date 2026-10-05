@@ -18,8 +18,8 @@ const fs = require('fs')
 const http = require('http')
 
 const PORT = 9243
-const USER_DATA_DIR = tempDir('voiceink-update-')
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
+const USER_DATA_DIR = tempDir('axondeck-update-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const APP_UPDATE_YML = path.join(path.dirname(EXE), 'resources', 'app-update.yml')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

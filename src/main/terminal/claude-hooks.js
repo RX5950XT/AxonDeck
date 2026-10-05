@@ -3,8 +3,8 @@
 /**
  * Claude Code hooks → 終端機忙碌狀態，以及重開後接回對話要用的 session id。
  *
- * hook 執行檔（`voiceink-probe.exe claude-hook`，複製成 userData 裡的
- * `voiceink-claude-hook.exe`）把事件寫進 `<userData>/claude-hook/events/`。
+ * hook 執行檔（`axondeck-probe.exe claude-hook`，複製成 userData 裡的
+ * `axondeck-claude-hook.exe`）把事件寫進 `<userData>/claude-hook/events/`。
  * 這裡監看那個資料夾，歸約成每個終端機的 working／waiting／idle，有變才送
  * `terminal:agent`。宿主比 App 活得久，所以啟動時先把已經躺著的事件補處理。
  *
@@ -53,7 +53,7 @@ function log(code) {
  * @returns {string} 空字串代表路徑裡有引號，不能寫進 settings
  */
 function hookCommand(dataDir) {
-  const exe = path.join(String(dataDir || ''), 'claude-hook', 'voiceink-claude-hook.exe').replace(/\\/g, '/')
+  const exe = path.join(String(dataDir || ''), 'claude-hook', 'axondeck-claude-hook.exe').replace(/\\/g, '/')
   if (!exe || exe.includes('"') || /[\r\n]/.test(exe)) return ''
   return `"${exe}" claude-hook`
 }
@@ -436,13 +436,15 @@ async function boot() {
   }
   await scan()
   const src = resolveProbeExe()
-  const dest = path.join(baseDir, 'voiceink-claude-hook.exe')
+  const dest = path.join(baseDir, 'axondeck-claude-hook.exe')
   if (!src) log('PROBE_MISSING')
   else installExe(src, dest)
   if (writeSettings && fs.existsSync(dest)) {
     const command = hookCommand(userData)
     const result = command ? claudeSettings.applyHooks(command) : { ok: false, reason: 'BAD_COMMAND' }
     if (!result.ok) log(result.reason || 'SETTINGS')
+    // 改名前的舊 hook 執行檔：settings 裡的舊筆數已被換掉才刪，免得 Claude 叫到不存在的檔
+    else fs.rm(path.join(baseDir, 'voiceink-claude-hook.exe'), { force: true }, () => {})
   }
   startWatch()
   await scan()

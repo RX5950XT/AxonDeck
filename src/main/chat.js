@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 雲端聊天（Main Process）
+ * AxonDeck - 雲端聊天（Main Process）
  *
  * OpenAI 相容 `/chat/completions` + `stream: true`。
  * 訊息歷史與 model 的所有權都在 main：renderer 只送

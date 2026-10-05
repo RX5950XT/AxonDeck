@@ -4,7 +4,7 @@
  * 開發／測試用的沙箱實例：跟你正在用的那份**完全不打架**，但接得到原本的資料。
  *
  * 為什麼需要：安裝版、`dist/win-unpacked` 預覽版、`npm run electron:dev` 預設共用同一個
- * `%APPDATA%\voiceink`，於是 ①`requestSingleInstanceLock()` 綁的是 userData 路徑
+ * `%APPDATA%\axondeck`，於是 ①`requestSingleInstanceLock()` 綁的是 userData 路徑
  * → 第二份直接自己關掉；②`chats.json`／`workspaces.json`／`config.json` 兩邊互相蓋。
  * `main.js` 特地在搶鎖**之前**就處理 `--user-data-dir`，就是為了讓兩份能同時活著。
  *
@@ -23,7 +23,7 @@
  *
  * 用法：
  *   node scripts/dev-sandbox.js              # 用原始碼跑（等同 npm run electron:dev 的 electron 那半）
- *   node scripts/dev-sandbox.js --packed     # 改用 dist/win-unpacked/VoiceInk.exe
+ *   node scripts/dev-sandbox.js --packed     # 改用 dist/win-unpacked/AxonDeck.exe
  *   node scripts/dev-sandbox.js --with-chats # 連對話一起複製（預設不複製）
  *   node scripts/dev-sandbox.js --reset      # 先把沙箱清掉再重種
  *   node scripts/dev-sandbox.js --no-launch  # 只準備，不啟動
@@ -42,7 +42,7 @@ const REAL = path.join(APPDATA, 'voiceink')
  * 沙箱放在真 userData 隔壁，不放 `%TEMP%`：`config.json` 裡有 API 金鑰，
  * 留在使用者設定檔目錄底下權限跟原本那份一樣，而且重開機不會被清掉。
  */
-const SANDBOX = path.join(APPDATA, 'voiceink-dev')
+const SANDBOX = path.join(APPDATA, 'axondeck-dev')
 
 /** 大而唯讀：接回去，不複製 */
 const LINK_DIRS = ['models', 'hf-models']
@@ -181,7 +181,7 @@ function main() {
   if (has('--no-launch')) return
   const packed = has('--packed')
   const exe = packed
-    ? path.join(ROOT, 'dist', 'win-unpacked', 'VoiceInk.exe')
+    ? path.join(ROOT, 'dist', 'win-unpacked', 'AxonDeck.exe')
     : path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
   if (!fs.existsSync(exe)) {
     console.error(`找不到 ${exe}${packed ? '——先跑 npm run electron:pack' : ''}`)

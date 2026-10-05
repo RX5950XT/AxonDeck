@@ -7,7 +7,7 @@
  * 而且會自動把同一個資料夾裡的 `mmproj-*.gguf` 接成 `--mmproj`。順著它擺，
  * 「使用者自己把 gguf 拖進資料夾」就完全不必寫程式（`GET /models?reload=1` 就掃得到）。
  *
- * **沒有全域索引檔**：每顆模型的來歷寫在自己資料夾裡的 `voiceink-meta.json`。
+ * **沒有全域索引檔**：每顆模型的來歷寫在自己資料夾裡的 `axondeck-meta.json`。
  * 有索引就要處理「索引說有、磁碟上沒有」的不一致，而磁碟本來就是唯一的真相
  * （使用者可以直接把資料夾刪掉）。router 只認 `.gguf`，多一個 json 不會被當成模型。
  */
@@ -17,7 +17,9 @@ const path = require('path')
 const catalog = require('./catalog')
 const { removeTreeSync } = require('../safe-rm')
 
-const META_FILE = 'voiceink-meta.json'
+const META_FILE = 'axondeck-meta.json'
+/** 改名前下載的模型身上是這個檔名；讀得到就用，下次 writeMeta 寫成新名字 */
+const LEGACY_META_FILE = 'voiceink-meta.json'
 /** 跟 `catalog.safeId` 產出的形狀一致 */
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/
 
@@ -80,14 +82,15 @@ function hasCompleteModel(files) {
  * @returns {Record<string, any>}
  */
 function readMeta(id) {
-  try {
-    const text = fs.readFileSync(path.join(dirFor(id), META_FILE), 'utf8')
-    const parsed = JSON.parse(text)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-  } catch {
-    // 沒有 meta 是正常的（使用者自己拖進來的），不是錯誤
-    return {}
+  for (const name of [META_FILE, LEGACY_META_FILE]) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(dirFor(id), name), 'utf8'))
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      // 沒有 meta 是正常的（使用者自己拖進來的），不是錯誤
+    }
   }
+  return {}
 }
 
 /**
@@ -101,6 +104,7 @@ function writeMeta(id, meta) {
   const tmp = `${target}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(meta, null, 2), 'utf8')
   fs.renameSync(tmp, target)
+  fs.rmSync(path.join(dir, LEGACY_META_FILE), { force: true })
 }
 
 /**

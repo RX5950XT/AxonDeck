@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 聊天取樣參數（Main Process）
+ * AxonDeck - 聊天取樣參數（Main Process）
  *
  * 形狀：只有「使用者勾選的」參數才出現在物件裡，沒出現＝不送。
  * **不送是刻意的**：OpenAI 官方端點遇到 `top_k`／`min_p` 這類不認得的欄位會直接 400，

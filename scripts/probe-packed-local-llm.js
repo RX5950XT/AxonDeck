@@ -8,7 +8,7 @@
  * 雲端翻譯照樣好好的，所以完全看不出來。這支就是專門盯它。
  *
  * 用法：`node scripts/probe-packed-local-llm.js`
- * （要驗別的建置版：`VOICEINK_EXE=... node scripts/probe-packed-local-llm.js`）
+ * （要驗別的建置版：`AXONDECK_EXE=... node scripts/probe-packed-local-llm.js`）
  */
 
 const { spawn, execFileSync } = require('child_process')
@@ -19,8 +19,8 @@ const fs = require('fs')
 const http = require('http')
 
 const PORT = 9261
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 // 模型放在 `<userData>/models`，換了 user-data-dir 就等於一顆都沒裝
 {
   const real = path.join(process.env.APPDATA || os.homedir(), 'voiceink', 'models')
@@ -140,7 +140,7 @@ async function main() {
     failed = true
     console.error('FAIL', error.message)
   } finally {
-    // 只殺自己 spawn 的那棵樹；禁止 /IM VoiceInk.exe（會關掉使用者的安裝版）
+    // 只殺自己 spawn 的那棵樹；禁止 /IM AxonDeck.exe（會關掉使用者的安裝版）
     try { execFileSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* 已結束 */ }
     process.exit(failed ? 1 : 0)
   }

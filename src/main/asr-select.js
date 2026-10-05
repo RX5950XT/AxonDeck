@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 本地 ASR 模組選擇（Main Process）
+ * AxonDeck - 本地 ASR 模組選擇（Main Process）
  *
  * 使用者在「語音轉文字」頁選的是哪一顆本地模型，決定要用哪一支實作：
  *   qwen3asr    → local-asr.js（sherpa-onnx，只有 CPU）

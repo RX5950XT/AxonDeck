@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 翻譯與 TTS 頁
+ * AxonDeck - 翻譯與 TTS 頁
  * 按鈕式翻譯 + Edge TTS 朗讀；engine owner = translate
  */
 

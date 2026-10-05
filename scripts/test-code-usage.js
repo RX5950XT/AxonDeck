@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 五家 CLI token 用量統計的純邏輯回歸（node 直跑，不需 electron）
+ * AxonDeck — 五家 CLI token 用量統計的純邏輯回歸（node 直跑，不需 electron）
  *
  * fixture 都照本機真實記錄的形狀寫。三個最容易算錯的地方各有一條：
  *   - Claude 串流會把同一則 assistant 訊息寫好幾行 → 要靠 message.id 去重
@@ -517,7 +517,7 @@ let asyncSections = Promise.resolve()
 // ===== 增量掃描 =====
 console.log('\n[F] 增量掃描')
 {
-  const tmp = tempDir('voiceink-codeusage-')
+  const tmp = tempDir('axondeck-codeusage-')
   const file = path.join(tmp, 'a.jsonl')
   const mkLine = (id) => JSON.stringify({
     type: 'assistant',

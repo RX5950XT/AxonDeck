@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 錯誤訊息衛生與輸入校驗回歸測試（node 直跑，無需 electron）
+ * AxonDeck — 錯誤訊息衛生與輸入校驗回歸測試（node 直跑，無需 electron）
  *
  * 專案規範：「額度與聊天的 HTTP 錯誤只記安全狀態摘要，禁止把 response body／token／
  * 外部 error message 寫進 console、diagnostics 或 IPC」。cloud-asr 與 local-llm 的
@@ -331,7 +331,7 @@ async function testUsageApiProviders() {
   const { syncCommandCode } = require(path.join(ROOT, 'src/main/usage/commandcode.js'))
   const KEY = 'sk-hygiene-sentinel-key'
   const BODY = '<<upstream-secret-echo sk-hygiene-sentinel-key>>'
-  const homeDir = tempDir('voiceink-hygiene-usage-')
+  const homeDir = tempDir('axondeck-hygiene-usage-')
   try {
     for (const [name, sync, envVar] of [
       ['opencode-go', syncOpenCode, 'OPENCODE_API_KEY'],

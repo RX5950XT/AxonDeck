@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 終端機連結（網址／路徑）回歸測試（node 直跑，不需 electron）
+ * AxonDeck — 終端機連結（網址／路徑）回歸測試（node 直跑，不需 electron）
  *
  * 三塊：畫面字串的掃描（`term-link-scan.js`）、主行程的路徑解析（`terminal/links.js`）、
  * 還有「三份清單」——service 匯出、`terminal:*` IPC、preload 白名單少一行，
@@ -99,8 +99,8 @@ async function main() {
     ok('行號留給開檔', hits[0]?.line === 120, JSON.stringify(hits[0]))
   }
   {
-    const hits = scan.scanLine('D:\\Workspace\\VoiceInk\\package.json')
-    ok('認得 Windows 絕對路徑', hits[0]?.text === 'D:\\Workspace\\VoiceInk\\package.json', JSON.stringify(hits))
+    const hits = scan.scanLine('D:\\Workspace\\AxonDeck\\package.json')
+    ok('認得 Windows 絕對路徑', hits[0]?.text === 'D:\\Workspace\\AxonDeck\\package.json', JSON.stringify(hits))
   }
   {
     ok('沒有斜線就不是候選', scan.scanLine('npm run electron:pack').length === 0)

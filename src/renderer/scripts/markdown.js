@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 最小安全 Markdown 渲染器
+ * AxonDeck - 最小安全 Markdown 渲染器
  *
  * 只用 createElement / createTextNode / textContent，**全程零 innerHTML**
  * → 任何模型輸出（含 <script>、onerror=）都只會變成文字節點，XSS 先天不可能。

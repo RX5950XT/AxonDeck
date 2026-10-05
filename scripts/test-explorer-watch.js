@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 資料夾監看重新 arm 的回歸（node 直跑）
+ * AxonDeck — 資料夾監看重新 arm 的回歸（node 直跑）
  *
  * 每重讀一次目錄，UI 就會再呼叫一次 watchDirs()。以前那裡先把 watcher 全關再重開，
  * 剛好卡在那一下的改動就永遠不會送到畫面（e2e-explorer-cdp 的 [C8]／[F] 偶發變紅）。

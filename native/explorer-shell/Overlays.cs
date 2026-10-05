@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
-namespace VoiceInkShell
+namespace AxonDeckShell
 {
     /// <summary>
     /// 圖示重疊（icon overlay）——Google Drive 的綠勾／雲朵／同步中，OneDrive、

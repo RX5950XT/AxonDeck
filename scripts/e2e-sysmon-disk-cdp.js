@@ -1,6 +1,6 @@
 /**
  * 打包版 CDP：系統監控 ▸ 磁碟空間
- * 用法：node scripts/e2e-sysmon-disk-cdp.js（會自己啟動 dist/win-unpacked/VoiceInk.exe）
+ * 用法：node scripts/e2e-sysmon-disk-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 啟動方式對齊 e2e-sysmon-cdp.js：打包版、暫存 userData、關 sysmonSensors、
  * finally 還原設定並只殺自己這棵行程。埠用 9261，避免跟那支的 9247 撞上。
@@ -16,8 +16,8 @@ const fs = require('fs')
 const http = require('http')
 
 const PORT = 9261
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-cdp-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const RESTORE_KEYS = ['sysmonInterval', 'sysmonSort', 'sysmonSensors']
 const POWERSHELL = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
@@ -30,9 +30,9 @@ const EXPECTED = A + B + C + X
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function previewLocked() {
-  const script = "Get-CimInstance Win32_Process -Filter \"Name = 'VoiceInk.exe'\" | ForEach-Object { $_.ExecutablePath }"
+  const script = "Get-CimInstance Win32_Process -Filter \"Name = 'AxonDeck.exe'\" | ForEach-Object { $_.ExecutablePath }"
   const out = execFileSync(POWERSHELL, ['-NoProfile', '-Command', script], { encoding: 'utf8' })
-  return out.split(/\r?\n/).map((line) => line.trim()).filter((line) => /\\dist\\win-unpacked\\VoiceInk\.exe$/i.test(line))
+  return out.split(/\r?\n/).map((line) => line.trim()).filter((line) => /\\dist\\win-unpacked\\AxonDeck\.exe$/i.test(line))
 }
 
 function createFixture() {
@@ -349,7 +349,7 @@ async function trashFile(cdp, ok, root) {
 async function main() {
   const locked = previewLocked()
   if (locked.length) {
-    console.error('dist/win-unpacked 的 VoiceInk.exe 還在跑，這次不啟動、也不結束它：')
+    console.error('dist/win-unpacked 的 AxonDeck.exe 還在跑，這次不啟動、也不結束它：')
     for (const line of locked) console.error(line)
     process.exitCode = 1
     return

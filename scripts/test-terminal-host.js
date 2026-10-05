@@ -3,12 +3,10 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const { removeTree } = require('./lib/test-temp')
+const { tempDir, removeTree } = require('./lib/test-temp')
 const net = require('node:net')
-const { spawn } = require('node:child_process')
+const { spawn, spawnSync, execFileSync } = require('node:child_process')
 const root = path.resolve(__dirname, '..')
-// 還沒 build 過的 checkout 沒有 dist/
-fs.mkdirSync(path.join(root, 'dist'), { recursive: true })
 
 if (!process.versions.electron) {
   const child = spawn(path.join(root, 'node_modules/electron/dist/electron.exe'), [__filename], {
@@ -21,7 +19,7 @@ if (!process.versions.electron) {
   const { connection, stageRuntime, runtimeName } = require('../src/main/terminal/host-runtime')
   // ponytail: Electron 退路版宿主沒有 CreateEnvironmentBlock，只擋 Claude 標記；開 App 的終端機留下的其他變數照樣帶過去
   const native = Boolean(runtimeName().native)
-  const userData = fs.mkdtempSync(path.join(root, 'dist/terminal-host-test-'))
+  const userData = tempDir('terminal-host-test-')
   const id = 't_host_continuity'
   const meta = { id, shell: 'powershell', preset: 'shell', cwd: userData, title: 'Host test' }
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -51,14 +49,96 @@ if (!process.versions.electron) {
     assert.equal(data, '', '未認證的連線不可以取得終端機資料')
   }
 
+  async function legacyHostContinuity() {
+    // 可以指定留存的舊版產物；乾淨 checkout 沒有它時明確回報未涵蓋。
+    const oldExe = process.env.LEGACY_TERM_EXE || path.join(root, 'resources/probe/voiceink-term.exe')
+    if (!fs.existsSync(oldExe)) { console.log('SKIP 舊版 exe 真程序驗證：未提供 LEGACY_TERM_EXE'); return }
+    const data = tempDir('terminal-legacy-')
+    const config = connection(data, true)
+    const runtime = path.join(config.root, 'runtime-legacy-fixture')
+    const exe = path.join(runtime, 'VoiceInkTerminalHost.exe')
+    fs.mkdirSync(runtime)
+    fs.copyFileSync(oldExe, exe)
+    fs.writeFileSync(path.join(runtime, 'ready'), 'native')
+    const child = spawn(exe, [`--pipe=${config.pipe}`, `--root=${config.root}`], {
+      cwd: runtime, detached: true, windowsHide: true, stdio: 'ignore'
+    })
+    let failed
+    child.on('error', error => { failed = error })
+    child.unref()
+    let old = new HostClient(data, () => {})
+    const sessionId = 't_legacy_upgrade'
+    try {
+      await waitFor(async () => {
+        if (failed) throw failed
+        return old.ensure(false)
+      }, '舊宿主沒有開啟管道')
+      const meta = { id: sessionId, shell: 'powershell', preset: 'shell', cwd: data, title: 'Legacy test' }
+      const before = await old.request('open', { sessionId, meta, cols: 80, rows: 24 }, true)
+      assert.ok(before.pid > 0)
+      old.disconnect()
+      old = new HostClient(data, () => {})
+      const after = await old.request('open', { sessionId, meta, cols: 80, rows: 24 }, true)
+      assert.equal(after.pid, before.pid, '新版不可重跑舊 shell')
+      assert.equal(old.host.pid, child.pid, '新版必須連回原宿主')
+      assert.equal(old.stale(), true, '既有升級提示必須認出舊版 runtime')
+      stageRuntime(config.root)
+      assert.ok(fs.existsSync(exe), '還在執行的舊名 exe 不可被清掉')
+      await old.request('write', { sessionId, data: 'exit\r' })
+      await waitFor(async () => (await old.request('list')).some(item => item.id === sessionId && item.state === 'exited'), '舊 shell 未結束')
+      await old.request('forget', { sessionId })
+      old.disconnect()
+      await waitFor(() => child.exitCode === 0, '舊宿主關閉最後階段後沒有自行結束')
+      stageRuntime(config.root)
+      assert.equal(fs.existsSync(runtime), false, '已結束的舊名 runtime 要清掉')
+      console.log('PASS 舊版 exe 接回原 shell PID、升級提示、鎖定保護、最後階段關閉後自行退出與清理')
+    } finally {
+      old.disconnect()
+      if (child.pid && child.exitCode === null) {
+        try { execFileSync(path.join(process.env.SystemRoot || 'C:/Windows', 'System32/taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }) }
+        catch { /* 已自行結束 */ }
+        child.kill()
+        await waitFor(() => child.exitCode !== null || child.signalCode !== null, '測試宿主未完全結束')
+      }
+      try { removeTree(data) } catch (error) { console.error('測試暫存清理失敗', error); process.exitCode = 1 }
+    }
+  }
+
+  function legacyHookEnvironment() {
+    const source = path.join(root, 'resources/probe/axondeck-probe.exe')
+    if (!fs.existsSync(source)) throw new Error('請先 build:probe 才能驗證新版 hook')
+    const data = tempDir('terminal-legacy-hook-')
+    try {
+      const exe = path.join(data, 'axondeck-claude-hook.exe')
+      fs.copyFileSync(source, exe)
+      const env = { ...process.env, VOICEINK_TERMINAL_ID: 't_legacy_hook', CLAUDE_JOB_DIR: '' }
+      delete env.AXONDECK_TERMINAL_ID
+      const result = spawnSync(exe, ['claude-hook'], { env, windowsHide: true, encoding: 'utf8',
+        input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'legacy-session' }) })
+      assert.equal(result.status, 0)
+      assert.equal(result.stdout, '')
+      const events = path.join(data, 'events')
+      const files = fs.readdirSync(events)
+      assert.equal(files.length, 1)
+      const record = JSON.parse(fs.readFileSync(path.join(events, files[0]), 'utf8'))
+      assert.equal(record.terminalId, 't_legacy_hook')
+      console.log('PASS 新 Rust hook 讀取舊 shell 的分頁 ID，stdout 保持空白')
+    } finally { removeTree(data) }
+  }
+
   async function main() {
+    const legacyConfig = connection(userData, true)
+    const name = require('node:crypto').createHash('sha256').update(legacyConfig.root.toLowerCase()).digest('hex').slice(0, 24)
+    assert.equal(legacyConfig.pipe, `\\\\.\\pipe\\voiceink-terminal-v1-${name}`, '改名後仍須接回舊管道，不能另起一顆孤兒宿主')
+    await legacyHostContinuity()
+    legacyHookEnvironment()
     // App 從 Claude 工作階段裡開起來時會繼承這些；宿主要擋掉，終端機裡的 Claude 才不會當自己是子工作階段
     process.env.CLAUDE_CODE_CHILD_SESSION = '1'
     process.env.GIT_EDITOR = 'true'
     // 開 App 的那個終端機（Windows Terminal／Claude 的工具 shell）留下的；Rust 宿主改用登錄檔裡的使用者環境，一個都不會帶過去
     process.env.WT_SESSION = 'inherited'
     // PATH 被別的 whoami.exe／icacls.exe 佔走（Git Bash 的 MSYS 版）時也要建得起宿主資料夾
-    const poisoned = fs.mkdtempSync(path.join(root, 'dist/terminal-host-path-'))
+    const poisoned = tempDir('terminal-host-path-')
     const savedPath = process.env.PATH
     process.env.PATH = ''
     try { assert.ok(connection(poisoned, true)?.token, '找不到 whoami／icacls 就建不出宿主資料夾') }
@@ -125,11 +205,16 @@ if (!process.versions.electron) {
     const hostRoot = connection(userData).root
     const stale = path.join(hostRoot, 'runtime-0000000000000000000stale')
     fs.mkdirSync(stale, { recursive: true })
-    fs.writeFileSync(path.join(stale, 'VoiceInkTerminalHost.exe'), 'x')
+    fs.writeFileSync(path.join(stale, 'AxonDeckTerminalHost.exe'), 'x')
     fs.writeFileSync(path.join(stale, 'ready'), '0.0.0')
+    const legacyStale = path.join(hostRoot, 'runtime-legacy-unused')
+    fs.mkdirSync(legacyStale)
+    fs.writeFileSync(path.join(legacyStale, 'VoiceInkTerminalHost.exe'), 'x')
+    fs.writeFileSync(path.join(legacyStale, 'ready'), 'native')
     const current = stageRuntime(hostRoot)
     assert.ok(fs.existsSync(current.exe), '目前使用的執行環境不可以被清掉')
     assert.equal(fs.existsSync(stale), false, '沒人使用的舊執行環境要清掉')
+    assert.equal(fs.existsSync(legacyStale), false, '舊名 exe 所在的閒置 runtime 也要清掉')
     console.log('PASS 舊版執行環境會被清掉，目前這份留著')
   }
 
@@ -138,8 +223,13 @@ if (!process.versions.electron) {
       client.disconnect()
       const cleanup = new HostClient(userData, () => {})
       await cleanup.request('forget', { sessionId: id })
+      const hostPid = cleanup.host.pid
       cleanup.disconnect()
-    } catch { /* 未啟動成功就沒有需要清理的測試宿主 */ }
+      if (hostPid) await waitFor(() => {
+        try { process.kill(hostPid, 0); return false } catch { return true }
+      }, '測試宿主未自行結束')
+      removeTree(userData)
+    } catch (error) { console.error('測試宿主清理失敗', error); process.exitCode = 1 }
     console.log(`Evidence: ${userData}`)
   })
 }

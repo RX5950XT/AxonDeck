@@ -46,7 +46,7 @@ async function collectSecrets(homeDir, antigravity) {
 }
 
 async function main() {
-  const tempUserData = tempDir('voiceink-usage-e2e-')
+  const tempUserData = tempDir('axondeck-usage-e2e-')
   app.setPath('userData', tempUserData)
   try {
     await app.whenReady()

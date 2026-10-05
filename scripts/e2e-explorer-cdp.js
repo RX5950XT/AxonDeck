@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 「檔案」分頁打包版回歸（CDP）
+ * AxonDeck — 「檔案」分頁打包版回歸（CDP）
  *
  * 不點畫面上的「第一列」、不刪使用者的檔。自種暫存資料夾只走 IPC，測完刪掉。
  * 收尾只 taskkill 自己的 pid。
@@ -16,8 +16,8 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
 
 const PORT = 9281
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-ex-')
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-ex-')
 const SEED_DIR = path.join(USER_DATA_DIR, 'seed-folder')
 fs.mkdirSync(SEED_DIR, { recursive: true })
 fs.writeFileSync(path.join(SEED_DIR, 'hello.txt'), 'hello')
@@ -146,7 +146,7 @@ async function main() {
     .find(win => /(index\\.html|5173)/.test(win.webContents.getURL())).webContents
     .capturePage(undefined, { stayHidden: true, stayAwake: true }).then(image => image.toPNG().toString('base64'))`)
   try {
-    // VOICEINK_EXE 指到 electron.exe 時是跑原始碼（要先起 vite），得補上 app 目錄。
+    // AXONDECK_EXE 指到 electron.exe 時是跑原始碼（要先起 vite），得補上 app 目錄。
     const appArgs = /electron[.]exe$/i.test(EXE) ? ['.'] : []
     child = spawn(EXE, [
       ...appArgs,

@@ -6,7 +6,7 @@ const path = require('path')
 const { spawn, execFileSync } = require('child_process')
 const { tempDir } = require('./lib/test-temp')
 const root = path.join(__dirname, '..')
-const exe = process.env.VOICEINK_EXE || path.join(root, 'dist/win-unpacked/VoiceInk.exe')
+const exe = process.env.AXONDECK_EXE || path.join(root, 'dist/win-unpacked/AxonDeck.exe')
 const profile = tempDir('media-packaged-')
 const project = tempDir('media-project-')
 const port = 9397
@@ -50,7 +50,7 @@ async function main() {
   const archive = path.join(project, 'media.zip')
   execFileSync('C:/Program Files/7-Zip/7z.exe', ['a', '-tzip', archive, path.join(project, '中文 $ 圖片.png')], { windowsHide: true, stdio: 'ignore' })
   const child = spawn(exe, ['--hidden', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`], {
-    windowsHide: true, stdio: 'ignore', env: { ...process.env, LOCALAPPDATA: profile, VOICEINK_MEDIA_HIDDEN: '1' }
+    windowsHide: true, stdio: 'ignore', env: { ...process.env, LOCALAPPDATA: profile, AXONDECK_MEDIA_HIDDEN: '1' }
   })
   let cdp
   try {
@@ -73,23 +73,23 @@ async function main() {
     const rendererOpen = async (file) => cdp.eval(`import('./scripts/ws-tabs.js').then(m => m.openEditorTab({ id: 'w_media_probe', name: '媒體驗收' }, ${JSON.stringify(file)})).then(() => true)`)
     await rendererOpen('中文 $ 圖片.png')
     await wait(() => cdp.eval('document.querySelector(".ws-editor-img")?.naturalWidth > 0'), '工作區圖片分頁未載入')
-    assert.equal(processes(child.pid).filter(p => p.Name === 'voiceink-media.exe').length, 0)
+    assert.equal(processes(child.pid).filter(p => p.Name === 'axondeck-media.exe').length, 0)
     console.log('PASS 工作區點圖＝分頁預覽；路徑守衛；沒有獨立播放器')
     let players
     for (const file of [path.join(project, '中文 $ 圖片.png'), path.join(archive, '中文 $ 圖片.png')]) {
       const result = await cdp.eval(`${api}.explorer.openPath(${JSON.stringify(file)})`); assert.equal(result.ok, true)
     }
-    players = await wait(() => { const list = processes(child.pid).filter((p) => p.Name === 'voiceink-media.exe'); return list.length >= 2 ? list : null }, 'Explorer／ZIP 沒有啟動')
+    players = await wait(() => { const list = processes(child.pid).filter((p) => p.Name === 'axondeck-media.exe'); return list.length >= 2 ? list : null }, 'Explorer／ZIP 沒有啟動')
     for (const player of players) own.add(player.ProcessId)
     assert.equal(await cdp.eval('document.querySelectorAll(".nav-tab").length'), before)
     await rendererOpen('note.txt')
     assert.equal(await cdp.eval('!!document.querySelector(".ws-tab")'), true)
     console.log('PASS packaged Explorer／ZIP 開啟；沒有新頁；原本編輯器仍可用')
-    for (const p of processes(child.pid).filter((p) => p.Name !== 'voiceink-media.exe')) own.add(p.ProcessId)
+    for (const p of processes(child.pid).filter((p) => p.Name !== 'axondeck-media.exe')) own.add(p.ProcessId)
     kill(child.pid, false)
     await delay(600)
     for (const player of players) assert.ok(processes(player.ProcessId).some((p) => p.Name === 'mpv.exe'))
-    console.log('PASS VoiceInk 強制結束後，獨立播放器仍運行')
+    console.log('PASS AxonDeck 強制結束後，獨立播放器仍運行')
   } catch (error) {
     if (cdp) console.error(await cdp.eval('({ ready:document.readyState, theme:document.documentElement.dataset.theme, page:document.querySelector(".page.active")?.id, projects:document.getElementById("projList")?.textContent })').catch(() => '主程序已結束'))
     throw error

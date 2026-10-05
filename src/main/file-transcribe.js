@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 長檔案串流轉錄（Main Process）
+ * AxonDeck - 長檔案串流轉錄（Main Process）
  *
  * 本地：ffmpeg → 16k mono f32le 串流，每 28 秒切一段送 sherpa-onnx。
  * 雲端：ffmpeg segment → mp3 片段送 OpenRouter 相容 /audio/transcriptions。
@@ -491,7 +491,7 @@ async function transcribeFileCloud(req, onProgress) {
 
   const tmpRoot = path.join(
     os.tmpdir(),
-    `voiceink-cloud-asr-${process.pid}-${randomBytes(6).toString('hex')}`
+    `axondeck-cloud-asr-${process.pid}-${randomBytes(6).toString('hex')}`
   )
   await fsp.mkdir(tmpRoot, { recursive: true })
   const pattern = path.join(tmpRoot, 'seg_%03d.mp3')

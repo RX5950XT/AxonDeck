@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using LibreHardwareMonitor.Hardware;
 
-namespace VoiceInkSensors
+namespace AxonDeckSensors
 {
     /// <summary>
     /// CPU／GPU 效能調整的套用狀態。指令在 Program.ReadCommands：G／C／K／X。
@@ -67,11 +67,11 @@ namespace VoiceInkSensors
 
         /// <summary>
         /// 極小幅度實機探測：核心 +15 MHz，功耗牆維持現況。不開管道、不碰風扇。
-        /// 結束一定還原成進門時讀到的值。結果寫 %TEMP%\voiceink-oc-probe.jsonl。
+        /// 結束一定還原成進門時讀到的值。結果寫 %TEMP%\axondeck-oc-probe.jsonl。
         /// </summary>
         internal static int RunProbe(bool hold)
         {
-            string log = Path.Combine(Path.GetTempPath(), "voiceink-oc-probe.jsonl");
+            string log = Path.Combine(Path.GetTempPath(), "axondeck-oc-probe.jsonl");
             var lines = new StringBuilder();
             void emit(string json)
             {

@@ -1,7 +1,7 @@
 /**
- * VoiceInk - 把整理好的文字送進「使用者現在正在打字的地方」
+ * AxonDeck - 把整理好的文字送進「使用者現在正在打字的地方」
  *
- * **使用者正在打字的地方如果就是 VoiceInk 自己的視窗，就直接送進去，完全不碰剪貼簿**
+ * **使用者正在打字的地方如果就是 AxonDeck 自己的視窗，就直接送進去，完全不碰剪貼簿**
  * （`insertIntoOwnWindow`）：那是最常見的情況（在自己的終端機、聊天輸入框講話），
  * 而走剪貼簿會在 Windows 的剪貼簿歷史（Win+V）裡插進兩筆——我們的文字一筆、還原舊值
  * 又一筆，使用者原本複製的東西就被擠到後面去，順序整個亂掉。
@@ -30,7 +30,7 @@ const RESTORE_DELAY_MS = 800
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * 焦點就在 VoiceInk 自己的視窗裡：直接交給 renderer 插進游標的位置。
+ * 焦點就在 AxonDeck 自己的視窗裡：直接交給 renderer 插進游標的位置。
  *
  * `getFocusedWindow()` 只認得自己 App 的視窗，使用者在別的程式裡講話時它就是 null，
  * 自然會退回剪貼簿那條路。語音輸入的浮藥丸（HUD）是 `focusable: false`，搶不走焦點；

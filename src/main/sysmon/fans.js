@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * VoiceInk — 風扇控制引擎。
+ * AxonDeck — 風扇控制引擎。
  *
  * 資料流：感測器 sidecar 每秒送一框（含溫度／使用率與可寫的 PWM 通道）→ 這裡依每條通道的
  * 設定算出目標 PWM → 用一行指令送回 sidecar。renderer 只送 identifier 與數字，

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 終端機純邏輯回歸測試（node 直跑，不需 electron、不開任何 pty）
+ * AxonDeck — 終端機純邏輯回歸測試（node 直跑，不需 electron、不開任何 pty）
  *
  * 重點在狀態機：側欄的「運行中／已完成」全靠它，而它面對的輸入是實測過的髒東西——
  * PSReadLine 會在外部輸出時把整份提示字元（含 OSC 133 標記）重送一次，捲動重播還會
@@ -280,9 +280,9 @@ console.log('\n[pty 參數]')
   ok('shellCommand 認不得的 key 退回 cmd', pty.shellCommand('../../evil.exe').args.length === 0)
 
   const withId = pty.shellEnvironment('', '', 't_abc')
-  ok('shell 帶 VOICEINK_TERMINAL_ID', withId.VOICEINK_TERMINAL_ID === 't_abc')
+  ok('shell 帶 AXONDECK_TERMINAL_ID', withId.AXONDECK_TERMINAL_ID === 't_abc')
   const badId = pty.shellEnvironment('', '', '../x')
-  ok('不合法的終端機 id 不進環境', badId.VOICEINK_TERMINAL_ID === undefined)
+  ok('不合法的終端機 id 不進環境', badId.AXONDECK_TERMINAL_ID === undefined)
 }
 
 // ===== 管理員終端機 =====

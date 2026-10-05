@@ -44,6 +44,10 @@ function status() {
 
 function get() {
   if (updater) return updater
+  // 改名前的下載快取（裡面躺著一份 400MB 的舊安裝檔），新名字的快取不會再用到它
+  if (app.isPackaged && process.env.LOCALAPPDATA) {
+    require('fs').rm(require('path').join(process.env.LOCALAPPDATA, 'voiceink-updater'), { recursive: true, force: true }, () => {})
+  }
   const { autoUpdater } = require('electron-updater')
   autoUpdater.autoDownload = autoEnabled
   // 差分下載在這個 App 上是**反向優化**，一定要關（實測 v1.22.0 → v1.23.0）：

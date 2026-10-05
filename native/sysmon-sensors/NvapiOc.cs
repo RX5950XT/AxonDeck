@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace VoiceInkSensors
+namespace AxonDeckSensors
 {
     /// <summary>
     /// NVIDIA 時脈偏移與功耗牆。公開 NVAPI 只有 Get；Set 走未公開 QueryInterface

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 專案工作區的純邏輯回歸測試（node 直跑，不需 electron）
+ * AxonDeck — 專案工作區的純邏輯回歸測試（node 直跑，不需 electron）
  *
  * 重點只有兩塊：
  *
@@ -161,7 +161,7 @@ async function fileRoundTrip() {
 
       await files.writeFile(tmp, 'sub/b.txt', 'changed')
       ok('存檔生效', fs.readFileSync(path.join(tmp, 'sub', 'b.txt'), 'utf8') === 'changed')
-      ok('沒有留下暫存檔', !fs.existsSync(path.join(tmp, 'sub', 'b.txt.voiceink-tmp')))
+      ok('沒有留下暫存檔', !fs.existsSync(path.join(tmp, 'sub', 'b.txt.axondeck-tmp')))
 
       let escaped = false
       try {
@@ -416,7 +416,7 @@ async function staleWrite() {
     ])
     const raced = fs.readFileSync(path.join(tmp, 'race.txt'), 'utf8')
     ok('併發存檔不會寫出混在一起的內容', raced === 'A'.repeat(5000) || raced === 'B'.repeat(5000))
-    ok('沒有留下暫存檔', fs.readdirSync(tmp).every((n) => !n.includes('voiceink-tmp')))
+    ok('沒有留下暫存檔', fs.readdirSync(tmp).every((n) => !n.includes('axondeck-tmp')))
   } finally {
     removeTree(tmp)
   }
@@ -517,6 +517,9 @@ async function reviewParsing() {
   ok('二進位檔標得出來', rows[1].binary === true && rows[1].additions === 0)
   ok('檔名有空白也不會斷', rows[2].path === 'docs/b b.md')
   ok('空輸入回空陣列', git.parseNumstat('').length === 0)
+  const moved = git.parseNumstat('1	1	 old/a.rs new/a.rs 0	2	c.md ')
+  ok('改名那筆（-M）拿新檔名、後面不錯位', moved.length === 2 && moved[0].path === 'new/a.rs'
+    && moved[0].from === 'old/a.rs' && moved[0].deletions === 1 && moved[1].path === 'c.md')
 
   ok('正常分支收得下', git.checkRef('feat/voice-input') === 'feat/voice-input')
   ok('遠端分支收得下', git.checkRef('origin/master') === 'origin/master')
@@ -1295,7 +1298,7 @@ console.log('\n[T] git worktree 的解析與分支名白名單')
     const runGit = (args) =>
       new Promise((resolve) => execFile('git', args, { cwd: dir }, () => resolve()))
     await runGit(['init'])
-    await runGit(['config', 'user.email', 'probe@voiceink.local'])
+    await runGit(['config', 'user.email', 'probe@axondeck.local'])
     await runGit(['config', 'user.name', 'probe'])
 
     // 還沒有 HEAD 的全新 repo：不可以拋錯，只是沒有數字

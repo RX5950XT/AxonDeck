@@ -1,14 +1,14 @@
 'use strict'
 
 /**
- * VoiceInk — 完整感測器橋接（HWMonitor／HWiNFO 那一塊）。
+ * AxonDeck — 完整感測器橋接（HWMonitor／HWiNFO 那一塊）。
  *
  * 為什麼要另外一顆程序：CPU／主機板／VRM／硬碟的溫度、風扇轉速與電壓在 Windows 上**沒有**
  * 免權限的介面。實測 `MSAcpi_ThermalZoneTemperature` 在桌機回空、`Get-StorageReliabilityCounter`
  * 未提權直接 Access Denied。唯一的路是核心驅動（LibreHardwareMonitorLib 的 WinRing0），
  * 而那需要系統管理員。
  *
- * **不把整個 VoiceInk 提權**：終端機分頁會連帶用管理員身分開 shell，等於把整個 App 變成提權跳板。
+ * **不把整個 AxonDeck 提權**：終端機分頁會連帶用管理員身分開 shell，等於把整個 App 變成提權跳板。
  * 改成使用者按一次按鈕 → 只有這顆小 sidecar 走 UAC → 透過**具名管道**把讀數送回來。
  * 管道名是 128 bit 亂數，而且只接受第一個連線。
  *
@@ -45,8 +45,8 @@ const HEALTH_MS = 5_000
 function resolveSensorExe(deps = {}) {
   const resourcesPath = deps.resourcesPath || process.resourcesPath || ''
   const candidates = [
-    resourcesPath ? path.join(resourcesPath, 'sensors', 'VoiceInkSensors.exe') : '',
-    path.join(__dirname, '..', '..', '..', 'resources', 'sensors', 'VoiceInkSensors.exe')
+    resourcesPath ? path.join(resourcesPath, 'sensors', 'AxonDeckSensors.exe') : '',
+    path.join(__dirname, '..', '..', '..', 'resources', 'sensors', 'AxonDeckSensors.exe')
   ].filter(Boolean)
   for (const candidate of candidates) {
     try {
@@ -243,7 +243,7 @@ function createSensorBridge(deps = {}) {
       const runId = ++lifecycle
       state = 'starting'
       message = ''
-      const pipeName = `\\\\.\\pipe\\voiceink-sensors-${crypto.randomBytes(16).toString('hex')}`
+      const pipeName = `\\\\.\\pipe\\axondeck-sensors-${crypto.randomBytes(16).toString('hex')}`
 
       pendingEnable = new Promise((resolve) => {
         pendingResolve = resolve

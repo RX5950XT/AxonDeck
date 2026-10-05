@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 語音輸入的紀錄與個人字典（Main Process）
+ * AxonDeck - 語音輸入的紀錄與個人字典（Main Process）
  *
  * 獨立於設定用的 electron-store，寫在 `<userData>/dictations.json`：
  * 設定那顆有 key allowlist，不適合塞會一直長大的紀錄。

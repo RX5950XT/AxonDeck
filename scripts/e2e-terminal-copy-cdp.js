@@ -9,7 +9,7 @@
  *  [E] CLI 用 OSC 8 送的網址點下去：不跳 window.confirm、直接開內建瀏覽器分頁
  *
  * 剪貼簿是使用者的：開頭存起來，收尾放回去。暫存 user-data-dir，只殺自己 spawn 的那棵程序樹。
- * 用 VOICEINK_EXE 指到舊版（例如安裝版）跑一次，確認修之前是紅的。
+ * 用 AXONDECK_EXE 指到舊版（例如安裝版）跑一次，確認修之前是紅的。
  */
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
@@ -23,9 +23,9 @@ const PORT = 9253
  *  焦點的隱藏視窗上會被 Chromium 擋掉：Document is not focused） */
 const MAIN_PORT = 9254
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-terminal-')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-terminal-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 const PROJECT_DIR = path.join(USER_DATA_DIR, 'project')
 fs.mkdirSync(PROJECT_DIR)

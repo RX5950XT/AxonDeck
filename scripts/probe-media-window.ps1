@@ -65,7 +65,7 @@ function Find-OwnedMenu {
   [void][MediaWindowProbe]::EnumWindows({ param($h,$p)
     [uint32]$windowPid = 0; [void][MediaWindowProbe]::GetWindowThreadProcessId($h,[ref]$windowPid)
     $name = New-Object Text.StringBuilder 128; [void][MediaWindowProbe]::GetClassName($h,$name,128)
-    if ($windowPid -eq $playerProcess.Id -and $name.ToString() -eq 'VoiceInkMediaMenu') { $script:popupHandle = $h; return $false }
+    if ($windowPid -eq $playerProcess.Id -and $name.ToString() -eq 'AxonDeckMediaMenu') { $script:popupHandle = $h; return $false }
     return $true
   },[IntPtr]::Zero)
   return $script:popupHandle
@@ -160,7 +160,7 @@ $foregroundBefore = [MediaWindowProbe]::GetForegroundWindow()
 $script:focusSamples=0
 $reportPath = Join-Path $Output "window-$Theme.json"
 $playerArgs = @('--offscreen', "--theme=$Theme", "--probe=`"$reportPath`"", $(if ($ExerciseResize) { '--probe-wait=25' } else { '--probe-wait=12' }), '--', "`"$File`"")
-$playerProcess = Start-Process (Join-Path $Runtime 'voiceink-media.exe') -ArgumentList $playerArgs -WindowStyle Hidden -PassThru
+$playerProcess = Start-Process (Join-Path $Runtime 'axondeck-media.exe') -ArgumentList $playerArgs -WindowStyle Hidden -PassThru
 try {
   Start-Sleep -Milliseconds 1200
   $script:mediaHandle = [IntPtr]::Zero
@@ -169,7 +169,7 @@ try {
     [void][MediaWindowProbe]::GetWindowThreadProcessId($h, [ref]$windowPid)
     $class = New-Object Text.StringBuilder 128
     [void][MediaWindowProbe]::GetClassName($h, $class, 128)
-    if ($windowPid -eq $playerProcess.Id -and $class.ToString() -eq 'VoiceInkMedia') { $script:mediaHandle = $h; return $false }
+    if ($windowPid -eq $playerProcess.Id -and $class.ToString() -eq 'AxonDeckMedia') { $script:mediaHandle = $h; return $false }
     return $true
   }, [IntPtr]::Zero) | Out-Null
   if ($script:mediaHandle -eq [IntPtr]::Zero) { throw '找不到測試視窗' }
@@ -220,7 +220,7 @@ try {
       [void][MediaWindowProbe]::SendMessage($script:mediaHandle,0x111,[IntPtr]105,[IntPtr]::Zero)
       Start-Sleep -Milliseconds 300
       # 不送滑鼠離開、不截圖強迫重畫；只讀實際 WM_DRAWITEM 完成後的記號。
-      if ([MediaWindowProbe]::GetProp($play,'VoiceInkPaintedPause').ToInt64() -ne $expected) { throw '播放／暫停圖示沒有自行更新' }
+      if ([MediaWindowProbe]::GetProp($play,'AxonDeckPaintedPause').ToInt64() -ne $expected) { throw '播放／暫停圖示沒有自行更新' }
     }
     $metrics.pausePaintWithoutMouse=$true
     $playLabel=New-Object Text.StringBuilder 128
@@ -258,8 +258,8 @@ try {
     $metrics.queueRowDips=[math]::Round([MediaWindowProbe]::SendMessage($queue,0x1a1,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()*96/[MediaWindowProbe]::GetDpiForWindow($queue),1)
     if ($metrics.queueRowDips -ne 62) { throw '播放清單仍是舊版列高' }
     [void][MediaWindowProbe]::SendMessage($queue,0x200,[IntPtr]::Zero,[IntPtr]0x00140014)
-    $metrics.queueHover=([MediaWindowProbe]::GetProp($queue,'VoiceInkQueueHover').ToInt64() -eq 1)
-    if (-not $metrics.queueHover) { throw "清單 hover 沒有更新：hover=$([MediaWindowProbe]::GetProp($queue,'VoiceInkQueueHover').ToInt64()) top=$([MediaWindowProbe]::SendMessage($queue,0x18e,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()) point=$([MediaWindowProbe]::SendMessage($queue,0x1a9,[IntPtr]::Zero,[IntPtr]0x00140014).ToInt64())" }
+    $metrics.queueHover=([MediaWindowProbe]::GetProp($queue,'AxonDeckQueueHover').ToInt64() -eq 1)
+    if (-not $metrics.queueHover) { throw "清單 hover 沒有更新：hover=$([MediaWindowProbe]::GetProp($queue,'AxonDeckQueueHover').ToInt64()) top=$([MediaWindowProbe]::SendMessage($queue,0x18e,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()) point=$([MediaWindowProbe]::SendMessage($queue,0x1a9,[IntPtr]::Zero,[IntPtr]0x00140014).ToInt64())" }
     $count=[MediaWindowProbe]::SendMessage($queue,0x18b,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()
     $area=New-Object MediaWindowProbe+Rect; [void][MediaWindowProbe]::GetClientRect($queue,[ref]$area)
     if ($count*62*[MediaWindowProbe]::GetDpiForWindow($queue)/96 -gt $area.Bottom) {

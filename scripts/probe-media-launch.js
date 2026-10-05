@@ -7,8 +7,8 @@ const vm = require('node:vm')
 const { spawn, execFileSync } = require('node:child_process')
 const { tempDir } = require('./lib/test-temp')
 const root = path.resolve(__dirname, '..')
-const resources = process.env.VOICEINK_EXE ? path.join(path.dirname(process.env.VOICEINK_EXE), 'resources') : path.join(root, 'resources')
-const source = process.env.VOICEINK_EXE
+const resources = process.env.AXONDECK_EXE ? path.join(path.dirname(process.env.AXONDECK_EXE), 'resources') : path.join(root, 'resources')
+const source = process.env.AXONDECK_EXE
   ? require('@electron/asar').extractFile(path.join(resources, 'app.asar'), path.join('src', 'main', 'media-player.js')).toString()
   : fs.readFileSync(path.join(root, 'src/main/media-player.js'), 'utf8')
 const dir = tempDir('media-visible-')
@@ -35,7 +35,7 @@ $script:result=$null
  [void][MediaLaunchWindow]::GetWindowThreadProcessId($h,[ref]$windowPid)
  $name=New-Object Text.StringBuilder 128
  [void][MediaLaunchWindow]::GetClassName($h,$name,128)
- if ($windowPid -eq $PlayerPid -and $name.ToString() -eq 'VoiceInkMedia') {
+ if ($windowPid -eq $PlayerPid -and $name.ToString() -eq 'AxonDeckMedia') {
   $rect=New-Object MediaLaunchWindow+Rect
   [void][MediaLaunchWindow]::GetWindowRect($h,[ref]$rect)
   $script:result=@{ visible=[MediaLaunchWindow]::IsWindowVisible($h); offscreen=($rect.Right -lt 0 -and $rect.Bottom -lt 0); foreground=([MediaLaunchWindow]::GetForegroundWindow() -eq $h) }
@@ -62,7 +62,7 @@ async function check(hidden, target = file) {
     if (name === 'path') return path
     if (name === './raw-fs') return { promises: fs.promises }
     if (name === './media-formats.json') return require('../src/main/media-formats.json')
-    if (name === './native-probe') return { resolveProbeExe: () => path.join(resources, 'media/voiceink-media.exe') }
+    if (name === './native-probe') return { resolveProbeExe: () => path.join(resources, 'media/axondeck-media.exe') }
     if (name === 'electron') return { shell: {} }
     if (name === 'child_process') return { spawn: (exe, args, options) => {
       assert.equal(options.windowsHide, hidden, '畫面外模式會略過正常啟動的隱藏行為，另核對啟動選項')

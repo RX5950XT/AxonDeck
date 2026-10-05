@@ -11,7 +11,7 @@ const {
   categoryFromText, classifyApp, classifySite, seed, idByName, skipSite
 } = require('./categories')
 
-const UA = 'VoiceInk/1.19 (screentime classifier)'
+const UA = 'AxonDeck/1.19 (screentime classifier)'
 const LIMIT = 40
 const COOLDOWN_MS = 7 * 24 * 3600 * 1000
 

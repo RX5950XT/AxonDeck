@@ -20,9 +20,9 @@ const PORT = 9247
  *  焦點的隱藏視窗上會被 Chromium 擋掉：Document is not focused） */
 const MAIN_PORT = 9248
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
-// 這時可以打包到別的資料夾再用 VOICEINK_EXE 指過去，測試不必等鎖放掉
-const EXE = process.env.VOICEINK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'VoiceInk.exe')
-const USER_DATA_DIR = tempDir('voiceink-e2e-terminal-')
+// 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
+const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
+const USER_DATA_DIR = tempDir('axondeck-e2e-terminal-')
 /** 拿來塞進剪貼簿的假截圖（8×8 紅色 PNG）。1×1 在某些機器上會被當成空圖。 */
 const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGO4o6GBFTEMLQkAe3tLAfuiUfAAAAAASUVORK5CYII='
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
@@ -508,9 +508,9 @@ async function main() {
         && !!row.querySelector('.ws-status-icon.state-running.is-spin')
         && row.textContent === '' && row.title.includes(${JSON.stringify(created.title)})
     })()`))
-    if (process.env.VOICEINK_STATUS_SCREENSHOT) {
+    if (process.env.AXONDECK_STATUS_SCREENSHOT) {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
-      fs.writeFileSync(process.env.VOICEINK_STATUS_SCREENSHOT, Buffer.from(shot.data, 'base64'))
+      fs.writeFileSync(process.env.AXONDECK_STATUS_SCREENSHOT, Buffer.from(shot.data, 'base64'))
     }
 
     ok('跑完變成「已完成」', await waitInPage(

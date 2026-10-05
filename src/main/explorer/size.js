@@ -6,7 +6,7 @@
  * 不跟著 symlink／junction 走；同一時間只算一個，新請求會取消舊的。
  * 路徑過 `paths.resolveExisting`，讀檔用 `raw-fs`。
  *
- * 呼叫端給 `exe`（voiceink-probe.exe）就走原生版 `dir-size`（native/voiceink-probe/src/dirsize.rs）：
+ * 呼叫端給 `exe`（axondeck-probe.exe）就走原生版 `dir-size`（native/axondeck-probe/src/dirsize.rs）：
  * Windows 列目錄本身就帶大小，不必每個檔案 lstat 一次。實測 node_modules 1.6 萬檔 2.6s → 0.2s，
  * `C:\Program Files` JS 8 秒逾時只算到 4.5 萬檔 → 原生 3.5 秒算完 21.5 萬檔。規則跟這裡的 `walk` 一樣。
  */
@@ -299,7 +299,7 @@ function newState(full, job, input) {
  *   maxMs?: number,
  *   exe?: string,
  *   onProgress?: (info: object) => void
- * }} [opts] `exe` 給 voiceink-probe.exe 的路徑就走原生版
+ * }} [opts] `exe` 給 axondeck-probe.exe 的路徑就走原生版
  */
 async function folderSize(dirPath, token, opts) {
   if (current) cancelJob(current)

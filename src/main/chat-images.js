@@ -1,5 +1,5 @@
 /**
- * VoiceInk - 聊天圖片附件（Main Process）
+ * AxonDeck - 聊天圖片附件（Main Process）
  *
  * 圖片不進 chats.json：electron-store 是整檔讀寫，把 base64 塞進去會讓
  * 每次 append 都重寫好幾 MB。訊息只存檔名，實體放 `<userData>/chat-images/`。

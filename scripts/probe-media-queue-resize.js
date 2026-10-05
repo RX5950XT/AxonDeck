@@ -5,8 +5,8 @@ const path = require('path')
 const assert = require('assert/strict')
 const { spawn, spawnSync } = require('child_process')
 const { tempDir } = require('./lib/test-temp')
-const runtime = path.resolve(process.env.VOICEINK_MEDIA_DIR || 'resources/media')
-const output = path.resolve(process.env.VOICEINK_MEDIA_REPORT_DIR || tempDir('media-queue-resize-'))
+const runtime = path.resolve(process.env.AXONDECK_MEDIA_DIR || 'resources/media')
+const output = path.resolve(process.env.AXONDECK_MEDIA_REPORT_DIR || tempDir('media-queue-resize-'))
 fs.mkdirSync(output, { recursive: true })
 async function main() {
   const files = Array.from({ length: 4 }, (_, i) => path.join(output, `track-${i}.wav`))
@@ -15,7 +15,7 @@ async function main() {
   for (const file of files.slice(1)) fs.copyFileSync(files[0],file)
   for (const theme of ['dark','light']) {
     const report = path.join(output,`${theme}.json`)
-    const child = spawn(path.join(runtime,'voiceink-media.exe'),['--offscreen',`--theme=${theme}`,`--probe=${report}`,'--probe-action=queue-resize','--probe-wait=3','--',...files],{ windowsHide:true,stdio:['ignore','ignore','pipe'] })
+    const child = spawn(path.join(runtime,'axondeck-media.exe'),['--offscreen',`--theme=${theme}`,`--probe=${report}`,'--probe-action=queue-resize','--probe-wait=3','--',...files],{ windowsHide:true,stdio:['ignore','ignore','pipe'] })
     let stderr=''; child.stderr.on('data',chunk=>{stderr+=chunk})
     try {
       await new Promise((resolve,reject) => {

@@ -403,9 +403,9 @@ async function extract(archive, inners, destDir, uniqueDest) {
   return landed
 }
 
-/** 開檔用的暫存副本放這裡（測試用 VOICEINK_ZIP_TEMP 指到自己的暫存資料夾，不碰正在用的那份） */
+/** 開檔用的暫存副本放這裡（測試用 AXONDECK_ZIP_TEMP 指到自己的暫存資料夾，不碰正在用的那份） */
 function tempRoot() {
-  return process.env.VOICEINK_ZIP_TEMP || path.join(os.tmpdir(), 'voiceink-zip')
+  return process.env.AXONDECK_ZIP_TEMP || path.join(os.tmpdir(), 'axondeck-zip')
 }
 
 const TEMP_MAX_AGE_MS = 24 * 60 * 60 * 1000

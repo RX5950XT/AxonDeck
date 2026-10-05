@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * VoiceInk — 管理員終端機的提權路徑實測（**會跳一次 UAC**）
+ * AxonDeck — 管理員終端機的提權路徑實測（**會跳一次 UAC**）
  *
  * `probe-terminal-admin.js` 驗的是管道協定（不提權也跑得完），這一支專門驗剩下那一段：
  * `Start-Process -Verb RunAs` 真的把 host 拉到管理員權限，開出來的 shell 完整性等級是 High。
@@ -16,7 +16,7 @@ const { app } = require('electron')
 
 const ROOT = path.join(__dirname, '..')
 const admin = require(path.join(ROOT, 'src/main/terminal/admin.js'))
-const MARK = 'VOICEINK_ELEVATED='
+const MARK = 'AXONDECK_ELEVATED='
 
 let passed = 0
 let failed = 0

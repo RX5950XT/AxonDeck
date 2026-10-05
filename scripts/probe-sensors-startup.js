@@ -10,14 +10,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** 只取 helper 的 PID 與視窗數，不列使用者的其他程序。 */
 function helpers() {
-  const command = "@(Get-Process VoiceInkSensors -ErrorAction SilentlyContinue | Select-Object Id,MainWindowHandle) | ConvertTo-Json -Compress"
+  const command = "@(Get-Process AxonDeckSensors -ErrorAction SilentlyContinue | Select-Object Id,MainWindowHandle) | ConvertTo-Json -Compress"
   const text = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command],
     { encoding: 'utf8', windowsHide: true }).trim()
   return text ? [].concat(JSON.parse(text)) : []
 }
 
 async function main() {
-  const exe = path.resolve('resources/sensors/VoiceInkSensors.exe')
+  const exe = path.resolve('resources/sensors/AxonDeckSensors.exe')
   const binary = fs.readFileSync(exe)
   assert.equal(binary.readUInt16LE(binary.readUInt32LE(0x3c) + 24 + 68), 2, '必須為無主控台的 WinExe')
   const before = helpers().map((item) => item.Id)

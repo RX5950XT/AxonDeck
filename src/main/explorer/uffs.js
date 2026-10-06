@@ -15,6 +15,7 @@ const crypto = require('crypto')
 const { spawn } = require('child_process')
 const { downloadFile } = require('../hfmodels/download')
 const { fail, realOf } = require('./paths')
+const platform = require('../platform')
 const { sanitizeSearchFilters, matchesSearchFilters } = require('./search-filter')
 
 const MAX_PATTERN = 200
@@ -43,6 +44,11 @@ let idleTimer = null
 let releasing = null
 const activeSearches = new Set()
 let searchVersion = 0
+
+function linuxUnsupported(code = 'UFFS_MISSING') {
+  throw fail(code, '整機快速搜尋（UFFS）目前僅支援 Windows；Linux 請用資料夾內篩選。')
+}
+
 
 function scheduleRelease() {
   clearTimeout(idleTimer)
@@ -387,6 +393,16 @@ function searchFilterArgs(rawFilters) {
  * }>}
  */
 async function status() {
+  if (!platform.isWindows) {
+    return {
+      installed: false,
+      version: '',
+      daemon: { running: false, warming: false, drives: 0, records: 0 },
+      broker: { present: false, installed: false },
+      unsupported: true,
+      message: 'UFFS 整機搜尋尚未移植到 Linux'
+    }
+  }
   const exe = findUffs()
   const empty = {
     installed: false,
@@ -420,6 +436,7 @@ async function status() {
  * @returns {Promise<{ hits: object[], truncated: boolean, warming: boolean }>}
  */
 async function search(raw, rawFilters) {
+  if (!platform.isWindows) linuxUnsupported()
   sanitizePattern(raw)
   const version = ++searchVersion
   const deadline = Date.now() + SEARCH_TIMEOUT_MS
@@ -585,6 +602,7 @@ function verifyZipHash(file, sumsText, fileName) {
  * @param {(info: { received: number, total: number }) => void} [onProgress]
  */
 async function download(onProgress) {
+  if (!platform.isWindows) linuxUnsupported('UFFS_INSTALL')
   const destDir = installDir()
   if (!destDir) throw fail('UFFS_INSTALL', '找不到安裝位置')
   if (downloadCtl) throw fail('UFFS_INSTALL', '下載進行中')
@@ -662,6 +680,7 @@ async function startDaemon(opts = {}) {
  * @param {{ auto?: boolean, onProgress?: (info: { received: number, total: number }) => void }} [opts]
  */
 async function ensureReady(opts = {}) {
+  if (!platform.isWindows) return status()
   if (opts.auto === false) return status()
   if (ensureInflight) return ensureInflight
   ensureInflight = runEnsure(opts).finally(() => { ensureInflight = null })

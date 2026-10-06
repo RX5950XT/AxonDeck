@@ -18,6 +18,8 @@ function iconOf(type) {
  */
 function driveName(disk) {
   const label = String(disk.label || '').trim()
+  const posix = typeof disk.path === 'string' && disk.path.startsWith('/')
+  if (posix) return label || disk.path || disk.letter || '磁碟'
   const fallback = Number(disk.type) === 4 ? '網路磁碟' : Number(disk.type) === 5 ? '光碟機' : '本機磁碟'
   return `${label || fallback} (${disk.letter}:)`
 }

@@ -3,14 +3,15 @@
 /**
  * 本機磁碟與使用者資料夾（Main Process）。
  *
- * 磁碟字母走 `fsutil fsinfo drives`（System32），不要 A–Z 去 `existsSync`：
- * 沒有軟碟的 A:／B: 與空光碟機會卡住好幾秒。用量再 `statfsSync`。
+ * Windows：磁碟字母走 `fsutil fsinfo drives`（System32），不要 A–Z 去 `existsSync`。
+ * Linux：掛載點走 `/proc/self/mountinfo`（`platform/linux.js`）；`letter` 是短 id，`path` 是 POSIX。
  */
 
 const fs = require('../raw-fs')
 const os = require('os')
 const path = require('path')
 const { execFile } = require('child_process')
+const platform = require('../platform')
 
 /** 虛擬位置：Windows 那樣的「本機」首頁（不是真路徑，別送進 paths）。 */
 const THIS_PC = 'thispc'
@@ -55,7 +56,7 @@ function isThisPc(raw) {
  * @param {string} folder
  * @param {string} id
  * @param {string} label
- * @returns {{ id: string, label: string, path: string } | null}
+ * @returns {Promise<{ id: string, label: string, path: string } | null>}
  */
 async function place(folder, id, label) {
   const full = path.resolve(folder)
@@ -91,7 +92,6 @@ async function listPlaces() {
     }
     pending.push(place(full, id, label))
   }
-  // 六個一起查：一個在睡著的 NAS 上也只多等一次逾時，不是六次
   return (await Promise.all(pending)).filter(Boolean)
 }
 
@@ -106,7 +106,6 @@ async function driveLetters() {
   })
   const found = stdout.match(/[A-Z]:\\/gi) || []
   if (found.length) return [...new Set(found.map((item) => item[0].toUpperCase()))]
-  // 退回 C–Z 一起問；仍跳過 A／B，避免軟碟機卡住
   const letters = []
   for (let code = 67; code <= 90; code += 1) letters.push(String.fromCharCode(code))
   const alive = await Promise.all(letters.map((letter) => (
@@ -116,12 +115,18 @@ async function driveLetters() {
 }
 
 /**
- * 只回字母與根路徑。**不要**對每顆盤 `statfsSync`：空光碟機／未就緒
- * 的網路磁碟會卡住十幾秒，檔案頁一進來就像當掉。
- *
- * @returns {Array<{ letter: string, path: string, total: number, free: number }>}
+ * @returns {Promise<Array<{ letter: string, path: string, total: number, free: number }>>}
  */
 async function listDrives() {
+  if (!platform.isWindows) {
+    const seen = new Set()
+    return platform.linux.readMounts().map((mount) => {
+      let letter = platform.linux.mountLetter(mount.path)
+      while (seen.has(letter)) letter = `${letter}_`
+      seen.add(letter)
+      return { letter, path: mount.path, total: 0, free: 0 }
+    })
+  }
   return (await driveLetters()).map((letter) => ({
     letter,
     path: `${letter}:\\`,
@@ -131,15 +136,15 @@ async function listDrives() {
 }
 
 /**
- * 「本機」首頁要的容量與磁碟種類。**不要**對每顆盤 `statfsSync`
- * （空光碟機／斷線的網路磁碟會卡十幾秒）：一次 CIM 查詢就把標籤、
- * 檔案系統、容量、種類全拿回來，而且是非同步的，卡不到主程序。
- *
  * @returns {Promise<Array<{ letter: string, path: string, label: string, fs: string, total: number, free: number, type: number, remote: string }>>}
  */
 let infoPending = null
 function driveInfo() {
   if (infoPending) return infoPending
+  if (!platform.isWindows) {
+    infoPending = listDrivesLinuxInfo().finally(() => { infoPending = null })
+    return infoPending
+  }
   const exe = path.join(
     process.env.SystemRoot || 'C:\\Windows',
     'System32',
@@ -160,6 +165,54 @@ function driveInfo() {
 }
 
 /**
+ * Linux：非同步 statfs，單顆逾時就當容量未知。
+ * @returns {Promise<object[]>}
+ */
+async function listDrivesLinuxInfo() {
+  const mounts = platform.linux.readMounts()
+  const seen = new Set()
+  const rows = []
+  for (const mount of mounts) {
+    let letter = platform.linux.mountLetter(mount.path)
+    while (seen.has(letter)) letter = `${letter}_`
+    seen.add(letter)
+    const usage = await withTimeout(statfsSafe(mount.path), { total: 0, free: 0 })
+    const remote = mount.fs === 'nfs' || mount.fs === 'cifs' || mount.fs === 'smb3'
+      || mount.source.includes(':')
+    rows.push({
+      letter,
+      path: mount.path,
+      label: mount.path === '/' ? '根目錄' : path.basename(mount.path) || mount.path,
+      fs: String(mount.fs || '').slice(0, 16),
+      total: usage.total,
+      free: usage.free,
+      type: remote ? 4 : 3,
+      remote: remote ? String(mount.source || '').slice(0, 260) : ''
+    })
+  }
+  return rows
+}
+
+/**
+ * @param {string} mountPath
+ * @returns {Promise<{ total: number, free: number }>}
+ */
+async function statfsSafe(mountPath) {
+  try {
+    if (typeof fs.promises.statfs === 'function') {
+      const st = await fs.promises.statfs(mountPath)
+      const bsize = Number(st.bsize) || 0
+      const blocks = Number(st.blocks) || 0
+      const bavail = Number(st.bavail) || 0
+      return { total: bsize * blocks, free: bsize * bavail }
+    }
+  } catch {
+    // 無權或特殊掛載
+  }
+  return { total: 0, free: 0 }
+}
+
+/**
  * @param {{ letter: string, path: string }} disk
  */
 function toInfo(disk) {
@@ -167,8 +220,6 @@ function toInfo(disk) {
 }
 
 /**
- * `ConvertTo-Json` 只有一顆盤時回物件不是陣列。
- *
  * @param {string} raw
  * @returns {Array<object>}
  */
@@ -204,10 +255,6 @@ function capacity(raw) {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-/**
- * 手機／相機（MTP）沒有磁碟代號，只存在於殼層的「本機」底下，路徑長這樣：
- * `::{20D04FE0-…}\\\?\usb#vid_18d1&pid_4ee2…#{6ac27878-…}`（只給 explorer.exe 開）。
- */
 const DEVICE_RE = /^::\{20D04FE0-3AEA-1069-A2D8-08002B30309D\}\\{3}\?\\[\w#&.{}~-]+$/i
 
 /** @param {unknown} raw */
@@ -217,9 +264,11 @@ function isDevicePath(raw) {
 
 /**
  * 「本機」底下不是檔案系統的裝置（插著的手機、相機）。
+ * Linux：MTP／殼層 COM 尚未移植 → 空清單（降級，不 crash）。
  * @returns {Promise<Array<{ name: string, path: string, type: string }>>}
  */
 function listDevices() {
+  if (!platform.isWindows) return Promise.resolve([])
   const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new();'
     + ' @((New-Object -ComObject Shell.Application).NameSpace(17).Items() | Where-Object { -not $_.IsFileSystem } |'
@@ -231,7 +280,7 @@ function listDevices() {
   })
 }
 
-/** `ConvertTo-Json` 沒東西時回空字串、一台時回物件不是陣列。 @param {string} raw */
+/** @param {string} raw */
 function parseDevices(raw) {
   let parsed = null
   try {

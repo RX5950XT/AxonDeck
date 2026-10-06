@@ -45,6 +45,22 @@ import {
 const SEARCH_DEBOUNCE_MS = 180
 /** 虛擬位置：Windows 那樣的「本機」首頁（跟 recyclebin 同一種，不是真路徑）。 */
 const THIS_PC = 'thispc'
+
+/** 側欄／雙欄磁碟標籤：POSIX 掛載顯示路徑短名，Windows 仍用 `C:` */
+function driveSideLabel(disk) {
+  if (disk && typeof disk.path === 'string' && disk.path.startsWith('/')) {
+    return disk.path === '/' ? '/' : (disk.label || disk.path)
+  }
+  return `${disk.letter}:`
+}
+
+function pathUnder(child, parent) {
+  const here = pathKey(child)
+  const root = pathKey(parent)
+  if (!root) return false
+  if (here === root) return true
+  return here.startsWith(root + '/') || here.startsWith(root + '\\')
+}
 const TILE_SIZES = [48, 64, 96, 128, 180, 256]
 const DEFAULT_TILE = 96
 const BROWSE_PAGE_SIZE = typeof BROWSE_PAGE_SIZE_IMPORT === 'number' ? BROWSE_PAGE_SIZE_IMPORT : 500
@@ -951,10 +967,10 @@ function paintSidebar(nextPlaces, nextDisks) {
   })))
   paintSideList($('exDrives'), (nextDisks || []).map((d) => ({
     id: `drive-${d.letter}`,
-    label: `${d.letter}:`,
+    label: driveSideLabel(d),
     path: d.path,
     meta: d.total ? `${Math.round(((d.total - d.free) / d.total) * 100)}%` : '',
-    active: here === pathKey(d.path) || here.startsWith(pathKey(d.path) + '\\'),
+    active: pathUnder(cwd, d.path),
     reorder: false,
     custom: false
   })))
@@ -1816,10 +1832,10 @@ function paintSecondDrives() {
     btn.type = 'button'
     btn.className = 'btn-icon ex-second-drive'
     btn.dataset.path = disk.path
-    btn.textContent = `${disk.letter}:`
-    btn.title = `右欄切到 ${disk.letter}:`
+    btn.textContent = driveSideLabel(disk)
+    btn.title = `右欄切到 ${driveSideLabel(disk)}`
     btn.setAttribute('aria-label', btn.title)
-    btn.setAttribute('aria-pressed', here === key || here.startsWith(`${key}\\`) ? 'true' : 'false')
+    btn.setAttribute('aria-pressed', pathUnder(secondPane.cwd, disk.path) ? 'true' : 'false')
     btn.addEventListener('click', () => {
       setActivePane('right')
       void secondNavigate(disk.path)

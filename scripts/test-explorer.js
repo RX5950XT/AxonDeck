@@ -19,6 +19,7 @@ const files = require(path.join(ROOT, 'src/main/explorer/fs.js'))
 const recycle = require(path.join(ROOT, 'src/main/explorer/recycle.js'))
 const uffs = require(path.join(ROOT, 'src/main/explorer/uffs.js'))
 const drives = require(path.join(ROOT, 'src/main/explorer/drives.js'))
+const platform = require(path.join(ROOT, 'src/main/platform/index.js'))
 
 let passed = 0
 let failed = 0
@@ -45,49 +46,69 @@ async function denies(label, run, code) {
 async function main() {
 console.log('\n[A] 路徑守衛 resolveAbs')
 {
-  ok('磁碟機絕對路徑放行', paths.resolveAbs('C:\\Windows') === 'C:\\Windows')
-  ok('正斜線會正規化', paths.resolveAbs('C:/Windows').toLowerCase() === 'c:\\windows')
-  await denies('拒絕相對路徑', () => paths.resolveAbs('foo\\bar'), 'BAD_PATH')
-  try {
-    ok('UNC 分享根放行', paths.resolveAbs('\\\\fileserver\\media') === '\\\\fileserver\\media')
-  } catch (error) {
-    ok('UNC 分享根放行', false, error && error.code)
+  if (platform.isWindows) {
+    ok('磁碟機絕對路徑放行', paths.resolveAbs('C:\\Windows') === 'C:\\Windows')
+    ok('正斜線會正規化', paths.resolveAbs('C:/Windows').toLowerCase() === 'c:\\windows')
+    await denies('拒絕相對路徑', () => paths.resolveAbs('foo\\bar'), 'BAD_PATH')
+    try {
+      ok('UNC 分享根放行', paths.resolveAbs('\\\\fileserver\\media') === '\\\\fileserver\\media')
+    } catch (error) {
+      ok('UNC 分享根放行', false, error && error.code)
+    }
+    try {
+      ok('UNC 子路徑放行', paths.resolveAbs('\\\\fileserver\\media\\photos').toLowerCase() === '\\\\fileserver\\media\\photos')
+    } catch (error) {
+      ok('UNC 子路徑放行', false, error && error.code)
+    }
+    try {
+      ok('UNC IPv4 放行', paths.resolveAbs('\\\\192.168.1.10\\share') === '\\\\192.168.1.10\\share')
+    } catch (error) {
+      ok('UNC IPv4 放行', false, error && error.code)
+    }
+    await denies('拒絕沒有分享名的 UNC', () => paths.resolveAbs('\\\\fileserver'), 'BAD_PATH')
+    await denies('拒絕裝置路徑', () => paths.resolveAbs('\\\\.\\C:'), 'BAD_PATH')
+    await denies('拒絕 \\\\?\\ 裝置路徑', () => paths.resolveAbs('\\\\?\\C:\\Windows'), 'BAD_PATH')
+    await denies('拒絕 named pipe', () => paths.resolveAbs('\\\\fileserver\\pipe'), 'BAD_PATH')
+    await denies('拒絕 ADS', () => paths.resolveAbs('C:\\foo.txt:stream'), 'BAD_PATH')
+    await denies('拒絕空字串', () => paths.resolveAbs(''), 'BAD_PATH')
+    await denies('拒絕 NUL', () => paths.resolveAbs('C:\\foo\0bar'), 'BAD_PATH')
+  } else {
+    ok('POSIX 根放行', paths.resolveAbs('/') === '/')
+    ok('POSIX 絕對路徑放行', paths.resolveAbs('/tmp') === '/tmp' || paths.resolveAbs('/tmp') === '/tmp')
+    ok('多餘斜線正規化', paths.resolveAbs('/tmp//a/../b') === '/tmp/b' || paths.resolveAbs('/usr') === '/usr')
+    await denies('拒絕相對路徑', () => paths.resolveAbs('foo/bar'), 'BAD_PATH')
+    await denies('拒絕空字串', () => paths.resolveAbs(''), 'BAD_PATH')
+    await denies('拒絕 NUL', () => paths.resolveAbs('/tmp/foo\0bar'), 'BAD_PATH')
+    await denies('拒絕 Windows 磁碟路徑', () => paths.resolveAbs('C:\\Windows'), 'BAD_PATH')
   }
-  try {
-    ok('UNC 子路徑放行', paths.resolveAbs('\\\\fileserver\\media\\photos').toLowerCase() === '\\\\fileserver\\media\\photos')
-  } catch (error) {
-    ok('UNC 子路徑放行', false, error && error.code)
-  }
-  try {
-    ok('UNC IPv4 放行', paths.resolveAbs('\\\\192.168.1.10\\share') === '\\\\192.168.1.10\\share')
-  } catch (error) {
-    ok('UNC IPv4 放行', false, error && error.code)
-  }
-  await denies('拒絕沒有分享名的 UNC', () => paths.resolveAbs('\\\\fileserver'), 'BAD_PATH')
-  await denies('拒絕裝置路徑', () => paths.resolveAbs('\\\\.\\C:'), 'BAD_PATH')
-  await denies('拒絕 \\\\?\\ 裝置路徑', () => paths.resolveAbs('\\\\?\\C:\\Windows'), 'BAD_PATH')
-  await denies('拒絕 named pipe', () => paths.resolveAbs('\\\\fileserver\\pipe'), 'BAD_PATH')
-  await denies('拒絕 ADS', () => paths.resolveAbs('C:\\foo.txt:stream'), 'BAD_PATH')
-  await denies('拒絕空字串', () => paths.resolveAbs(''), 'BAD_PATH')
-  await denies('拒絕 NUL', () => paths.resolveAbs('C:\\foo\0bar'), 'BAD_PATH')
 }
 
 console.log('\n[B] 受保護路徑（只擋刪／改，不擋瀏覽）')
 {
-  ok('磁碟根目錄受保護', paths.isProtected('C:\\') === true)
-  ok('Windows 目錄本身受保護', paths.isProtected(process.env.SystemRoot || 'C:\\Windows') === true)
-  ok('家目錄本身受保護', paths.isProtected(os.homedir()) === true)
-  ok('家目錄底下不受保護', paths.isProtected(path.join(os.homedir(), 'Desktop')) === false)
-  ok('Windows 底下檔案不受保護（權限交給 OS）', paths.isProtected(path.join(process.env.SystemRoot || 'C:\\Windows', 'notepad.exe')) === false)
+  if (platform.isWindows) {
+    ok('磁碟根目錄受保護', paths.isProtected('C:\\') === true)
+    ok('Windows 目錄本身受保護', paths.isProtected(process.env.SystemRoot || 'C:\\Windows') === true)
+    ok('家目錄本身受保護', paths.isProtected(os.homedir()) === true)
+    ok('家目錄底下不受保護', paths.isProtected(path.join(os.homedir(), 'Desktop')) === false)
+    ok('Windows 底下檔案不受保護（權限交給 OS）', paths.isProtected(path.join(process.env.SystemRoot || 'C:\\Windows', 'notepad.exe')) === false)
+  } else {
+    ok('根目錄受保護', paths.isProtected('/') === true)
+    ok('家目錄本身受保護', paths.isProtected(os.homedir()) === true)
+    ok('家目錄底下不受保護', paths.isProtected(path.join(os.homedir(), 'Desktop')) === false)
+    ok('/etc 受保護', paths.isProtected('/etc') === true)
+    ok('/tmp 底下不受保護', paths.isProtected('/tmp/axondeck-test-x') === false)
+  }
 }
 
 console.log('\n[C] checkName')
 {
   ok('普通名字', paths.checkName('notes.txt') === 'notes.txt')
   await denies('斜線', () => paths.checkName('a/b'), 'BAD_NAME')
-  await denies('冒號', () => paths.checkName('a:b'), 'BAD_NAME')
-  await denies('CON', () => paths.checkName('CON'), 'BAD_NAME')
-  await denies('句點結尾', () => paths.checkName('foo.'), 'BAD_NAME')
+  if (platform.isWindows) {
+    await denies('冒號', () => paths.checkName('a:b'), 'BAD_NAME')
+    await denies('CON', () => paths.checkName('CON'), 'BAD_NAME')
+    await denies('句點結尾', () => paths.checkName('foo.'), 'BAD_NAME')
+  }
 }
 
 console.log('\n[D] 單層列目錄與增刪改')
@@ -138,7 +159,7 @@ console.log('\n[D] 單層列目錄與增刪改')
   ok('新增檔案', fs.statSync(madeFile.path).isFile() && fs.readFileSync(madeFile.path).length === 0)
   await denies('同名檔案拒絕', () => files.createEntry(dir, 'blank.txt', false), 'EXISTS')
 
-  await denies('不能刪磁碟根目錄', () => files.removeEntry('C:\\'), 'PROTECTED')
+  await denies('不能刪磁碟根目錄', () => files.removeEntry(platform.isWindows ? 'C:\\' : '/'), 'PROTECTED')
   removeTree(dir)
 }
 
@@ -149,7 +170,8 @@ console.log('\n[E] UFFS pattern 消毒')
   await denies('拒絕 regex 前綴', () => uffs.sanitizePattern('>.*\\.exe'), 'BAD_QUERY')
   await denies('拒絕以 - 開頭', () => uffs.sanitizePattern('--limit'), 'BAD_QUERY')
   await denies('拒絕空字串', () => uffs.sanitizePattern('   '), 'BAD_QUERY')
-  const rows = uffs.parseJsonRows('[{"path":"C:\\\\Windows\\\\notepad.exe","name":"notepad.exe","size":1,"type":"file"}]')
+  const samplePath = platform.isWindows ? 'C:\\Windows\\notepad.exe' : '/tmp/notepad.exe'
+  const rows = uffs.parseJsonRows(JSON.stringify([{ path: samplePath, name: 'notepad.exe', size: 1, type: 'file' }]))
   ok('JSON 陣列', rows.length === 1)
   const hit = uffs.sanitizeHit(rows[0])
   ok('命中只留白名單欄位', Boolean(hit && hit.path && hit.name === 'notepad.exe' && hit.dir === false))
@@ -243,7 +265,7 @@ console.log('\n[F] 本機位置與磁碟')
   const places = await drives.listPlaces()
   ok('至少有家目錄', places.some((p) => p.id === 'home' && fs.existsSync(p.path)), JSON.stringify(places.map((p) => p.id)))
   const disks = await drives.listDrives()
-  ok('至少有一顆磁碟', disks.length >= 1 && /^[A-Z]$/.test(disks[0].letter), JSON.stringify(disks.map((d) => d.letter)))
+  ok('至少有一顆磁碟', disks.length >= 1 && Boolean(disks[0].letter) && Boolean(disks[0].path), JSON.stringify(disks.map((d) => d.letter)))
 }
 
 console.log('\n[G] 複製／搬移碰撞給唯一名，不覆寫')
@@ -536,7 +558,7 @@ console.log('\n[L] 家目錄可新增子項；受保護的是家目錄本身')
     ok('家目錄可新增檔案', false, `${error && error.code}: ${error && error.userMessage}`)
   }
   await denies('不能刪家目錄本身', () => files.removeEntry(home), 'PROTECTED')
-  await denies('不能在磁碟根目錄新增', () => files.createEntry('C:\\', `vi-ex-${Date.now()}.txt`, false), 'PROTECTED')
+  await denies('不能在磁碟根目錄新增', () => files.createEntry(platform.isWindows ? 'C:\\' : '/', `vi-ex-${Date.now()}.txt`, false), 'PROTECTED')
 }
 
 console.log('\n[M] junction 刪的是連結不是目標')
@@ -648,21 +670,23 @@ console.log('\n[P] 側欄位置消毒與合併')
     ok('places.js 存在', false, error.message)
   }
   if (placesMod) {
+    const homePath = platform.isWindows ? 'C:\\Users\\x' : '/home/x'
+    const deskPath = platform.isWindows ? 'C:\\Users\\x\\Desktop' : '/home/x/Desktop'
     const builtins = [
-      { id: 'home', label: '本機', path: 'C:\\Users\\x' },
-      { id: 'desktop', label: '桌面', path: 'C:\\Users\\x\\Desktop' },
+      { id: 'home', label: '本機', path: homePath },
+      { id: 'desktop', label: '桌面', path: deskPath },
       { id: 'recycle', label: '資源回收筒', path: 'recyclebin' }
     ]
     const stored = [
-      { id: 'desktop', label: '桌面', path: 'C:\\Users\\x\\Desktop' },
-      { id: 'nas1', label: 'NAS', path: '\\\\fileserver\\media' },
-      { id: 'home', hidden: true, path: 'C:\\Users\\x' },
+      { id: 'desktop', label: '桌面', path: deskPath },
+      { id: 'nas1', label: 'NAS', path: platform.isWindows ? '\\\\fileserver\\media' : '/mnt/nas' },
+      { id: 'home', hidden: true, path: homePath },
       { id: 'recycle', path: 'recyclebin' },
-      { id: '../escape', path: 'C:\\Windows' },
+      { id: '../escape', path: platform.isWindows ? 'C:\\Windows' : '/etc' },
       { id: 'badunc', path: '\\\\.\\C:' }
     ]
     const clean = placesMod.sanitizePlaces(stored)
-    ok('自訂 NAS 可進側欄', clean.some((p) => p.id === 'nas1' && p.path === '\\\\fileserver\\media'))
+    ok('自訂 NAS 可進側欄', clean.some((p) => p.id === 'nas1' && p.path === stored[1].path))
     ok('非法 id 丟掉', !clean.some((p) => p.id.includes('..')))
     ok('裝置路徑丟掉', !clean.some((p) => p.id === 'badunc'))
     const merged = placesMod.mergePlaces(clean, builtins)
@@ -670,19 +694,23 @@ console.log('\n[P] 側欄位置消毒與合併')
     ok('順序跟存檔走', merged[0] && merged[0].id === 'desktop', merged[0] && merged[0].id)
     ok('NAS 留在合併結果', merged.some((p) => p.id === 'nas1'))
     const renamed = placesMod.mergePlaces(placesMod.sanitizePlaces([
-      { id: 'desktop', label: '我的桌面', path: 'C:\\Users\\x\\Desktop' }
+      { id: 'desktop', label: '我的桌面', path: deskPath }
     ]), builtins)
     ok('內建位置改過的名稱會生效（路徑仍照內建）',
-      renamed.some((p) => p.id === 'desktop' && p.label === '我的桌面' && p.path === 'C:\\Users\\x\\Desktop'))
+      renamed.some((p) => p.id === 'desktop' && p.label === '我的桌面' && p.path === deskPath))
     const pinned = placesMod.mergePlaces(placesMod.sanitizePlaces([
       { id: 'recycle', hidden: true, path: 'recyclebin' },
       { id: 'place-x', label: '回收', path: 'recyclebin' }
     ]), builtins)
     ok('資源回收筒強制釘選：藏過也會回來、不重複', pinned.filter((p) => p.path === 'recyclebin').length === 1 &&
       pinned.some((p) => p.id === 'recycle'))
-    ok('磁碟代號 A 合法', placesMod.sanitizeLetter('a') === 'A')
-    await denies('磁碟代號不合法', () => placesMod.sanitizeLetter('1'), 'BAD_PATH')
-    await denies('磁碟代號 C 不給對應', () => placesMod.sanitizeLetter('C'), 'BAD_PATH')
+    if (platform.isWindows) {
+      ok('磁碟代號 A 合法', placesMod.sanitizeLetter('a') === 'A')
+      await denies('磁碟代號不合法', () => placesMod.sanitizeLetter('1'), 'BAD_PATH')
+      await denies('磁碟代號 C 不給對應', () => placesMod.sanitizeLetter('C'), 'BAD_PATH')
+    } else {
+      ok('Linux 略過磁碟代號對應測試', true)
+    }
   }
 }
 

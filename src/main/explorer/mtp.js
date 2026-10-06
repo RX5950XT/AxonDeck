@@ -14,7 +14,6 @@
 
 const path = require('path')
 const crypto = require('crypto')
-const { shell } = require('electron')
 const fsp = require('../raw-fs').promises
 const drives = require('./drives')
 const paths = require('./paths')
@@ -25,6 +24,12 @@ const zip = require('./zip')
 const mediaPlayer = require('../media-player')
 
 const PREFIX = 'mtp:'
+
+/** Electron 以外（node 測試）沒有 shell；MTP 本就僅 Windows。 */
+function electronShell() {
+  try { return require('electron').shell } catch { return null }
+}
+
 /** 相機資料夾幾百張要列 3～4 秒，幾千張會更久 */
 const LIST_TIMEOUT_MS = 2 * 60 * 1000
 /** 使用者的複製可以很大（影片），Windows 自己的進度視窗有取消鈕 */

@@ -16,7 +16,9 @@
     "build:hook": "dotnet publish native/dictation-hook -c Release -o resources/hook",
     "build:shell": "dotnet publish native/explorer-shell -c Release -o resources/shell",
     "build:probe": "cargo build --release --manifest-path native/axondeck-probe/Cargo.toml && node scripts/copy-probe.js",
-    "build:media": "node scripts/build-media.js"
+    "build:media": "node scripts/build-media.js",
+    "electron:pack:linux": "vite build && electron-builder --linux AppImage --publish never",
+    "electron:build:linux": "vite build && electron-builder --linux AppImage --publish never"
   },
   "author": "",
   "license": "MIT",
@@ -140,6 +142,14 @@
           "**/*"
         ]
       }
-    ]
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "assets/icon.png",
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
+    }
   }
 }

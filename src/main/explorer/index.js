@@ -12,6 +12,7 @@ const fs = require('../raw-fs')
 const path = require('path')
 const { execFile } = require('child_process')
 const paths = require('./paths')
+const platform = require('../platform')
 const store = require('./store')
 const files = require('./fs')
 const drives = require('./drives')
@@ -75,7 +76,7 @@ async function bootstrap() {
       if (!reachable) throw new Error('gone')
       paths.resolveAbs(cwd)
     } catch {
-      cwd = listed[0] ? listed[0].path : (disks[0] ? disks[0].path : 'C:\\')
+      cwd = listed[0] ? listed[0].path : (disks[0] ? disks[0].path : platform.fallbackRoot())
     }
   }
   return { ...state, lastPath: cwd, places: listed, drives: disks }

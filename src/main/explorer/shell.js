@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * 檔案總管的 Windows 殼層 sidecar 門面。
+ * 檔案總管的殼層 sidecar 門面（目前僅 Windows；其他平台 ensure() 直接降級）。
  *
  * 右鍵選單裡的 7-Zip／WinRAR／「傳送到」／「內容」，以及 Google Drive 綠勾，
  * 都要真的去問殼層。這裡把 `shell-host.js` 的行協定收成幾個函式，並把 BGRA
@@ -11,8 +11,17 @@
  */
 
 const os = require('os')
-const { nativeImage, BrowserWindow } = require('electron')
 const host = require('./shell-host')
+const platform = require('../platform')
+
+function electronApis() {
+  try {
+    return require('electron')
+  } catch {
+    return null
+  }
+}
+
 const paths = require('./paths')
 
 /** @type {null | { ok: boolean, send: Function, stop: Function, alive: Function }} */
@@ -25,6 +34,11 @@ let missing = false
  * @returns {Promise<object|null>}
  */
 async function ensure() {
+  // Linux／非 Windows：沒有 COM 殼層 sidecar，全部回空（右鍵／縮圖降級，不 crash）
+  if (!platform.isWindows) {
+    missing = true
+    return null
+  }
   if (missing) return null
   if (session && typeof session.alive === 'function' && session.alive()) return session
   if (starting) return starting
@@ -74,7 +88,7 @@ function toPng(icon) {
   }
   if (buffer.length !== width * height * 4) return ''
   try {
-    const image = nativeImage.createFromBitmap(buffer, { width, height })
+    const image = (electronApis()?.nativeImage)?.createFromBitmap(buffer, { width, height })
     if (!image || image.isEmpty()) return ''
     return image.toDataURL()
   } catch {
@@ -101,6 +115,8 @@ function mapNode(node) {
 }
 
 function hwndOf() {
+  const BrowserWindow = electronApis()?.BrowserWindow
+  if (!BrowserWindow) return '0'
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
   if (!win || win.isDestroyed()) return '0'
   try {

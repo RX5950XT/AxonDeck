@@ -4,7 +4,11 @@ const path = require('path')
 const fs = require('./raw-fs').promises
 const { spawn } = require('child_process')
 const formats = require('./media-formats.json')
-const { shell } = require('electron')
+
+function electronShell() {
+  try { return require('electron').shell } catch { return null }
+}
+
 const { resolveProbeExe } = require('./native-probe')
 const types = new Map(Object.entries(formats).flatMap(([kind, list]) => list.map((ext) => [ext, kind])))
 let theme = () => 'dark'
@@ -91,6 +95,9 @@ async function openMedia(file, options = {}) {
 }
 /** 與 shell.openPath 的回傳方式相同；所有媒體入口共用這條分流。 */
 async function openPath(file) {
-  return await openMedia(file) ? '' : shell.openPath(file)
+  if (await openMedia(file)) return ''
+  const sh = electronShell()
+  if (!sh || typeof sh.openPath !== 'function') return 'UNSUPPORTED'
+  return sh.openPath(file)
 }
 module.exports = { mediaKind, openMedia, openPath, setThemeGetter, initializeAssociations }

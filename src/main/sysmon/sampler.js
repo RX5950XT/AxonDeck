@@ -52,6 +52,7 @@ function resolveProbePath(baseDir = __dirname) {
 function createSampler(deps = {}) {
   const spawnFn = deps.spawnFn || spawn
   const cpusFn = deps.cpusFn || (() => os.cpus())
+  const probeCommandFn = deps.probeCommand || probeCommand
 
   /** @type {import('child_process').ChildProcess | null} */
   let child = null
@@ -229,8 +230,16 @@ function createSampler(deps = {}) {
 
     let proc
     try {
-      // 有 axondeck-probe.exe 就用它（同一套協定），沒建置才退回 PowerShell
-      const cmd = probeCommand('sysmon', resolveProbePath())
+      // 有 axondeck-probe.exe 就用它（同一套協定），沒建置才退回 PowerShell（僅 Windows）
+      const cmd = probeCommandFn('sysmon', resolveProbePath())
+      if (!cmd.file || cmd.unsupported) {
+        onError({
+          code: 'SYSMON_UNSUPPORTED',
+          message: '系統監控取樣器目前僅支援 Windows（Linux 尚未移植 probe）'
+        })
+        // 不要 scheduleRestart：沒有東西可以重開
+        return
+      }
       proc = spawnFn(cmd.file, cmd.args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch {
       onError({ code: 'SYSMON_SPAWN_FAILED', message: '無法啟動系統監控取樣器' })

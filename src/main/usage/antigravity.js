@@ -44,6 +44,8 @@ function resolveCredentialScriptPath(baseDir = __dirname) {
 }
 
 async function readAntigravityCredential() {
+  // Windows Credential Manager（CredReadW via PS1）僅 win32；Linux 回 null＝disconnected／optional
+  if (process.platform !== 'win32') return null
   const windowsRoot = process.env.SystemRoot || 'C:\\Windows'
   const executable = path.join(
     windowsRoot,

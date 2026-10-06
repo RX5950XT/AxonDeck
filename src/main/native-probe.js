@@ -51,12 +51,17 @@ function powershellPath() {
  */
 function probeCommand(mode, scriptPath, deps = {}) {
   const exe = deps.exe ?? resolveProbeExe()
-  if (exe) return { file: exe, args: [mode], native: true }
+  if (exe) return { file: exe, args: [mode], native: true, unsupported: false }
+  // Linux／macOS：沒有 probe 二進位時不要退回 powershell.exe（會 ENOENT 重啟迴圈）
+  if (process.platform !== 'win32') {
+    return { file: '', args: [], native: false, unsupported: true }
+  }
   return {
     file: powershellPath(),
     args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-    native: false
+    native: false,
+    unsupported: false
   }
 }
 
-module.exports = { resolveProbeExe, probeCommand }
+module.exports = { resolveProbeExe, probeCommand, powershellPath }

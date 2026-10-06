@@ -24,6 +24,8 @@ module.exports = {
   current,
   windows,
   linux,
+  /** Win32 sidecar／PowerShell／Credential Manager 等原生能力 */
+  supportsWinNative: isWindows,
   /** 本機預設「根」路徑（bootstrap 退路） */
   fallbackRoot: () => current.fallbackRoot(),
   /** 是否為本平台可接受的絕對路徑字串（不碰磁碟） */

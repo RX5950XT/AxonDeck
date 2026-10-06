@@ -59,7 +59,7 @@ native/
 ## 各模組現況
 
 ### 本地推論（Local SI）
-- 子分頁：探索／推薦／模型庫／執行環境。推薦只有 ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
+- 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦只有 ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
 - NVIDIA ≥8GB VRAM 才使用 GPU（8184 MiB 門檻容許顯卡回報誤差），其餘 CPU；模型庫與 1.7B ASR 使用同一篩選規則，沒有手動 `llmGpu` 開關。
 - 本地翻譯經 `local-llm-router.js` 沿用 Local SI 的 llama-server router；推薦模型以絕對檔案路徑寫入 preset，不複製模型。避免 node-llama-cpp 在 Windows 釋放 GPU context 時當機；關 App 要連只由翻譯載入的 router 一起收掉。
 - 進 Local SI 自動補建議執行環境；推薦下載補必要環境；探索下載完成後排隊 fit＋bench，最佳化期間不能換模型資料夾。暫存 userData 不自動下載。

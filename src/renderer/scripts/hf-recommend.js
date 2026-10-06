@@ -210,8 +210,9 @@ export async function refreshInference(forceRefresh = false) {
   const backends = Array.isArray(cap?.backends) ? cap.backends.filter((b) => b !== 'cpu-fallback') : []
   const hint = $('hfInferHint')
   if (hint) {
+    // 卡名與顯存在上面的計量條，這裡只講自動走哪一邊
     hint.textContent = cap?.ok
-      ? `自動：GPU（${cap.name}，${cap.vramMiB} MiB${backends.length ? `，${backends.join(' / ')}` : ''}）。本地翻譯走 GPU。`
+      ? `自動：GPU${backends.length ? `（${backends.join(' / ')}）` : ''}。本地翻譯走 GPU。`
       : `自動：CPU（${cap?.reason || '沒有 8GB 以上的 NVIDIA 顯示卡'}）。`
   }
 
@@ -219,11 +220,14 @@ export async function refreshInference(forceRefresh = false) {
   $('cudaEnvRow')?.classList.toggle('hidden', !(cap?.ok || cap?.canInstallCuda))
   const status = $('cudaEnvStatus')
   if (status && !cudaInstallInProgress) {
-    status.textContent = hasCuda
-      ? 'CUDA Runtime：已就緒'
+    // 按鈕停用後自己會寫「CUDA 已就緒」，旁邊不再複誦
+    const text = hasCuda
+      ? ''
       : cap?.hasVulkan
-        ? 'CUDA Runtime：未安裝（目前用 Vulkan，裝了會更快）'
-        : 'CUDA Runtime：未安裝，建議安裝'
+        ? '未安裝，目前用 Vulkan，裝了會更快'
+        : '未安裝，建議安裝'
+    status.textContent = text
+    status.classList.toggle('hidden', !text)
   }
   const btn = /** @type {HTMLButtonElement | null} */ ($('installCudaEnvBtn'))
   if (btn) {
@@ -242,7 +246,10 @@ async function onInstallCudaEnv() {
   if (btn) btn.disabled = true
   bar?.classList.remove('hidden')
   if (fill) fill.style.width = '5%'
-  if (status) status.textContent = '準備安裝…將跳出系統管理員確認（UAC）'
+  if (status) {
+    status.classList.remove('hidden')
+    status.textContent = '準備安裝…將跳出系統管理員確認（UAC）'
+  }
 
   const unsub = electronAPI.system.onCudaInstallProgress?.((p) => {
     if (status && p?.message) status.textContent = p.message

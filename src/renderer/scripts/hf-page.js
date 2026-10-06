@@ -1,5 +1,5 @@
 /**
- * AxonDeck — 「Local SI」分頁（探索／推薦／模型庫／執行環境；推薦與推論方式在 hf-recommend.js）
+ * AxonDeck — 「Local SI」分頁（探索／推薦／執行環境；本機模型在執行環境裡。推薦與推論方式在 hf-recommend.js）
  *
  * 這一頁只做三件事：把 main 回來的資料畫出來、把使用者的動作送回去、顯示進度。
  * **所有判斷都在 main**（網址怎麼組、參數怎麼決定、路徑在哪、金鑰是什麼），
@@ -393,15 +393,52 @@ async function startInstall(repoId, variant, button, bar, fill, cancel) {
 
 async function refreshLibrary() {
   const box = $('hfLibraryList')
-  if (!box) return
   const rows = await call(electronAPI.hfmodels.list())
   if (!rows) return
   libraryRows = rows
+  syncLoadChooser()
+  if (!box) return
   if (!rows.length) {
     box.replaceChildren(el('p', 'setting-hint', '還沒有本機模型。到「探索」下載，或放入 .gguf。'))
     return
   }
   box.replaceChildren(...rows.map(renderModelCard))
+}
+
+function syncLoadButton() {
+  const select = /** @type {HTMLSelectElement} */ ($('hfLoadSelect'))
+  const button = /** @type {HTMLButtonElement} */ ($('hfLoadBtn'))
+  if (!select || !button) return
+  const model = libraryRows.find((row) => row.id === select.value)
+  button.disabled = !model
+  if (model) button.textContent = model.loaded ? '卸載' : '載入'
+}
+
+function syncLoadChooser() {
+  const select = /** @type {HTMLSelectElement} */ ($('hfLoadSelect'))
+  if (!select) return
+  const prev = select.value
+  const next = libraryRows.some((row) => row.id === prev) ? prev : (libraryRows[0]?.id || '')
+  select.replaceChildren()
+  if (!libraryRows.length) {
+    select.append(new Option('沒有本機模型', ''))
+    select.disabled = true
+  } else {
+    select.disabled = false
+    for (const model of libraryRows) {
+      select.append(new Option(model.loaded ? `${model.id} · 已載入` : model.id, model.id))
+    }
+    select.value = next
+  }
+  syncLoadButton()
+}
+
+async function loadSelected() {
+  const select = /** @type {HTMLSelectElement} */ ($('hfLoadSelect'))
+  const button = /** @type {HTMLButtonElement} */ ($('hfLoadBtn'))
+  const model = libraryRows.find((row) => row.id === select?.value)
+  if (!model || !button) return
+  await toggleLoad(model, button)
 }
 
 /**
@@ -806,7 +843,12 @@ async function refreshRuntimeChip() {
   const running = !!status?.running
   if (dot) dot.classList.toggle('is-on', running)
   if (text) text.textContent = running ? `執行中 · 埠 ${status.port}` : '未啟動'
-  if (toggle) toggle.textContent = running ? '停止' : '啟動'
+  if (toggle) {
+    toggle.textContent = running ? '停止' : '啟動'
+    toggle.classList.toggle('btn-primary', !running)
+    toggle.classList.toggle('btn-danger', running)
+    toggle.setAttribute('aria-pressed', String(running))
+  }
   return running
 }
 
@@ -829,16 +871,11 @@ async function refreshHardware() {
 
   if (specs) {
     specs.replaceChildren()
+    // 顯存條在儀表板，這裡不再列每張卡，避免同一組數字出現兩次
     const rows = [
       ['推論後端', data.runtime?.ready ? data.runtime.backend : '尚未安裝'],
-      ['CPU 執行緒', String(data.cpu?.cores || '—')],
-      ['系統記憶體', data.cpu?.totalMemoryMiB ? `${Math.round(data.cpu.totalMemoryMiB / 1024)} GB` : '—'],
       ['NVIDIA 驅動', data.nvidia?.driver || '（沒有偵測到）']
     ]
-    for (const device of data.devices || []) {
-      rows.push([`裝置 ${device.id}`, `${device.name}　${device.freeMiB}／${device.totalMiB} MiB 可用`])
-    }
-    if (!data.devices?.length) rows.push(['GPU 裝置', '沒有可用的 GPU 後端（會用 CPU 推論）'])
     for (const [label, value] of rows) {
       const group = el('div')
       group.appendChild(el('dt', '', label))
@@ -890,8 +927,6 @@ async function refreshHardware() {
 
   const dirText = $('hfModelsDirText')
   if (dirText) dirText.textContent = data.modelsDir || '—'
-  const max = /** @type {HTMLInputElement} */ ($('hfModelsMax'))
-  if (max) max.value = String(data.modelsMax || 2)
   const token = /** @type {HTMLInputElement} */ ($('hfTokenInput'))
   if (token) token.placeholder = data.hasToken ? '（已設定，重填會覆蓋）' : 'hf_…'
 }
@@ -1007,9 +1042,8 @@ function bindSubtabs() {
       for (const panel of document.querySelectorAll('#page-hfmodels .subtab-panel')) {
         panel.classList.toggle('active', /** @type {HTMLElement} */ (panel).dataset.subtab === key)
       }
-      if (key === 'library') refreshLibrary()
       if (key === 'recommend') refreshRecommend()
-      if (key === 'runtime') { refreshHardware(); refreshInference(); startDash() }
+      if (key === 'runtime') { refreshLibrary(); refreshHardware(); refreshInference(); startDash() }
     })
   }
 }
@@ -1030,6 +1064,8 @@ export function start() {
     })
     $('hfSearchSort')?.addEventListener('change', runSearch)
     $('hfRuntimeToggle')?.addEventListener('click', toggleRuntime)
+    $('hfLoadBtn')?.addEventListener('click', loadSelected)
+    $('hfLoadSelect')?.addEventListener('change', syncLoadButton)
     $('hfRescanBtn')?.addEventListener('click', async () => {
       const rows = await call(electronAPI.hfmodels.rescan())
       if (rows) { libraryRows = rows; refreshLibrary(); showToast('已重新掃描', 'success') }
@@ -1044,14 +1080,6 @@ export function start() {
     })
     $('hfChooseDirBtn')?.addEventListener('click', chooseDir)
     $('hfTokenSaveBtn')?.addEventListener('click', saveToken)
-    $('hfModelsMax')?.addEventListener('change', async (event) => {
-      const input = /** @type {HTMLInputElement} */ (event.target)
-      const value = Math.max(1, Math.min(8, Math.round(Number(input.value)) || 2))
-      input.value = String(value) // 框裡顯示的要跟實際存的一樣
-      await electronAPI.store.set('hfModelsMax', value)
-      const applied = await call(electronAPI.hfmodels.applyPresets())
-      if (applied) showToast('已套用（執行環境若在跑會重新啟動，已載入的模型要重新載入）', 'success')
-    })
     $('hfParamsSaveBtn')?.addEventListener('click', saveParams)
     $('hfParamsCancelBtn')?.addEventListener('click', closeParams)
     $('hfParamsResetBtn')?.addEventListener('click', resetParams)

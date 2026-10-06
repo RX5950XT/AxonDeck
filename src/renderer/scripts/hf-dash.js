@@ -40,34 +40,95 @@ function spec(dl, rows) {
   }
 }
 
-function renderGpus(devices) {
+/** 沒有資料就收起來，避免一排破折號跟旁邊的狀態列講同一件事 */
+function fillSpecs(id, rows) {
+  const dl = $(id)
+  if (!dl) return
+  dl.classList.toggle('hidden', !rows)
+  if (rows) spec(dl, rows)
+  else dl.replaceChildren()
+}
+
+function meterCard(label, value, pct) {
+  const card = el('div', 'hf-gpu')
+  const head = el('div', 'hf-gpu-head')
+  head.appendChild(el('b', '', label))
+  head.appendChild(el('span', '', value))
+  card.appendChild(head)
+  const meter = el('div', 'hf-meter')
+  meter.setAttribute('role', 'meter')
+  meter.setAttribute('aria-valuemin', '0')
+  meter.setAttribute('aria-valuemax', '100')
+  meter.setAttribute('aria-valuenow', String(Math.round(pct)))
+  meter.setAttribute('aria-label', `${label} ${value}`)
+  const fill = el('i')
+  fill.style.width = `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`
+  if (pct > 80) fill.dataset.hot = 'true'
+  meter.appendChild(fill)
+  card.appendChild(meter)
+  return card
+}
+
+function fmtGb(mib) {
+  const gb = Number(mib) / 1024
+  return gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)
+}
+
+function renderOccupancy(occ) {
+  const box = $('hfOccupancy')
+  if (!box) return
+  const cpu = occ?.cpu
+  const mem = occ?.memory
+  const memValue = mem?.totalMiB > 0 && mem.usedMiB != null
+    ? `${fmtGb(mem.usedMiB)} / ${fmtGb(mem.totalMiB)} GB`
+    : '—'
+  const memPct = mem?.totalMiB > 0 && mem.usedMiB != null
+    ? (mem.usedMiB / mem.totalMiB) * 100
+    : 0
+  box.replaceChildren(
+    meterCard('CPU', cpu == null ? '—' : `${cpu}%`, cpu == null ? 0 : cpu),
+    meterCard('記憶體', memValue, memPct)
+  )
+}
+
+function gpuRows(devices, gpus) {
+  if (devices?.length) return devices
+  return (gpus || []).filter((gpu) => gpu?.totalMiB).map((gpu) => ({
+    id: String(gpu.index),
+    name: gpu.name,
+    totalMiB: gpu.totalMiB,
+    freeMiB: gpu.usedMiB == null ? null : Math.max(0, gpu.totalMiB - gpu.usedMiB),
+    utilization: gpu.utilization
+  }))
+}
+
+function vramLabel(device) {
+  const total = Number(device.totalMiB)
+  const free = Number(device.freeMiB)
+  if (!total || !Number.isFinite(free)) return { text: '', pct: 0 }
+  const used = Math.max(0, total - free)
+  return {
+    text: `${fmtInt(used)} / ${fmtInt(total)} MiB`,
+    pct: Math.min(100, (used / total) * 100)
+  }
+}
+
+function renderGpus(devices, gpus) {
   const box = $('hfGpuMeters')
   if (!box) return
-  if (!devices?.length) {
+  const rows = gpuRows(devices, gpus)
+  if (!rows.length) {
     box.replaceChildren(el('p', 'setting-hint', '沒有可用的 GPU 後端。'))
     return
   }
-  box.replaceChildren(...devices.map((d) => {
-    const total = Number(d.totalMiB) || 0
-    const used = Math.max(0, total - (Number(d.freeMiB) || 0))
-    const pct = total ? Math.min(100, (used / total) * 100) : 0
-    const card = el('div', 'hf-gpu')
-    const head = el('div', 'hf-gpu-head')
-    head.appendChild(el('b', '', d.name || d.id || 'GPU'))
-    head.appendChild(el('span', '', `${fmtInt(used)} / ${fmtInt(total)} MiB`))
-    card.appendChild(head)
-    const meter = el('div', 'hf-meter')
-    meter.setAttribute('role', 'meter')
-    meter.setAttribute('aria-valuemin', '0')
-    meter.setAttribute('aria-valuemax', '100')
-    meter.setAttribute('aria-valuenow', String(Math.round(pct)))
-    const fill = el('i')
-    fill.style.width = `${pct.toFixed(1)}%`
-    if (pct > 80) fill.dataset.hot = 'true'
-    meter.appendChild(fill)
-    card.appendChild(meter)
-    card.appendChild(el('p', 'setting-hint', `${d.id}　可用 ${fmtInt(d.freeMiB)} MiB`))
-    return card
+  box.replaceChildren(...rows.map((device) => {
+    const name = device.name || device.id || 'GPU'
+    const vram = vramLabel(device)
+    const util = device.utilization == null ? '' : `${Math.round(device.utilization)}%`
+    const value = [util, vram.text].filter(Boolean).join(' · ') || '—'
+    const id = device.id && device.id !== name ? `${device.id}　${value}` : value
+    const pct = vram.text ? vram.pct : (device.utilization ?? 0)
+    return meterCard(name, id, pct)
   }))
 }
 
@@ -91,27 +152,21 @@ async function refresh(seq) {
   const data = result?.ok ? result.data : null
   if (!data || !on || seq !== generation) return
 
-  const hint = $('hfServerHint')
-  if (hint) {
-    hint.textContent = data.running
-      ? `上線中 · 埠 ${data.port}。聊天頁的本機模型會自動連這裡。`
-      : '啟動執行環境後，聊天頁的本機模型會自動連這裡（有金鑰保護，外部程式用不了）。'
-  }
-  spec($('hfServerSpecs'), [
+  // 跑沒跑、埠號在大按鈕旁邊那一行。這裡只在真的有端點／用量時才展開。
+  fillSpecs('hfServerSpecs', data.running ? [
     ['OpenAI', data.openaiBaseUrl || '—'],
-    ['Anthropic', data.anthropicBaseUrl || '—'],
-    ['狀態', data.running ? '上線' : '未啟動']
-  ])
+    ['Anthropic', data.anthropicBaseUrl || '—']
+  ] : null)
   const m = data.metrics || {}
-  spec($('hfUsageSpecs'), [
-    ['處理中 / 排隊', data.metrics
-      ? `${fmtInt(m.requestsProcessing)} / ${fmtInt(m.requestsDeferred)}` : '—'],
+  fillSpecs('hfUsageSpecs', data.running && data.metrics ? [
+    ['處理中 / 排隊', `${fmtInt(m.requestsProcessing)} / ${fmtInt(m.requestsDeferred)}`],
     ['生成速度', fmtTps(m.predictedTps)],
     ['Prompt 速度', fmtTps(m.promptTps)],
     ['Prompt tokens', fmtInt(m.promptTokens)],
     ['生成 tokens', fmtInt(m.predictedTokens)]
-  ])
-  renderGpus(data.devices)
+  ] : null)
+  renderOccupancy(data.occupancy)
+  renderGpus(data.devices, data.occupancy?.gpus)
   renderLog(data.logTail)
 }
 

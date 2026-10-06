@@ -24,6 +24,7 @@ const hub = require(path.join(ROOT, 'src/main/hfmodels/hub.js'))
 const library = require(path.join(ROOT, 'src/main/hfmodels/library.js'))
 const download = require(path.join(ROOT, 'src/main/hfmodels/download.js'))
 const presets = require(path.join(ROOT, 'src/main/hfmodels/presets.js'))
+const occupancy = require(path.join(ROOT, 'src/main/hfmodels/occupancy.js'))
 
 let passed = 0
 let failed = 0
@@ -725,6 +726,30 @@ async function asyncSections() {
   } finally {
     removeTree(tmp2)
   }
+}
+
+// ── 占用：CPU 要有上一輪才算；GPU 使用率對名字，缺值不是 0 ──
+{
+  const prev = [{ times: { user: 0, nice: 0, sys: 0, idle: 100, irq: 0 } }]
+  const curr = [{ times: { user: 50, nice: 0, sys: 0, idle: 150, irq: 0 } }]
+  ok('CPU 沒有上一輪不回 0', occupancy.readCpuPercent(null, curr) === null)
+  ok('CPU 一半忙碌是 50%', occupancy.readCpuPercent(prev, curr) === 50)
+
+  const csv = [
+    '0, NVIDIA GeForce RTX 3060 Ti, 12, 1065, 8192',
+    '1, NVIDIA GeForce RTX 5060 Ti, [N/A], 1150, 16311'
+  ].join('\n')
+  const gpus = occupancy.parseGpuCsv(csv)
+  ok('解析兩張卡的使用率', gpus.length === 2 && gpus[0].utilization === 12, JSON.stringify(gpus))
+  ok('N/A 使用率是缺值不是 0', gpus[1].utilization === null)
+  const devices = [
+    { id: 'CUDA0', name: 'NVIDIA GeForce RTX 3060 Ti' },
+    { id: 'CUDA1', name: 'NVIDIA GeForce RTX 5060 Ti' },
+    { id: 'Vulkan0', name: 'Intel Arc' }
+  ]
+  const attached = occupancy.attachUtil(devices, gpus)
+  ok('使用率接到同名卡', attached[0].utilization === 12 && attached[1].utilization === null)
+  ok('對不到的卡不填 0', attached[2].utilization === null)
 }
 
 // ── 離開分頁不可以把 router 關掉 ──

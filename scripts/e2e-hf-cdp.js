@@ -4,7 +4,7 @@
  *
  * **這支不下載任何模型、也不打 Hugging Face**（搜尋要網路、下載動輒好幾 GB）：
  * 網路那一段由 `probe-hf-hub.js` 打真流量驗，router 生命週期由 `e2e-hfmodels.js` 驗。
- * 這裡只驗打包版的 UI 有沒有接對——三個子分頁、模型庫渲染、參數彈窗、
+ * 這裡只驗打包版的 UI 有沒有接對——三個子分頁（本機模型在執行環境裡）、參數彈窗、
  * 執行環境資訊，以及幾條 UI 地雷（彈窗會不會捲、沒開的彈窗會不會浮出來、
  * 空的 `<dd>` 會不會讓整列塌掉）。
  *
@@ -222,8 +222,8 @@ async function main() {
     })()`), 15_000, 'HF模型頁')
     assert(structure.order.includes('hfmodels'), 'nav 有 HF模型分頁', JSON.stringify(structure.order))
     assert(
-      JSON.stringify(structure.subtabs) === JSON.stringify(['discover', 'recommend', 'library', 'runtime']),
-      '四個子分頁：探索／推薦／模型庫／執行環境',
+      JSON.stringify(structure.subtabs) === JSON.stringify(['discover', 'recommend', 'runtime']),
+      '三個子分頁：探索／推薦／執行環境',
       JSON.stringify(structure.subtabs)
     )
     assert(
@@ -264,8 +264,8 @@ async function main() {
     const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')
     assert(hardware.data?.autoRuntime === false, '隔離測試不會自動下載大型執行環境')
 
-    console.log('\n[B] 模型庫')
-    await cdp.eval("document.querySelector('#hfSubtabs .subtab[data-subtab=\"library\"]').click(), 'ok'")
+    console.log('\n[B] 本機模型（在執行環境裡）')
+    await cdp.eval("document.querySelector('#hfSubtabs .subtab[data-subtab=\"runtime\"]').click(), 'ok'")
     if (seeded) {
       const card = await waitFor(() => cdp.eval(`(() => {
         const el = document.querySelector('#hfLibraryList .hf-model[data-id=${seedSel}]')
@@ -418,6 +418,18 @@ async function main() {
     assert(autoInstall.hint.length > 0, '有講會裝哪一顆（或已經是最佳）', autoInstall.hint)
     assert(runtime.modelsDir.includes('hf-models-test'), '模型資料夾指到測試資料夾（沒碰使用者的）', runtime.modelsDir)
     assert(/未啟動|執行中/.test(runtime.chip), 'router 狀態徽章有字', runtime.chip)
+    const runBtn = await cdp.eval(`(() => {
+      const btn = document.getElementById('hfRuntimeToggle')
+      const panel = document.getElementById('hf-runtime')
+      if (!btn || !panel?.contains(btn)) return null
+      return { h: btn.offsetHeight, w: btn.offsetWidth, text: btn.textContent.trim() }
+    })()`)
+    assert(
+      runBtn && runBtn.h >= 28 && runBtn.h <= 48 && runBtn.w >= 48 && runBtn.w <= 140
+        && /啟動|停止/.test(runBtn.text),
+      '啟動按鈕在執行環境裡，跟一般按鈕一樣高',
+      JSON.stringify(runBtn)
+    )
 
     // token 只寫不讀：畫面與 store 兩邊都不該撈得到
     await cdp.eval(`(() => {

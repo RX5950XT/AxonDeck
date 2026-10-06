@@ -30,6 +30,7 @@ const library = require('./library')
 const presets = require('./presets')
 const runtime = require('./runtime')
 const bench = require('./bench')
+const occupancy = require('./occupancy')
 
 /** Vulkan 那顆（一定有）；CUDA 是可選的加速版 */
 const RUNTIME_KEYS = Object.freeze(['llamaruntimecuda', 'llamaruntime'])
@@ -827,7 +828,11 @@ function cancelTune() {
  */
 async function dashboard() {
   const status = runtime.status()
-  const [devices, nvidia] = await Promise.all([listDevices(), hardware.nvidiaDriver()])
+  const [devices, nvidia, live] = await Promise.all([
+    listDevices(),
+    hardware.nvidiaDriver(),
+    occupancy.sample()
+  ])
   const models = status.running ? await runtime.listModels().catch(() => []) : []
   // 指標要指名模型（router 的 /metrics 不帶 model 會 400），拿載著的第一顆
   const loaded = models.find((row) => row.status?.value === 'loaded')
@@ -837,7 +842,8 @@ async function dashboard() {
     port: status.port,
     openaiBaseUrl: status.running ? `http://${runtime.HOST}:${status.port}/v1` : '',
     anthropicBaseUrl: status.running ? `http://${runtime.HOST}:${status.port}` : '',
-    devices,
+    devices: occupancy.attachUtil(devices, live.gpus),
+    occupancy: { cpu: live.cpu, memory: live.memory, gpus: live.gpus },
     nvidia,
     metrics: stats,
     models: models.map((row) => ({

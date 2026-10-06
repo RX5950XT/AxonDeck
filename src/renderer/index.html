@@ -858,11 +858,6 @@
                   <h1>Local SI</h1>
                   <p class="page-desc">搜尋 Hugging Face 的 GGUF 模型，下載後一鍵載入聊天。</p>
                 </div>
-                <div class="hf-runtime-chip" id="hfRuntimeChip" role="status" aria-live="polite">
-                  <span class="hf-dot" id="hfRuntimeDot" aria-hidden="true"></span>
-                  <span id="hfRuntimeText">檢查中…</span>
-                  <button type="button" id="hfRuntimeToggle" class="btn btn-secondary btn-sm">啟動</button>
-                </div>
               </header>
 
               <p id="hfError" class="live-error hidden" role="alert"></p>
@@ -873,9 +868,6 @@
                 </button>
                 <button type="button" class="subtab" data-subtab="recommend" role="tab" aria-selected="false">
                   推薦
-                </button>
-                <button type="button" class="subtab" data-subtab="library" role="tab" aria-selected="false">
-                  模型庫
                 </button>
                 <button type="button" class="subtab" data-subtab="runtime" role="tab" aria-selected="false">
                   執行環境
@@ -917,96 +909,93 @@
                 </section>
               </div>
 
-              <!-- 模型庫：本機已安裝 -->
-              <div class="subtab-panel" id="hf-library" data-subtab="library" role="tabpanel">
-                <section class="hf-panel">
-                  <div class="hf-library-actions" role="group" aria-label="模型庫操作">
-                    <button type="button" id="hfRescanBtn" class="btn btn-secondary">重新掃描資料夾</button>
-                    <button type="button" id="hfOpenFolderBtn" class="btn btn-secondary">開啟模型資料夾</button>
-                    <button type="button" id="hfImportBtn" class="btn btn-secondary">匯入 .gguf</button>
-                  </div>
-                  <p class="setting-hint">也可自行放入 <code>.gguf</code>（一顆一個子資料夾，<code>mmproj-*.gguf</code> 同夾）。</p>
-                  <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
-                </section>
-              </div>
-
-              <!-- 執行環境：router 狀態、硬體、設定 -->
+              <!-- 執行環境：啟動列、本機模型（含資料夾）、占用、推論、log -->
               <div class="subtab-panel" id="hf-runtime" data-subtab="runtime" role="tabpanel">
-                <section class="hf-panel">
-                  <h2>這台機器</h2>
-                  <dl class="hf-specs" id="hfHardwareSpecs"></dl>
-                </section>
-
-                <section class="hf-panel">
-                  <div class="hf-library-actions">
-                    <h2>本機 API</h2>
-                  </div>
-                  <p class="setting-hint" id="hfServerHint">啟動執行環境後，聊天頁的本機模型會自動連這裡（有金鑰保護，外部程式用不了）。</p>
-                  <dl class="hf-specs" id="hfServerSpecs"></dl>
-                  <div id="hfGpuMeters" class="hf-gpu-meters"></div>
-                  <h2>用量</h2>
-                  <dl class="hf-specs" id="hfUsageSpecs"></dl>
-                  <details class="hf-log">
-                    <summary>llama-server log</summary>
-                    <pre id="hfServerLog">還沒有 log。</pre>
-                  </details>
-                </section>
-
-                <section class="hf-panel">
-                  <h2>推論方式</h2>
-                  <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
-                  <div id="cudaEnvRow" class="cuda-env-row hidden">
-                    <button type="button" id="installCudaEnvBtn" class="btn btn-secondary btn-sm">安裝 CUDA 環境</button>
-                    <button type="button" id="refreshGpuEnvBtn" class="btn btn-secondary btn-sm">重新偵測</button>
-                    <p id="cudaEnvStatus" class="setting-hint">偵測 CUDA Runtime…</p>
-                  </div>
-                  <div id="cudaInstallProgress" class="model-progress hidden">
-                    <div id="cudaInstallProgressFill" class="model-progress-fill"></div>
-                  </div>
-                </section>
-
-                <section class="hf-panel">
-                  <h2>推論引擎</h2>
-                  <p class="setting-hint">Vulkan 通用；NVIDIA 用 CUDA 更快。沒裝的話進這頁會自動裝建議的那顆。</p>
-                  <div class="hf-library-actions">
-                    <button type="button" id="hfAutoInstallBtn" class="btn btn-primary">
-                      一鍵安裝最佳配置
-                    </button>
-                    <span id="hfAutoInstallHint" class="setting-hint" role="status"></span>
-                  </div>
-                  <div id="hfRuntimeList" class="hf-runtime-list"></div>
-                </section>
-
-                <section class="hf-panel">
-                  <h2>設定</h2>
-                  <div class="hf-setting-row">
-                    <div class="hf-setting-text">
-                      <span class="hf-setting-label">模型資料夾</span>
-                      <span class="hf-setting-value" id="hfModelsDirText">—</span>
-                      <span class="setting-hint">舊模型留在原地不搬。</span>
+                <div class="hf-runtime-layout">
+                  <section class="hf-panel hf-run" aria-label="啟動與載入">
+                    <div class="hf-run-main">
+                      <button type="button" id="hfRuntimeToggle" class="btn btn-primary"
+                              aria-pressed="false">啟動</button>
+                      <p class="hf-run-line" id="hfRuntimeChip" role="status" aria-live="polite">
+                        <span class="hf-dot" id="hfRuntimeDot" aria-hidden="true"></span>
+                        <strong id="hfRuntimeText">檢查中…</strong>
+                      </p>
+                      <select id="hfLoadSelect" class="select hf-load-select" aria-label="選擇模型">
+                        <option value="">選擇模型</option>
+                      </select>
+                      <button type="button" id="hfLoadBtn" class="btn btn-secondary" disabled>載入</button>
                     </div>
-                    <button type="button" id="hfChooseDirBtn" class="btn btn-secondary btn-sm">變更</button>
+                    <p class="setting-hint" id="hfServerHint">聊天頁的本機模型會自動連這裡（有金鑰保護，外部程式用不了）。</p>
+                    <dl class="hf-specs hidden" id="hfServerSpecs"></dl>
+                    <dl class="hf-specs hidden" id="hfUsageSpecs"></dl>
+                  </section>
+
+                  <div class="hf-runtime-grid">
+                    <section class="hf-panel" aria-label="本機模型">
+                      <div class="hf-section-head">
+                        <h2>本機模型</h2>
+                        <div class="hf-library-actions" role="group" aria-label="本機模型操作">
+                          <button type="button" id="hfRescanBtn" class="btn btn-secondary btn-sm">重新掃描</button>
+                          <button type="button" id="hfImportBtn" class="btn btn-secondary btn-sm">匯入 .gguf</button>
+                        </div>
+                      </div>
+                      <div class="hf-dir-row">
+                        <span class="hf-setting-value" id="hfModelsDirText"
+                              title="舊模型留在原地不搬。一顆一個子資料夾，mmproj-*.gguf 同夾。">—</span>
+                        <div class="hf-inline-actions">
+                          <button type="button" id="hfOpenFolderBtn" class="btn btn-secondary btn-sm">開啟</button>
+                          <button type="button" id="hfChooseDirBtn" class="btn btn-secondary btn-sm">變更</button>
+                        </div>
+                      </div>
+                      <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
+                    </section>
+
+                    <section class="hf-panel" aria-label="占用">
+                      <h2>占用</h2>
+                      <div id="hfOccupancy" class="hf-gpu-meters" aria-label="CPU 與記憶體占用">
+                        <p class="setting-hint">讀取占用…</p>
+                      </div>
+                      <div id="hfGpuMeters" class="hf-gpu-meters" aria-label="GPU 占用">
+                        <p class="setting-hint">讀取顯示卡…</p>
+                      </div>
+                    </section>
                   </div>
-                  <div class="hf-setting-row">
-                    <div class="hf-setting-text">
-                      <span class="hf-setting-label">同時載入模型數上限</span>
-                      <span class="setting-hint">超過卸載最久沒用的。</span>
+
+                  <section class="hf-panel" aria-label="推論">
+                    <h2>推論</h2>
+                    <dl class="hf-specs" id="hfHardwareSpecs"></dl>
+                    <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
+                    <div id="cudaEnvRow" class="cuda-env-row hidden">
+                      <button type="button" id="installCudaEnvBtn" class="btn btn-secondary btn-sm">安裝 CUDA 環境</button>
+                      <button type="button" id="refreshGpuEnvBtn" class="btn btn-secondary btn-sm">重新偵測</button>
+                      <p id="cudaEnvStatus" class="setting-hint">偵測 CUDA Runtime…</p>
                     </div>
-                    <input type="number" id="hfModelsMax" class="input hf-num" min="1" max="8" step="1"
-                           aria-label="同時載入模型數上限">
-                  </div>
-                  <div class="hf-setting-row">
-                    <div class="hf-setting-text">
-                      <span class="hf-setting-label">Hugging Face Token</span>
-                      <span class="setting-hint">只有 gated repo 需要。</span>
+                    <div id="cudaInstallProgress" class="model-progress hidden">
+                      <div id="cudaInstallProgressFill" class="model-progress-fill"></div>
                     </div>
-                    <div class="hf-token-row">
-                      <input type="password" id="hfTokenInput" class="input" placeholder="hf_…"
-                             autocomplete="off" aria-label="Hugging Face Token">
-                      <button type="button" id="hfTokenSaveBtn" class="btn btn-secondary btn-sm">儲存</button>
+                    <button type="button" id="hfAutoInstallBtn" class="btn btn-secondary btn-sm">一鍵安裝最佳配置</button>
+                    <p id="hfAutoInstallHint" class="setting-hint" role="status"></p>
+                    <div id="hfRuntimeList" class="hf-runtime-list"></div>
+                    <div class="hf-setting-row">
+                      <div class="hf-setting-text">
+                        <span class="hf-setting-label">Hugging Face Token</span>
+                        <span class="setting-hint">只有 gated repo 需要。</span>
+                      </div>
+                      <div class="hf-token-row">
+                        <input type="password" id="hfTokenInput" class="input" placeholder="hf_…"
+                               autocomplete="off" aria-label="Hugging Face Token">
+                        <button type="button" id="hfTokenSaveBtn" class="btn btn-secondary btn-sm">儲存</button>
+                      </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
+
+                  <section class="hf-panel" aria-label="llama-server log">
+                    <details class="hf-log">
+                      <summary>llama-server log</summary>
+                      <pre id="hfServerLog">還沒有 log。</pre>
+                    </details>
+                  </section>
+                </div>
               </div>
             </div>
           </section>

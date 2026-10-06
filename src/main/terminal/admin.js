@@ -17,6 +17,7 @@ const net = require('net')
 const crypto = require('crypto')
 const path = require('path')
 const { spawn } = require('child_process')
+const platform = require('../platform')
 
 /** UAC 對話框要等使用者按，給寬一點 */
 const CONNECT_TIMEOUT_MS = 90 * 1000
@@ -245,6 +246,13 @@ function ensureHost() {
  * @returns {{ onData: Function, onExit: Function, write: Function, resize: Function, kill: Function }}
  */
 function spawnAdmin(meta, cols, rows) {
+  if (!platform.isWindows) {
+    throw Object.assign(new Error('ADMIN_UNSUPPORTED'), {
+      code: 'ADMIN_UNSUPPORTED',
+      userMessage: 'Linux 尚不支援「以系統管理員身分執行」終端機'
+    })
+  }
+
   /** @type {AdminTerm} */
   const term = { onData: null, onExit: null, meta, cols, rows, spawned: false }
   terms.set(meta.id, term)

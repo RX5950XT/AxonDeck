@@ -3049,7 +3049,7 @@ async function showProperties(items) {
     token = Number(res && res.ok && res.data && res.data.token) || 0
     const node = token ? findShellVerb(res.data.items, 'properties') : null
     if (!node) {
-      showToast(token ? '這個項目沒有「內容」' : '叫不出內容視窗（殼層元件沒有建置）', 'error')
+      showToast(token ? '這個項目沒有「內容」' : '叫不出內容視窗（原生殼層選單僅支援 Windows）', 'error')
       return
     }
     await electronAPI.explorer.shellInvoke(token, node.cmd, folder)
@@ -4047,6 +4047,12 @@ function paintUffs() {
   if (ensuring) {
     text.textContent = '準備中…'
     dot.classList.remove('is-on')
+    return
+  }
+  if (uffs && uffs.unsupported) {
+    text.textContent = uffs.message || '整機搜尋僅支援 Windows'
+    dot.classList.remove('is-on')
+    if (enableBtn) enableBtn.hidden = true
     return
   }
   if (!uffs || !uffs.installed) {

@@ -97,6 +97,8 @@ function runtimeName(execPath = process.execPath) {
  */
 function nativeHostExe() {
   if (process.env.AXONDECK_TERM_HOST === 'electron') return ''
+  // Linux MVP：跳過 ConPTY／axondeck-term；終端機走 in-process node-pty
+  if (process.platform !== 'win32') return ''
   return require('../native-probe').resolveProbeExe({ name: 'axondeck-term.exe' })
 }
 

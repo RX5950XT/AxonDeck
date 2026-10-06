@@ -16,32 +16,47 @@
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const platform = require('../platform')
 
 /** 最多幾個工作階段（每個都是一顆真的 conhost，沒有上限會把機器吃光） */
 const MAX_SESSIONS = 20
 /** 標題長度上限 */
 const MAX_TITLE = 60
 
-/** 可用的 shell。renderer 只送 key，執行檔在這裡解析。 */
-const SHELLS = {
+/** Windows 可用的 shell。renderer 只送 key，執行檔在這裡解析。 */
+const WINDOWS_SHELLS = {
   pwsh: { label: 'PowerShell 7', exe: 'pwsh.exe' },
   powershell: { label: 'Windows PowerShell', exe: 'powershell.exe' },
   cmd: { label: '命令提示字元', exe: 'cmd.exe' }
 }
+
+/** Linux／POSIX：bash／zsh／fish（有裝才 available）。 */
+const LINUX_SHELLS = {
+  bash: { label: 'Bash', exe: 'bash' },
+  zsh: { label: 'Zsh', exe: 'zsh' },
+  fish: { label: 'Fish', exe: 'fish' }
+}
+
+/** 可用的 shell（依平台；Windows 行為不變）。 */
+const SHELLS = platform.isWindows ? WINDOWS_SHELLS : LINUX_SHELLS
 
 /** 開好之後自動送出的第一行指令。同樣只收 key。 */
 const PRESETS = {
   shell: { label: '純 shell', command: '' },
   claude: { label: 'Claude Code', command: 'claude' },
   // ponytail: Codex 的 Windows 背景 daemon 會彈出工具視窗；上游修好後可恢復共用 daemon。
-  codex: { label: 'Codex CLI', command: 'codex --no-daemon' },
+  codex: { label: 'Codex CLI', command: platform.isWindows ? 'codex --no-daemon' : 'codex' },
   opencode: { label: 'OpenCode', command: 'opencode' },
   agy: { label: 'Antigravity CLI', command: 'agy' },
   grok: { label: 'Grok CLI', command: 'grok' }
 }
 
-const DEFAULT_SHELL = 'pwsh'
+const DEFAULT_SHELL = platform.isWindows ? 'pwsh' : 'bash'
 const DEFAULT_PRESET = 'shell'
+/** normalizeShell 找不到指定 key 時，依序試這些（必須都在 SHELLS 裡）。 */
+const SHELL_FALLBACKS = platform.isWindows
+  ? ['pwsh', 'powershell', 'cmd']
+  : ['bash', 'zsh', 'fish']
 
 /** 跟宿主 `valid_id` 同一條。hook 與環境變數只收這個形狀。 */
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,80}$/
@@ -71,6 +86,16 @@ function resolveExe(name) {
   const cached = exeCache.get(name)
   if (cached !== undefined) return cached
   let found = ''
+  // 已是絕對路徑就直接驗
+  if (typeof name === 'string' && path.isAbsolute(name)) {
+    try {
+      if (fs.statSync(name).isFile()) found = name
+    } catch {
+      found = ''
+    }
+    exeCache.set(name, found)
+    return found
+  }
   for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue
     const candidate = path.join(dir, name)
@@ -81,6 +106,20 @@ function resolveExe(name) {
       }
     } catch {
       // 這個目錄沒有，繼續找
+    }
+  }
+  // Linux：PATH 偶爾缺 /bin，補幾個常見位置（不接受任意路徑，只認白名單檔名）
+  if (!found && !platform.isWindows && typeof name === 'string' && /^[A-Za-z0-9._+-]+$/.test(name)) {
+    for (const dir of ['/bin', '/usr/bin', '/usr/local/bin']) {
+      const candidate = path.join(dir, name)
+      try {
+        if (fs.statSync(candidate).isFile()) {
+          found = candidate
+          break
+        }
+      } catch {
+        // 下一個
+      }
     }
   }
   exeCache.set(name, found)
@@ -113,10 +152,11 @@ function availablePresets() {
  */
 function normalizeShell(key) {
   if (typeof key === 'string' && SHELLS[key] && resolveExe(SHELLS[key].exe)) return key
-  for (const candidate of [DEFAULT_SHELL, 'powershell', 'cmd']) {
-    if (resolveExe(SHELLS[candidate].exe)) return candidate
+  for (const candidate of SHELL_FALLBACKS) {
+    if (SHELLS[candidate] && resolveExe(SHELLS[candidate].exe)) return candidate
   }
-  return 'cmd'
+  // 理論上至少會有一個；都沒有就回預設 key（spawn 時會再失敗）
+  return DEFAULT_SHELL
 }
 
 /**
@@ -154,7 +194,10 @@ function isClaudeTranscript(value, sessionId) {
   if (!value || value.length > MAX_CLAUDE_TRANSCRIPT) return false
   if (/[\u0000-\u001f]/.test(value)) return false
   const slash = value.replace(/\\/g, '/')
-  if (!/^[A-Za-z]:\//.test(slash)) return false
+  const absOk = platform.isWindows
+    ? /^[A-Za-z]:\//.test(slash)
+    : slash.startsWith('/')
+  if (!absOk) return false
   if (slash.split('/').includes('..')) return false
   return slash.endsWith(`/${sessionId}.jsonl`)
 }
@@ -250,7 +293,7 @@ function sanitizeAll(raw) {
       shell,
       preset,
       cwd,
-      admin: item.admin === true,
+      admin: platform.isWindows && item.admin === true,
       projectId: normalizeProjectId(item.projectId),
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now()
     }
@@ -341,8 +384,8 @@ function create(req) {
       shell,
       preset,
       cwd,
-      // 提權要走另一顆 host 程序（見 admin.js），renderer 只送這個布林
-      admin: req?.admin === true,
+      // 提權要走另一顆 host 程序（見 admin.js）；Linux 沒有 ConPTY／UAC 這條路
+      admin: platform.isWindows && req?.admin === true,
       projectId: normalizeProjectId(req?.projectId),
       createdAt: Date.now()
     }
@@ -460,6 +503,10 @@ module.exports = {
   MAX_SESSIONS,
   MAX_TITLE,
   SHELLS,
+  WINDOWS_SHELLS,
+  LINUX_SHELLS,
+  DEFAULT_SHELL,
+  SHELL_FALLBACKS,
   PRESETS,
   availableShells,
   availablePresets,

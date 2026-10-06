@@ -9,7 +9,8 @@
  * 側欄（`chat-sidebar.js`）顯示每個對話是回應中、已完成（還沒看）還是失敗。
  */
 
-import { showToast, electronAPI, cleanIpcError, openSettingsPage, setChatPaneMode } from './app.js'
+import { showToast, electronAPI, cleanIpcError, openSettingsPage, setChatPaneMode, getChatPaneEpoch } from './app.js'
+import { noteLocation } from './nav-history.js'
 import { renderMarkdown } from './markdown.js'
 import { createChatSidebar } from './chat-sidebar.js'
 import { openParamsDialog, countParams } from './chat-params-panel.js'
@@ -269,13 +270,22 @@ async function onDeleted(id) {
   await refreshChatPage()
 }
 
+/** 側鍵足跡用（nav-history.js） */
+export function currentChatId() {
+  return currentId
+}
+
+export { openConversation as openChatById }
+
 /**
  * @param {string} id
  */
 async function openConversation(id) {
   const seq = ++openSeq
+  const paneEpoch = getChatPaneEpoch()
   const conv = await electronAPI.chat.get(id)
-  if (seq !== openSeq) return
+  // 等這則對話的時候使用者可能已經開了終端機。舊的這次不准再把主區切回聊天。
+  if (seq !== openSeq || paneEpoch !== getChatPaneEpoch()) return
   if (!conv) {
     await sidebar.reload()
     return
@@ -337,6 +347,7 @@ async function handleNew(folderId = '', site = '') {
   const conv = await electronAPI.chat.create(folderId)
   currentId = conv.id
   currentIsWeb = false
+  noteLocation()
   showConversation(conv)
   hideError()
   await sidebar.reload()

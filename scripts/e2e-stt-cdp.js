@@ -6,7 +6,7 @@
  * `dictationAsr`）與翻譯頁的全域那組，**開頭先讀下來、finally 一定寫回**，
  * 不留下測試痕跡在使用者的設定裡。
  */
-const { spawn } = require('child_process')
+const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
 const os = require('os')
@@ -97,7 +97,7 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let processLog = ''
   child.stdout.on('data', (c) => { processLog += c })
   child.stderr.on('data', (c) => { processLog += c })
@@ -124,6 +124,7 @@ async function main() {
     })()
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
+    await cdp.eval("window.electronAPI.store.set('sysmonSensors', false)")
     await waitFor(
       () => cdp.eval(`document.readyState === 'complete' && typeof window.electronAPI?.store?.get === 'function'`),
       15000, 'preload 初始化'
@@ -239,8 +240,8 @@ async function main() {
         .map((o) => o.value).find((v) => v.startsWith('cloud'))
       await set('liveAsrModel', cloudValue)
       await set('dictationAsrModel', 'local:qwen3asr')
-      await set('fileLlmModel', 'local:qwen35translate')
-      await set('liveLlmModel', 'local:qwen354b')
+      await set('fileLlmModel', 'local:linguaforge08q4')
+      await set('liveLlmModel', 'local:indextranslate2b')
       const keys = ['fileAsr', 'liveAsr', 'dictationAsr', 'fileLlm', 'liveLlm']
       const out = { cloudValue }
       for (const k of keys) out[k] = await window.electronAPI.store.get(k, null)
@@ -254,7 +255,7 @@ async function main() {
     )
     ok(
       '檔案轉錄與即時字幕的翻譯模型也各存各的',
-      isolated?.fileLlm === 'local:qwen35translate' && isolated?.liveLlm === 'local:qwen354b',
+      isolated?.fileLlm === 'local:linguaforge08q4' && isolated?.liveLlm === 'local:indextranslate2b',
       JSON.stringify(isolated)
     )
 
@@ -299,7 +300,15 @@ async function main() {
       JSON.stringify(notReady)
     )
 
-    // ---- 設定頁四分區 ----
+    // 先載入推薦清單，再驗模型管理已搬離設定頁。
+    await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
+    for (let i = 0; i < 50; i++) {
+      await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      await sleep(200)
+    }
+    await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length === 4'), 15000, '推薦模型清單')
+    // ---- 設定頁三分區 ----
     await cdp.eval(`document.querySelector('[data-page="settings"]').click(), 'ok'`)
     await sleep(900)
     const settings = await cdp.eval(`(() => {
@@ -312,12 +321,12 @@ async function main() {
           !document.getElementById('asrEngineSegment') &&
           !document.getElementById('localTranslateModelSegment'),
         // 推論設定留在本地模型分區
-        gpuInLocal: !!document.querySelector('#set-local #llmGpuSegment'),
+        gpuInLocal: !document.getElementById('llmGpuSegment'),
         // ASR 的推論方式跟著模型走，不再有執行緒選項
         noThreads: !document.getElementById('asrThreadsSegment'),
         // 模型清單依 kind 分組
-        groups: [...document.querySelectorAll('#set-local .model-group-title')].map((el) => el.textContent),
-        modelListInLocal: !!document.querySelector('#set-local #modelList'),
+        groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((el) => el.textContent),
+        modelListInLocal: !!document.querySelector('#hf-recommend #modelList'),
         // 三組雲端端點都在雲端模型分區
         cloudChat: !!document.querySelector('#set-cloud #chatApiUrlInput'),
         // 翻譯與聊天共用同一組供應商，不再有第二份 URL／Key 欄位
@@ -326,39 +335,22 @@ async function main() {
       }
     })()`)
     ok(
-      '設定頁只剩四個分區且順序正確',
-      JSON.stringify(settings?.order) === JSON.stringify(['local', 'cloud', 'voice', 'basic']) &&
-        settings.titles[0].includes('本地模型') && settings.titles[1].includes('雲端模型') &&
-        settings.titles[2].includes('語音朗讀') && settings.titles[3].includes('基本'),
+      '設定頁只剩三個分區且順序正確',
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'voice', 'basic']) &&
+        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('語音朗讀') && settings.titles[2].includes('基本'),
       JSON.stringify(settings?.titles)
     )
-    ok('推論設定與模型清單都在「本地模型」',
+    ok('設定頁沒有手動 GPU 開關，模型清單已搬進推薦',
       settings?.removed && settings.gpuInLocal && settings.noThreads && settings.modelListInLocal,
       JSON.stringify(settings))
-    ok('本地模型清單依語音辨識／翻譯／執行環境分組',
-      JSON.stringify(settings?.groups) === JSON.stringify(['語音辨識', '翻譯', '執行環境']),
+    ok('推薦模型清單依語音辨識／翻譯分組',
+      JSON.stringify(settings?.groups) === JSON.stringify(['語音辨識', '翻譯']),
       JSON.stringify(settings?.groups))
     ok('雲端翻譯併入聊天供應商（沒有第二份端點欄位）',
       settings?.noSeparateTranslate === true,
       JSON.stringify(settings))
     ok('共用供應商與語音轉文字端點都在「雲端模型」',
       settings?.cloudChat && settings.cloudAsr, JSON.stringify(settings))
-
-    // ---- llama.cpp 執行環境列在模型清單裡 ----
-    const runtimeRow = await cdp.eval(`(() => {
-      const item = document.querySelector('#modelList .model-item[data-key="llamaruntime"]')
-      return {
-        exists: !!item,
-        // 類別看它排在哪一組的標題底下（每列不再重複掛 tag）
-        group: item?.previousElementSibling?.classList.contains('model-group-title')
-          ? item.previousElementSibling.textContent
-          : [...document.querySelectorAll('#modelList .model-group-title')].at(-1)?.textContent || '',
-        gpuAsr: !!document.querySelector('#modelList .model-item[data-key="qwen3asrgpu"]')
-      }
-    })()`)
-    ok('模型清單看得到 llama.cpp 執行環境與 GPU 語音模型',
-      runtimeRow?.exists && runtimeRow.group === '執行環境' && runtimeRow.gpuAsr,
-      JSON.stringify(runtimeRow))
 
     // ---- 語音試聽 ----
     await cdp.eval(`document.querySelector('#settingsNav [data-section="voice"]').click(), 'ok'`)
@@ -425,10 +417,10 @@ async function main() {
       }
     }
     cdp?.close()
-    try { child.kill() } catch { /* ignore */ }
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
+      try { execFileSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* 已退出 */ }
     }
+    try { child.kill() } catch { /* 已退出 */ }
   }
 
   console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILED'}  ${passed} passed, ${failed} failed\n`)

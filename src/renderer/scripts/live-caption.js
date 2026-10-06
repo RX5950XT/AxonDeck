@@ -127,7 +127,7 @@ export function initLiveCaption() {
     // 擷取中改設定也要刷新快照，否則 renderer 判斷與 main 即時讀取的 store 脫鉤
     settings = await getSettings()
     refreshLiveTranslatorHint()
-    // 未擷取且已預熱：重載以套用這一頁的 liveAsr / liveLlm 與全域的 llmGpu
+    // 未擷取且已預熱：重載以套用這一頁的 liveAsr / liveLlm
     if (isCapturing || isStarting || !electronAPI.engine) return
     // 要「頁在前景」而且「停在即時字幕這個子分頁」才重新預熱
     const page = document.getElementById('page-stt')
@@ -297,12 +297,12 @@ async function startCapture() {
       const asrKey = asrChoice.modelKey || ASR_MODEL_KEY
       const asrDef = status.models[asrKey]
       if (!asrDef?.downloaded) {
-        showToast(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到設定 → 本地模型下載`, 'error')
+        showToast(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到 Local SI → 推薦下載`, 'error')
         return
       }
       if (asrDef.requires && !status.models[asrDef.requires]?.downloaded) {
         const runtimeLabel = status.models[asrDef.requires]?.label || asrDef.requires
-        showToast(`還缺「${runtimeLabel}」，請到設定 → 本地模型下載`, 'error')
+        showToast(`還缺「${runtimeLabel}」，請到 Local SI → 執行環境安裝`, 'error')
         return
       }
     }
@@ -313,7 +313,7 @@ async function startCapture() {
     if (needsTranslationBackend && llmChoice.mode === 'local') {
       const llmKey = resolveTranslateModelKey({ localTranslateModel: llmChoice.modelKey }, status.models)
       if (!status.models[llmKey]?.downloaded) {
-        showToast('本地翻譯模型未下載，請先到設定下載', 'error')
+        showToast('本地翻譯模型未下載，請先到 Local SI → 推薦下載', 'error')
         return
       }
     }

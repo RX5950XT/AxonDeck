@@ -266,7 +266,8 @@ function splitRow(line) {
   let s = line.trim()
   if (s.startsWith('|')) s = s.slice(1)
   if (s.endsWith('|')) s = s.slice(0, -1)
-  return s.split('|').map((c) => c.trim())
+  // `\|` 是格子裡的字面 `|`，不是欄分隔
+  return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'))
 }
 
 function cellAlign(cell) {

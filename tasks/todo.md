@@ -6,6 +6,36 @@
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 
+# 2026-10-06 — 終端機開了就消失
+
+- [x] 開終端機先掛分頁再等 PTY；還原途中已開的分頁不要被存檔搶回去。
+- [x] 對話載入晚回來時，主區已經換成工作區就不再切回聊天。
+- [x] 還活著但沒有分頁的終端機補回分頁；側欄圖示點一下打開。
+
+## Review
+
+- 當時 VoiceInk 的 Codex（`t_muwgo930_thhhke`）程序還在終端機宿主裡，`tabsState` 只剩 Grok 那一格，所以側欄有圖示、畫面沒有。之後依要求只關掉這顆，Miroxen 那棵沒動。
+- `node scripts/test-terminal-reopen.js` 修前紅（分頁掛在 `terminal.open` 之後），修後通過。另過 `test-chat-image-memory.js`、`test-workspace-ui.js`。隨 v1.41.0 發行。
+
+# 2026-10-06 — 本地模型搬進 Local SI、推論自動、Index-Translate
+
+- [x] 探索模型卡：HTML `<table>` 被剝成直排數字 → `hub.htmlTablesToMarkdown` 先轉成 markdown 表格。
+- [x] `models.js`：拿掉 Qwen3.5 0.8B／4B，加 Index-Translate-2B Q4_K_M；舊 key 遷移。
+- [x] `local-llm.js`：Index 官方翻譯 prompt；GPU 自動（NVIDIA ≥8GB VRAM 才 GPU，否則 CPU），不再看 `llmGpu`。
+- [x] 設定頁「本地模型」整段拿掉；Local SI 新增「推薦」子分頁（ASR 兩顆＋翻譯兩顆）；推論方式／CUDA 環境併進「執行環境」。
+- [x] Local SI 自動配置：進頁沒裝執行環境就自動裝建議的那顆。
+- [x] 清掉本機 qwen35translate／qwen354b 模型資料夾。
+- [x] 最終 router 版重新打包並重跑 packaged CDP：Local SI 51、語音頁 20、smoke 22 全過；打包版 Index → LinguaForge → Index 實際 GPU 翻譯正常。
+- [x] 實測 GPU 切模型遇 native context.dispose Access Violation → 改共用 llama-server router；GPU／模擬不合格硬體的真 CPU 翻譯各 5 項通過。
+- [x] Index Q4_K_M 下載完成、官方 SHA-256 相符；舊 Qwen 本機資料夾已不存在。
+
+## Review
+
+- `npm run electron:pack` 成功，asar 266 支 src 與原始碼相符；真實 HF 模型卡表格已檢查截圖。
+- `npx electron scripts/e2e-local-translate-settings.js` 與 `--cpu` 各通過 5 項實際翻譯／遷移；CPU 是模擬未偵測到合格 GPU，推論本身走真 CPU。未驗實際低 VRAM 電腦與 CUDA router。
+- `node scripts/run-tests.js`：110/112；本次新增 safe-rm 引用造成的 `test-download-callers.js` 載入失敗已修正並單獨重跑通過。`test-chat-image-memory.js` 的剝除器不認得 `export { a as b }`，已改成整行拿掉；`node scripts/test-chat-image-memory.js` 通過（快取 6291528 字元）。
+- `git diff --check` 通過；隨 v1.41.0 發行。
+
 # 2026-10-06 — 改名 AxonDeck＋新 logo
 
 - [x] 機械改名 VoiceInk → AxonDeck（含 native 路徑、exe、csproj、crate），tasks/ 歷史不動。

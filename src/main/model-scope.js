@@ -93,6 +93,9 @@ function sanitizeLlm(raw, providers, allowOff) {
   const value = typeof raw === 'string' ? raw.trim() : ''
   if (!value) return fallback
   if (value.startsWith('local:')) {
+    // 語音輸入的整理不收內建本地模型：剩下的兩顆都是翻譯專用（餵它整理只會得到譯文），
+    // 要本機整理就選 Local SI 的「本機模型」（走 cloud: 那條）
+    if (allowOff) return fallback
     const key = models.migrateModelKey(value.slice('local:'.length))
     return models.isLlmKey(key) ? `local:${key}` : fallback
   }

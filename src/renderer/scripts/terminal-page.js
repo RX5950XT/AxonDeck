@@ -9,7 +9,7 @@ import { bindTermCopy, handleCopyKey } from './term-copy.js'
 import { applyAppearance, normalizeAppearance, DEFAULT_TERM_BG_OPACITY } from './term-themes.js'
 import { detectScreen, mergeState, viewportLines } from './term-agent.js'
 import {
-  initWsTabs, showSurface, trackTerminal, paintTerminalTab, currentProjectId
+  initWsTabs, showSurface, trackTerminal, ensureLiveTerminalTabs, paintTerminalTab, currentProjectId
 } from './ws-tabs.js'
 // renderer 沒有 bundler，但 xterm 有現成的 ESM 產物，相對路徑直接載就好：
 // vendoring 只會多一份得跟著升級的複本（markdown.js 那條慣例同理）。
@@ -812,6 +812,9 @@ async function openSession(id, isActive = () => true) {
   currentId = id
   unread.delete(id)
   showHost(true)
+  // 先掛分頁再等 PTY。等的期間專案還原或對話載入會把畫面搶走，
+  // 分頁沒掛上的話這顆就只剩側欄圖示，程序還在跑、點不回去。
+  trackTerminal(id, items.find((item) => item.id === id)?.title || '終端機')
 
   let entry = panes.get(id)
   const fresh = !entry
@@ -1086,6 +1089,7 @@ async function reloadList() {
     }
   }
   pushAllTabStates()
+  ensureLiveTerminalTabs(items)
   checkHostRuntime()
 }
 

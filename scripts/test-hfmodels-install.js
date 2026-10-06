@@ -34,5 +34,27 @@ async function main() {
   assert.match(settled[1].reason.message, /正在下載/)
   assert.equal(context.installs.size, 0)
   console.log('PASS 缺片拒絕與重複下載互斥')
+  const tuning = []
+  const release = []
+  Object.assign(context, { autoTuneQueue: Promise.resolve(), autoTunePending: 0,
+    writePresets: async () => {}, runtime: { status: () => ({ running: false }) },
+    autoTune: (id) => new Promise(resolve => { tuning.push(id); release.push(resolve) }) })
+  context.download.downloadVariant = async () => ({ bytes: 1 })
+  const first = (await context.inspect('owner/one')).variants[0]
+  await context.install('owner/one', first.id)
+  const second = (await context.inspect('owner/two')).variants[0]
+  await context.install('owner/two', second.id)
+  assert.equal(context.autoTunePending, 2)
+  assert.deepEqual(tuning, [first.id], '自動最佳化一次只跑一顆')
+  const start = source.indexOf('async function chooseModelsDir(')
+  vm.runInContext(source.slice(start, source.indexOf('\n}', start) + 2), context)
+  await assert.rejects(context.chooseModelsDir(), /最佳化/, '最佳化期間不能切模型資料夾')
+  release.shift()()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(tuning, [first.id, second.id])
+  release.shift()()
+  await context.autoTuneQueue
+  assert.equal(context.autoTunePending, 0)
+  console.log('PASS 自動最佳化排隊與資料夾保護')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

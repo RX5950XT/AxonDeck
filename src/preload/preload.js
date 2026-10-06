@@ -113,6 +113,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_event, value) => callback(value)
       ipcRenderer.on('window:maximized', handler)
       return () => ipcRenderer.removeListener('window:maximized', handler)
+    },
+    // webview 裡按滑鼠側鍵、網頁自己已經退到底：-1 上一頁、1 下一頁（main 的 nav:side）
+    onSideNav: (callback) => {
+      const handler = (_event, delta) => callback(delta)
+      ipcRenderer.on('nav:side', handler)
+      return () => ipcRenderer.removeListener('nav:side', handler)
     }
   },
 

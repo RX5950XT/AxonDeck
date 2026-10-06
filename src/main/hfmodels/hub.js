@@ -263,7 +263,47 @@ async function readme(repoId) {
   if (Buffer.byteLength(text, 'utf8') >= README_BYTES) {
     text = text.slice(0, text.lastIndexOf('\n') + 1 || text.length)
   }
-  return stripHtml(stripFrontMatter(text))
+  return stripHtml(htmlTablesToMarkdown(stripFrontMatter(text)))
+}
+
+const HTML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
+
+/**
+ * @param {string} html 一格的內容
+ * @returns {string} 純文字，`|` 跳脫成 `\|`（不然會被當成欄分隔）
+ */
+function cellText(html) {
+  return html
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name) => HTML_ENTITIES[name])
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\|/g, '\\|')
+}
+
+/**
+ * HF 的 benchmark 表很多是 HTML `<table>`。直接剝標籤會把整張表攤成一長串直排數字，
+ * 所以先轉成 markdown 表格（第一列當表頭、colspan 補空格），再交給 `stripHtml`。
+ * ponytail: 圍籬程式碼區塊裡的 `<table>` 也會被轉，模型卡幾乎不會這樣寫。
+ * @param {string} text
+ * @returns {string}
+ */
+function htmlTablesToMarkdown(text) {
+  return text.replace(/<table\b[\s\S]*?<\/table>/gi, (table) => {
+    const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(([, row]) => {
+      const cells = []
+      for (const [, attrs, body] of row.matchAll(/<t[hd]\b([^>]*)>([\s\S]*?)<\/t[hd]>/gi)) {
+        const span = Math.min(20, Math.max(1, Number(/colspan\s*=\s*["']?(\d+)/i.exec(attrs)?.[1]) || 1))
+        cells.push(cellText(body), ...Array(span - 1).fill(''))
+      }
+      return cells
+    }).filter((cells) => cells.length)
+    if (!rows.length) return ''
+    const width = Math.max(...rows.map((cells) => cells.length))
+    const line = (cells) => `| ${[...cells, ...Array(width - cells.length).fill('')].join(' | ')} |`
+    return `\n\n${[line(rows[0]), line(Array(width).fill('---')), ...rows.slice(1).map(line)].join('\n')}\n\n`
+  })
 }
 
 /**
@@ -301,5 +341,5 @@ function stripFrontMatter(text) {
 
 module.exports = {
   isRepoId, isRepoPath, searchModels, listFiles, fileUrl, peekFile, modelCard, readme,
-  stripFrontMatter, stripHtml, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
+  stripFrontMatter, stripHtml, htmlTablesToMarkdown, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
 }

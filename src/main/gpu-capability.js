@@ -1,6 +1,6 @@
 /**
  * AxonDeck - 本地 LLM GPU 能力偵測（Main Process）
- * 門檻：NVIDIA 顯示卡且 VRAM ≥ 6GB 才允許開啟 GPU 推論。
+ * 門檻：NVIDIA 顯示卡且 VRAM ≥ 8GB 才走 GPU 推論（自動，不給選），其餘 CPU。
  * 另回報 CUDA Runtime / Vulkan 狀態（供設定頁與自動安裝）。
  */
 
@@ -10,8 +10,13 @@ const { detectCudaRuntime, detectVulkan } = require('./cuda-env')
 
 const execFileAsync = promisify(execFile)
 
-/** 最低 VRAM（MiB） */
-const MIN_VRAM_MIB = 6144
+/** 最低 VRAM（MiB）。8GB 卡 nvidia-smi 回報 8188～8192，留一點餘裕 */
+const MIN_VRAM_MIB = 8184
+
+/** llama.cpp 列出的裝置只留 NVIDIA 8GB 以上；CPU 是沒有合格裝置時的退路。 */
+function eligibleDevices(devices) {
+  return devices.filter((d) => d.totalMiB >= MIN_VRAM_MIB && (/NVIDIA/i.test(d.name) || d.backend === 'CUDA'))
+}
 
 /**
  * @typedef {object} GpuCapability
@@ -93,7 +98,7 @@ async function detectGpuCapability() {
       result.name = gpu.name
       result.vramMiB = gpu.vramMiB
       result.hasNvidiaDriver = true
-      result.reason = `VRAM ${gpu.vramMiB} MiB 不足（需 ≥ ${MIN_VRAM_MIB} MiB / 6GB）`
+      result.reason = `VRAM ${gpu.vramMiB} MiB 不足（需 8GB 以上）`
     } else {
       result.ok = true
       result.name = gpu.name
@@ -144,6 +149,7 @@ function clearGpuCapabilityCache() {
 
 module.exports = {
   MIN_VRAM_MIB,
+  eligibleDevices,
   detectGpuCapability,
   parseNvidiaSmi,
   clearGpuCapabilityCache

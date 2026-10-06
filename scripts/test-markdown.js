@@ -286,5 +286,11 @@ check('危險圖片與越出專案的相對圖片維持文字', () => {
     assert.strictEqual(findAll(renderMarkdown(`![圖](${url})`, 0, 'vi-media://token/project/readme.md'), 'img').length, 0)
   }
 })
+check('表格中的跳脫直線不會多切一欄', () => {
+  const frag = renderMarkdown('| A\\|B | 值 |\n| --- | --- |\n| x | 80.8 |')
+  assert.strictEqual(findAll(frag, 'th').length, 2)
+  assert.strictEqual(findAll(frag, 'th')[0].textContent, 'A|B')
+  assert.strictEqual(findAll(frag, 'td').length, 2)
+})
 console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILED'}  ${passed} passed, ${failed} failed\n`)
 process.exit(failed === 0 ? 0 : 1)

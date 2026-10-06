@@ -14,6 +14,7 @@ import { initResizer } from './pane-resize.js'
 import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { createListReorder } from './list-reorder.js'
+import { initNavHistory, noteLocation } from './nav-history.js'
 import { TERM_THEMES, DEFAULT_TERM_THEME, DEFAULT_TERM_BG_OPACITY, MIN_TERM_BG_OPACITY } from './term-themes.js'
 
 /** @type {typeof import('./live-caption.js') | null} */
@@ -371,12 +372,10 @@ const SETTING_DEFAULTS = {
   ttsVoices: { ...DEFAULT_TTS_VOICES },
   /** 語速百分比偏移 -50…100 */
   ttsRate: 0,
-  /** @type {'linguaforge08q4'|'qwen35translate'|'qwen354b'} */
+  /** @type {'linguaforge08q4'|'indextranslate2b'} */
   localTranslateModel: 'linguaforge08q4',
   /** 本地 ASR 模型：qwen3asr（sherpa，CPU）/ qwen3asrgpu（llama-server，GPU） */
   asrModelKey: 'qwen3asr',
-  /** 本地 LLM 是否使用 CUDA（需 NVIDIA ≥6GB）。全域：任何一頁用到本地翻譯都吃這個設定 */
-  llmGpu: false,
   /** 語音輸入：全域右 Alt 的總開關（同時決定要不要開麥克風與鍵盤 hook） */
   dictationEnabled: false,
   /** 語音輸入整理後的輸出語言 */
@@ -392,10 +391,7 @@ export const ASR_MODEL_KEY = 'qwen3asr'
 export const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
 
 /** 本地翻譯模型 key 白名單（順序：推薦在前） */
-export const LLM_MODEL_KEYS = ['linguaforge08q4', 'qwen35translate', 'qwen354b']
-
-/** @deprecated 請用 resolveTranslateModelKey(settings, modelsStatus)；保留常數供舊 e2e */
-export const TRANSLATE_MODEL_KEY = 'qwen35translate'
+export const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 
 const LLM_KEY_SET = new Set(LLM_MODEL_KEYS)
 
@@ -427,11 +423,11 @@ function normalizeTtsRate(v) {
 
 /**
  * @param {unknown} v
- * @returns {'linguaforge08q4'|'qwen35translate'|'qwen354b'}
+ * @returns {'linguaforge08q4'|'indextranslate2b'}
  */
 export function normalizeLocalTranslateModel(v) {
   return LLM_KEY_SET.has(/** @type {string} */ (v))
-    ? /** @type {'linguaforge08q4'|'qwen35translate'|'qwen354b'} */ (v)
+    ? /** @type {'linguaforge08q4'|'indextranslate2b'} */ (v)
     : 'linguaforge08q4'
 }
 
@@ -444,7 +440,7 @@ export function normalizeAsrModelKey(v) {
 }
 
 /**
- * 解析實際應檢查／使用的本地翻譯模型 key（選中未下載時 fallback 到已下載的 qwen）
+ * 解析實際應檢查／使用的本地翻譯模型 key（選中未下載時 fallback 到任一已下載的）
  * @param {{ localTranslateModel?: string }} settings
  * @param {Record<string, { downloaded?: boolean }>|null|undefined} modelsMap
  * @returns {string}
@@ -452,9 +448,6 @@ export function normalizeAsrModelKey(v) {
 export function resolveTranslateModelKey(settings, modelsMap) {
   const preferred = normalizeLocalTranslateModel(settings?.localTranslateModel)
   if (modelsMap?.[preferred]?.downloaded) return preferred
-  if (preferred !== 'qwen35translate' && modelsMap?.qwen35translate?.downloaded) {
-    return 'qwen35translate'
-  }
   for (const k of LLM_MODEL_KEYS) {
     if (modelsMap?.[k]?.downloaded) return k
   }
@@ -481,7 +474,6 @@ export async function getSettings() {
     ttsVoices: raw.ttsVoices || { ...DEFAULT_TTS_VOICES },
     localTranslateModel: normalizeLocalTranslateModel(raw.localTranslateModel),
     asrModelKey: normalizeAsrModelKey(raw.asrModelKey),
-    llmGpu: raw.llmGpu === true,
     chatProviders: Array.isArray(raw.chatProviders) ? raw.chatProviders : [],
     asrClouds: Array.isArray(raw.asrClouds) ? raw.asrClouds : []
   }
@@ -500,32 +492,14 @@ const asrAddCloudBtn = document.getElementById('asrAddCloudBtn')
 const asrDeleteCloudBtn = document.getElementById('asrDeleteCloudBtn')
 const asrCloudHint = document.getElementById('asrCloudHint')
 const toggleAsrApiKeyVisibility = document.getElementById('toggleAsrApiKeyVisibility')
-const modelList = document.getElementById('modelList')
-const modelsPathText = document.getElementById('modelsPathText')
 const ttsRateInput = document.getElementById('ttsRateInput')
 const ttsRateLabel = document.getElementById('ttsRateLabel')
-const llmGpuHint = document.getElementById('llmGpuHint')
-const llmGpuBtn = document.getElementById('llmGpuBtn')
-const cudaEnvRow = document.getElementById('cudaEnvRow')
-const cudaEnvStatus = document.getElementById('cudaEnvStatus')
-const installCudaEnvBtn = document.getElementById('installCudaEnvBtn')
-const refreshGpuEnvBtn = document.getElementById('refreshGpuEnvBtn')
-const cudaInstallProgress = document.getElementById('cudaInstallProgress')
-const cudaInstallProgressFill = document.getElementById('cudaInstallProgressFill')
 const toast = document.getElementById('toast')
 
-/** @type {object | null} */
-let gpuCapability = null
-let cudaInstallInProgress = false
-
-// 分段選擇器目前的值（翻譯／辨識後端與模型已移到各功能頁的選單，這裡只剩推論設定）
+// 分段選擇器目前的值（翻譯／辨識後端與模型已移到各功能頁的選單；推論方式自動，在 Local SI 顯示）
 const segmentValues = {
-  llmGpuSegment: 'cpu',
   themeSegment: 'dark'
 }
-
-// 最近一次模型狀態快取
-let latestModels = {}
 
 // ===== 初始化 =====
 document.addEventListener('DOMContentLoaded', async () => {
@@ -539,6 +513,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSidebarModes()
   initChatPage()
   refreshChatPage()
+  initNavHistory()
   // 終端機跟聊天共用這一頁：側欄的終端機清單啟動時就要接上（動態 import，不卡啟動）
   loadTerminalPage().then((m) => m.refreshTerminalPage())
   // 子分頁切換要跟著換引擎擁有者：停在檔案轉錄時不該預熱即時字幕
@@ -863,6 +838,16 @@ function initNavigation() {
  * @type {'chat' | 'workspace' | 'web'}
  */
 let chatPaneMode = 'chat'
+/** 主區真的換過一次就加一。晚回來的對話載入用這個判斷自己是不是舊的。 */
+let chatPaneEpoch = 0
+
+export function getChatPaneMode() {
+  return chatPaneMode
+}
+
+export function getChatPaneEpoch() {
+  return chatPaneEpoch
+}
 
 /**
  * 切換聊天頁的主區（對話／工作區）。
@@ -943,6 +928,7 @@ function initSidebarModes() {
 
 export function setChatPaneMode(mode) {
   if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web') return
+  if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
@@ -961,6 +947,7 @@ export function setChatPaneMode(mode) {
     loadTerminalPage().then((m) => m.refreshTerminalPage())
     loadQuotaBar().then((m) => m.refreshQuotaBar())
   }
+  noteLocation()
 }
 
 /**
@@ -1003,7 +990,6 @@ export function switchPage(pageName) {
   if (pageName === 'settings') {
     // 有沒存的修改就不重灌草稿（切頁回來、再點一次「設定」都不能把剛打的字洗掉）
     loadSettingsForm({ keepDraft: settingsDirty })
-    refreshModels()
   }
   if (pageName !== 'stt') liveCaption?.cooldownEngine()
   if (pageName !== 'translate') translatePage?.cooldownTranslatePage()
@@ -1015,13 +1001,14 @@ export function switchPage(pageName) {
   // 這裡只收自己的計時器。
   if (pageName !== 'explorer') explorerPage?.cooldownExplorerPage()
   if (pageName !== 'hfmodels') hfPage?.stop()
+  noteLocation()
 }
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'local'|'cloud'|'voice'|'basic'} [section]
+ * @param {'cloud'|'voice'|'basic'} [section]
  */
-export function openSettingsPage(section = 'local') {
+export function openSettingsPage(section = 'cloud') {
   switchPage('settings')
   activateSettingsSection(section)
 }
@@ -1060,7 +1047,7 @@ function initSettingsNav() {
 
 /**
  * 啟動時只綁事件，不打 nvidia-smi／掃模型檔。
- * 表單內容在進設定頁時才 loadSettingsForm + refreshModels。
+ * 表單內容在進設定頁時才 loadSettingsForm。
  */
 function bindSettingsControls() {
   if (toggleAsrApiKeyVisibility) {
@@ -1083,17 +1070,6 @@ function bindSettingsControls() {
     btn.addEventListener('click', () => previewVoice(/** @type {HTMLButtonElement} */ (btn)))
   })
 
-  installCudaEnvBtn?.addEventListener('click', () => onInstallCudaEnv())
-  refreshGpuEnvBtn?.addEventListener('click', () => refreshGpuCapabilityUi(true))
-
-  // 模型管理
-  const openModelsFolder = async (key) => {
-    try { await openInFilesPage(await electronAPI.models.openFolder(key)) }
-    catch (error) { showToast(cleanIpcError(error), 'error') }
-  }
-  document.getElementById('openModelsFolderBtn')?.addEventListener('click', () => void openModelsFolder())
-  modelsPathText?.addEventListener('click', () => void openModelsFolder())
-  electronAPI.models.onProgress(onModelProgress)
 }
 
 /** @type {{ langs: string[], voicesByLang: Record<string, {id:string,label:string}[]>, defaults: Record<string,string> } | null} */
@@ -1261,122 +1237,6 @@ function setSegmentValue(id, value) {
     btn.classList.toggle('active', on)
     btn.setAttribute('aria-pressed', on ? 'true' : 'false')
   })
-}
-
-/**
- * 更新 GPU 選項可用性、CUDA 環境列與提示
- * @param {boolean} [forceRefresh]
- */
-async function refreshGpuCapabilityUi(forceRefresh = false) {
-  try {
-    gpuCapability = forceRefresh
-      ? await electronAPI.system.refreshGpuCapability()
-      : await electronAPI.system.gpuCapability()
-  } catch {
-    gpuCapability = {
-      ok: false,
-      name: '',
-      vramMiB: 0,
-      reason: '無法偵測 GPU',
-      hasCudaRuntime: false,
-      canInstallCuda: false,
-      backends: []
-    }
-  }
-  const ok = !!gpuCapability?.ok
-  const hasCuda = !!gpuCapability?.hasCudaRuntime
-  const hasVulkan = !!gpuCapability?.hasVulkan
-  const backends = Array.isArray(gpuCapability?.backends) ? gpuCapability.backends : []
-
-  if (llmGpuBtn) {
-    llmGpuBtn.disabled = !ok
-    llmGpuBtn.classList.toggle('disabled', !ok)
-    llmGpuBtn.title = ok
-      ? `${gpuCapability.name}（${gpuCapability.vramMiB} MiB）· ${backends.join('/') || '—'}`
-      : (gpuCapability?.reason || 'GPU 不可用')
-  }
-  if (llmGpuHint) {
-    if (ok) {
-      const be = backends.filter((b) => b !== 'cpu-fallback').join(' / ') || '將自動選擇'
-      llmGpuHint.textContent = `可用：${gpuCapability.name}，${gpuCapability.vramMiB} MiB。後端優先：${be}（只影響本地翻譯）。`
-    } else {
-      llmGpuHint.textContent = gpuCapability?.reason
-        ? `${gpuCapability.reason}。將使用 CPU 推論。`
-        : '未達 GPU 門檻（需 NVIDIA 且 VRAM ≥ 6GB）。'
-    }
-  }
-
-  // CUDA 環境列：有 NVIDIA 夠 VRAM 就顯示
-  const showCudaRow = ok || !!gpuCapability?.canInstallCuda || !!gpuCapability?.hasNvidiaDriver
-  cudaEnvRow?.classList.toggle('hidden', !showCudaRow)
-  if (cudaEnvStatus) {
-    if (cudaInstallInProgress) {
-      // 進度文案由 onProgress 更新
-    } else if (hasCuda) {
-      cudaEnvStatus.textContent = 'CUDA Runtime：已就緒（可走 CUDA 加速）'
-    } else if (ok && hasVulkan) {
-      cudaEnvStatus.textContent =
-        'CUDA Runtime：未安裝（目前用 Vulkan）；點「安裝 CUDA 環境」啟用。'
-    } else if (ok) {
-      cudaEnvStatus.textContent = 'CUDA Runtime：未安裝。建議安裝以獲得最佳 GPU 效能。'
-    } else {
-      cudaEnvStatus.textContent = gpuCapability?.reason || '無法使用 GPU'
-    }
-  }
-  if (installCudaEnvBtn) {
-    installCudaEnvBtn.disabled = cudaInstallInProgress || hasCuda || !gpuCapability?.canInstallCuda
-    installCudaEnvBtn.textContent = hasCuda ? 'CUDA 已就緒' : '安裝 CUDA 環境'
-  }
-
-  if (!ok && segmentValues.llmGpuSegment === 'gpu') {
-    setSegmentValue('llmGpuSegment', 'cpu')
-  }
-}
-
-/**
- * 一鍵安裝 CUDA Toolkit／Runtime
- */
-async function onInstallCudaEnv() {
-  if (cudaInstallInProgress) return
-  if (!electronAPI.system?.installCudaEnv) {
-    showToast('目前環境不支援自動安裝', 'error')
-    return
-  }
-  cudaInstallInProgress = true
-  if (installCudaEnvBtn) installCudaEnvBtn.disabled = true
-  cudaInstallProgress?.classList.remove('hidden')
-  if (cudaInstallProgressFill) cudaInstallProgressFill.style.width = '5%'
-  if (cudaEnvStatus) cudaEnvStatus.textContent = '準備安裝…將跳出系統管理員確認（UAC）'
-
-  const unsub = electronAPI.system.onCudaInstallProgress?.((p) => {
-    if (cudaEnvStatus && p?.message) cudaEnvStatus.textContent = p.message
-    if (cudaInstallProgressFill && typeof p?.percent === 'number') {
-      cudaInstallProgressFill.style.width = `${Math.max(0, Math.min(100, p.percent))}%`
-    }
-  })
-
-  try {
-    const result = await electronAPI.system.installCudaEnv()
-    if (result?.capability) gpuCapability = result.capability
-    await refreshGpuCapabilityUi(true)
-    if (result?.ok) {
-      showToast(result.message || 'CUDA 環境已安裝')
-    } else {
-      showToast(result?.message || '安裝失敗', 'error')
-      // 提供官網後備
-      if (result?.message && /手動|失敗|代碼/.test(result.message)) {
-        /* 使用者可再點官網；此處不強制開瀏覽器 */
-      }
-    }
-  } catch (e) {
-    showToast(`安裝失敗：${cleanIpcError(e)}`, 'error')
-  } finally {
-    cudaInstallInProgress = false
-    if (typeof unsub === 'function') unsub()
-    cudaInstallProgress?.classList.add('hidden')
-    if (cudaInstallProgressFill) cudaInstallProgressFill.style.width = '0%'
-    await refreshGpuCapabilityUi(true)
-  }
 }
 
 // ===== 雲端 ASR 多組設定（跟聊天供應商同一套草稿機制）=====
@@ -1554,11 +1414,9 @@ async function loadSettingsForm({ keepDraft = false } = {}) {
 
   if (!keepDraft) await loadAsrCloudSettings()
 
-  const llmGpuSeg = settings.llmGpu ? 'gpu' : 'cpu'
   const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
 
   if (!segmentsInited) {
-    initSegment('llmGpuSegment', llmGpuSeg)
     initSegment('themeSegment', theme, onThemeSegmentChange)
     initSettingsNav()
     asrCloudSelect?.addEventListener('change', handleAsrCloudSwitch)
@@ -1572,10 +1430,8 @@ async function loadSettingsForm({ keepDraft = false } = {}) {
   } else if (keepDraft) {
     setSegmentValue('themeSegment', theme)
   } else {
-    setSegmentValue('llmGpuSegment', llmGpuSeg)
     setSegmentValue('themeSegment', theme)
   }
-  await refreshGpuCapabilityUi()
 
   if (!ttsVoiceCatalog?.voicesByLang || !Object.keys(ttsVoiceCatalog.voicesByLang).length) {
     await populateTtsVoiceSelects()
@@ -1595,8 +1451,6 @@ async function loadSettingsForm({ keepDraft = false } = {}) {
 }
 
 async function saveSettings() {
-  let llmGpu = segmentValues.llmGpuSegment === 'gpu'
-
   // 先把畫面欄位收回雲端 ASR 草稿，再取「目前選用那一筆」的金鑰來擋空
   captureAsrCloudFields()
   const badCloud = asrCloudsDraft.find((c) => c.apiUrl && !/^https?:\/\//i.test(c.apiUrl))
@@ -1639,14 +1493,6 @@ async function saveSettings() {
   }
   const notes = []
   if (chatValidation.dropped > 0) notes.push(`略過 ${chatValidation.dropped} 個空白或重複的模型`)
-  if (llmGpu) {
-    if (!gpuCapability) await refreshGpuCapabilityUi()
-    if (!gpuCapability?.ok) {
-      notes.push(`${gpuCapability?.reason || '此裝置無法使用 GPU 推論'}，已改用 CPU`)
-      llmGpu = false
-      setSegmentValue('llmGpuSegment', 'cpu')
-    }
-  }
 
   const ttsRate = normalizeTtsRate(ttsRateInput ? Number(ttsRateInput.value) : 0)
 
@@ -1656,7 +1502,6 @@ async function saveSettings() {
     electronAPI.store.set('asrCloudId', asrCloudDraftId),
     electronAPI.store.set('ttsVoices', readTtsVoicesFromForm()),
     electronAPI.store.set('ttsRate', ttsRate),
-    electronAPI.store.set('llmGpu', llmGpu),
     saveChatSettings(chatValidation)
   ])
 
@@ -1665,182 +1510,6 @@ async function saveSettings() {
   document.dispatchEvent(new CustomEvent('settings-changed'))
   // 附帶提醒併進同一則（只有一個 toast，分開跳會被下一則立刻蓋掉）
   showToast(notes.length ? `設定已儲存（${notes.join('；')}）` : '設定已儲存')
-}
-
-// ===== 模型管理 UI =====
-
-function formatBytes(bytes) {
-  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
-  return Math.round(bytes / (1024 * 1024)) + ' MB'
-}
-
-async function refreshModels() {
-  if (!modelList || !modelsPathText) return
-  const status = await electronAPI.models.status()
-  latestModels = status.models || {}
-  modelsPathText.textContent = status.root
-  modelsPathText.title = status.root
-
-  // 分類列出：語音辨識／翻譯／執行環境混在一起時，看不出哪顆是誰的，
-  // 尤其 llama.cpp 執行環境夾在模型中間會像是「又一顆模型」
-  modelList.replaceChildren()
-  const known = new Set(MODEL_GROUPS.map(([kind]) => kind))
-  for (const [kind, title] of MODEL_GROUPS) {
-    // 最後一組收容未知 kind：registry 加了新類別卻忘了補這張表時，
-    // 那顆模型不該從安裝清單裡憑空消失
-    const group = Object.values(latestModels).filter((m) => (
-      kind === 'runtime' ? (m.kind === kind || !known.has(m.kind)) : m.kind === kind
-    ))
-    if (!group.length) continue
-    const heading = document.createElement('p')
-    heading.className = 'model-group-title'
-    heading.textContent = title
-    modelList.appendChild(heading)
-    for (const model of group) modelList.appendChild(renderModelItem(model))
-  }
-}
-
-/** registry 的 kind → 顯示分組（順序即顯示順序） */
-const MODEL_GROUPS = [
-  ['asr', '語音辨識'],
-  ['llm', '翻譯'],
-  ['runtime', '執行環境']
-]
-
-function renderModelItem(model) {
-  const item = document.createElement('div')
-  item.className = 'model-item'
-  item.dataset.key = model.key
-
-  const needsRuntime = model.requires && !latestModels[model.requires]?.downloaded
-  const stateText = model.downloaded
-    ? needsRuntime
-      ? `${formatBytes(model.totalBytes)} · 已下載，還缺「${latestModels[model.requires]?.label || model.requires}」`
-      : `${formatBytes(model.totalBytes)} · 已下載`
-    : model.downloading
-      ? '下載中…'
-      : needsRuntime
-        ? `${formatBytes(model.totalBytes)} · 需搭配「${latestModels[model.requires]?.label || model.requires}」`
-        : formatBytes(model.totalBytes)
-
-  // createElement + textContent：renderer 其餘各頁都零 innerHTML，這裡不留唯一的例外
-  const name = document.createElement('p')
-  name.className = 'model-name'
-  name.textContent = model.label
-
-  const size = document.createElement('p')
-  size.className = model.downloaded ? 'model-size downloaded' : 'model-size'
-  size.textContent = stateText
-
-  const info = document.createElement('div')
-  info.className = 'model-info'
-  info.append(name, size)
-
-  const actions = document.createElement('div')
-  actions.className = 'model-actions'
-
-  const row = document.createElement('div')
-  row.className = 'model-row'
-  row.append(info, actions)
-
-  const progressFill = document.createElement('div')
-  progressFill.className = 'model-progress-fill'
-  const progress = document.createElement('div')
-  progress.className = 'model-progress hidden'
-  progress.appendChild(progressFill)
-
-  item.append(row, progress)
-
-  if (model.downloading) {
-    actions.appendChild(actionBtn('取消', 'btn-secondary', () => electronAPI.models.cancel(model.key)))
-    progress.classList.remove('hidden')
-  } else if (model.downloaded) {
-    actions.appendChild(actionBtn('📂', 'btn-secondary', () => {
-      electronAPI.models.openFolder(model.key).then((dir) => openInFilesPage(dir))
-        .catch((error) => showToast(cleanIpcError(error), 'error'))
-    }))
-    const deleteBtn = actionBtn('刪除', 'btn-secondary', async () => {
-      // 就地二次確認：模型動輒 1～2.7GB，誤點就要重新下載
-      if (deleteBtn.dataset.armed !== '1') {
-        deleteBtn.dataset.armed = '1'
-        deleteBtn.classList.add('btn-danger')
-        deleteBtn.textContent = '確定刪除？'
-        setTimeout(() => {
-          deleteBtn.dataset.armed = ''
-          deleteBtn.classList.remove('btn-danger')
-          deleteBtn.textContent = '刪除'
-        }, 3000)
-        return
-      }
-      try {
-        const st = await electronAPI.engine.status()
-        if (st.asrLoaded || st.llmLoaded) {
-          showToast('請先停止字幕／轉錄再刪除模型', 'error')
-          return
-        }
-        await electronAPI.models.delete(model.key)
-        refreshModels()
-      } catch (e) {
-        showToast(`刪除失敗: ${cleanIpcError(e)}`, 'error')
-      }
-    })
-    actions.appendChild(deleteBtn)
-  } else {
-    actions.appendChild(actionBtn('下載', 'btn-primary', () => startDownload(model)))
-  }
-  return item
-}
-
-function actionBtn(text, cls, onClick) {
-  const btn = document.createElement('button')
-  btn.className = `btn ${cls} btn-sm`
-  btn.textContent = text
-  btn.addEventListener('click', onClick)
-  return btn
-}
-
-async function startDownload(model) {
-  try {
-    await refreshModelsAfter(() => electronAPI.models.download(model.key))
-  } catch (error) {
-    const message = cleanIpcError(error)
-    if (message.includes('已取消')) showToast('已取消下載')
-    else showToast(`下載失敗: ${message}`, 'error')
-    refreshModels()
-  }
-}
-
-async function refreshModelsAfter(fn) {
-  const promise = fn()
-  promise.catch(() => {}) // 先標記已處理，避免 refresh 期間出現 unhandled rejection
-  await refreshModels() // 立刻顯示「下載中」狀態
-  await promise
-  await refreshModels()
-}
-
-/**
- * 下載進度
- */
-function onModelProgress({ key, receivedBytes, totalBytes, stage }) {
-  const percent = totalBytes > 0
-    ? Math.min(100, (receivedBytes / totalBytes) * 100)
-    : 0
-  // 解壓階段（main 送 stage）已經取消不了，文字照實講、取消鈕停用
-  const text = stage || `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)} (${percent.toFixed(0)}%)`
-
-  const item = modelList?.querySelector(`.model-item[data-key="${key}"]`)
-  if (item) {
-    const progress = item.querySelector('.model-progress')
-    progress.classList.remove('hidden')
-    progress.querySelector('.model-progress-fill').style.width = percent + '%'
-    item.querySelector('.model-size').textContent = text
-    const cancelBtn = /** @type {HTMLButtonElement|null} */ (item.querySelector('.model-actions .btn'))
-    if (cancelBtn && stage) cancelBtn.disabled = true
-  }
-
-  if (latestModels[key]) {
-    latestModels[key] = { ...latestModels[key], downloading: true }
-  }
 }
 
 /**

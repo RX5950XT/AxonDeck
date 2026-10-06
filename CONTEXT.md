@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.40.0**（2026-10-06）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.41.0**（2026-10-06）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -17,7 +17,9 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 翻譯與 TTS | `translate` | local（LinguaForge）／cloud 翻譯；Edge TTS |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
-| 設定 | `settings` | 裝了什麼、怎麼推論、雲端端點、終端機配色與桌布 |
+| 設定 | `settings` | 雲端端點、語音朗讀、終端機配色與桌布；本地模型與推論方式在 Local SI |
+
+滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
 
 ## 模組地圖
 
@@ -55,6 +57,15 @@ native/
 ```
 
 ## 各模組現況
+
+### 本地推論（Local SI）
+- 子分頁：探索／推薦／模型庫／執行環境。推薦只有 ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
+- NVIDIA ≥8GB VRAM 才使用 GPU（8184 MiB 門檻容許顯卡回報誤差），其餘 CPU；模型庫與 1.7B ASR 使用同一篩選規則，沒有手動 `llmGpu` 開關。
+- 本地翻譯經 `local-llm-router.js` 沿用 Local SI 的 llama-server router；推薦模型以絕對檔案路徑寫入 preset，不複製模型。避免 node-llama-cpp 在 Windows 釋放 GPU context 時當機；關 App 要連只由翻譯載入的 router 一起收掉。
+- 進 Local SI 自動補建議執行環境；推薦下載補必要環境；探索下載完成後排隊 fit＋bench，最佳化期間不能換模型資料夾。暫存 userData 不自動下載。
+- HF README 的 HTML 表格先轉 Markdown，再以零 innerHTML 的既有 renderer 畫列欄。
+
+
 
 ### AI 頁
 - Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。

@@ -289,7 +289,7 @@ async function syncEngineForSettings() {
   const onTranslatePage = !!page?.classList.contains('active')
 
   if (settings?.translator === 'local' && onTranslatePage) {
-    // 已 prewarm 也要卸再載：localTranslateModel / llmGpu 指紋變更靠 getSession，
+    // 已 prewarm 也要卸再載：localTranslateModel 指紋變更靠 getSession，
     // 但使用者存檔後應立刻看到「準備模型」而非沿用舊權重
     prewarmGen++
     prewarmInFlight = false
@@ -314,7 +314,7 @@ async function refreshUiState() {
     const st = await electronAPI.models.status().catch(() => null)
     const llmKey = resolveTranslateModelKey(settings, st?.models)
     if (!st?.models?.[llmKey]?.downloaded) {
-      bannerMsg = '本地翻譯模型未下載，請到設定下載。'
+      bannerMsg = '本地翻譯模型未下載，請到 Local SI → 推薦下載。'
       statusLabel = '翻譯：本地 LLM（模型未下載）'
     } else {
       canTranslate = true

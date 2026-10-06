@@ -152,8 +152,7 @@ function seedModel() {
   const root = path.join(process.env.APPDATA || os.homedir(), 'voiceink', 'models')
   const candidates = [
     path.join(root, 'linguaforge08q4', 'gguf-v5e', 'linguaforge-v5e-0.8b-Q4_K_M.gguf'),
-    path.join(root, 'qwen35translate', 'Qwen3.5-0.8B-Q4_K_M.gguf'),
-    path.join(root, 'qwen354b', 'Qwen3.5-4B-Q4_K_M.gguf')
+    path.join(root, 'indextranslate2b', 'Index-Translate-2B.Q4_K_M.gguf')
   ]
   const source = candidates.find((p) => fs.existsSync(p))
   if (!source) return false
@@ -170,12 +169,13 @@ function seedModel() {
 
 async function main() {
   const seeded = seedModel()
+  fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false, uffsAuto: false }))
   const child = spawn(EXE, [
     `--remote-debugging-port=${PORT}`,
     `--user-data-dir=${USER_DATA_DIR}`,
     '--hidden',
     '--disable-backgrounding-occluded-windows'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] })
+  ], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let processLog = ''
   child.stdout.on('data', (chunk) => { processLog += chunk })
   child.stderr.on('data', (chunk) => { processLog += chunk })
@@ -200,7 +200,6 @@ async function main() {
     }, 30_000, '主視窗')
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
-    await cdp.send('Page.bringToFront', {})
     await waitFor(
       () => cdp.eval("document.readyState === 'complete' && typeof window.electronAPI?.hfmodels?.list === 'function'"),
       20_000,
@@ -223,8 +222,8 @@ async function main() {
     })()`), 15_000, 'HF模型頁')
     assert(structure.order.includes('hfmodels'), 'nav 有 HF模型分頁', JSON.stringify(structure.order))
     assert(
-      JSON.stringify(structure.subtabs) === JSON.stringify(['discover', 'library', 'runtime']),
-      '三個子分頁：探索／模型庫／執行環境',
+      JSON.stringify(structure.subtabs) === JSON.stringify(['discover', 'recommend', 'library', 'runtime']),
+      '四個子分頁：探索／推薦／模型庫／執行環境',
       JSON.stringify(structure.subtabs)
     )
     assert(
@@ -249,6 +248,21 @@ async function main() {
       '頂層面板是 glass（radius ≥ 10px ＋ blur）且量得到高度',
       JSON.stringify(glass)
     )
+
+    console.log('\n[A2] 推薦與設定搬移')
+    await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
+    const recommend = await waitFor(() => cdp.eval(`(() => {
+      const rows = [...document.querySelectorAll('#hf-recommend .model-item')]
+      if (rows.length !== 4 || !rows.every((r) => r.offsetHeight > 0)) return null
+      return { keys: rows.map((r) => r.dataset.key), groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((r) => r.textContent),
+        actions: rows.every((r) => r.querySelector('.model-actions button')?.offsetHeight > 0),
+        legacySettings: !!document.getElementById('set-local') }
+    })()`), 15_000, '四顆推薦模型')
+    assert(JSON.stringify(recommend.keys) === JSON.stringify(['qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b']), '推薦正好 ASR 兩顆、翻譯兩顆', JSON.stringify(recommend))
+    assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
+    assert(JSON.stringify(recommend.groups) === JSON.stringify(['語音辨識', '翻譯']), '執行環境不混進推薦模型')
+    const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')
+    assert(hardware.data?.autoRuntime === false, '隔離測試不會自動下載大型執行環境')
 
     console.log('\n[B] 模型庫')
     await cdp.eval("document.querySelector('#hfSubtabs .subtab[data-subtab=\"library\"]').click(), 'ok'")
@@ -384,6 +398,12 @@ async function main() {
       JSON.stringify(runtime.rows.map((r) => r.label))
     )
     assert(runtime.runtimeItems >= 2, '推論引擎列出 Vulkan 與 CUDA 兩種', String(runtime.runtimeItems))
+    const inference = await waitFor(() => cdp.eval(`(() => {
+      const hint = document.getElementById('hfInferHint')
+      return hint?.offsetHeight > 0 && /自動：/.test(hint.textContent) ? hint.textContent : null
+    })()`), 15_000, '自動推論方式')
+    assert(/GPU|CPU/.test(inference) && !await cdp.eval('!!document.getElementById("llmGpuSegment")'), '推論自動偵測，沒有手動 GPU 開關', inference)
+
     // 「一鍵安裝最佳配置」：按鈕要在、要有字，而且旁邊要講清楚會裝哪一顆、為什麼
     const autoInstall = await cdp.eval(`(() => {
       const btn = document.getElementById('hfAutoInstallBtn')
@@ -465,6 +485,27 @@ async function main() {
     )
     assert(discover.columns === 2, '探索是左清單右模型卡兩欄', String(discover.columns))
     assert(discover.detailH > 0, '模型卡面板量得到高度', String(discover.detailH))
+
+    if (process.env.HF_LIVE_CARD === '1') {
+      for (const repo of ['IndexTeam/Index-Translate-2B-GGUF', 'unsloth/Qwen3.5-4B-GGUF']) {
+        await cdp.eval(`document.getElementById('hfSearchInput').value = ${JSON.stringify(repo)}; document.getElementById('hfSearchBtn').click()`)
+        const table = await waitFor(() => cdp.eval(`(() => {
+          if (document.querySelector('.hf-detail-title')?.textContent !== ${JSON.stringify(repo)}) return null
+          const tables = [...document.querySelectorAll('#hfDetail .hf-readme table')]
+          return tables.length && tables.every((t) => t.offsetHeight > 0) ? {
+            rows: tables.reduce((n, t) => n + t.rows.length, 0), cells: tables.reduce((n, t) => n + t.querySelectorAll('td,th').length, 0),
+            headers: [...tables[0].rows[0].cells].map((c) => c.textContent),
+            body: document.querySelector('.hf-readme-body').textContent
+          } : null
+        })()`), 60_000, `真模型卡表格 ${repo}`)
+        assert(table.rows > 2 && table.cells > table.rows && !table.body.includes('<table'), `真模型卡表格有正常列欄：${repo}`, JSON.stringify(table.headers))
+        if (process.env.AXONDECK_EVIDENCE_DIR) {
+          await cdp.eval("document.querySelector('.hf-readme table').scrollIntoView()")
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          fs.writeFileSync(path.join(process.env.AXONDECK_EVIDENCE_DIR, repo.replace('/', '__') + '.png'), Buffer.from(shot.data, 'base64'))
+        }
+      }
+    }
 
     console.log('\n[F] 沒開的彈窗不可以浮出來')
     // `.app-dialog` 寫了 display 就必須帶 `[open]`，否則沒開的彈窗會全部疊在頁面上。

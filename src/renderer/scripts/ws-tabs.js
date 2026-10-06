@@ -966,6 +966,30 @@ export function trackTerminal(id, title) {
 }
 
 /**
+ * 還活著、卻沒有分頁的終端機補一格。不切過去：人正在看的畫面維持原樣，
+ * 側欄圖示點得開、分頁列也點得回去。
+ * @param {Array<{ id: string, projectId?: string, state?: string, title?: string, osTitle?: string }>} sessions
+ */
+export function ensureLiveTerminalTabs(sessions) {
+  const projectId = project?.id || ''
+  if (!projectId || !Array.isArray(sessions)) return
+  let added = false
+  for (const item of sessions) {
+    if (!item || item.projectId !== projectId || item.state === 'stopped' || !item.id) continue
+    if (findTab(item.id)) continue
+    tabs.push({
+      id: item.id,
+      kind: 'terminal',
+      title: item.osTitle || item.title || '終端機'
+    })
+    added = true
+  }
+  if (!added) return
+  renderTabs()
+  schedulePersistTabs()
+}
+
+/**
  * 把終端機現在的樣子畫到分頁上（`terminal-page.js` 每次狀態變動都會推過來）。
  * @param {string} id
  * @param {{ title: string, state: string, stateLabel: string, admin: boolean, cwd: string, split: boolean, unread: boolean }} meta
@@ -2993,6 +3017,19 @@ export async function newTerminalWithCommand(title, command, resumeInfo) {
 // ===== 對外 =====
 
 /**
+ * 還原進行中如果使用者已經開了別的分頁，就留在那個，不要搶回存檔裡的舊分頁。
+ * @param {string} activeId
+ * @param {string} savedActiveId
+ * @param {string[]} ids 現在分頁列上的 id，照順序
+ * @returns {string}
+ */
+function pickRestoredTab(activeId, savedActiveId, ids) {
+  if (activeId && ids.includes(activeId)) return activeId
+  if (savedActiveId && ids.includes(savedActiveId)) return savedActiveId
+  return ids[0] || ''
+}
+
+/**
  * 還原專案儲存的分頁與草稿（Hot Exit）
  * @param {{ id: string, name: string, path: string }} proj
  */
@@ -3006,8 +3043,8 @@ async function restoreProjectTabs(proj, generation) {
     if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) {
       tabs = tabs.filter((t) => t.kind === 'terminal')
       renderTabs()
-      const carried = tabs[0]
-      if (carried) await activate(carried.id)
+      const carried = pickRestoredTab(activeId, '', tabs.map((tab) => tab.id))
+      if (carried) await activate(carried)
       else showSurface('empty')
       return
     }
@@ -3111,7 +3148,7 @@ async function restoreProjectTabs(proj, generation) {
       }
     }
     renderTabs()
-    const targetActive = saved.activeId && findTab(saved.activeId) ? saved.activeId : (tabs[0]?.id || '')
+    const targetActive = pickRestoredTab(activeId, saved.activeId || '', tabs.map((tab) => tab.id))
     if (targetActive) await activate(targetActive)
     else showSurface('empty')
   } catch {

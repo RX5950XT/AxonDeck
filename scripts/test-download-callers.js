@@ -15,6 +15,7 @@ async function main() {
       fetch: async () => { throw new Error('中斷') },
       require: (name) => {
         if (name === 'electron') return { app: { getPath: () => root } }
+        if (name === './safe-rm') return require('../src/main/safe-rm')
         if (name === './hfmodels/download') return { downloadFile: async (options) => {
           if (failDownload) throw new Error('中斷')
           const bytes = options.dest.endsWith('first') ? 3 : 4

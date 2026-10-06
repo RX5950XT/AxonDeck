@@ -707,7 +707,6 @@ function bindOnce() {
     onCommit: () => void commitPlaceOrder()
   })
   document.addEventListener('keydown', onPageKey)
-  for (const type of ['mousedown', 'mouseup', 'auxclick']) document.addEventListener(type, onSideButton, true)
   electronAPI.explorer.onDevicesChanged(() => void onDevicesChanged())
   electronAPI.explorer.onChanged((payload) => {
     if (!payload) return
@@ -3919,11 +3918,15 @@ async function handleDrop(e, toDir) {
   }
 }
 
-function onSideButton(e) {
-  if (!$('page-explorer')?.classList.contains('active') || (e.button !== 3 && e.button !== 4)) return
-  e.preventDefault()
-  e.stopPropagation()
-  if (e.type === 'mouseup' && !document.querySelector('.ws-menu, dialog[open]')) void goHistory(e.button === 3 ? -1 : 1)
+/**
+ * 滑鼠側鍵（nav-history.js 叫）：資料夾歷史還退得動就自己退，回 false 讓 App 換頁
+ * @param {number} delta
+ */
+export function explorerHistory(delta) {
+  const next = histIndex + delta
+  if (!$('page-explorer')?.classList.contains('active') || next < 0 || next >= history.length) return false
+  void goHistory(delta)
+  return true
 }
 
 function onPageKey(e) {

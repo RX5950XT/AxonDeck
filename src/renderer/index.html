@@ -871,6 +871,9 @@
                 <button type="button" class="subtab active" data-subtab="discover" role="tab" aria-selected="true">
                   探索
                 </button>
+                <button type="button" class="subtab" data-subtab="recommend" role="tab" aria-selected="false">
+                  推薦
+                </button>
                 <button type="button" class="subtab" data-subtab="library" role="tab" aria-selected="false">
                   模型庫
                 </button>
@@ -899,6 +902,18 @@
                       <p class="setting-hint">點左邊模型，看 README 與每個量化的大小與可行性。</p>
                     </div>
                   </div>
+                </section>
+              </div>
+
+              <!-- 推薦：語音辨識與翻譯用的固定模型（給語音轉文字／翻譯頁用，不進 router） -->
+              <div class="subtab-panel" id="hf-recommend" data-subtab="recommend" role="tabpanel">
+                <section class="hf-panel">
+                  <div class="models-path">
+                    <span id="modelsPathText" class="models-path-text" title="點擊開啟模型資料夾">…</span>
+                    <button type="button" id="openModelsFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+                  </div>
+                  <p class="setting-hint">語音轉文字與翻譯頁用的模型；要用哪一顆在各功能頁上方選。</p>
+                  <div id="modelList" class="model-list" aria-live="polite"></div>
                 </section>
               </div>
 
@@ -938,8 +953,21 @@
                 </section>
 
                 <section class="hf-panel">
+                  <h2>推論方式</h2>
+                  <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
+                  <div id="cudaEnvRow" class="cuda-env-row hidden">
+                    <button type="button" id="installCudaEnvBtn" class="btn btn-secondary btn-sm">安裝 CUDA 環境</button>
+                    <button type="button" id="refreshGpuEnvBtn" class="btn btn-secondary btn-sm">重新偵測</button>
+                    <p id="cudaEnvStatus" class="setting-hint">偵測 CUDA Runtime…</p>
+                  </div>
+                  <div id="cudaInstallProgress" class="model-progress hidden">
+                    <div id="cudaInstallProgressFill" class="model-progress-fill"></div>
+                  </div>
+                </section>
+
+                <section class="hf-panel">
                   <h2>推論引擎</h2>
-                  <p class="setting-hint">Vulkan 通用；NVIDIA 用 CUDA 更快。</p>
+                  <p class="setting-hint">Vulkan 通用；NVIDIA 用 CUDA 更快。沒裝的話進這頁會自動裝建議的那顆。</p>
                   <div class="hf-library-actions">
                     <button type="button" id="hfAutoInstallBtn" class="btn btn-primary">
                       一鍵安裝最佳配置
@@ -2119,10 +2147,7 @@
           <section id="page-settings" class="page">
             <div class="settings-shell">
               <nav class="settings-nav" id="settingsNav" aria-label="設定分類">
-                <button type="button" class="settings-nav-item active" data-section="local">
-                  <span class="settings-nav-icon" aria-hidden="true">📦</span>本地模型
-                </button>
-                <button type="button" class="settings-nav-item" data-section="cloud">
+                <button type="button" class="settings-nav-item active" data-section="cloud">
                   <span class="settings-nav-icon" aria-hidden="true">☁️</span>雲端模型
                 </button>
                 <button type="button" class="settings-nav-item" data-section="voice">
@@ -2135,52 +2160,8 @@
 
               <div class="settings-body">
                 <div class="settings-scroll" id="settingsScroll">
-                  <!-- 本地模型：裝了什麼 ＋ 怎麼推論（選用哪一顆在各功能頁上方選） -->
-                  <section class="settings-section active" id="set-local" data-section="local">
-                    <header class="settings-section-head">
-                      <h2 class="settings-section-title">本地模型</h2>
-                      <p class="settings-section-desc">管理已安裝的本地模型與推論方式；要用哪一顆在功能頁上選。</p>
-                    </header>
-                    <div class="settings-card">
-                      <div class="models-path">
-                        <span id="modelsPathText" class="models-path-text" title="點擊開啟模型資料夾">…</span>
-                        <button type="button" id="openModelsFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
-                      </div>
-                      <div id="modelList" class="model-list"></div>
-                    </div>
-
-                    <div class="settings-card">
-                      <h4 class="settings-subsection-title">推論方式</h4>
-                      <div class="setting-group">
-                        <label>本地翻譯（全域）</label>
-                        <div id="llmGpuSegment" class="segmented">
-                          <button type="button" class="seg-btn" data-value="cpu">CPU</button>
-                          <button type="button" class="seg-btn" data-value="gpu" id="llmGpuBtn">GPU</button>
-                        </div>
-                        <p id="llmGpuHint" class="setting-hint">偵測中…</p>
-                        <div id="cudaEnvRow" class="cuda-env-row hidden">
-                          <button type="button" id="installCudaEnvBtn" class="btn btn-secondary btn-sm">
-                            安裝 CUDA 環境
-                          </button>
-                          <button type="button" id="refreshGpuEnvBtn" class="btn btn-secondary btn-sm">
-                            重新偵測
-                          </button>
-                          <p id="cudaEnvStatus" class="setting-hint">偵測 CUDA Runtime…</p>
-                        </div>
-                        <div id="cudaInstallProgress" class="model-progress hidden">
-                          <div id="cudaInstallProgressFill" class="model-progress-fill"></div>
-                        </div>
-                      </div>
-
-                      <div class="setting-group">
-                        <label>語音辨識</label>
-                        <p class="setting-hint">選模型即選推論：0.6B 走 CPU、1.7B 走 GPU。</p>
-                      </div>
-                    </div>
-                  </section>
-
                   <!-- 雲端模型：聊天／翻譯／語音轉文字三組端點各自獨立 -->
-                  <section class="settings-section" id="set-cloud" data-section="cloud">
+                  <section class="settings-section active" id="set-cloud" data-section="cloud">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">雲端模型</h2>
                       <p class="settings-section-desc">聊天與翻譯共用供應商；語音轉文字另設。</p>

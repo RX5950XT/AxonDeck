@@ -33,7 +33,7 @@ async function main() {
     CHUNK_CHARS_GENERIC: 600, CHUNK_CHARS_LINGUAFORGE: 280
   })
   assert.equal(chunks, Infinity, '雲端不應沿用本地的 280 字分段')
-  for (const [key, expected] of [['linguaforge08q4', 280], ['qwen35translate', 600]]) {
+  for (const [key, expected] of [['linguaforge08q4', 280], ['indextranslate2b', 600]]) {
     assert.equal(vm.runInNewContext(chunkFn + '\nresolveChunkChars()', {
       settings: { translator: 'local', localTranslateModel: key },
       CHUNK_CHARS_GENERIC: 600, CHUNK_CHARS_LINGUAFORGE: 280

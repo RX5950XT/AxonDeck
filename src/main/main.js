@@ -197,7 +197,6 @@ const STORE_ALLOWLIST = new Set([
   'ttsRate',
   'localTranslateModel',
   'asrModelKey',
-  'llmGpu',
   'chatProviders',
   'chatProviderId',
   'chatModelId',
@@ -1069,9 +1068,6 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   if (key === 'asrModelKey') {
     return models.isAsrKey(val) ? val : DEFAULT_ASR_MODEL_KEY
   }
-  if (key === 'llmGpu') {
-    return val === true
-  }
   if (key === 'autoUpdate') {
     return val !== false
   }
@@ -1157,16 +1153,6 @@ ipcMain.handle('store:set', async (event, key, value) => {
   }
   if (key === 'asrModelKey') {
     store.set(key, models.isAsrKey(value) ? value : DEFAULT_ASR_MODEL_KEY)
-    return true
-  }
-  if (key === 'llmGpu') {
-    // 硬體不符時強制 false
-    if (value === true) {
-      const cap = await loadGpu().detectGpuCapability()
-      store.set(key, !!cap.ok)
-    } else {
-      store.set(key, false)
-    }
     return true
   }
   if (key === 'theme') {
@@ -2163,6 +2149,22 @@ app.on('child-process-gone', (_event, details) => {
 // 網頁版 AI 與工作區瀏覽器的分區（whenReady 時登記）：session → partition 名稱
 const aiWebPartitions = new Map()
 app.on('web-contents-created', (_event, contents) => {
+  // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
+  // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
+  if (contents.getType() === 'webview') {
+    contents.on('before-mouse-event', (_e, input) => {
+      if (input.type !== 'mouseUp' || (input.button !== 'back' && input.button !== 'forward')) return
+      const back = input.button === 'back'
+      const nav = contents.navigationHistory
+      if (back ? nav.canGoBack() : nav.canGoForward()) {
+        if (back) nav.goBack()
+        else nav.goForward()
+        return
+      }
+      const host = contents.hostWebContents
+      if (host && !host.isDestroyed()) host.send('nav:side', back ? -1 : 1)
+    })
+  }
   contents.setWindowOpenHandler(({ url }) => {
     const partition = aiWebPartitions.get(contents.session)
     if (partition && require('./ai-web').isLoginPopup(url)) {
@@ -2368,7 +2370,9 @@ app.on('before-quit', (e) => {
   // 低階鍵盤 hook 有自己的執行緒，不收掉會擋住程序真的結束
   if (dictationMod) dictationMod.shutdown()
   // llama.cpp router：它自己會帶走底下跑模型的子程序，但沒人收它就會留一台在背景吃顯存
-  if (hfModelsMod) hfModelsMod.shutdown()
+  // 翻譯可能先載入共用 router，此時 Local SI 頁還沒載入，也必須收掉它。
+  const hfService = hfModelsMod || require.cache[require.resolve('./hfmodels')]?.exports
+  if (hfService) hfService.shutdown()
   // 指示器是 alwaysOnTop 的獨立視窗：留著就會浮在桌面上關不掉
   dictationHud.close()
   // 反代先關：留著監聽的 socket 會讓下次啟動撞到 EADDRINUSE

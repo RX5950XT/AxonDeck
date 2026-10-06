@@ -40,8 +40,7 @@ const SERVER_EXE = path.join(RUNTIME_DIR, 'llama-server.exe')
 /** 拿現有 registry 裡最小的一顆 GGUF 來當白老鼠（不下載任何東西） */
 const CANDIDATE_GGUF = [
   ['linguaforge08q4', path.join(MODELS_ROOT, 'linguaforge08q4', 'gguf-v5e', 'linguaforge-v5e-0.8b-Q4_K_M.gguf')],
-  ['qwen35translate', path.join(MODELS_ROOT, 'qwen35translate', 'Qwen3.5-0.8B-Q4_K_M.gguf')],
-  ['qwen354b', path.join(MODELS_ROOT, 'qwen354b', 'Qwen3.5-4B-Q4_K_M.gguf')]
+  ['indextranslate2b', path.join(MODELS_ROOT, 'indextranslate2b', 'Index-Translate-2B.Q4_K_M.gguf')]
 ]
 /** 多模態那一顆（ASR 的，但檔案佈局跟 VLM 一樣：gguf ＋ mmproj） */
 const MM_GGUF = path.join(MODELS_ROOT, 'qwen3asrgpu', 'Qwen3-ASR-1.7B-Q8_0.gguf')
@@ -165,7 +164,7 @@ async function main() {
 
   const picked = CANDIDATE_GGUF.find(([, p]) => fs.existsSync(p))
   if (!picked) {
-    console.log('SKIP：本機沒有任何可用的 GGUF（需要 linguaforge08q4／qwen35translate／qwen354b 其中一顆）')
+    console.log('SKIP：本機沒有任何可用的 GGUF（需要 linguaforge08q4／indextranslate2b 其中一顆）')
     process.exit(0)
   }
   const [pickedKey, pickedGguf] = picked

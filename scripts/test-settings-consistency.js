@@ -37,10 +37,11 @@ async function check(name, fn) {
 }
 
 async function testEngine() {
-  const keys = ['linguaforge08q4', 'qwen35translate', 'qwen354b']
+  const keys = ['linguaforge08q4', 'indextranslate2b']
   const ctx = vm.createContext({ module: { exports: {} }, console, require: (id) => {
     if (id === 'path') return path
-    if (id === './models') return { MODELS: {}, LLM_MODEL_KEYS: keys, isLlmKey: (key) => keys.includes(key), isDownloaded: () => true }
+    if (id === './models') return { MODELS: {}, LLM_MODEL_KEYS: keys, isLlmKey: (key) => keys.includes(key), isDownloaded: () => true,
+      migrateModelKey: (key) => ['qwen35translate', 'qwen354b'].includes(key) ? 'indextranslate2b' : key }
     if (id === './gpu-capability') return { detectGpuCapability: async () => ({ ok: true }) }
     return {}
   } })
@@ -53,12 +54,16 @@ async function testEngine() {
     return {}
   } })
   vm.runInContext(read('src/main/engine.js'), engine)
-  const store = makeStore({ localTranslateModel: 'qwen354b', llmGpu: true })
+  const store = makeStore({ localTranslateModel: 'indextranslate2b' })
   engine.module.exports.setStore(store)
   assert.equal(asrStore, store)
   const config = await llm.inspectConfig()
-  assert.equal(config.model, 'qwen354b')
+  assert.equal(config.model, 'indextranslate2b')
   assert.equal(config.gpu, true)
+  store.set('localTranslateModel', 'qwen354b')
+  assert.equal((await llm.inspectConfig()).model, 'indextranslate2b')
+  store.set('llmGpu', false)
+  assert.equal((await llm.inspectConfig()).gpu, true, '舊手動 CPU 設定不能關掉自動 GPU')
 }
 
 async function testBanner() {
@@ -84,7 +89,52 @@ async function testBanner() {
 }
 
 async function run() {
+  await check('GPU 門檻只容許 8GB 卡的回報誤差', async () => {
+    let memory = 7680
+    const ctx = vm.createContext({ module: { exports: {} }, process, require: (id) => {
+      if (id === 'child_process') return { execFile: (_exe, _args, _opts, cb) => cb(null, { stdout: `NVIDIA GPU, ${memory}` }) }
+      if (id === 'util') return require('util')
+      return { detectCudaRuntime: () => ({ hasNvidiaDriver: true, hasCudaRuntime: true }), detectVulkan: () => false }
+    } })
+    vm.runInContext(read('src/main/gpu-capability.js'), ctx)
+    const gpu = ctx.module.exports
+    assert.deepEqual(Array.from(gpu.eligibleDevices([
+      { id: 'Vulkan0', name: 'AMD GPU', totalMiB: 16384 },
+      { id: 'Vulkan1', name: 'NVIDIA GPU', totalMiB: 6144 },
+      { id: 'CUDA0', backend: 'CUDA', name: 'Tesla GPU', totalMiB: 8188 }
+    ]), (d) => d.id), ['CUDA0'])
+    for (const [mib, expected] of [[6144, false], [7680, false], [8188, true], [8192, true], [16384, true]]) {
+      memory = mib
+      gpu.clearGpuCapabilityCache()
+      assert.equal((await gpu.detectGpuCapability()).ok, expected, `${mib} MiB`)
+    }
+  })
+  await check('Index 使用官方單輪翻譯格式，不加 system 或前文', () => {
+    const ctx = vm.createContext({ module: { exports: {} }, console, require: () => ({}) })
+    vm.runInContext(read('src/main/local-llm.js'), ctx)
+    assert.equal(vm.runInContext("buildSystemPrompt('indextranslate2b', 'zh-TW')", ctx), '')
+    assert.equal(vm.runInContext("buildUserMessage('indextranslate2b', 'Hello', 'zh-TW')", ctx),
+      '请将以下文本翻译为繁体中文，直接输出翻译结果，不要进行任何解释。\n\nHello')
+  })
   await check('第一次載入 engine 就把模型與 GPU 設定交給 LLM', testEngine)
+  await check('執行環境缺少時自動裝一次，隔離測試與已安裝時不重下', async () => {
+    let installs = 0
+    const ctx = vm.createContext({ showToast() {}, document: { getElementById: () => ({}) } })
+    vm.runInContext(rendererSource('src/renderer/scripts/hf-page.js'), ctx)
+    ctx.refreshHardware = async () => {}
+    ctx.installRuntime = async () => { installs++ }
+    const config = (autoRuntime, downloaded) => vm.runInContext(`hardwareData = { autoRuntime: ${autoRuntime} }; installable = [{ key: 'runtime', recommended: true, downloaded: ${downloaded} }]; autoConfigured = false`, ctx)
+    config(false, false)
+    await ctx.autoConfigure()
+    assert.equal(installs, 0)
+    config(true, true)
+    await ctx.autoConfigure()
+    assert.equal(installs, 0)
+    config(true, false)
+    await ctx.autoConfigure()
+    await ctx.autoConfigure()
+    assert.equal(installs, 1)
+  })
   await check('已刪光的 ASR 清單不重新搬回舊設定', () => {
     const store = makeStore({ asrClouds: [], asrApiKey: 'old-key', asrApiUrl: 'https://example.invalid/v1', asrModelId: 'old-model' })
     migrate(store)
@@ -128,7 +178,7 @@ async function run() {
   ]) {
     await check(`轉錄／翻譯／整理選單精確提示：${expected || '完整'}`, () => {
       picker.settings = { asrClouds: [{ id: 'c', name: '測試', apiUrl, apiKey, models: ['model'] }], chatProviders: [{ id: 'c', name: '測試', apiUrl, apiKey, models: ['model'] }] }
-      const options = vm.runInContext('[asrOptions({}, settings)[0], translateOptions({}, settings)[0], cleanupOptions({}, settings)[1]]', picker)
+      const options = vm.runInContext('[asrOptions({}, settings)[0], translateOptions({}, settings)[0], cleanupOptions(settings)[1]]', picker)
       for (const option of options) {
         assert.equal(option.ready, !expected)
         if (expected) {

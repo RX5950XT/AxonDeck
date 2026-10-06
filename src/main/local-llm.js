@@ -1,23 +1,20 @@
 /**
  * AxonDeck - 翻譯（Main Process）
- * 雲端 chat completions / 本地 node-llama-cpp（多 GGUF + 可選 CUDA）
+ * 雲端 chat completions / 本地 llama-server router（GGUF + 自動 GPU／CPU）
  * 支援上下文、live tokens、serial mutex、warm/unload（可 dispose）
  */
 
-const path = require('path')
 const {
   MODELS,
   LLM_MODEL_KEYS,
   isLlmKey,
+  migrateModelKey,
   ggufRelativePath,
-  modelDir,
   isDownloaded
 } = require('./models')
 const { s2twp } = require('./opencc')
 const { stripThink, stripTranslationNoise, findRepetitionLoop } = require('./translate-clean')
 const { detectGpuCapability } = require('./gpu-capability')
-const { prependCudaBinToPath } = require('./cuda-env')
-const { ensureLlamaAddon } = require('./llama-addon')
 const { readResponseText } = require('./usage/shared')
 
 const LANGUAGE_NAMES = {
@@ -29,8 +26,11 @@ const LANGUAGE_NAMES = {
 }
 
 /** 舊程式／e2e 相容別名（通用模型） */
-const TRANSLATE_MODEL_KEY = 'qwen35translate'
-const FALLBACK_LLM_KEY = 'qwen35translate'
+const TRANSLATE_MODEL_KEY = 'indextranslate2b'
+const FALLBACK_LLM_KEY = 'indextranslate2b'
+/** Index-Translate 官方格式：單輪 user、簡中指令（README 的 Translation prompt format） */
+const INDEX_KEY = 'indextranslate2b'
+const INDEX_LANGUAGE_NAMES = { 'zh-TW': '繁体中文', 'zh-CN': '简体中文', en: '英语', ja: '日语', ko: '韩语' }
 const DEFAULT_LLM_KEY = 'linguaforge08q4'
 /** LinguaForge 的量化版本（目前只出貨 Q4_K_M）共用整套 SFT 格式與 DECODE */
 const LINGUAFORGE_KEYS = Object.freeze(['linguaforge08q4'])
@@ -153,7 +153,7 @@ function withTranslateLock(fn) {
  * @returns {string}
  */
 function resolveLocalTranslateModel(store = storeRef, override = '') {
-  const raw = override || (store ? store.get('localTranslateModel', DEFAULT_LLM_KEY) : DEFAULT_LLM_KEY)
+  const raw = migrateModelKey(override || (store ? store.get('localTranslateModel', DEFAULT_LLM_KEY) : DEFAULT_LLM_KEY))
   const preferred = isLlmKey(raw) ? raw : DEFAULT_LLM_KEY
   if (isDownloaded(preferred)) return preferred
   if (preferred !== FALLBACK_LLM_KEY && isDownloaded(FALLBACK_LLM_KEY)) {
@@ -167,12 +167,10 @@ function resolveLocalTranslateModel(store = storeRef, override = '') {
 }
 
 /**
- * 是否意圖使用 GPU（硬體不符時視為 false）
- * @param {{ get: (k: string, d?: unknown) => unknown } | null} [store]
+ * 要不要走 GPU：自動偵測，不給使用者選（NVIDIA 且 VRAM 夠才 GPU，其餘 CPU）
  * @returns {Promise<boolean>}
  */
-async function resolveWantGpu(store = storeRef) {
-  if (!store || store.get('llmGpu', false) !== true) return false
+async function resolveWantGpu() {
   const cap = await detectGpuCapability()
   return !!cap.ok
 }
@@ -204,48 +202,8 @@ async function tryDispose(obj, name, warnings) {
  */
 async function disposeResources(res, warnings) {
   if (!res) return
-  // 順序：session → context → model
-  // 刻意不 dispose llama binding：node-llama-cpp 在 Windows/Vulkan 上 dispose llama 可能 AV 崩潰
-  // model.dispose 已釋放權重／VRAM；進程結束時 OS 回收 binding
+  // router session.dispose 只卸載這顆模型，不停共用服務。
   await tryDispose(res.session, 'session', warnings)
-  await tryDispose(res.context, 'context', warnings)
-  await tryDispose(res.model, 'model', warnings)
-}
-
-/**
- * 取得 llama 實例。
- * GPU 意圖：依序試 cuda → vulkan（本機 CUDA prebuilt 可能與驅動不相容）；皆失敗則 CPU。
- * @param {boolean} wantGpu
- * @param {string[]} warnings
- * @returns {Promise<{ llama: object, usedGpu: boolean, backend: string }>}
- */
-async function createLlama(wantGpu, warnings) {
-  // e2e／晚啟動路徑也可能載入 GPU：確保 cudart/cublas 在 PATH（與 main 啟動時一致）
-  if (wantGpu) {
-    try {
-      prependCudaBinToPath()
-    } catch (e) {
-      warnings.push(`CUDA PATH: ${e.message || e}`)
-    }
-  }
-  const { getLlama } = await import('node-llama-cpp')
-  if (wantGpu) {
-    for (const gpu of ['cuda', 'vulkan']) {
-      try {
-        ensureLlamaAddon(gpu === 'cuda' ? 'win-x64-cuda' : 'win-x64-vulkan')
-        const llama = await getLlama({ gpu, progressLogs: false })
-        const backend = llama.gpu || gpu
-        return { llama, usedGpu: true, backend: String(backend) }
-      } catch (e) {
-        const msg = e?.message || String(e)
-        warnings.push(`${gpu} 不可用：${msg}`)
-        console.warn(`[local-llm] ${gpu} failed:`, msg)
-      }
-    }
-    warnings.push('GPU 後端皆失敗，改用 CPU')
-  }
-  const llama = await getLlama({ gpu: false, progressLogs: false })
-  return { llama, usedGpu: false, backend: 'cpu' }
 }
 
 /**
@@ -306,7 +264,7 @@ async function getSession(keyOverride) {
   }
 
   if (!isDownloaded(key)) {
-    throw new Error(`本地翻譯模型尚未下載（${label}），請先到設定下載`)
+    throw new Error(`本地翻譯模型尚未下載（${label}），請先到 Local SI → 推薦下載`)
   }
 
   const rel = ggufRelativePath(key)
@@ -322,25 +280,9 @@ async function getSession(keyOverride) {
   const warnings = []
 
   loadPromise = (async () => {
-    const { LlamaChatSession, QwenChatWrapper } = await import('node-llama-cpp')
-    const { llama, usedGpu, backend } = await createLlama(intentGpu, warnings)
-    const modelPath = path.join(modelDir(key), rel)
-    const model = await llama.loadModel({ modelPath })
-    const context = await model.createContext({ contextSize: 2048 })
-    const session = new LlamaChatSession({
-      contextSequence: context.getSequence(),
-      chatWrapper: newQwen35ChatWrapper(QwenChatWrapper)
-    })
-    const built = {
-      session,
-      context,
-      model,
-      llama,
-      key,
-      intentGpu,
-      actualGpu: usedGpu,
-      backend
-    }
+    const { createSession } = require('./local-llm-router')
+    const { session, backend, usedGpu } = await createSession(key, storeRef)
+    const built = { session, key, intentGpu, actualGpu: usedGpu, backend }
 
     if (myGen !== loadGen) {
       await disposeResources(built, [])
@@ -598,8 +540,8 @@ function logLinguaforgeDecode(decode, meta) {
   console.log(
     '[linguaforge decode]',
     JSON.stringify({
-      runtime: 'gguf/node-llama-cpp',
-      chat_wrapper: "Qwen{thoughts:'discourage'}",
+      runtime: 'gguf/llama-server-router',
+      chat_wrapper: 'llama.cpp/jinja（關思考）',
       think_prefix: JSON.stringify(THINK_PREFIX),
       think_prefix_token_ids: [...THINK_PREFIX_TOKEN_IDS],
       eos_token_id: [...decode.eosTokenIds],
@@ -627,6 +569,7 @@ function logLinguaforgeDecode(decode, meta) {
  * @param {'live' | 'file' | undefined} mode
  */
 function buildSystemPrompt(modelKey, targetLang, mode) {
+  if (modelKey === INDEX_KEY) return ''
   if (isLinguaforge(modelKey)) {
     return 'You are a professional translator.'
   }
@@ -646,6 +589,10 @@ function buildSystemPrompt(modelKey, targetLang, mode) {
 function buildUserMessage(modelKey, text, targetLang) {
   if (isLinguaforge(modelKey)) {
     return `${linguaforgeInstr(targetLang)}\n${text}`
+  }
+  if (modelKey === INDEX_KEY) {
+    const name = INDEX_LANGUAGE_NAMES[targetLang] || LANGUAGE_NAMES[targetLang] || targetLang
+    return `请将以下文本翻译为${name}，直接输出翻译结果，不要进行任何解释。\n\n${text}`
   }
   return text
 }
@@ -676,10 +623,11 @@ function buildContextPair(context = {}) {
 async function translateLocalOnce(text, targetLang, context, options, key, chunkMeta = {}) {
   // 一定要把 key 傳下去：各頁可能選不同顆，拿全域那顆的 session 會用錯模型
   const session = await getSession(key)
-  const history = [{ type: 'system', text: buildSystemPrompt(key, targetLang, options.mode) }]
-  // LinguaForge 是單輪 SFT MT 模型：多一輪對話（前文）會讓 greedy 直接複誦上一輪譯文
-  // → 整篇長文每段都吐同一句。出貨格式就是 system + 單一 user，不給前文。
-  const pair = isLinguaforge(key) ? null : buildContextPair(context)
+  const system = buildSystemPrompt(key, targetLang, options.mode)
+  const history = system ? [{ type: 'system', text: system }] : []
+  // LinguaForge／Index 都是單輪 MT 格式：多一輪對話（前文）會讓 greedy 直接複誦上一輪譯文
+  // → 整篇長文每段都吐同一句。出貨格式就是單一 user，不給前文。
+  const pair = isLinguaforge(key) || key === INDEX_KEY ? null : buildContextPair(context)
   if (pair) {
     history.push({ type: 'user', text: buildUserMessage(key, pair.prevSrc, targetLang) })
     history.push({ type: 'model', response: [pair.prevTr] })
@@ -747,6 +695,7 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
   const out = await session.prompt(userMsg, {
     maxTokens: resolveMaxTokens(text, options.mode, false),
     temperature: 0,
+    repeatPenalty: false,
     budgets: { thoughtTokens: 0 }
   })
   return stripTranslationNoise(stripThink(out), text)
@@ -756,7 +705,7 @@ async function translateLocal(text, targetLang, context = {}, options = {}) {
   const key = resolveLocalTranslateModel(storeRef, options.modelKey || '')
   if (!isDownloaded(key)) {
     const label = MODELS[key]?.label || key
-    throw new Error(`本地翻譯模型尚未下載（${label}），請先到設定下載`)
+    throw new Error(`本地翻譯模型尚未下載（${label}），請先到 Local SI → 推薦下載`)
   }
 
   // LinguaForge：file 模式逐行翻譯（清單標記不送模型），再還原行／段落結構
@@ -872,7 +821,7 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
 async function promptOnce(req) {
   const key = isLlmKey(req?.modelKey) ? /** @type {string} */ (req.modelKey) : resolveLocalTranslateModel()
   if (!isDownloaded(key)) {
-    throw new Error(`本地模型尚未下載（${MODELS[key]?.label || key}），請先到設定下載`)
+    throw new Error(`本地模型尚未下載（${MODELS[key]?.label || key}），請先到 Local SI → 推薦下載`)
   }
   const input = String(req?.text || '').trim()
   if (!input) return ''

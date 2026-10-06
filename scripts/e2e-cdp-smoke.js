@@ -4,7 +4,7 @@
  *      再 node scripts/e2e-cdp-smoke.js
  * 或本腳本自動啟動。
  */
-const { spawn } = require('child_process')
+const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const os = require('os')
@@ -33,7 +33,7 @@ function sleep(ms) {
 
 function stopChildTree(child) {
   if (!child?.pid) return
-  try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
+  try { execFileSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
 }
 
 function getJson(url) {
@@ -111,9 +111,9 @@ async function waitTargets(timeoutMs = 30000) {
 }
 
 async function main() {
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], {
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], {
     stdio: 'ignore',
-    detached: false
+    detached: true
   })
 
   const results = []
@@ -132,6 +132,7 @@ async function main() {
 
     const cdp = new Cdp(mainPage.webSocketDebuggerUrl)
     await cdp.connect()
+    await cdp.eval("window.electronAPI.store.set('sysmonSensors', false)")
     await cdp.send('Runtime.enable')
 
     // sandbox + preload：electronAPI 必須存在
@@ -385,7 +386,7 @@ async function main() {
         settingsUi?.hasTtsPreview &&
         settingsUi?.hasModelList &&
         JSON.stringify(settingsUi?.navSections) ===
-          JSON.stringify(['local', 'cloud', 'voice', 'basic']) &&
+          JSON.stringify(['cloud', 'voice', 'basic']) &&
         settingsUi?.activeSections === 1 &&
         settingsUi?.hasFooterSave,
       JSON.stringify(settingsUi)
@@ -393,6 +394,16 @@ async function main() {
 
     // 模型清單是 renderer 唯一改寫成 createElement 的地方（原本是 innerHTML 插值），
     // 結構壞掉會讓下載按鈕與進度條整排失效——CSS 與 onModelProgress 都靠這些 class 定位
+    await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
+    for (let i = 0; i < 50; i++) {
+      await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      await sleep(200)
+    }
+    for (let i = 0; i < 50; i++) {
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      await sleep(200)
+    }
     const modelItems = await cdp.eval(`(() => {
       const items = [...document.querySelectorAll('#modelList .model-item')]
       if (!items.length) return { count: 0 }
@@ -423,7 +434,7 @@ async function main() {
         modelItems.withRow === modelItems.count &&
         modelItems.withName === modelItems.count &&
         modelItems.noPerRowTag === true &&
-        JSON.stringify(modelItems.groups) === JSON.stringify(['語音辨識', '翻譯', '執行環境']) &&
+        JSON.stringify(modelItems.groups) === JSON.stringify(['語音辨識', '翻譯']) &&
         modelItems.withSize === modelItems.count &&
         modelItems.withButton === modelItems.count &&
         modelItems.withProgress === modelItems.count &&
@@ -435,11 +446,11 @@ async function main() {
 
     // 分類 rail：一次只顯示一區；字級階層 標題 > 欄位 label > 說明
     const settingsNav = await cdp.eval(`(() => {
-      document.querySelector('#settingsNav [data-section="local"]')?.click()
+      document.querySelector('[data-page=settings]')?.click(); document.querySelector('#settingsNav [data-section="cloud"]')?.click()
       const active = document.querySelector('#page-settings .settings-section.active')
-      const title = document.querySelector('#set-local .settings-section-title')
-      const label = document.querySelector('#set-local .setting-group label')
-      const hint = document.querySelector('#set-local .setting-hint')
+      const title = document.querySelector('#set-cloud .settings-section-title')
+      const label = document.querySelector('#set-cloud .setting-group label')
+      const hint = document.querySelector('#set-cloud .setting-hint')
       const px = (el) => (el ? parseFloat(getComputedStyle(el).fontSize) : 0)
       return {
         activeId: active?.id || '',
@@ -453,7 +464,7 @@ async function main() {
     })()`)
     ok(
       'settings category rail + type scale',
-      settingsNav?.activeId === 'set-local' &&
+      settingsNav?.activeId === 'set-cloud' &&
         settingsNav.activeCount === 1 &&
         settingsNav.titlePx > settingsNav.labelPx &&
         settingsNav.labelPx > settingsNav.hintPx &&
@@ -558,7 +569,7 @@ async function main() {
     })()`)
     ok('models.status', Array.isArray(status?.keys) && status.keys.includes('qwen3asr'), JSON.stringify(status))
 
-    // 模型選單改在使用現場：翻譯頁上方的下拉要列出三顆本地翻譯模型＋一個雲端選項
+    // 模型選單改在使用現場：翻譯頁上方的下拉要列出兩顆本地翻譯模型＋一個雲端選項
     const lingua = await cdp.eval(`(async () => {
       document.querySelector('[data-page="translate"]')?.click()
       await new Promise(r => setTimeout(r, 600))
@@ -576,12 +587,12 @@ async function main() {
       'translate model picker lists local + cloud',
       lingua?.statusKeys?.includes('linguaforge08q4') &&
         !lingua?.statusKeys?.includes('linguaforge08') &&
-        JSON.stringify(lingua?.values.slice(0, 3)) === JSON.stringify([
-          'local:linguaforge08q4', 'local:qwen35translate', 'local:qwen354b'
+        JSON.stringify(lingua?.values.slice(0, 2)) === JSON.stringify([
+          'local:linguaforge08q4', 'local:indextranslate2b'
         ]) &&
         // 雲端選項逐一列出供應商的模型（沒有供應商時退回一個「尚未設定」項）
-        lingua?.values.slice(3).every((v) => v.startsWith('cloud')) &&
-        lingua?.values.length > 3 &&
+        lingua?.values.slice(2).every((v) => v.startsWith('cloud')) &&
+        lingua?.values.length > 2 &&
         lingua?.labels?.some((l) => /LinguaForge/i.test(l)) &&
         lingua?.noQ8 === true,
       JSON.stringify(lingua)

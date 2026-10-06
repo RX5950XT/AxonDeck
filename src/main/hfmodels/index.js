@@ -18,6 +18,7 @@ const os = require('os')
 const path = require('path')
 
 const models = require('../models')
+const { detectGpuCapability, eligibleDevices } = require('../gpu-capability')
 const hub = require('./hub')
 const catalog = require('./catalog')
 const gguf = require('./gguf')
@@ -35,8 +36,13 @@ const RUNTIME_KEYS = Object.freeze(['llamaruntimecuda', 'llamaruntime'])
 
 let presetPath = ''
 let defaultModelsDir = ''
+/** CDP／測試用的暫存 userData（在 %TEMP%）不自動下載執行環境：一跑就是幾百 MB */
+let tempUserData = true
 /** @type {import('electron-store') | null} */
 let store = null
+/** 下載完自動調參的佇列 */
+let autoTuneQueue = Promise.resolve()
+let autoTunePending = 0
 /** 進行中的下載：id → { controller, received, total } */
 const installs = new Map()
 /** @type {(event: { type: string, [k: string]: any }) => void} */
@@ -47,6 +53,9 @@ let emit = () => {}
  */
 function init(options) {
   defaultModelsDir = path.join(options.userDataPath, 'hf-models')
+  const tmp = path.resolve(os.tmpdir()).toLowerCase()
+  const dir = path.resolve(options.userDataPath).toLowerCase()
+  tempUserData = dir === tmp || dir.startsWith(tmp + path.sep)
   presetPath = path.join(options.userDataPath, 'hf-presets.ini')
   if (options.store) setStore(options.store)
   else library.setRoot(defaultModelsDir)
@@ -79,7 +88,7 @@ function readModelsDir() {
  */
 async function chooseModelsDir() {
   // 下載器固定用開始時的資料夾，完成紀錄卻寫進新的 root → 檔案與紀錄分家
-  if (installs.size) throw new Error('有模型正在下載，等下載完成或取消後再換資料夾')
+  if (installs.size || autoTunePending) throw new Error('有模型正在下載或最佳化，等完成或取消後再換資料夾')
   const { dialog } = require('electron')
   const result = await dialog.showOpenDialog({
     title: '選擇本機模型存放資料夾',
@@ -129,7 +138,7 @@ function runtimeReady() {
     ready: false,
     key: '',
     backend: '',
-    reason: '尚未安裝 llama.cpp 執行環境，請到設定 → 本地模型下載'
+    reason: '尚未安裝 llama.cpp 執行環境，請到 Local SI → 執行環境安裝'
   }
 }
 
@@ -148,7 +157,7 @@ function runtimeExe() {
  */
 async function listDevices() {
   if (!runtimeReady().ready) return []
-  return hardware.listDevices(runtimeExe())
+  return eligibleDevices(await hardware.listDevices(runtimeExe()))
 }
 
 /**
@@ -176,7 +185,8 @@ function cpuInfo() {
  */
 async function hardwareInfo() {
   const ready = runtimeReady()
-  const [devices, nvidia] = await Promise.all([listDevices(), hardware.nvidiaDriver()])
+  const [devices, nvidia, gpu] = await Promise.all([listDevices(), hardware.nvidiaDriver(), detectGpuCapability()])
+  const preferCuda = nvidia.cudaReady && gpu.ok
   return {
     runtime: ready,
     devices,
@@ -185,13 +195,14 @@ async function hardwareInfo() {
     modelsDir: library.root(),
     hasToken: hub.hasToken(),
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
+    autoRuntime: !tempUserData,
     installable: RUNTIME_KEYS.map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,
       downloaded: models.isDownloaded(key),
       // CUDA 版只在驅動夠新時才建議：驅動太舊裝了也起不來，而錯誤訊息是 DLL 層級的
-      recommended: key === 'llamaruntimecuda' ? nvidia.cudaReady : !nvidia.cudaReady
+      recommended: key === 'llamaruntimecuda' ? preferCuda : !preferCuda
     }))
   }
 }
@@ -289,6 +300,17 @@ async function writePresets() {
     planned.push({ id: row.id, plan: decided, fit: meta.fit || null })
   }
 
+  // 推薦的翻譯模型也交給同一台 router，檔案仍放原本 models/，不用複製進模型庫。
+  for (const key of models.LLM_MODEL_KEYS) {
+    if (!models.isDownloaded(key)) continue
+    const device = hardware.pickDevice(devices)?.id || 'none'
+    entries.push({ id: key, args: {
+      model: models.filePath(key, 'gguf'), 'ctx-size': '2048', device,
+      reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
+      ...(device === 'none' ? { 'gpu-layers': '0' } : {})
+    } })
+  }
+
   presets.write(presetPath, entries, {
     // router 自己的全域設定：同時載入幾顆由使用者決定
     'models-max': String(Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)))
@@ -313,6 +335,7 @@ async function applyPresets() {
 async function startRuntime() {
   const exe = runtimeExe()
   if (!presetPath) throw new Error('模型庫尚未初始化')
+  await require('../raw-fs').promises.mkdir(library.root(), { recursive: true })
   return runtime.start({ exe, modelsDir: library.root(), presetPath })
 }
 
@@ -519,8 +542,13 @@ async function install(repoId, variantId) {
     })
     await writePresets()
     emit({ type: 'install-done', id: variant.id, bytes: result.bytes })
-    // fit 要載一次模型、可能好幾分鐘：放到「下載完成」之後跑，不要擋住 install 的回傳
-    refreshFit(variant.id).catch(() => {})
+    // 自動最佳化：fit 量記憶體配置 → bench 挑最快的 KV／投機解碼。要載模型、可能好幾分鐘，
+    // 放到「下載完成」之後跑，不擋 install 的回傳；bench 失敗時 fit 的結果仍留著
+    // 排隊：bench 一次只能跑一支（兩顆同時下載完不可以搶 GPU）
+    autoTunePending++
+    autoTuneQueue = autoTuneQueue.then(() => autoTune(variant.id)).catch(() => {
+      emit({ type: 'tune-failed', id: variant.id, message: '自動最佳化未完成，沿用目前的安全配置' })
+    }).finally(() => { autoTunePending-- })
     if (runtime.status().running) await runtime.listModels({ reload: true }).catch(() => [])
     return { id: variant.id, bytes: result.bytes }
   } catch (error) {

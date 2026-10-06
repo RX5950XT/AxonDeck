@@ -1,5 +1,5 @@
 /**
- * AxonDeck — 「HF模型」分頁（探索／模型庫／執行環境）
+ * AxonDeck — 「Local SI」分頁（探索／推薦／模型庫／執行環境；推薦與推論方式在 hf-recommend.js）
  *
  * 這一頁只做三件事：把 main 回來的資料畫出來、把使用者的動作送回去、顯示進度。
  * **所有判斷都在 main**（網址怎麼組、參數怎麼決定、路徑在哪、金鑰是什麼），
@@ -12,6 +12,7 @@
 import { electronAPI, showToast, cleanIpcError, openInFilesPage } from './app.js'
 import { renderMarkdown } from './markdown.js'
 import { startDash, stopDash } from './hf-dash.js'
+import { refreshRecommend, refreshInference } from './hf-recommend.js'
 
 /** 搜尋輸入防抖：每打一個字就打一次 HF 太粗魯 */
 const SEARCH_DEBOUNCE_MS = 400
@@ -42,6 +43,10 @@ let libraryRows = []
 let installable = []
 /** 正在安裝的執行環境 key（一次只裝一顆） */
 let installingRuntime = ''
+/** 這次開 App 已經自動裝過（或試過）執行環境：失敗不要每次進頁都重下 */
+let autoConfigured = false
+/** 最近一次 `hardware()` 的結果 @type {any} */
+let hardwareData = null
 let unsubscribe = null
 let unsubscribeModels = null
 
@@ -820,6 +825,7 @@ async function refreshHardware() {
   const list = $('hfRuntimeList')
   const data = await call(electronAPI.hfmodels.hardware())
   if (!data) return
+  hardwareData = data
 
   if (specs) {
     specs.replaceChildren()
@@ -891,7 +897,7 @@ async function refreshHardware() {
 }
 
 /**
- * 執行環境走既有的 `models:download`（跟設定頁的本地模型同一條下載路徑，
+ * 執行環境走既有的 `models:download`（跟「推薦」那幾顆模型同一條下載路徑，
  * 含續傳、解壓縮與取消）；這裡只負責選哪一顆與顯示進度。
  * @param {{ key: string, label: string }} item
  * @param {HTMLButtonElement} button
@@ -903,6 +909,8 @@ async function installRuntime(item, button) {
   button.textContent = '下載中…'
   try {
     await electronAPI.models.download(item.key)
+    // 換了推論後端，每顆模型的參數（offload、裝置）要照新後端重算
+    await call(electronAPI.hfmodels.applyPresets(), { quiet: true })
     showToast(`已安裝 ${item.label}`, 'success')
   } catch (error) {
     showError(cleanIpcError(error) || '執行環境下載失敗')
@@ -921,6 +929,20 @@ async function autoInstallRuntime() {
   const best = installable.find((item) => item.recommended) || installable[0]
   if (!best || best.downloaded) return
   await installRuntime(best, button)
+}
+
+/**
+ * 自動配置：進頁時建議的執行環境沒裝就直接裝（NVIDIA 驅動夠新裝 CUDA，否則 Vulkan）。
+ * 一次開 App 只試一次：下載失敗不要每次切進來都再下一次。
+ */
+async function autoConfigure() {
+  if (autoConfigured) return
+  await refreshHardware()
+  const best = installable.find((item) => item.recommended) || installable[0]
+  if (!best || best.downloaded || installingRuntime || !hardwareData?.autoRuntime) return
+  autoConfigured = true
+  showToast(`自動安裝建議的執行環境：${best.label}`, 'success')
+  await autoInstallRuntime()
 }
 
 async function chooseDir() {
@@ -960,6 +982,8 @@ function onEvent(payload) {
     return
   }
   if (payload?.type === 'install-failed') showError(String(payload.message || '下載失敗'))
+  if (payload?.type === 'tune-failed') showError(String(payload.message))
+  if (payload?.type === 'tune-done') refreshLibrary()
   if (payload?.type === 'tune-progress') {
     const status = $('hfTuneStatus')
     if (status) {
@@ -984,7 +1008,8 @@ function bindSubtabs() {
         panel.classList.toggle('active', /** @type {HTMLElement} */ (panel).dataset.subtab === key)
       }
       if (key === 'library') refreshLibrary()
-      if (key === 'runtime') { refreshHardware(); startDash() }
+      if (key === 'recommend') refreshRecommend()
+      if (key === 'runtime') { refreshHardware(); refreshInference(); startDash() }
     })
   }
 }
@@ -1048,6 +1073,7 @@ export function start() {
   refreshRuntimeChip()
   refreshLibrary()
   startDash()
+  autoConfigure()
 }
 
 /**

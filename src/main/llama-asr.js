@@ -15,6 +15,8 @@ const { spawn } = require('child_process')
 const net = require('net')
 const { randomBytes } = require('crypto')
 const models = require('./models')
+const hardware = require('./hfmodels/hardware')
+const { eligibleDevices } = require('./gpu-capability')
 const { float32ToWav, normalizeSamples } = require('./cloud-asr')
 const { s2twp, shouldS2twpSource } = require('./opencc')
 
@@ -39,12 +41,6 @@ let startPromise = null
 let startGen = 0
 /** @type {string[]} */
 let stderrTail = []
-/**
- * `--list-devices` 的結果快取（每次啟動 App 問一次就夠）
- * @type {undefined | string | null}
- */
-let cachedDevice
-
 /** 介面與 `local-asr.js` 對齊用；sidecar 的設定全在 registry，不讀 store */
 function setStore() {}
 
@@ -76,36 +72,10 @@ function freePort() {
   })
 }
 
-/**
- * 問 llama.cpp 有哪些後端裝置，挑第一個非 CPU 的。
- *
- * **不能只靠 `--gpu-layers 99`**：b10666 實測若不指定 `--device`，就算機器上有
- * Vulkan 裝置也整包跑 CPU——prompt eval 7.4 tok/s（指定後 720 tok/s，快 97 倍）。
- * 兩次都不會印任何錯誤，只有看 tok/s 才發現。
- * @param {string} exe
- * @returns {Promise<string | null>}
- */
-function detectDevice(exe) {
-  if (cachedDevice !== undefined) return Promise.resolve(cachedDevice)
-  return new Promise((resolve) => {
-    let out = ''
-    const child = spawn(exe, ['--list-devices'], {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'ignore']
-    })
-    child.stdout.on('data', (d) => { out += String(d) })
-    child.on('error', () => resolve((cachedDevice = null)))
-    child.on('close', () => {
-      // 行格式：`  Vulkan0: NVIDIA GeForce RTX 5060 Ti (16265 MiB, 15350 MiB free)`
-      const match = out.match(/^\s*((?:Vulkan|CUDA|ROCm|SYCL|Metal)\d+):/m)
-      resolve((cachedDevice = match ? match[1] : null))
-    })
-    // kill 之後若遲遲等不到 close，warm 不能跟著一直掛著：先當成沒有 GPU 回去（不快取，下次再問）
-    setTimeout(() => {
-      try { child.kill() } catch { /* ignore */ }
-      resolve(null)
-    }, 10000)
-  })
+/** 自動挑 NVIDIA 8GB 以上的可用裝置；其餘明確走 CPU。 */
+async function detectDevice(exe) {
+  const devices = eligibleDevices(await hardware.listDevices(exe))
+  return hardware.pickDevice(devices)?.id || null
 }
 
 /**
@@ -129,10 +99,10 @@ async function healthOk(port) {
  */
 function resolvePaths() {
   if (!models.isDownloaded(RUNTIME_KEY)) {
-    throw new Error('尚未安裝 llama.cpp 執行環境，請到設定 → 本地模型下載')
+    throw new Error('尚未安裝 llama.cpp 執行環境，請到 Local SI → 執行環境安裝')
   }
   if (!models.isDownloaded(ASR_MODEL_KEY)) {
-    throw new Error('本地 GPU 語音模型尚未下載，請到設定 → 本地模型下載')
+    throw new Error('本地 GPU 語音模型尚未下載，請到 Local SI → 推薦下載')
   }
   const exe = models.filePath(RUNTIME_KEY, 'binary')
   const gguf = models.filePath(ASR_MODEL_KEY, 'gguf')
@@ -169,9 +139,9 @@ async function warm() {
       '--port', String(port),
       '--api-key', apiKey,
       '-c', '8192',
-      '--gpu-layers', '99'
+      '--gpu-layers', device ? '99' : '0',
+      '--device', device || 'none'
     ]
-    if (device) args.push('--device', device)
 
     stderrTail = []
     const child = spawn(exe, args, {

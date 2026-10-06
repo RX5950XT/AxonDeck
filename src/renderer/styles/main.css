@@ -2499,6 +2499,7 @@ option:disabled:checked {
   background-color: var(--surface-subtle);
   color: var(--text-secondary);
   overflow: visible;
+  cursor: pointer;
 }
 
 .proj-session-status .ws-tool-icon {

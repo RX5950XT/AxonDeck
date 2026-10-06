@@ -23,7 +23,7 @@ const CLOUD_VALUE = 'cloud'
 /** 本地 ASR 模型顯示順序（與 main models.js 的 ASR_MODEL_KEYS 一致） */
 const ASR_KEYS = ['qwen3asr', 'qwen3asrgpu']
 /** 本地 LLM 模型顯示順序（與 main models.js 的 LLM_MODEL_KEYS 一致） */
-const LLM_KEYS = ['linguaforge08q4', 'qwen35translate', 'qwen354b']
+const LLM_KEYS = ['linguaforge08q4', 'indextranslate2b']
 
 /** 三個子分頁各自的 store key（與 main model-scope.js 一致） */
 export const SCOPE_KEYS = Object.freeze({
@@ -269,7 +269,7 @@ export function readinessHint(select, options) {
   if (!chosen || chosen.ready) return ''
   return chosen.value.startsWith(CLOUD_VALUE)
     ? '供應商未設好，請到設定 → 雲端模型補上。'
-    : '模型未安裝，請到設定 → 本地模型下載。'
+    : '模型未安裝，請到 Local SI → 推薦下載。'
 }
 
 /**

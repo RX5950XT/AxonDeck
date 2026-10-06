@@ -92,10 +92,16 @@ check('舊的通用 cloud 會升級成第一組的第一顆', () => {
 
 console.log('\n[B] LLM 值的校驗')
 check('local + 已知 key 保留', () => {
-  assert.strictEqual(scope.sanitizeLlm('local:qwen354b', PROVIDERS, true), 'local:qwen354b')
+  assert.strictEqual(scope.sanitizeLlm('local:indextranslate2b', PROVIDERS, false), 'local:indextranslate2b')
+})
+check('下架的 Qwen3.5 讀成 Index-Translate', () => {
+  assert.strictEqual(scope.sanitizeLlm('local:qwen354b', PROVIDERS, false), 'local:indextranslate2b')
+})
+check('語音輸入不收內建本地模型（都是翻譯專用）→ 不整理', () => {
+  assert.strictEqual(scope.sanitizeLlm('local:qwen35translate', PROVIDERS, true), '')
 })
 check('下架的 key 讀成接替者', () => {
-  assert.strictEqual(scope.sanitizeLlm('local:linguaforge08', PROVIDERS, true), 'local:linguaforge08q4')
+  assert.strictEqual(scope.sanitizeLlm('local:linguaforge08', PROVIDERS, false), 'local:linguaforge08q4')
 })
 check('cloud 指到存在的供應商與模型才保留', () => {
   assert.strictEqual(scope.sanitizeLlm('cloud:p1:m-1', PROVIDERS, true), 'cloud:p1:m-1')
@@ -149,10 +155,10 @@ check('readLlm 帶出端點（雲端）', () => {
   assert.strictEqual(llm.apiKey, 'k1')
 })
 check('readLlm 本地只帶 modelKey、不帶端點', () => {
-  const store = makeStore({ fileLlm: 'local:qwen35translate' })
+  const store = makeStore({ fileLlm: 'local:indextranslate2b' })
   const llm = scope.readLlm(store, 'file')
   assert.strictEqual(llm.mode, 'local')
-  assert.strictEqual(llm.modelKey, 'qwen35translate')
+  assert.strictEqual(llm.modelKey, 'indextranslate2b')
   assert.strictEqual(llm.apiKey, '')
 })
 check('語音輸入沒設整理模型＝off', () => {
@@ -180,14 +186,14 @@ check('本地 ASR + 本地翻譯', () => {
     asrEngine: 'local',
     asrModelKey: 'qwen3asrgpu',
     translator: 'local',
-    localTranslateModel: 'qwen354b'
+    localTranslateModel: 'indextranslate2b'
   })
   scope.seedFromLegacy(store)
   assert.strictEqual(store.data.fileAsr, 'local:qwen3asrgpu')
   assert.strictEqual(store.data.liveAsr, 'local:qwen3asrgpu')
   assert.strictEqual(store.data.dictationAsr, 'local:qwen3asrgpu')
-  assert.strictEqual(store.data.fileLlm, 'local:qwen354b')
-  assert.strictEqual(store.data.liveLlm, 'local:qwen354b')
+  assert.strictEqual(store.data.fileLlm, 'local:indextranslate2b')
+  assert.strictEqual(store.data.liveLlm, 'local:indextranslate2b')
 })
 check('雲端 ASR + 雲端翻譯', () => {
   const store = makeStore({
@@ -201,14 +207,14 @@ check('雲端 ASR + 雲端翻譯', () => {
   assert.strictEqual(store.data.liveLlm, 'cloud:p1:m-1')
 })
 check('播種不可以蓋掉語音輸入的「不整理」', () => {
-  const store = makeStore({ translator: 'local', localTranslateModel: 'qwen354b' })
+  const store = makeStore({ translator: 'local', localTranslateModel: 'indextranslate2b' })
   scope.seedFromLegacy(store)
   assert.strictEqual(store.data.dictationLlm, undefined, '空值就是「不整理」，不該被塞東西進去')
 })
 check('已經自己選過的不會被舊設定蓋掉', () => {
   const store = makeStore({
     fileAsr: 'cloud',
-    fileLlm: 'local:qwen354b',
+    fileLlm: 'local:indextranslate2b',
     asrEngine: 'local',
     asrModelKey: 'qwen3asr',
     translator: 'local',
@@ -216,10 +222,10 @@ check('已經自己選過的不會被舊設定蓋掉', () => {
   })
   scope.seedFromLegacy(store)
   assert.strictEqual(store.data.fileAsr, 'cloud')
-  assert.strictEqual(store.data.fileLlm, 'local:qwen354b')
+  assert.strictEqual(store.data.fileLlm, 'local:indextranslate2b')
 })
 check('播種可重入（開機跑第二次不會變）', () => {
-  const store = makeStore({ asrEngine: 'cloud', translator: 'local', localTranslateModel: 'qwen354b' })
+  const store = makeStore({ asrEngine: 'cloud', translator: 'local', localTranslateModel: 'indextranslate2b' })
   scope.seedFromLegacy(store)
   const first = JSON.stringify(store.data)
   scope.seedFromLegacy(store)
@@ -240,10 +246,10 @@ check('三個 scope 的雲端選擇都清掉', () => {
   assert.strictEqual(store.data.dictationLlm, '')
 })
 check('還在的供應商不受影響', () => {
-  const store = makeStore({ fileLlm: 'cloud:p1:m-1', liveLlm: 'local:qwen354b', dictationLlm: '' })
+  const store = makeStore({ fileLlm: 'cloud:p1:m-1', liveLlm: 'local:indextranslate2b', dictationLlm: '' })
   scope.reconcileAll(store)
   assert.strictEqual(store.data.fileLlm, 'cloud:p1:m-1')
-  assert.strictEqual(store.data.liveLlm, 'local:qwen354b')
+  assert.strictEqual(store.data.liveLlm, 'local:indextranslate2b')
   assert.strictEqual(store.data.dictationLlm, '')
 })
 

@@ -88,7 +88,8 @@ class Cdp {
 }
 
 async function main() {
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], {
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], {
+    detached: true,
     stdio: 'ignore'
   })
   let failed = false
@@ -105,6 +106,7 @@ async function main() {
     const cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
     await cdp.send('Runtime.enable')
+    await cdp.eval("window.electronAPI.store.set('sysmonSensors', false)")
 
     const installed = await cdp.eval(`(async () => {
       const status = await window.electronAPI.models.status()
@@ -112,7 +114,7 @@ async function main() {
     })()`)
     console.log('已安裝模型：', installed.join(', ') || '(無)')
 
-    const key = ['linguaforge08q4', 'qwen35translate', 'qwen354b'].find((k) => installed.includes(k))
+    const key = ['indextranslate2b', 'linguaforge08q4'].find((k) => installed.includes(k))
     if (!key) {
       console.log('SKIP：本機沒有裝任何本地翻譯模型，這支驗不了')
       return
@@ -124,14 +126,24 @@ async function main() {
       await window.electronAPI.store.set('localTranslateModel', ${JSON.stringify(key)})
       try {
         const text = await window.electronAPI.translate('Hello, world.', 'zh-TW', {})
-        return { ok: true, text: String(text || '').slice(0, 80) }
+        return { ok: true, text: String(text || '').slice(0, 80), info: await window.electronAPI.llm.loadInfo() }
       } catch (error) {
         return { ok: false, error: String(error?.message || error).slice(0, 300) }
       }
     })()`)
 
     if (out?.ok && out.text) {
-      console.log('PASS 本地 LLM 跑得起來 →', out.text)
+      if (!['vulkan', 'cuda', 'cpu'].includes(out.info?.backend)) throw new Error('沒有實際後端狀態')
+      console.log('PASS 本地 LLM 跑得起來 →', out.text, JSON.stringify(out.info))
+      for (const next of ['linguaforge08q4', key].filter((k) => installed.includes(k))) {
+        const switched = await cdp.eval(`(async () => {
+          await window.electronAPI.store.set('localTranslateModel', ${JSON.stringify(next)})
+          const text = await window.electronAPI.translate('The weather is nice today.', 'zh-TW', {})
+          return { text, info: await window.electronAPI.llm.loadInfo() }
+        })()`)
+        if (!switched.text || switched.info?.key !== next) throw new Error('切模型沒換權重')
+        console.log('PASS 打包版切模型', next, JSON.stringify(switched))
+      }
     } else {
       failed = true
       console.error('FAIL 本地 LLM 起不來 →', out?.error || '(空譯文)')

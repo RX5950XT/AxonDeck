@@ -428,8 +428,7 @@ try {
     const root = path.join(process.env.APPDATA || os.homedir(), 'voiceink', 'models')
     const candidates = [
       path.join(root, 'linguaforge08q4', 'gguf-v5e', 'linguaforge-v5e-0.8b-Q4_K_M.gguf'),
-      path.join(root, 'qwen35translate', 'Qwen3.5-0.8B-Q4_K_M.gguf'),
-      path.join(root, 'qwen354b', 'Qwen3.5-4B-Q4_K_M.gguf')
+      path.join(root, 'indextranslate2b', 'Index-Translate-2B.Q4_K_M.gguf')
     ]
     const real = candidates.find((p) => fs.existsSync(p))
     if (!real) {
@@ -478,6 +477,11 @@ try {
     ok('多一層路徑', hub.isRepoId('a/b/c') === false)
     ok('夾網址', hub.isRepoId('https://evil.example/x') === false)
     ok('非字串', hub.isRepoId(null) === false)
+    // HF 的 benchmark 表很多是 HTML：剝標籤會攤成直排數字，要先轉成 markdown 表格
+    const md = hub.htmlTablesToMarkdown('x\n<table><thead><tr><th></th><th>A|B</th></tr></thead>'
+      + '<tr><td colspan="2">Group &amp; X</td></tr><tr><td>MMLU</td><td>80.8</td></tr></table>\ny')
+    ok('HTML 表格轉 markdown（表頭、colspan、跳脫 |、實體）',
+      md.includes('|  | A\\|B |\n| --- | --- |\n| Group & X |  |\n| MMLU | 80.8 |'), JSON.stringify(md))
 
     ok('正常檔名', hub.isRepoPath('Q4_K_M/model-00001-of-00002.gguf') === true)
     ok('目錄跳脫', hub.isRepoPath('../../etc/passwd') === false)

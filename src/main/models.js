@@ -8,6 +8,7 @@ const fs = require('fs')
 const fsp = require('fs/promises')
 const { downloadFile } = require('./hfmodels/download')
 const { spawn } = require('child_process')
+const { removeTreeSync } = require('./safe-rm')
 
 /**
  * llama.cpp 執行環境版本（pin 住，不抓 latest：換版本要人看過 release note）
@@ -91,32 +92,26 @@ const MODELS = {
   linguaforge08q4: {
     label: 'LinguaForge 0.8B · Q4_K_M（繁中/英/日）',
     kind: 'llm',
+    requires: 'llamaruntime',
     totalBytes: 529296832,
     base: 'https://huggingface.co/RX5950XT/LinguaForge-Qwen3.5-0.8B-zhTW-en-ja/resolve/main/',
     files: ['gguf-v5e/linguaforge-v5e-0.8b-Q4_K_M.gguf'],
     gguf: 'gguf-v5e/linguaforge-v5e-0.8b-Q4_K_M.gguf'
   },
-  qwen35translate: {
-    label: 'Qwen3.5 0.8B · Q4_K_M（通用）',
+  /** IndexTeam 官方 GGUF：Qwen3.5 2B 微調的 150 語翻譯模型（只用文字，不下 mmproj） */
+  indextranslate2b: {
+    label: 'Index-Translate 2B · Q4_K_M（多語）',
     kind: 'llm',
-    totalBytes: 532517120,
-    base: 'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/',
-    files: ['Qwen3.5-0.8B-Q4_K_M.gguf'],
-    gguf: 'Qwen3.5-0.8B-Q4_K_M.gguf'
-  },
-  /** 同家族的大顆：CPU 也跑得動但很慢，建議搭 GPU 推論 */
-  qwen354b: {
-    label: 'Qwen3.5 4B · Q4_K_M（通用・建議 GPU）',
-    kind: 'llm',
-    totalBytes: 2740937888,
-    base: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/',
-    files: ['Qwen3.5-4B-Q4_K_M.gguf'],
-    gguf: 'Qwen3.5-4B-Q4_K_M.gguf'
+    requires: 'llamaruntime',
+    totalBytes: 1312164352,
+    base: 'https://huggingface.co/IndexTeam/Index-Translate-2B-GGUF/resolve/main/',
+    files: ['Index-Translate-2B.Q4_K_M.gguf'],
+    gguf: 'Index-Translate-2B.Q4_K_M.gguf'
   }
 }
 
 /** 本地翻譯模型 key 白名單（順序：推薦在前） */
-const LLM_MODEL_KEYS = ['linguaforge08q4', 'qwen35translate', 'qwen354b']
+const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 
 /** 本地 ASR 模型 key 白名單（順序：推薦在前） */
 const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
@@ -138,7 +133,11 @@ function isAsrKey(key) {
 }
 
 /** 已下架的 key → 現行 key（舊使用者存過的設定要讀得回來） */
-const RETIRED_MODEL_KEYS = Object.freeze({ linguaforge08: 'linguaforge08q4' })
+const RETIRED_MODEL_KEYS = Object.freeze({
+  linguaforge08: 'linguaforge08q4',
+  qwen35translate: 'indextranslate2b',
+  qwen354b: 'indextranslate2b'
+})
 
 /**
  * @param {unknown} key
@@ -343,7 +342,7 @@ async function remove(key) {
       await new Promise((r) => setTimeout(r, 50))
     }
   }
-  await fsp.rm(modelDir(key), { recursive: true, force: true })
+  removeTreeSync(modelDir(key))
   return status()
 }
 

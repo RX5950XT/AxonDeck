@@ -243,7 +243,7 @@ async function getRecognizer(key) {
   const threads = resolveThreads()
   if (recognizer && loadedKey === key && loadedThreads === threads) return recognizer
   if (!loadEnabled) throw new Error('ASR 已卸載')
-  if (!isDownloaded(key)) throw new Error('模型尚未下載，請先到設定下載')
+  if (!isDownloaded(key)) throw new Error('模型尚未下載，請先到 Local SI → 推薦下載')
 
   if (loadPromise) {
     await loadPromise

@@ -371,12 +371,12 @@ async function startTranscription() {
       const asrKey = asrChoice.modelKey || ASR_MODEL_KEY
       const asrDef = status.models?.[asrKey]
       if (!asrDef?.downloaded) {
-        throw new Error(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到設定 → 本地模型下載`)
+        throw new Error(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到 Local SI → 推薦下載`)
       }
       // GPU 那顆要搭 llama.cpp 執行環境，缺了會在 warm 才失敗，這裡先講清楚
       if (asrDef.requires && !status.models?.[asrDef.requires]?.downloaded) {
         const runtimeLabel = status.models?.[asrDef.requires]?.label || asrDef.requires
-        throw new Error(`還缺「${runtimeLabel}」，請到設定 → 本地模型下載`)
+        throw new Error(`還缺「${runtimeLabel}」，請到 Local SI → 執行環境安裝`)
       }
     }
     if (useCloudAsr && !asrOptions(status.models, settings).find((o) => o.value === scope.asr)?.ready) {
@@ -388,7 +388,7 @@ async function startTranscription() {
     if (willTranslate && llmChoice.mode === 'local') {
       const llmKey = resolveTranslateModelKey({ localTranslateModel: llmChoice.modelKey }, status.models)
       if (!status.models?.[llmKey]?.downloaded) {
-        throw new Error('本地翻譯模型未下載，請先到設定下載')
+        throw new Error('本地翻譯模型未下載，請先到 Local SI → 推薦下載')
       }
     }
     if (willTranslate && llmChoice.mode === 'cloud' && !resolveScopedCloud(settings, scope.llm).ready) {

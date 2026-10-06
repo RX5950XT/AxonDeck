@@ -46,7 +46,7 @@ async function main() {
 
   // acquire with llm only if model present
   const models = require('../src/main/models')
-  const hasLlm = models.isDownloaded('qwen35translate')
+  const hasLlm = models.isDownloaded('indextranslate2b')
   if (hasLlm) {
     const acq2 = await engine.acquire('translate', { asr: false, llm: true })
     assert('acquire translate+llm', acq2.ok === true, JSON.stringify(acq2))

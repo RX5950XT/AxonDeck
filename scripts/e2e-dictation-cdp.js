@@ -100,7 +100,7 @@ async function main() {
     `--user-data-dir=${userDataDir}`,
     // 假麥克風：這樣「錄音端拿不拿得到 16kHz PCM」在 CI／無麥克風的機器上也驗得到
     '--use-fake-device-for-media-stream'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] })
+  ], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let processLog = ''
   child.stdout.on('data', (c) => { processLog += c })
   child.stderr.on('data', (c) => { processLog += c })
@@ -126,6 +126,7 @@ async function main() {
     })()
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
+    await cdp.eval("window.electronAPI.store.set('sysmonSensors', false)")
     await waitFor(
       () => cdp.eval(`document.readyState === 'complete' && typeof window.electronAPI?.dictation?.status === 'function'`),
       15000, 'preload 初始化'
@@ -169,14 +170,7 @@ async function main() {
       .map((o) => ({ value: o.value, label: o.textContent, notReady: o.dataset.notReady === '1' }))`)
     ok('第一項是「不整理」', options?.[0]?.value === '' && options[0].label.includes('不整理'),
       JSON.stringify(options?.[0]))
-    ok('兩顆本地通用模型都在（LinguaForge 是翻譯專用，不列）',
-      options?.some((o) => o.value === 'local:qwen35translate') &&
-        options.some((o) => o.value === 'local:qwen354b') &&
-        !options.some((o) => o.value.includes('linguaforge')),
-      JSON.stringify(options?.map((o) => o.value)))
-    ok('未安裝的本地模型有標記',
-      options.filter((o) => o.value.startsWith('local:')).every((o) => o.notReady === o.label.includes('未安裝')),
-      JSON.stringify(options?.filter((o) => o.value.startsWith('local:'))))
+    ok('翻譯專用模型不列入語音整理', !options.some((o) => o.value.startsWith('local:')), JSON.stringify(options))
 
     // ---- 語言寫回 store ----
     const lang = await cdp.eval(`(async () => {
@@ -202,7 +196,7 @@ async function main() {
       return { bogus, good }
     })()`)
     ok('指到不存在的供應商會被收斂成「不整理」', llm?.bogus === '', JSON.stringify(llm))
-    ok('本地模型 key 收得下', llm?.good === 'local:qwen35translate', JSON.stringify(llm))
+    ok('下架的本地整理模型收斂成不整理', llm?.good === '', JSON.stringify(llm))
 
     // ---- 開關真的掛上全域熱鍵 ----
     const toggled = await cdp.eval(`(async () => {

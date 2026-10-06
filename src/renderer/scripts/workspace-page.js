@@ -207,8 +207,28 @@ function buildSessionChip(item) {
   if (logo) chip.appendChild(logo)
   const state = terminalStateIcon(item)
   if (state) chip.appendChild(state)
-  chip.title = `${item.title} · ${item.stateLabel}（依此 App 的終端機活動判定）`
+  chip.title = `${item.title} · ${item.stateLabel}（點一下打開這個終端機）`
+  chip.addEventListener('pointerdown', (event) => event.stopPropagation())
+  chip.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    void focusSession(item)
+  })
   return chip
+}
+
+/**
+ * 側欄那顆圖示就是這顆終端機的入口。分頁被別的導覽蓋掉時，點它把畫面叫回來。
+ * @param {{ id: string, projectId?: string }} item
+ */
+async function focusSession(item) {
+  const owner = projects.find((row) => row.id === item.projectId)
+  if (owner && currentId !== owner.id) {
+    const ok = await selectProject(owner.id)
+    if (!ok) return
+  }
+  const mod = await import('./terminal-page.js')
+  await mod.openTerminalSession(item.id)
 }
 
 /**

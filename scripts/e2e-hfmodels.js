@@ -56,8 +56,7 @@ function findGguf() {
   const root = path.join(app.getPath('appData'), 'voiceink', 'models')
   const candidates = [
     path.join(root, 'linguaforge08q4', 'gguf-v5e', 'linguaforge-v5e-0.8b-Q4_K_M.gguf'),
-    path.join(root, 'qwen35translate', 'Qwen3.5-0.8B-Q4_K_M.gguf'),
-    path.join(root, 'qwen354b', 'Qwen3.5-4B-Q4_K_M.gguf')
+    path.join(root, 'indextranslate2b', 'Index-Translate-2B.Q4_K_M.gguf')
   ]
   return candidates.find((p) => fs.existsSync(p)) || ''
 }

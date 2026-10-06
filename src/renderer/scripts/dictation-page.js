@@ -15,9 +15,6 @@ import { syncCustomSelects } from './custom-select.js'
 import { askConfirm } from './app-dialog.js'
 import { cloudSetupHint } from './model-picker.js'
 
-/** 可以拿來整理文字的本地模型。LinguaForge 是翻譯專用的 SFT 模型，餵它整理只會得到譯文。 */
-const LOCAL_CLEANUP_KEYS = ['qwen35translate', 'qwen354b']
-
 let bound = false
 /** @type {{ ok: boolean, text?: string, raw?: string } | null} */
 let lastResult = null
@@ -29,23 +26,12 @@ let lastResult = null
 const $ = (id) => document.getElementById(id)
 
 /**
- * 整理模型的選項：不整理 ＋ 兩顆本地 ＋ 每個雲端供應商的每一顆模型
- * @param {Record<string, { label?: string, downloaded?: boolean }>} modelsMap
+ * 整理模型的選項：不整理 ＋ 每個供應商的每一顆模型（含 Local SI 的本機模型）
  * @param {{ chatProviders?: Array<{ id: string, name?: string, apiUrl?: string, apiKey?: string, models?: string[] }> }} settings
  * @returns {{ value: string, label: string, ready: boolean }[]}
  */
-function cleanupOptions(modelsMap, settings) {
+function cleanupOptions(settings) {
   const options = [{ value: '', label: '不整理（只套個人字典）', ready: true }]
-  for (const key of LOCAL_CLEANUP_KEYS) {
-    const def = modelsMap?.[key]
-    if (!def) continue
-    const ready = def.downloaded === true
-    options.push({
-      value: `local:${key}`,
-      label: `本地 · ${def.label || key}${ready ? '' : '（未安裝）'}`,
-      ready
-    })
-  }
   const providers = Array.isArray(settings?.chatProviders) ? settings.chatProviders : []
   for (const provider of providers) {
     const ready = Boolean(provider?.apiUrl && provider?.apiKey)
@@ -342,7 +328,7 @@ function updateHint() {
   const option = select.selectedOptions[0]
   const notReady = option?.dataset.notReady === '1'
   hint.textContent = notReady
-    ? '模型還沒準備好：本地到設定下載，雲端確認 API URL 與 API Key。'
+    ? '模型還沒準備好：本地到 Local SI → 推薦下載，雲端確認 API URL 與 API Key。'
     : ''
   hint.classList.toggle('is-warning', notReady)
   hint.classList.toggle('hidden', !notReady)
@@ -353,9 +339,8 @@ function updateHint() {
  */
 export async function refreshDictationPage() {
   bindOnce()
-  const [settings, status, state] = await Promise.all([
+  const [settings, state] = await Promise.all([
     getSettings(),
-    electronAPI.models.status(),
     electronAPI.dictation.status().catch(() => null)
   ])
 
@@ -363,7 +348,7 @@ export async function refreshDictationPage() {
   if (enabledInput) enabledInput.checked = settings.dictationEnabled === true
 
   const llmSelect = /** @type {HTMLSelectElement | null} */ ($('dictationLlmSelect'))
-  fillSelect(llmSelect, cleanupOptions(status.models || {}, settings), settings.dictationLlm || '')
+  fillSelect(llmSelect, cleanupOptions(settings), settings.dictationLlm || '')
 
   const langSelect = /** @type {HTMLSelectElement | null} */ ($('dictationLangSelect'))
   if (langSelect) langSelect.value = settings.dictationLang || 'zh-TW'

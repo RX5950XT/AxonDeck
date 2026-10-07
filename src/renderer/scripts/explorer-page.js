@@ -1,5 +1,5 @@
 /**
- * AxonDeck — 「檔案」分頁：本機檔案總管 + UFFS 整機檔名搜尋。
+ * AxonDeck — 「檔案」分頁：本機檔案總管 + 檔名搜尋（Windows UFFS／Linux 資料夾樹）。
  *
  * DOM 一律 createElement + textContent（零 innerHTML）。路徑是外部輸入。
  */
@@ -393,11 +393,23 @@ function paintSortControls(select, dirBtn, { searching, key, desc, disabled = fa
  * @param {HTMLElement | null} btn
  * @param {boolean} global
  */
+function folderSearchMode() {
+  return Boolean(uffs && uffs.mode === 'folder')
+}
+
 function paintScopeButton(btn, global) {
   if (!btn) return
-  btn.textContent = global ? '🌐' : '📁'
-  btn.title = global ? '搜尋整機檔案（按一下改成只篩這個資料夾）' : '只篩這個資料夾（按一下改成搜尋整機）'
-  btn.setAttribute('aria-label', `搜尋範圍：${global ? '整機' : '這個資料夾'}`)
+  const folder = folderSearchMode()
+  btn.textContent = global ? (folder ? '📂' : '🌐') : '📁'
+  if (folder) {
+    btn.title = global
+      ? '搜尋目前資料夾樹（按一下改成只篩這一層）'
+      : '只篩這一層（按一下改成搜尋資料夾樹）'
+    btn.setAttribute('aria-label', `搜尋範圍：${global ? '資料夾樹' : '這一層'}`)
+  } else {
+    btn.title = global ? '搜尋整機檔案（按一下改成只篩這個資料夾）' : '只篩這個資料夾（按一下改成搜尋整機）'
+    btn.setAttribute('aria-label', `搜尋範圍：${global ? '整機' : '這個資料夾'}`)
+  }
   btn.setAttribute('aria-pressed', global ? 'true' : 'false')
 }
 
@@ -1423,7 +1435,11 @@ function setSecondScope(mode) {
   secondPane.searchMode = mode === 'global' ? 'global' : 'filter'
   const input = /** @type {HTMLInputElement | null} */ ($('exSecondSearch'))
   if (input) {
-    input.placeholder = secondPane.searchMode === 'global' ? '搜尋整機檔案…' : '篩選目前資料夾…'
+    if (secondPane.searchMode === 'global' && folderSearchMode()) {
+      input.placeholder = '搜尋目前資料夾樹…'
+    } else {
+      input.placeholder = secondPane.searchMode === 'global' ? '搜尋整機檔案…' : '篩選目前資料夾…'
+    }
   }
   secondPane.hits = []
   secondPane.searchSeq += 1
@@ -2713,8 +2729,14 @@ function paintSortHead() {
   paintScopeButton($('exScopeBtn'), global)
   const input = /** @type {HTMLInputElement | null} */ ($('exSearch'))
   if (input) {
-    input.placeholder = global ? '搜尋整機檔案…' : '篩選目前資料夾…'
-    input.setAttribute('aria-label', global ? '搜尋整機檔案' : '篩選目前資料夾')
+    const folder = folderSearchMode()
+    if (global && folder) {
+      input.placeholder = '搜尋目前資料夾樹…'
+      input.setAttribute('aria-label', '搜尋目前資料夾樹')
+    } else {
+      input.placeholder = global ? '搜尋整機檔案…' : '篩選目前資料夾…'
+      input.setAttribute('aria-label', global ? '搜尋整機檔案' : '篩選目前資料夾')
+    }
   }
   // 篩選條件只有整機搜尋用得到
   const filters = /** @type {HTMLDetailsElement | null} */ ($('exSearchFilters'))
@@ -2820,13 +2842,21 @@ function searchFilters(which = 'left') {
     const value = Date.parse(`${raw}${end ? 'T23:59:59.999' : 'T00:00:00.000'}`)
     return Number.isFinite(value) ? value : null
   }
+  const paneDir = which === 'right' ? secondPane.cwd : cwd
+  const root = (typeof paneDir === 'string'
+    && paneDir
+    && pathKey(paneDir) !== THIS_PC
+    && (paneDir.startsWith('/') || /^[A-Za-z]:/.test(paneDir)))
+    ? paneDir
+    : ''
   return {
     type: ['file', 'folder', 'image', 'video', 'audio', 'document'].includes(type) ? type : 'all',
     minSize: number('MinSize'),
     maxSize: number('MaxSize'),
     fromMs: date('From'),
     toMs: date('To', true),
-    location: String(at('Location')?.value || '').trim()
+    location: String(at('Location')?.value || '').trim(),
+    root
   }
 }
 
@@ -4047,6 +4077,12 @@ function paintUffs() {
   if (ensuring) {
     text.textContent = '準備中…'
     dot.classList.remove('is-on')
+    return
+  }
+  if (uffs && uffs.mode === 'folder') {
+    text.textContent = uffs.message || '資料夾樹搜尋就緒'
+    dot.classList.add('is-on')
+    if (enableBtn) enableBtn.hidden = true
     return
   }
   if (uffs && uffs.unsupported) {

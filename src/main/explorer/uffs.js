@@ -17,6 +17,7 @@ const { downloadFile } = require('../hfmodels/download')
 const { fail, realOf } = require('./paths')
 const platform = require('../platform')
 const { sanitizeSearchFilters, matchesSearchFilters } = require('./search-filter')
+const linuxSearch = require('./linux-search')
 
 const MAX_PATTERN = 200
 const SEARCH_LIMIT = 200
@@ -393,6 +394,17 @@ function searchFilterArgs(rawFilters) {
  * }>}
  */
 async function status() {
+  if (platform.isLinux) {
+    return {
+      installed: true,
+      version: 'folder',
+      daemon: { running: true, warming: false, drives: 0, records: 0 },
+      broker: { present: false, installed: false },
+      unsupported: false,
+      mode: 'folder',
+      message: '目前資料夾樹檔名搜尋（非整機索引）'
+    }
+  }
   if (!platform.isWindows) {
     return {
       installed: false,
@@ -400,7 +412,7 @@ async function status() {
       daemon: { running: false, warming: false, drives: 0, records: 0 },
       broker: { present: false, installed: false },
       unsupported: true,
-      message: 'UFFS 整機搜尋尚未移植到 Linux'
+      message: 'UFFS 整機搜尋尚未移植到此平台'
     }
   }
   const exe = findUffs()
@@ -436,6 +448,12 @@ async function status() {
  * @returns {Promise<{ hits: object[], truncated: boolean, warming: boolean }>}
  */
 async function search(raw, rawFilters) {
+  if (platform.isLinux) {
+    const version = ++searchVersion
+    return linuxSearch.searchLocal(raw, rawFilters, {
+      isCancelled: () => version !== searchVersion
+    })
+  }
   if (!platform.isWindows) linuxUnsupported()
   sanitizePattern(raw)
   const version = ++searchVersion

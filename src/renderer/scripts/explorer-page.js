@@ -58,7 +58,7 @@ function normalizeBrowseState(raw = {}) {
     tile: Number(value.tile) || DEFAULT_TILE,
     sort: ['date', 'size'].includes(value.sort) ? value.sort : 'name',
     sortDesc: value.sortDesc === true,
-    showHidden: value.showHidden === true,
+    showHidden: value.showHidden !== false,
     search: String(value.search || '').trim(),
     searchSort: value.searchSort || 'rank',
     searchFilters: value.searchFilters || {},
@@ -249,7 +249,7 @@ let sortDesc = false
 let folderViews = {}
 let folderDefaults = { view: 'list', tile: DEFAULT_TILE, sort: 'name', sortDesc: false }
 /** 要不要把隱藏／系統項目也列出來（跟檔案總管的「顯示隱藏的項目」同一件事）*/
-let showHidden = false
+let showHidden = true
 /** @type {string[]} */
 let history = []
 let histIndex = -1
@@ -3048,6 +3048,39 @@ function copyPaths(items) {
   )
 }
 
+/** 跟 main 的 COPY_IMAGE_EXT 對齊：SVG 是向量，寫不進系統圖片剪貼簿 */
+const CLIPBOARD_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
+
+/**
+ * 只有「單一本機點陣圖」才給「複製圖片」：壓縮檔裡／手機裡／資源回收筒都沒有真路徑。
+ * @param {object[]} items
+ */
+function canCopyImage(items) {
+  if (!Array.isArray(items) || items.length !== 1) return false
+  const item = items[0]
+  if (!item || item.dir || item.zip || item.phone) return false
+  if (typeof item.path !== 'string' || !item.path) return false
+  if (/^mtp:/i.test(item.path)) return false
+  const ext = String(item.ext || item.name?.split('.').pop() || '').toLowerCase()
+  return CLIPBOARD_IMAGE_EXT.has(ext)
+}
+
+/**
+ * 把圖片寫進系統剪貼簿的圖片格：去對話框 Ctrl+V 就會變成附件。
+ * 跟「複製」不同，那個複製的是檔案（貼上＝複製檔案），這個複製的是圖本身。
+ * @param {object[]} items
+ */
+async function copyImageAsBitmap(items) {
+  const first = Array.isArray(items) && items.length === 1 ? items[0] : null
+  if (!first?.path || !canCopyImage(items)) return
+  try {
+    await call(electronAPI.explorer.copyImage(first.path), '複製圖片失敗')
+    showToast('已複製圖片，去對話框按 Ctrl+V 貼上')
+  } catch {
+    // toast 已顯示
+  }
+}
+
 async function clipboard(items, mode) {
   // 壓縮檔裡剪不走：一律當複製，貼上＝解壓縮（main 也照這樣存）
   if (mode === 'cut' && items.some((item) => item.zip || item.phone)) mode = 'copy'
@@ -3574,6 +3607,7 @@ function openContextMenu(e, items, dir) {
         paste: () => void pasteHere(),
         copyPath: () => copyPaths(items),
         copyName: () => copyNames(items),
+        copyImage: canCopyImage(items) ? () => void copyImageAsBitmap(items) : null,
         shortcut: () => void makeShortcut(items),
         rename: () => void renameItem(items[0]),
         batchRename: () => void batchRenameItems(items),
@@ -4229,7 +4263,7 @@ export async function refreshExplorerPage() {
     sortDesc = boot.sortDesc === true
     folderDefaults = { view, tile, sort: sortBy, sortDesc }
     folderViews = boot.folderViews && typeof boot.folderViews === 'object' ? boot.folderViews : {}
-    showHidden = boot.showHidden === true
+    showHidden = boot.showHidden !== false
     dualPane = boot.dualPane === true
     places = boot.places || []
     disks = boot.drives || []

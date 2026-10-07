@@ -927,6 +927,18 @@ console.log('\n[J] git log 解析與檔名守衛')
   // 改名那型的 numstat 是 `path{old => new}`，展開時點不開那個檔案
   ok('log 帶 --no-renames', /--no-renames/.test(git.log.toString()))
   ok('log 關掉 quotepath（中文檔名才點得開）', /core\.quotepath=false/.test(git.log.toString()))
+  ok('log 取到上限筆數（跟 LOG_LIMIT 同一個數字）', /String\(LOG_LIMIT\)/.test(git.log.toString()))
+
+  // 下方推送紀錄：10 筆一下就見底，改成 30
+  ok('提交紀錄上限是 30 筆', git.LOG_LIMIT === 30)
+  const SEP1F = String.fromCharCode(31)
+  const manyCommits = []
+  for (let i = 0; i < git.LOG_LIMIT + 5; i += 1) {
+    manyCommits.push('h' + i + SEP1F + '1710000000' + SEP1F + 'A' + SEP1F + 'msg' + i)
+  }
+  const capped = git.parseLog(manyCommits.join('\n'))
+  ok('提交紀錄超過上限就截斷', capped.length === git.LOG_LIMIT, String(capped.length))
+  ok('截斷後第一筆還在', capped[0].short === 'h0' && capped[0].subject === 'msg0')
 }
 
 // ===== [K] git diff 解析與統計 =====
@@ -1337,6 +1349,15 @@ console.log('\n[T] git worktree 的解析與分支名白名單')
     ok('變更那列只算還沒暫存的部分', split[0].added === 1 && split[0].removed === 0, JSON.stringify(split[0]))
     ok('未追蹤的新檔算整份新增', split[1].added === 1 && split[1].removed === 0, JSON.stringify(split[1]))
 
+    // 沒有上游時 `branch.ab` 根本不會印（ahead 永遠是 0），
+    // 但本機提交仍是「已經提交、還沒推送」，要另外數
+    ok('沒有上游時未推送＝本機全部提交',
+      await git.unpushedCount(dir, { upstream: '', ahead: 0 }) === 1,
+      String(await git.unpushedCount(dir, { upstream: '', ahead: 0 })))
+    ok('有上游時未推送就是 ahead', await git.unpushedCount(dir, { upstream: 'origin/master', ahead: 3 }) === 3)
+    const noRepo = tempDir('ws-norepo-')
+    ok('空目錄（沒有 HEAD）也不炸，回 0', await git.unpushedCount(noRepo, { upstream: '' }) === 0)
+
     const logged = await new Promise((resolve, reject) => {
       execFile('git', [
         'log', '--pretty=format:%h%x1f%at%x1f%an%x1f%s', '--numstat', '-n', '10'
@@ -1348,6 +1369,7 @@ console.log('\n[T] git worktree 的解析與分支名白名單')
     ok('真的 git log 解得出作者', logged[0]?.author === 'probe', JSON.stringify(logged[0]))
     ok('真的 git log 解得出增刪', Number(logged[0]?.added) >= 1, JSON.stringify(logged[0]))
     await fsp.rm(dir, { recursive: true, force: true })
+    await fsp.rm(noRepo, { recursive: true, force: true })
   }
 
 console.log(`\n${passed} passed, ${failed} failed`)

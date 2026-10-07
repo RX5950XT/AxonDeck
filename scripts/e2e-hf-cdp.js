@@ -255,10 +255,12 @@ async function main() {
       const rows = [...document.querySelectorAll('#hf-recommend .model-item')]
       if (rows.length !== 4 || !rows.every((r) => r.offsetHeight > 0)) return null
       return { keys: rows.map((r) => r.dataset.key), groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((r) => r.textContent),
+        labels: rows.map((r) => r.querySelector('.model-name')?.textContent),
         actions: rows.every((r) => r.querySelector('.model-actions button')?.offsetHeight > 0),
         legacySettings: !!document.getElementById('set-local') }
     })()`), 15_000, '四顆推薦模型')
     assert(JSON.stringify(recommend.keys) === JSON.stringify(['qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b']), '推薦正好 ASR 兩顆、翻譯兩顆', JSON.stringify(recommend))
+    assert(recommend.labels.every((label) => label && !/[（(](?:CPU|GPU)[）)]/.test(label)), '推薦模型名稱沒有 CPU／GPU 標籤')
     assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
     assert(JSON.stringify(recommend.groups) === JSON.stringify(['語音辨識', '翻譯']), '執行環境不混進推薦模型')
     const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')

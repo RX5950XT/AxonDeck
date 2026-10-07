@@ -561,6 +561,82 @@ function shutdown() {
   return uffs.shutdown()
 }
 
+/** 放得進系統剪貼簿、對話框 Ctrl+V 認得的點陣圖副檔名（SVG 是向量，放不進去就不列） */
+const COPY_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
+/** 圖片檔超過這個大小就不讀了（對話框會再縮圖，這裡只是避免 NAS 大檔卡住） */
+const COPY_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+/** 讀使用者磁碟最多等多久（NAS 睡著時同步卡住會讓整個 App 沒回應） */
+const COPY_IMAGE_TIMEOUT_MS = 10000
+
+/**
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @returns {Promise<T>}
+ */
+function withRejectTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error('TIMEOUT')
+      error.code = 'TIMEOUT'
+      error.userMessage = '讀取逾時，請稍後再試'
+      reject(error)
+    }, ms)
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error) }
+    )
+  })
+}
+
+/**
+ * 把一張圖片檔讀成點陣圖、寫進系統剪貼簿。
+ * 對話框的 `paste` 事件認得剪貼簿裡的圖片，直接 Ctrl+V 就會變成附件。
+ * 路徑一律過 `resolveExisting`；壓縮檔裡／手機裡沒有真路徑，不做。
+ * @param {unknown} rawPath
+ * @returns {Promise<{ width: number, height: number }>}
+ */
+async function copyImage(rawPath) {
+  if (mtp.isMtp(rawPath)) throw paths.fail('BAD_PATH', '手機裡的圖片請先複製到電腦')
+  const inner = await zipOps.innerOf(rawPath)
+  if (inner) throw paths.fail('READ_ONLY', '壓縮檔裡的圖片請先解壓縮')
+  const full = paths.resolveExisting(rawPath)
+  const ext = String(path.extname(full) || '').replace(/^\./, '').toLowerCase()
+  if (!COPY_IMAGE_EXT.has(ext)) throw paths.fail('BAD_PATH', '只有圖片才能複製到剪貼簿')
+  let st
+  try {
+    st = await withRejectTimeout(fs.promises.stat(full), COPY_IMAGE_TIMEOUT_MS)
+  } catch (error) {
+    if (error?.code === 'TIMEOUT') throw error
+    throw paths.fail('NOT_FOUND', '找不到這個檔案')
+  }
+  if (!st || !st.isFile()) throw paths.fail('BAD_PATH', '只有圖片才能複製到剪貼簿')
+  if (st.size > COPY_IMAGE_MAX_BYTES) throw paths.fail('TOO_LARGE', '圖片太大，放不進剪貼簿')
+  let buf
+  try {
+    buf = await withRejectTimeout(fs.promises.readFile(full), COPY_IMAGE_TIMEOUT_MS)
+  } catch (error) {
+    if (error?.code === 'TIMEOUT') throw error
+    throw paths.fail('READ_FAILED', '讀不到這張圖片')
+  }
+  if (!buf || !buf.length) throw paths.fail('READ_FAILED', '讀不到這張圖片')
+  // require 寫在函式裡：單元測試用 Module._load  mock electron，頂層解構會拿到 undefined
+  const electron = require('electron')
+  const nativeImage = electron && electron.nativeImage
+  const clipboard = electron && electron.clipboard
+  if (!nativeImage || !clipboard) throw paths.fail('NOT_SUPPORTED', '現在沒辦法寫入剪貼簿')
+  let image = null
+  try {
+    image = nativeImage.createFromBuffer(buf)
+  } catch {
+    image = null
+  }
+  if (!image || image.isEmpty()) throw paths.fail('BAD_IMAGE', '這張圖片放不進剪貼簿')
+  clipboard.writeImage(image)
+  const size = typeof image.getSize === 'function' ? image.getSize() : { width: 0, height: 0 }
+  return { width: Number(size.width) || 0, height: Number(size.height) || 0 }
+}
+
 /**
  * @param {unknown} items
  * @param {unknown} mode
@@ -737,6 +813,7 @@ module.exports = {
   shellInvoke,
   shellRelease,
   shutdown,
+  copyImage,
   setClipboard,
   paste,
   dropEntries,

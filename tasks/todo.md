@@ -6,6 +6,46 @@
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 
+# 2026-10-08 — 專案側邊 Git 狀態一次看懂＋提交紀錄加到 30 筆
+
+- [x] main `git.js`：`LOG_LIMIT = 30`（`parseLog` 上限與 `log -n` 同一個數字）；`status()` 多回 `unpushed`（有上游＝ahead，沒有上游＝`rev-list --count HEAD --not --remotes`，失敗回 0）
+- [x] renderer：分支列加 `●N 未提交`／`↑N 未推送`／`↓N 待拉`／`無上游` 四顆 chip；四組標題加狀態說明（不斷 e2e 按字找的 `變更`／`最近提交`）；log 見底加「只列出最近 30 筆」
+- [x] 回歸：`test-workspace.js`（上限 30、截斷、unpushed 三路）＋`test-workspace-ui.js`（新 [F4] 9 項）；新斷言先在舊碼紅過（主檔 3 FAIL、UI 檔 9 FAIL）再綠
+- [x] 全套 `run-tests.js` 116/116；真 repo 實測：23 改＋1 新增分組正確、log 回 30 筆、unpushed 為 0（與遠端同步）
+
+## Review
+
+- 中途用 Edit 改到 `parseLog` 的 `%x1f` 分隔判斷（新字串的跳脫被吃掉變空字串，整段 log 解析全滅）。修法：含跳脫／控制字元的行一律走暫存腳本按行處理、分隔符改 `String.fromCharCode(31)` 共用 `sep`——跟 `tasks/lessons.md` 既有那條一致，以後照做。
+- e2e 沒重跑（`electron:pack`＋`e2e-workspace-cdp`）：改動只加 chip／title／尾註，所有 e2e 按字找的文字與 ID 都沒動；要發版前再跑一次打包版確認。
+
+# 2026-10-08 — Local SI 推薦模型名稱
+
+- [x] 移除推薦模型名稱的 CPU／GPU 標籤，確認本地選單只列推薦模型。
+- [x] 驗證 NVIDIA 8GB 自動判斷與模型／執行環境分離。
+- [x] 使用者選擇 0.6B 換 GGUF：兩顆 ASR 共用 router，保留設定 key；真音訊驗 GPU／CPU。
+- [x] 重打包並跑 Local SI CDP。
+- [ ] 同步 `dist/win-unpacked`：已開啟的 `axondeck-preview` 鎖住 exe，待使用者決定是否關閉。
+
+## Review（Local SI 推薦模型）
+
+- `test-settings-consistency` 15/15、`test-asr-router`、`test-model-scope`、`test-hfmodels` 178/178、dictation 2/2 支、error-hygiene 85/85、temp-hygiene 與 diff --check 通過。推薦名稱檢查修前紅、修後綠。
+- `probe-asr-auto.js` 來源與打包 asar 各驗 GPU／CPU：0.6B／1.7B 都正確轉出繁中並保留另一 scope 模型；CPU 是模擬沒有合格裝置，推論本身真 CPU。
+- 0.6B 官方 GGUF 與 mmproj 已下載到原模型資料夾，兩份官方 SHA256 相符；舊 ONNX 未覆寫。原設定 key 保留。
+- `electron:pack` asar 269 支 src 一致、打包版 `e2e-hf-cdp` 51/51；同步預覽 exe 因另一份已開啟預覽被鎖而等待，安裝版未動。
+- 既有 `e2e-stt-cdp` 19/20：唯一失敗是設定分區仍預期 3 個，現況含 CLI 版本為 4 個；與本次修改無關，未改該預期。
+
+# 2026-10-08 — 檔案頁右鍵「複製圖片」（貼進對話框）
+
+- [x] main `explorer:copyImage`：`resolveExisting` 驗路徑＋副檔名白名單（SVG 除外）＋20MB 上限＋讀檔逾時 10 秒；`raw-fs` 讀檔、`nativeImage.createFromBuffer`→`clipboard.writeImage`；ipc／preload／main 白名單三份對齊
+- [x] renderer：`explorer-dnd.js` 有 `act.copyImage` 才列「複製圖片」；`explorer-page.js` `canCopyImage`（單一本機點陣圖，壓縮檔／手機／回收筒不給）＋成功 toast 提示去對話框 Ctrl+V
+- [x] 回歸 `scripts/test-explorer-copy-image.js`（14 項：成功寫剪貼簿一次＋6 種拒絕＋選單列不列＋三份清單＋呼叫點）
+- [x] `run-tests.js explorer` 24/24、`test-ipc-invoke`、`test-error-hygiene`、`test-temp-hygiene` 全綠
+
+## Review
+
+- 對話框本來就吃剪貼簿圖片（`chat-page.js onPaste`→`addAttachments`），所以只要把圖寫進系統剪貼簿圖片格，不用改聊天頁。
+- `paths.fail` 的訊息是代碼（message＝code），測試要斷 `userMessage`，斷 message 會只看到 `BAD_PATH`。
+
 # 2026-10-07 — 檔案頁方格縮圖整片閃爍（像一直重新載入）
 
 > 根因：`paintList()` 整批重建 DOM，而 `explorer-icons.js` 用 pane 物件判過期＋重試預算掛在 element 上。
@@ -228,3 +268,18 @@
 - test-cli-install 37/37、test-ccswitch 266/266、test-ccswitch-cli-models 7/7、test-ipc-invoke 11/11、test-error-hygiene 85/85；10 檔語法與指定檔案 diff --check 通過。
 - agy 官方 install.ps1 的公開 Windows manifest 回傳 1.2.17；本機 agy --version 同為 1.2.17，update --help 未提供 --check。
 - 依本次範圍未實際安裝／更新、未打包／CDP；真實安裝器與權限行為尚未驗證。
+
+# 2026-10-08 — 終端機重複貼上
+
+- [x] 追查鍵盤與右鍵貼上，新增會先失敗的重現。
+- [x] 最小修正重複觸發，保留文字、圖片與連續貼上。
+- [x] 跑相關回歸、打包與隔離 CDP 驗證。
+
+## Review（重複貼上）
+
+- 根因：xterm custom key handler 的 return false 不會取消 Chromium 原生 paste；App 非同步貼上與原生貼上各送一次。補 preventDefault，Ctrl+V／Ctrl+Shift+V／Alt+V 忽略 repeat；再次按鍵仍能貼上相同內容。未改 PTY 傳送與 JS／Rust 宿主。
+- 修復前 test-terminal-ui 新斷言失敗；舊包真按鍵加一次 repeat 送出 4 份文字。修復後 `node scripts/run-tests.js terminal` 8/8 支、`node scripts/test-terminal-ui.js` 13/13、指定檔案 `git diff --check` 通過。
+- 使用既有 pack-preview 流程，只在記憶體把 PREVIEW 改為 dist/terminal-paste-qa，保留正在使用的 win-unpacked；asar 269 支 src 比對通過，另驗 terminal-page.js 與 source 完全一致。
+- `AXONDECK_EXE=dist/terminal-paste-qa/AxonDeck.exe` 跑 e2e-terminal-cdp：真按鍵、repeat、再次貼同樣內容、真右鍵、文字／圖片／直接語音插入皆通過。完整首輪 64 passed／2 failed：nav 既有預期 10、實際 9；9000 字斷言誤抓舊畫面數字，補本測試畫面清理。
+- 最後以 Node Module 執行同支 CDP 的建立／貼上／9000 字區段，保留 finally 清理，33 passed／1 failed；唯一失敗是無關的 nav 數量。7 條新增真操作斷言與 9000 字皆通過。使用者同時複製文字曾干擾重跑，新增測試固定本實例 service.clipboardText，原生 paste 仍讀真正系統剪貼簿，收尾還原。
+- 測試自己的程序已收掉。未替換現行安裝版／正在執行的預覽版，未 commit／push／發版。

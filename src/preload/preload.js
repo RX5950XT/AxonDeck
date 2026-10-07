@@ -756,6 +756,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     shellMenu: (spec) => ipcRenderer.invoke('explorer:shellMenu', spec),
     shellInvoke: (token, cmd, dir) => ipcRenderer.invoke('explorer:shellInvoke', token, cmd, dir),
     shellRelease: (token) => ipcRenderer.invoke('explorer:shellRelease', token),
+    copyImage: (filePath) => ipcRenderer.invoke('explorer:copyImage', filePath),
     setClipboard: (items, mode) => ipcRenderer.invoke('explorer:setClipboard', items, mode),
     paste: (toDir) => ipcRenderer.invoke('explorer:paste', toDir),
     dropEntries: (items, toDir, mode) => ipcRenderer.invoke('explorer:dropEntries', items, toDir, mode),

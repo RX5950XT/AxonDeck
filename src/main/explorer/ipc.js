@@ -68,6 +68,9 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
     invoke(event, () => service.shellInvoke(token, cmd, dir))
   ))
   ipcMain.handle('explorer:shellRelease', (event, token) => invoke(event, () => service.shellRelease(token)))
+  ipcMain.handle('explorer:copyImage', (event, filePath) => (
+    invoke(event, () => service.copyImage(filePath))
+  ))
   ipcMain.handle('explorer:setClipboard', (event, items, mode) => (
     invoke(event, () => service.setClipboard(items, mode))
   ))

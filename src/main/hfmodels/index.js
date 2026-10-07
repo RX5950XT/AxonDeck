@@ -302,11 +302,12 @@ async function writePresets() {
   }
 
   // 推薦的翻譯模型也交給同一台 router，檔案仍放原本 models/，不用複製進模型庫。
-  for (const key of models.LLM_MODEL_KEYS) {
+  for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS]) {
     if (!models.isDownloaded(key)) continue
     const device = hardware.pickDevice(devices)?.id || 'none'
     entries.push({ id: key, args: {
-      model: models.filePath(key, 'gguf'), 'ctx-size': '2048', device,
+      model: models.filePath(key, 'gguf'), 'ctx-size': models.isAsrKey(key) ? '8192' : '2048', device,
+      ...(models.isAsrKey(key) ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
       reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
       ...(device === 'none' ? { 'gpu-layers': '0' } : {})
     } })

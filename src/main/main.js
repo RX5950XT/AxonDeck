@@ -1915,6 +1915,7 @@ registerExplorerIpc({
     shellMenu: (...args) => loadExplorer().shellMenu(...args),
     shellInvoke: (...args) => loadExplorer().shellInvoke(...args),
     shellRelease: (...args) => loadExplorer().shellRelease(...args),
+    copyImage: (...args) => loadExplorer().copyImage(...args),
     setClipboard: (...args) => loadExplorer().setClipboard(...args),
     paste: (...args) => loadExplorer().paste(...args),
     dropEntries: (...args) => loadExplorer().dropEntries(...args),

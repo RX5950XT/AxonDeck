@@ -8,7 +8,7 @@
  *   [B] 空白處的背景選單有沒有東西
  *   [C] Google Drive 路徑的 overlay 槽位，以及那個槽位畫出來長什麼樣
  *   [D] 對一張真 PNG 取縮圖：有 base64、尺寸接近要求、且跟類型圖示不是同一張
- *   [E] attrib +h 的檔 sidecar 回 hidden、listDir 預設列不到、showHidden 列得到
+ *   [E] attrib +h 的檔 sidecar 回 hidden、listDir 預設列得到、showHidden:false 藏得住
  *   [F] 對需要現生的檔（PDF／短影片）連續取兩次：第一次 pending 時重取會換圖
  *   [F2] 殼層生不出縮圖的檔：pending 旗標從 sidecar 一路到 fileIcon，真 PNG 則不標
  *
@@ -309,12 +309,15 @@ async function main() {
     ok('sidecar 回報普通檔 hidden:false', Boolean(plainItem && plainItem.hidden === false),
       attrs.ok ? JSON.stringify(plainItem || null) : String(attrs.error || 'no data'))
     await explorerShell.ensure()
-    const off = await files.listDir(dirPath)
+    const off = await files.listDir(dirPath, { showHidden: false })
     const on = await files.listDir(dirPath, { showHidden: true })
+    const def = await files.listDir(dirPath)
     const offNames = off.entries.map((entry) => entry.name)
     const onHidden = on.entries.find((entry) => entry.name === hiddenName)
-    ok('listDir 預設列不到 hidden 檔', !offNames.includes(hiddenName), offNames.join(','))
-    ok('listDir 預設仍列得到普通檔', offNames.includes(plainName), offNames.join(','))
+    ok('listDir showHidden:false 藏得住 hidden 檔', !offNames.includes(hiddenName), offNames.join(','))
+    ok('listDir showHidden:false 仍列得到普通檔', offNames.includes(plainName), offNames.join(','))
+    ok('listDir 預設列得到 hidden 檔', def.entries.some((entry) => entry.name === hiddenName),
+      def.entries.map((entry) => entry.name).join(','))
     ok('listDir showHidden 列得到 hidden 檔', Boolean(onHidden && onHidden.hidden === true),
       on.entries.map((entry) => `${entry.name}:${entry.hidden}`).join(','))
   }

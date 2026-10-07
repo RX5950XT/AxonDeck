@@ -69,7 +69,7 @@ export function normalizeBrowseState(raw = {}, fallback = {}) {
     tile: sanitizeTile(merged.tile),
     sort: BROWSE_SORT_KEYS.has(merged.sort) ? merged.sort : 'name',
     sortDesc: merged.sortDesc === true,
-    showHidden: merged.showHidden === true,
+    showHidden: merged.showHidden !== false,
     search: typeof merged.search === 'string' ? merged.search.trim().slice(0, MAX_TAB_SEARCH) : '',
     searchSort: BROWSE_SEARCH_SORTS.has(merged.searchSort) ? merged.searchSort : 'rank',
     searchMode: merged.searchMode === 'filter' ? 'filter' : 'global',

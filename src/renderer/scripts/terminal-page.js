@@ -631,13 +631,11 @@ function createPane(id) {
         if (event.type === 'keydown') showFind(true)
         return false
       }
-      // Ctrl+V 貼上（Ctrl+Shift+V 一起收）。**xterm 自己不碰剪貼簿**：不接這一條的話
-      // Ctrl+V 只會被當成普通按鍵（`^V`）送進 PTY，Claude Code 那類 CLI 不認，畫面上
-      // 什麼都不會發生——語音輸入模擬的 Ctrl+V 走的也是這條路，所以整理好的文字會
-      // 「停在剪貼簿裡」，在別的 App 都好好的，只有這個終端機貼不進去。
-      // 剪貼簿裡是圖片的話存成 PNG 再貼路徑（見 `pasteFromClipboard`）。
+      // Ctrl+V／Ctrl+Shift+V 由 main 讀文字或圖片。return false 只攔 xterm，
+      // 還要取消瀏覽器的原生 paste，否則同一段會再貼一次；長按也不重貼。
       if (event.key === 'v' || event.key === 'V') {
-        if (event.type === 'keydown') void pasteFromClipboard(term, { id })
+        event.preventDefault()
+        if (event.type === 'keydown' && !event.repeat) void pasteFromClipboard(term, { id })
         return false
       }
       // 字級：`=` 與 `+` 是同一顆，兩個 key 都要收
@@ -652,7 +650,8 @@ function createPane(id) {
     // Alt+V 也當貼上：Claude Code 的說明把它列成「貼上圖片」的鍵，使用者照做按下去，
     // 不接的話 xterm 只會送出 `ESC v`（CLI 完全不認）。終端機本來沒有 Alt+V 這個用途。
     if (event.altKey && !event.ctrlKey && !event.metaKey && (event.key === 'v' || event.key === 'V')) {
-      if (event.type === 'keydown') void pasteFromClipboard(term, { id })
+      event.preventDefault()
+      if (event.type === 'keydown' && !event.repeat) void pasteFromClipboard(term, { id })
       return false
     }
     // Esc 關搜尋列——**但只有搜尋列開著時才吞**，不然 AI CLI 收不到 Esc（那是中斷鍵）

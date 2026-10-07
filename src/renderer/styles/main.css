@@ -4408,6 +4408,14 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   color: var(--warning);
 }
 
+.ws-git-chip.is-uncommitted {
+  color: var(--warning);
+}
+
+.ws-git-chip.is-no-upstream {
+  color: var(--text-secondary);
+}
+
 .ws-git-commit {
   flex: none;
   display: flex;
@@ -12813,8 +12821,9 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   user-select: none;
 }
 
-/* 隱藏／系統項目：列出來了，但看得出來本來是藏著的 */
-.ex-row.is-dim .ex-row-name,
+/* 隱藏／系統項目：列出來了，但看得出來本來是藏著的（圖示跟文字一起淡） */
+.ex-row.is-dim .ex-row-icon,
+.ex-row.is-dim .ex-row-label,
 .ex-row.is-dim .ex-row-size,
 .ex-row.is-dim .ex-row-mtime {
   opacity: 0.55;

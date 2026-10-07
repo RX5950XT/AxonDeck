@@ -328,6 +328,7 @@ export const electronAPI = window.electronAPI || {
     renameEntry: async () => { throw new Error('僅 Electron 環境可用') },
     removeEntry: async () => { throw new Error('僅 Electron 環境可用') },
     openPath: async () => true,
+    copyImage: async () => { throw new Error('僅 Electron 環境可用') },
     setClipboard: async () => ({ count: 0, mode: 'copy' }),
     paste: async () => ({ paths: [] }),
     watch: async () => ({ watching: false, path: '' }),

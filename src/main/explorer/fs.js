@@ -201,7 +201,7 @@ function isIntoSelf(from, dir) {
 function sanitizeSort(raw) {
   const obj = raw && typeof raw === 'object' ? raw : {}
   const by = SORT_KEYS.has(obj.sort) ? obj.sort : 'name'
-  return { by, desc: Boolean(obj.desc), showHidden: obj.showHidden === true }
+  return { by, desc: Boolean(obj.desc), showHidden: obj.showHidden !== false }
 }
 
 /**

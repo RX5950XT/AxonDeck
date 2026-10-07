@@ -167,7 +167,7 @@ async function list(target, rawOpts) {
   const opts = rawOpts && typeof rawOpts === 'object' ? rawOpts : {}
   const offset = Math.max(0, Math.floor(Number(opts.offset) || 0))
   const all = await entriesOf(where, { fresh: offset === 0 })
-  const shown = opts.showHidden === true ? all : all.filter((e) => !e.hidden)
+  const shown = opts.showHidden !== false ? all : all.filter((e) => !e.hidden)
   const sorted = files.sortEntries(shown, files.sanitizeSort(opts))
   const limit = Math.max(1, Math.min(files.MAX_PAGE_SIZE, Math.floor(Number(opts.limit ?? opts.pageSize) || files.DEFAULT_PAGE_SIZE)))
   const slice = sorted.slice(offset, offset + limit)

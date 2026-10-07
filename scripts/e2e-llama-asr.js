@@ -101,7 +101,7 @@ async function main() {
     const cpuStore = makeStore({ liveAsr: 'local:qwen3asr' })
     const gpuStore = makeStore({ liveAsr: 'local:qwen3asrgpu', fileAsr: 'local:qwen3asr' })
     asrSelect.setStore(cpuStore)
-    ok('預設走 sherpa（CPU）', asrSelect.currentKey('live') === 'qwen3asr')
+    ok('預設是 0.6B（自動 GPU／CPU）', asrSelect.currentKey('live') === 'qwen3asr')
     asrSelect.setStore(gpuStore)
     ok('選 GPU 模型時走 llama-server', asrSelect.pick('live') === llamaAsr)
     ok('同一份 store 裡別頁的選擇不受影響', asrSelect.pick('file') !== llamaAsr)
@@ -129,13 +129,15 @@ async function main() {
       console.log('  SKIP  執行環境或模型未安裝，略過實跑（設定 → 本地模型可下載）')
     } else {
       asrSelect.setStore(gpuStore)
-      const device = await llamaAsr.detectDevice(models.filePath('llamaruntime', 'binary'))
+      const hf = require('../src/main/hfmodels')
+      hf.init({ userDataPath: app.getPath('userData'), store: gpuStore })
+      const device = (await hf.currentDevice())?.id || null
       console.log(`        偵測到的推論裝置：${device || '（沒有非 CPU 裝置）'}`)
       ok('至少偵測得到一個裝置字串或明確的 null', device === null || typeof device === 'string')
 
       const t0 = Date.now()
       const warm = await llamaAsr.warm()
-      ok('sidecar 啟動成功', warm.ok, JSON.stringify(warm.warnings) + '\n' + llamaAsr.recentStderr().join('\n'))
+      ok('router 模型載入成功', warm.ok, JSON.stringify(warm.warnings))
       console.log(`        啟動耗時 ${Date.now() - t0}ms`)
       ok('啟動後 isLoaded 為 true', llamaAsr.isLoaded() === true)
       ok('系統上多了一個 llama-server', llamaServerCount() > before)
@@ -172,6 +174,7 @@ async function main() {
 
       await llamaAsr.unload()
       ok('卸載後 isLoaded 為 false', llamaAsr.isLoaded() === false)
+      hf.shutdown()
       await new Promise((r) => setTimeout(r, 1500))
       ok('程序真的收掉了', llamaServerCount() <= before, `before=${before} now=${llamaServerCount()}`)
     }
@@ -180,6 +183,7 @@ async function main() {
     console.error('\n未預期例外：', e)
   } finally {
     await llamaAsr.unload().catch(() => {})
+    require('../src/main/hfmodels').shutdown()
   }
   console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILED'}  ${passed} passed, ${failed} failed\n`)
   app.exit(failed === 0 ? 0 : 1)

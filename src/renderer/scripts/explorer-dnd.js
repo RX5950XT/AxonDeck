@@ -297,6 +297,8 @@ export function showExplorerMenu(at, spec) {
   if (items.length) {
     if (act.copyPath) menu.push({ label: '複製路徑', onSelect: act.copyPath })
     if (act.copyName) menu.push({ label: '複製名稱', onSelect: act.copyName })
+    // 單張點陣圖才有：寫進系統剪貼簿的圖片，對話框 Ctrl+V 直接變附件
+    if (act.copyImage) menu.push({ label: '複製圖片', onSelect: act.copyImage })
     if (act.shortcut) menu.push({ label: '建立捷徑', onSelect: act.shortcut })
     menu.push({ sep: true })
   }

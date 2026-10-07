@@ -6,6 +6,22 @@
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 
+# 2026-10-07 — 檔案頁方格縮圖整片閃爍（像一直重新載入）
+
+> 根因：`paintList()` 整批重建 DOM，而 `explorer-icons.js` 用 pane 物件判過期＋重試預算掛在 element 上。
+> 重畫一次就丟掉載入中的縮圖請求、重試預算歸零再要一次；監看／點選又頻繁觸發整批重畫 → 縮圖永遠在「 fallback → 載入 → 被丟掉」循環。
+
+- [x] 量測：vm 回歸測試先紅（重畫中 resolve 要照收、不重複要圖、重試預算跨重畫共用）
+- [x] 修 `explorer-icons.js`：載入按快取鍵去重＋遲到結果寫快取並補畫現行列＋重試預算按鍵算（30 秒冷卻）
+- [x] 修 `explorer-page.js`：`browseFingerprint`（放 `explorer-browse.js`＋單元測試）；監看 silent 重讀無變化不重畫；選取只就地改列
+- [x] 驗收：`run-tests.js` 115/115＋`electron:pack`（asar 269 支一致）＋打包版 `e2e-explorer-cdp` exit 0＋`e2e-explorer-dual-cdp` 52/52
+
+## Review
+
+- 中途改壞一行 `if (pathKey(dirPath) === THIS_PC)`（loadSecond）：`test-explorer-page-state` vm 轉換直接 SyntaxError，修回後綠。教訓：改 `if` 包裝時確認條件行還在。
+- 兩個舊 e2e 斷言早已跟不上行為（與本次無關，順手修）：C11 還在看全域 `tile`（v1.37.0 起改存 `folderViews`，todo 早有記錄）；dual [7] 還在等刪除確認框（v1.39.3 起回收筒不問，`git show 629a74f` 確認）。
+- dual [7] 卡住時先懷疑自己的改動，重跑必現後才去查 `deleteItems` 確認邏輯＋git 歷史定位——對的順序。
+
 # 2026-10-07 — CC Proxy：CLI搬家、MCP四家、Skills與記憶
 
 > 使用者拍板：版本搬去設定並移除分頁；MCP 四家都讀寫（claude/codex/grok/opencode，agy 先不做）；skills 啟用開關＋記憶檔可編輯。
@@ -33,6 +49,7 @@
 - 教訓：這台有設 `GROK_HOME`，測家目錄的測試一定要把 env 指到暫存；TOML 測試種子要用單引號字串（雙引號反斜線是跳脫）。
 - 2026-10-07 續：記憶搬上／Skills 搬下、兩顆「開資料夾」走檔案頁新分頁、共用家藏記憶。`e2e-ccswitch-cdp` 149/149、`run-tests.js` 115/115。長任務（pack／e2e／全套測試）改放後台跑，使用者傳訊息不再被卡。
 - 2026-10-07 續：Local SI 子分頁改執行環境／推薦／探索（預設執行環境）。`e2e-hf-cdp` 50/50。
+- 2026-10-07 續：發行 v1.42.0（commit a2d0018＋tag 已推；NSIS 三件套已上傳 GitHub release）。
 
 # 2026-10-07 — 執行環境：API 複製、統計改名、推論兩欄
 

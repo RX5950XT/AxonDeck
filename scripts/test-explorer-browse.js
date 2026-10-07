@@ -10,7 +10,7 @@ const source = fs.readFileSync('src/renderer/scripts/explorer-browse.js', 'utf8'
   .replace(/^export /gm, '')
 const context = { module: { exports: {} }, console }
 vm.createContext(context)
-vm.runInContext(`${source}\nmodule.exports = { normalizeBrowseState, normalizeBrowseTab, normalizeBrowsePage, mergeBrowsePage, visibleBrowseRange, pageOffsetsForRange, browseEntryId, selectedLoadedIds, selectBrowseRange }`, context)
+vm.runInContext(`${source}\nmodule.exports = { normalizeBrowseState, normalizeBrowseTab, normalizeBrowsePage, mergeBrowsePage, visibleBrowseRange, pageOffsetsForRange, browseEntryId, selectedLoadedIds, selectBrowseRange, browseFingerprint }`, context)
 const browse = context.module.exports
 
 function ok(label, condition) {
@@ -58,4 +58,18 @@ ok('filter location boundary', !filter.matchesSearchFilters(
 ))
 assert.equal(filter.sanitizeSearchFilters({ minSize: 500, maxSize: 100, from: '2026-01-02', to: '2026-01-01' }).minSize, 100)
 assert.equal(filter.classifySearchType({ name: 'a.zip' }), 'archive')
+
+const snapOf = (entries) => ({
+  cwd: 'C:\\pics', view: 'grid', tile: 96, total: entries.length, truncated: false, search: '', entries
+})
+const picA = { path: 'C:\\pics\\a.png', name: 'a.png', mtimeMs: 1000, size: 10, dir: false }
+const picB = { path: 'C:\\pics\\b.png', name: 'b.png', mtimeMs: 2000, size: 20, dir: false }
+const sameA = { path: 'C:\\pics\\a.png', name: 'a.png', mtimeMs: 1000, size: 10, dir: false }
+const fp1 = browse.browseFingerprint(snapOf([picA, picB]))
+const fp2 = browse.browseFingerprint(snapOf([sameA, { ...picB }]))
+ok('same listing has same fingerprint', fp1 === fp2)
+ok('mtime change breaks fingerprint', browse.browseFingerprint(snapOf([{ ...picA, mtimeMs: 1001 }, picB])) !== fp1)
+ok('order change breaks fingerprint', browse.browseFingerprint(snapOf([picB, picA])) !== fp1)
+ok('tile change breaks fingerprint', browse.browseFingerprint({ ...snapOf([picA, picB]), tile: 128 }) !== fp1)
+ok('sparse holes are ignored', browse.browseFingerprint({ ...snapOf([picA, undefined, picB]), total: 2 }) === fp1)
 console.log('PASS: explorer browse state, page merge, virtualization, cross-page selection, UFFS filters')

@@ -144,11 +144,95 @@ async function testStaleFinallyUsesCurrentQueueContext() {
   assert.equal(readNew, 1)
 }
 
+/**
+ * 同一個 `#exList` 節點重畫（`paintList` 的 `replaceChildren`）：新列跟舊列同一個
+ * 快取鍵。舊請求回來時要寫進快取並補畫現行那一列，不能整筆丟掉再要一次——
+ * 否則監看／點選一重畫，整片縮圖就回到 fallback 再載一次（一直閃爍）。
+ */
+function repaintHost(env, h, elements) {
+  h.elements = elements
+  env.context.paintFileIcons(h, () => Promise.resolve({ ok: false }))
+}
+
+function gridHost(elements) {
+  const h = host(true, elements)
+  h.elements = elements
+  h.querySelectorAll = () => h.elements
+  return h
+}
+
+function iconEl(filePath, iconKey) {
+  const el = element(filePath)
+  el.dataset.iconKey = iconKey
+  return el
+}
+
+async function testRepaintKeepsInflightThumb() {
+  const resolvers = []
+  let calls = 0
+  const env = loadIcons(() => new Promise((resolve) => {
+    calls += 1
+    resolvers.push(resolve)
+  }))
+  const key = 'C:\\pics\\a.png:1000:f'
+  const h = gridHost([iconEl('C:\\pics\\a.png', key)])
+  env.context.paintFileIcons(h, () => Promise.resolve({ ok: false }))
+  assert.equal(calls, 1)
+
+  // 重畫：舊列被換掉，新列同一個快取鍵，請求還在飛
+  const el2 = iconEl('C:\\pics\\a.png', key)
+  repaintHost(env, h, [el2])
+  resolvers[0]({ ok: true, data: { url: PNG } })
+  await flush()
+  await flush()
+  assert.equal(calls, 1, '載入中的縮圖不能因為重畫再要一次')
+  assert.equal(el2.child && el2.child.src, PNG, '遲到的結果要補畫到現行那一列')
+}
+
+async function testRetryBudgetSurvivesRepaint() {
+  let calls = 0
+  const env = loadIcons(() => {
+    calls += 1
+    return Promise.resolve({ ok: true, data: { url: PNG, pending: true } })
+  })
+  const key = 'C:\\pics\\b.mp4:2000:f'
+  const h = gridHost([iconEl('C:\\pics\\b.mp4', key)])
+  for (let i = 0; i < 5; i += 1) {
+    repaintHost(env, h, [iconEl('C:\\pics\\b.mp4', key)])
+    await flush()
+    await flush()
+  }
+  // 1 次初問＋3 次重試；重畫不能把預算歸零，否則 pending 的影片／PDF 永遠停不下來
+  assert.equal(calls, 4, `重試預算要跨重畫共用，實際要了 ${calls} 次`)
+  assert.equal(env.timers.length, 0, '預算用完就停，不再排重試')
+}
+
+async function testCacheHitRepaintNeedsNoRequest() {
+  let calls = 0
+  const env = loadIcons(() => {
+    calls += 1
+    return Promise.resolve({ ok: true, data: { url: PNG } })
+  })
+  const key = 'C:\\pics\\c.png:3000:f'
+  const h = gridHost([iconEl('C:\\pics\\c.png', key)])
+  env.context.paintFileIcons(h, () => Promise.resolve({ ok: false }))
+  await flush()
+  assert.equal(calls, 1)
+  const el2 = iconEl('C:\\pics\\c.png', key)
+  repaintHost(env, h, [el2])
+  await flush()
+  assert.equal(calls, 1, '快取命中就不能再問殼層')
+  assert.equal(el2.child && el2.child.src, PNG, '快取要同步畫上，不閃 fallback')
+}
+
 Promise.resolve()
   .then(testCooldownCancelsPendingWork)
   .then(testGridAsksThumbForAnyFile)
   .then(testStaleFinallyUsesCurrentQueueContext)
-  .then(() => console.log('3 passed, 0 failed'))
+  .then(testRepaintKeepsInflightThumb)
+  .then(testRetryBudgetSurvivesRepaint)
+  .then(testCacheHitRepaintNeedsNoRequest)
+  .then(() => console.log('6 passed, 0 failed'))
   .catch((error) => {
     console.error(error.stack || error)
     process.exitCode = 1

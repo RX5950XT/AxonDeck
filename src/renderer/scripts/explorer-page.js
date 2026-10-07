@@ -27,6 +27,7 @@ import {
   visibleBrowseRange as visibleBrowseRangeImport,
   pageOffsetsForRange as pageOffsetsForRangeImport,
   selectBrowseRange as selectBrowseRangeImport,
+  browseFingerprint as browseFingerprintImport,
   BROWSE_SORT_KEYS,
   BROWSE_SEARCH_SORTS
 } from './explorer-browse.js'
@@ -136,6 +137,75 @@ function selectBrowseRange(rows, anchorId, targetId, selected = [], additive = f
   const next = new Set(additive ? selected : [])
   for (const id of ids.slice(Math.min(first, last), Math.max(first, last) + 1)) next.add(id)
   return [...next]
+}
+
+function fingerprintOf(snapshot) {
+  if (typeof browseFingerprintImport === 'function') return browseFingerprintImport(snapshot)
+  const value = snapshot && typeof snapshot === 'object' ? snapshot : {}
+  const rows = Array.isArray(value.entries) ? value.entries.filter(Boolean) : []
+  return JSON.stringify([
+    value.cwd || '', value.view || '', value.tile || 0, value.total || 0,
+    value.truncated ? 1 : 0, value.search || '',
+    rows.map((entry) => ([
+      entry.recycleKey || entry.path || entry.name || '', entry.name || '',
+      Number(entry.mtimeMs) || 0, Number(entry.size) || 0,
+      entry.dir ? 1 : 0, entry.hidden ? 1 : 0
+    ].join(':')))
+  ])
+}
+
+/** 上次畫出的左欄指紋（監看重讀無變化就不重畫，縮圖不閃）。選取不算在內。 */
+let lastListFingerprint = ''
+/** 上次畫出的右欄指紋。 */
+let lastSecondFingerprint = ''
+
+function currentListFingerprint() {
+  return fingerprintOf({
+    cwd, view, tile,
+    total: directoryTotal,
+    truncated,
+    search: inSearch() ? `g:${searchQuery()}` : `f:${filterQuery()}`,
+    entries: listed()
+  })
+}
+
+function currentSecondFingerprint() {
+  return fingerprintOf({
+    cwd: secondPane.cwd,
+    view: secondPane.view,
+    tile: secondPane.tile,
+    total: secondPane.total,
+    truncated: false,
+    search: secondInSearch() ? `g:${secondPane.search}` : `f:${secondPane.search}`,
+    entries: secondRows()
+  })
+}
+
+/**
+ * 只換選取不重建整批列：`paintList` 的 `replaceChildren` 會把載入中的縮圖
+ * 連同列一起丟掉（再載一次＝整片閃一下）。選取只是疊加狀態，就地改 class。
+ */
+function paintLeftSelection() {
+  const host = $('exList')
+  if (host) {
+    for (const row of host.querySelectorAll('.ex-row')) {
+      row.classList.toggle('is-selected', selected.has(rowId(row)))
+    }
+  }
+  paintStatus()
+  paintCmdBar()
+  void paintDetail()
+}
+
+/** 右欄同理：只改列的選取＋右欄指令列，不重建。 */
+function paintSecondSelection() {
+  const list = $('exSecondList')
+  if (list) {
+    for (const row of list.querySelectorAll('.ex-row')) {
+      row.classList.toggle('is-selected', secondPane.selected.has(row.dataset.path))
+    }
+  }
+  paintCmdBarInto($('exSecondCmdBar'), 'right')
 }
 
 function normalizeRightPaneState(raw) {
@@ -816,7 +886,7 @@ async function goToTyped(raw) {
     await navigate(data.parent)
     selectOnly(data.path)
     anchor = data.path
-    paintList()
+    paintLeftSelection()
   } catch {
     // toast 已顯示
   }
@@ -1046,6 +1116,7 @@ function paintList() {
     paintStatus()
     paintCmdBar()
     void paintDetail()
+    lastListFingerprint = currentListFingerprint()
     return
   }
   host.replaceChildren()
@@ -1086,6 +1157,7 @@ function paintList() {
   paintStatus()
   paintCmdBar()
   paintDetail()
+  lastListFingerprint = currentListFingerprint()
   focusSelectedRow()
 }
 
@@ -1545,6 +1617,7 @@ function paintSecondPane() {
   paintFileIcons(list, (target) => electronAPI.explorer.fileIcon(target))
   list.scrollTop = scrollTop
   list.scrollLeft = scrollLeft
+  lastSecondFingerprint = currentSecondFingerprint()
   // 右欄的指令列吃右欄的選取，跟著右欄一起重畫。收在這裡是因為「剛開雙欄還沒點過右欄」
   // 也會走到這，不然那條指令列要等使用者點一下右欄才長出來。
   paintCmdBarInto($('exSecondCmdBar'), 'right')
@@ -1617,7 +1690,7 @@ function onSecondDragStart(e, entry) {
   if (!secondPane.selected.has(entry.path)) {
     secondPane.selected = new Set([entry.path])
     secondPane.anchor = entry.path
-    paintSecondPane()
+    paintSecondSelection()
   }
   const items = [...secondPane.selected].filter(Boolean)
   if (!items.length) return
@@ -1636,11 +1709,11 @@ function onSecondContext(e) {
   if (row && row.dataset.path && !secondPane.selected.has(row.dataset.path)) {
     secondPane.selected = new Set([row.dataset.path])
     secondPane.anchor = row.dataset.path
-    paintSecondPane()
+    paintSecondSelection()
   }
   if (!row) {
     secondPane.selected = new Set()
-    paintSecondPane()
+    paintSecondSelection()
   }
   e.preventDefault()
   openContextMenu(e, selectedEntries(), secondPane.cwd)
@@ -1656,7 +1729,7 @@ function onSecondKey(e) {
     if (!next) return
     secondPane.selected = new Set([next.path])
     secondPane.anchor = next.path
-    paintSecondPane()
+    paintSecondSelection()
     paintStatus()
     paintCmdBar()
     void paintDetail()
@@ -1740,8 +1813,11 @@ async function loadSecond(dirPath, opts = {}) {
     secondPane.scrollTop = 0
     secondPane.scrollLeft = 0
   }
-  secondPane.loading = true
-  paintSecondPane()
+  // 監看維持選取的重讀不要先畫一次 loading：那次重建一樣會把縮圖閃掉。
+  if (!opts.keepSelection) {
+    secondPane.loading = true
+    paintSecondPane()
+  }
   if (pathKey(dirPath) === THIS_PC) {
     secondPane.cwd = THIS_PC
     secondPane.archive = ''
@@ -1788,7 +1864,10 @@ async function loadSecond(dirPath, opts = {}) {
     if (secondPane.anchor && !live.has(secondPane.anchor)) secondPane.anchor = ''
   }
   secondPane.loading = false
-  paintSecondPane()
+  // 內容完全一樣就不重畫（跟左欄同一招，縮圖不閃）。
+  if (!(opts.keepSelection && currentSecondFingerprint() === lastSecondFingerprint)) {
+    paintSecondPane()
+  }
   if (opts.pushHistory !== false) {
     secondPane.history = secondPane.history.slice(0, secondPane.histIndex + 1)
     if (pathKey(secondPane.history.at(-1)) !== pathKey(secondPane.cwd)) secondPane.history.push(secondPane.cwd)
@@ -1885,7 +1964,7 @@ function onSecondListClick(event) {
     secondPane.anchor = id
   }
   setActivePane('right')
-  paintSecondPane()
+  paintSecondSelection()
   saveSecondPaneState()
   paintStatus()
   paintCmdBar()
@@ -2039,7 +2118,7 @@ function rowEl(entry) {
     e.preventDefault()
     e.stopPropagation()
     if (!selected.has(entryId(entry))) selectOnly(entryId(entry))
-    paintList()
+    paintLeftSelection()
     openContextMenu(e, selectedEntries())
   })
   row.addEventListener('dragstart', (e) => onDragStart(e, entry))
@@ -2067,7 +2146,7 @@ function onRowClick(entry, e) {
     anchor = id
   }
   cursor = id
-  paintList()
+  paintLeftSelection()
   const row = $('exList')?.querySelector('.ex-row.is-selected')
   if (row && typeof row.focus === 'function') row.focus({ preventScroll: true })
   syncTab()
@@ -2600,11 +2679,18 @@ async function loadDir(dirPath, opts = {}) {
   paintNav()
   paintSidebar(places, disks)
   paintSortHead()
-  paintList()
-  // 一律照 tab 記下的位置擺：新資料夾就是 0，還原的分頁就是原本捲到的地方。
-  // paintList() 現在會保留重畫前的捲動位置，這裡不補 0 的話會沿用上一個資料夾的位置。
-  const listHost = $('exList')
-  if (listHost) listHost.scrollTop = restoreScrollTop
+  // 監看重讀回來內容完全一樣就不重畫：整批重建會把載入中的縮圖丟掉再載一次
+  // （整片閃一下）。只有 silent（監看／排序維持選取）才跳過，切換資料夾一律畫。
+  const listUnchanged = Boolean(opts.silent)
+    && !restoreSearch && !restoreScrollTop
+    && currentListFingerprint() === lastListFingerprint
+  if (!listUnchanged) {
+    paintList()
+    // 一律照 tab 記下的位置擺：新資料夾就是 0，還原的分頁就是原本捲到的地方。
+    // paintList() 現在會保留重畫前的捲動位置，這裡不補 0 的話會沿用上一個資料夾的位置。
+    const listHost = $('exList')
+    if (listHost) listHost.scrollTop = restoreScrollTop
+  }
   if (restoreSearch) {
     const input = /** @type {HTMLInputElement | null} */ ($('exSearch'))
     if (input) input.value = restoreSearch
@@ -3122,12 +3208,12 @@ function selectInActivePane(full) {
   if (rightActive()) {
     secondPane.selected = new Set([full])
     secondPane.anchor = full
-    paintSecondPane()
+    paintSecondSelection()
   } else {
     // 選取 id 是完整路徑（entryId），用檔名的話選取對不到任何一列
     selected = new Set([full])
     anchor = full
-    paintList()
+    paintLeftSelection()
   }
   paintStatus()
   paintCmdBar()
@@ -3716,7 +3802,7 @@ function moveSelection(key, extend) {
     anchor = cursor
     selected = new Set([cursor])
   }
-  paintList()
+  paintLeftSelection()
   const host = $('exList')
   const row = [...(host ? host.querySelectorAll('.ex-row') : [])].find((el) => rowId(el) === cursor)
   if (row) {
@@ -3792,7 +3878,7 @@ function onListClick(e) {
   selected = new Set()
   anchor = ''
   cursor = ''
-  paintList()
+  paintLeftSelection()
 }
 
 async function toggleHidden() {
@@ -3823,7 +3909,7 @@ function onListContext(e) {
     return
   }
   selected = new Set()
-  paintList()
+  paintLeftSelection()
   openContextMenu(e, [])
 }
 
@@ -4007,7 +4093,7 @@ function onPageKey(e) {
   if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
     e.preventDefault()
     selected = new Set(listed().map((r) => entryId(r)))
-    paintList()
+    paintLeftSelection()
   }
   if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
     e.preventDefault()
@@ -4126,7 +4212,7 @@ async function consumePendingOpen() {
   if (!job.select) return
   selected = new Set([job.select])
   anchor = job.select
-  paintList()
+  paintLeftSelection()
   const row = [...(document.querySelectorAll('#exList .ex-row') || [])]
     .find((el) => el.dataset.path === job.select)
   row?.scrollIntoView({ block: 'nearest' })

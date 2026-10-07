@@ -171,6 +171,35 @@ export function browseEntryId(entry) {
 }
 
 /**
+ * 這次畫出的清單指紋。監看重讀回來內容完全一樣就不用重畫，
+ * 否則整批縮圖回到 fallback 再載一次（整片一直閃爍）。
+ * 選取是疊加狀態不算在內（選取只就地改列，不重畫）。
+ * @param {{ cwd?: string, view?: string, tile?: number, total?: number, truncated?: boolean, search?: string, entries?: object[] }} snapshot
+ * @returns {string}
+ */
+export function browseFingerprint(snapshot = {}) {
+  const value = snapshot && typeof snapshot === 'object' ? snapshot : {}
+  const rows = Array.isArray(value.entries) ? value.entries : []
+  const sig = rows.filter(Boolean).map((entry) => ([
+    entry.recycleKey || entry.path || entry.name || '',
+    entry.name || '',
+    Number(entry.mtimeMs) || 0,
+    Number(entry.size) || 0,
+    entry.dir ? 1 : 0,
+    entry.hidden ? 1 : 0
+  ].join(':'))).join('|')
+  return [
+    String(value.cwd || ''),
+    String(value.view || ''),
+    Number(value.tile) || 0,
+    Number(value.total) || 0,
+    value.truncated ? 1 : 0,
+    String(value.search || ''),
+    sig
+  ].join('\n')
+}
+
+/**
  * 只檢查已載入頁面；未載入的選取保留在 Set 裡，換頁不會把使用者已選的項目清掉。
  * @param {Iterable<string>} selected
  * @param {object[]} entries

@@ -518,11 +518,10 @@ let child
   assert(bars.right.length === bars.left.length && bars.right.length >= 9, '右欄有自己一整條指令列', json(bars.right.map((b) => b.label)))
   assert(cmd(bars.right, '刪除') && !cmd(bars.right, '刪除').off, '右欄指令列吃右欄選取', json(bars.right))
   assert(cmd(bars.left, '刪除') && cmd(bars.left, '刪除').off, '左欄指令列不吃右欄選取', json(bars.left))
-  // 按右欄的「刪除」要刪右欄的東西（Enter 確認）
+  // 按右欄的「刪除」要刪右欄的東西（丟回收筒救得回來，v1.39.3 起不問）
   await cdp.eval(`[...document.querySelectorAll('#exSecondCmdBar button')].find((b) => b.textContent.trim() === '刪除').click()`)
-  await waitFor(() => cdp.eval(`!!document.querySelector('dialog[open]')`), 8_000, '刪除確認')
-  await cdp.eval(`document.querySelector('dialog[open]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`)
-  await sleep(2_500)
+  await waitFor(async () => !fs.existsSync(path.join(RIGHT, 'R1.txt')) ? true : null, 8_000, '右欄刪除生效')
+  await sleep(500)
   assert(!fs.existsSync(path.join(RIGHT, 'R1.txt')), '右欄指令列刪的是右欄的檔案', json(fs.readdirSync(RIGHT)))
   assert(fs.existsSync(path.join(LEFT, 'R1.txt')), '左欄那份沒被動到')
   // 篩選面板：只有整機搜尋時出現，而且跟左欄各記各的

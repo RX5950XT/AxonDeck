@@ -13764,3 +13764,8 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   box-shadow: var(--shadow);
   user-select: text;
 }
+
+
+.dict-hotkey-note.is-warn {
+  color: var(--warning, #c48a00);
+}

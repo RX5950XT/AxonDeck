@@ -33,6 +33,57 @@ const NEUTRALIZER = 107
 const LONG_PRESS_MS = 400
 
 /**
+ * Linux 顯示伺服器偵測（無 GUI 也可讀環境變數）。
+ * Wayland 下 uiohook 常抓不到全域鍵，或需額外權限——不宣稱已完美。
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ platform: string, display: 'wayland'|'x11'|'unknown'|'win32'|'darwin', note: string }}
+ */
+function detectDisplayServer(env = process.env) {
+  if (process.platform === 'win32') {
+    return { platform: 'win32', display: 'win32', note: '' }
+  }
+  if (process.platform === 'darwin') {
+    return { platform: 'darwin', display: 'darwin', note: '' }
+  }
+  const session = String(env.XDG_SESSION_TYPE || '').toLowerCase()
+  const wayland = Boolean(env.WAYLAND_DISPLAY) || session === 'wayland'
+  const x11 = Boolean(env.DISPLAY) && !wayland
+  if (wayland) {
+    return {
+      platform: process.platform,
+      display: 'wayland',
+      note: '目前是 Wayland：全域右 Alt 熱鍵可能無效或需額外權限；X11 工作階段通常較穩。這不是完整對等 Windows 原生 hook。'
+    }
+  }
+  if (x11 || session === 'x11') {
+    return {
+      platform: process.platform,
+      display: 'x11',
+      note: 'Linux 使用 uiohook 監聽模式（無法像 Windows 一樣吞掉按鍵）；前景程式仍可能收到右 Alt。'
+    }
+  }
+  return {
+    platform: process.platform,
+    display: 'unknown',
+    note: 'Linux 熱鍵走 uiohook 監聽；無圖形工作階段時無法驗證全域熱鍵。'
+  }
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ display: string, note: string, canGlobalHook: boolean }}
+ */
+function hotkeyLimitations(env = process.env) {
+  const info = detectDisplayServer(env)
+  return {
+    display: info.display,
+    note: info.note,
+    // Windows native／X11 uiohook 大致可用；Wayland 不保證
+    canGlobalHook: info.display === 'win32' || info.display === 'x11' || info.display === 'darwin'
+  }
+}
+
+/**
  * @param {{ longPressMs?: number }} [opts]
  */
 function createMachine(opts = {}) {
@@ -138,7 +189,9 @@ async function start(deps) {
   const generation = ++hookGeneration
   const onAction = typeof deps?.onAction === 'function' ? deps.onAction : () => {}
 
-  if (deps?.native !== false) {
+  // Windows-only sidecar；其他平台直接走 uiohook，避免無意義的 HOOK_UNSUPPORTED 日誌
+  const tryNative = deps?.native !== false && process.platform === 'win32'
+  if (tryNative) {
     const machine = createMachine({ longPressMs: deps?.longPressMs })
     const fire = (action) => {
       if (!action) return
@@ -193,7 +246,8 @@ async function start(deps) {
       if (e?.keycode === RIGHT_ALT) {
         if (!altDown) {
           altDown = true
-          neutralizeAlt(uIOhook)
+          // Alt 選單列副作用是 Windows 特有；Linux／macOS 不必灌 F24
+          if (process.platform === 'win32') neutralizeAlt(uIOhook)
         }
         fire(machine.down(Date.now()))
       } else if (e?.keycode === ESCAPE) fire(machine.escape())
@@ -271,6 +325,8 @@ module.exports = {
   isRunning,
   isRecording,
   reset,
+  detectDisplayServer,
+  hotkeyLimitations,
   RIGHT_ALT,
   ESCAPE,
   NEUTRALIZER,

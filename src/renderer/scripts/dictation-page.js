@@ -68,6 +68,20 @@ function fillSelect(select, options, current) {
  * @param {number} at
  * @returns {string}
  */
+
+/**
+ * Linux／Wayland 熱鍵限制提示（main status.note）；Windows 通常空白。
+ * @param {{ note?: string, display?: string, canGlobalHook?: boolean, mode?: string } | null} data
+ */
+function paintHotkeyNote(data) {
+  const el = $('dictationHotkeyNote')
+  if (!el) return
+  const note = String(data?.note || '').trim()
+  el.hidden = !note
+  el.textContent = note
+  el.classList.toggle('is-warn', data?.display === 'wayland' || data?.canGlobalHook === false)
+}
+
 function formatTime(at) {
   const d = new Date(at)
   const pad = (n) => String(n).padStart(2, '0')
@@ -214,8 +228,10 @@ function bindOnce() {
     const { refreshDictationRuntime } = await import('./dictation.js')
     await refreshDictationRuntime()
     const status = await electronAPI.dictation.status().catch(() => null)
+    paintHotkeyNote(status?.ok ? status.data : null)
     if (enabledInput.checked && status?.ok && status.data?.listening !== true) {
-      showToast('熱鍵沒有掛上，請重開 AxonDeck', 'error')
+      const tip = status?.data?.note ? '熱鍵沒有掛上（見下方平台說明）' : '熱鍵沒有掛上，請重開 AxonDeck'
+      showToast(tip, 'error')
     } else {
       showToast(enabledInput.checked ? '語音輸入已啟用，按住右 Alt 講話' : '語音輸入已停用')
     }
@@ -356,5 +372,6 @@ export async function refreshDictationPage() {
   syncCustomSelects()
   updateHint()
   renderState({ state: settings.dictationEnabled === true ? (state?.data?.recording ? 'recording' : 'idle') : 'off' })
+  paintHotkeyNote(state?.ok ? state.data : null)
   await Promise.all([refreshRecords(), refreshTerms()])
 }

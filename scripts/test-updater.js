@@ -59,6 +59,11 @@ function loadUpdater(appOpts) {
   const fake = makeFakeAutoUpdater()
   stubs.electron = { app: { isPackaged: appOpts.isPackaged, getVersion: () => '1.11.0' } }
   stubs['electron-updater'] = { autoUpdater: fake }
+  // Linux 套用更新需 AppImage 執行環境；測試裡假裝為 AppImage，除非明確關掉
+  if (process.platform === 'linux') {
+    if (appOpts.appImage === false) delete process.env.APPIMAGE
+    else process.env.APPIMAGE = '/tmp/AxonDeck-test.AppImage'
+  }
   delete require.cache[require.resolve('../src/main/updater.js')]
   return { updater: require('../src/main/updater.js'), fake }
 }
@@ -249,6 +254,37 @@ async function main() {
     const { verifyRelease } = require('./pack-preview')
     verifyRelease(path.join(ROOT, 'dist', 'win-unpacked'), path.join(ROOT, 'dist'))
     console.log('[G] 正式產物的更新來源、版本、安裝檔大小與 SHA-512 正確 ✓')
+  }
+
+
+  // [F2] Linux AppImage 同樣走鏡像；latest-linux.yml 仍只從 GitHub
+  {
+    const mirrors = require('../src/main/update-mirrors')
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+    const pub = pkg.build.publish[0]
+    const appimage = `https://github.com/${pub.owner}/${pub.repo}/releases/download/v1.41.0/AxonDeck-1.41.0-linux-x86_64.AppImage`
+    const urls = mirrors.downloadUrls(appimage).map(String)
+    assert.ok(urls[0].startsWith(mirrors.MIRRORS[0]), 'AppImage 第一跳走代理')
+    assert.strictEqual(urls.at(-1), appimage)
+    const yml = `https://github.com/${pub.owner}/${pub.repo}/releases/download/v1.41.0/latest-linux.yml`
+    assert.deepStrictEqual(mirrors.downloadUrls(yml).map(String), [yml], 'latest-linux.yml 不准走代理')
+    console.log('[F2] AppImage 鏡像與 latest-linux.yml ✓')
+  }
+
+  // [F3] Linux 文案／缺 artifact 不炸
+  {
+    const { updater, fake } = loadUpdater({ isPackaged: true })
+    updater.configure({ autoUpdate: true, onStatus: () => {} })
+    await updater.check()
+    fake.fire('update-downloaded', { version: '1.42.0' })
+    const msg = updater.status().message
+    if (process.platform === 'linux') {
+      assert.ok(/AppImage/.test(msg), 'Linux 下載完成文案要提 AppImage')
+      assert.strictEqual(updater.status().packageKind === 'appimage' || updater.status().packageKind === 'linux', true)
+    }
+    fake.fire('error', { message: 'Cannot find channel latest-linux.yml' })
+    assert.ok(['unsupported', 'error'].includes(updater.status().state))
+    console.log('[F3] Linux 更新文案與缺 artifact 降級 ✓')
   }
 
   console.log('\n全部通過')

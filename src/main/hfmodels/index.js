@@ -33,7 +33,9 @@ const bench = require('./bench')
 const occupancy = require('./occupancy')
 
 /** Vulkan 那顆（一定有）；CUDA 是可選的加速版 */
-const RUNTIME_KEYS = Object.freeze(['llamaruntimecuda', 'llamaruntime'])
+const RUNTIME_KEYS = Object.freeze(
+  ['llamaruntimecuda', 'llamaruntime'].filter((key) => Boolean(models.MODELS[key]))
+)
 
 let presetPath = ''
 let defaultModelsDir = ''
@@ -481,7 +483,7 @@ async function refreshFit(id) {
   emit({ type: 'fit-start', id })
   const result = await fit.runFit({
     // 不是 runtimeExe()：那是 llama-server，會真的起服務、等到逾時也印不出 fit 參數
-    exe: path.join(path.dirname(runtimeExe()), 'llama-fit-params.exe'),
+    exe: path.join(path.dirname(runtimeExe()), process.platform === 'win32' ? 'llama-fit-params.exe' : 'llama-fit-params'),
     gguf: mainGgufOf(model),
     mmproj: mmprojOf(model),
     ctxSize: decided.ctxSize,
@@ -812,7 +814,7 @@ async function autoTune(id) {
  * @returns {string}
  */
 function benchExePath() {
-  return path.join(path.dirname(runtimeExe()), 'llama-bench.exe')
+  return path.join(path.dirname(runtimeExe()), process.platform === 'win32' ? 'llama-bench.exe' : 'llama-bench')
 }
 
 function cancelTune() {

@@ -883,13 +883,16 @@ function createMainWindow() {
 
   // 插拔隨身碟／手機：Windows 把 WM_DEVICECHANGE 廣播給所有頂層視窗（藏起來的也收得到），
   // 不用輪詢。一次插拔會連來好幾則，等 1.5 秒安靜了（手機的 MTP 也掛好了）再通知檔案頁。
-  let deviceTimer = null
-  mainWindow.hookWindowMessage(0x0219, () => {
-    clearTimeout(deviceTimer)
-    deviceTimer = setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('explorer:devicesChanged')
-    }, 1500)
-  })
+  // hookWindowMessage 是 Windows-only；Linux／macOS 沒有這個 API。
+  if (process.platform === 'win32' && typeof mainWindow.hookWindowMessage === 'function') {
+    let deviceTimer = null
+    mainWindow.hookWindowMessage(0x0219, () => {
+      clearTimeout(deviceTimer)
+      deviceTimer = setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('explorer:devicesChanged')
+      }, 1500)
+    })
+  }
 
   // 關視窗 ≠ 結束：藏起來讓 AGY 反代繼續服務，真正的結束走系統匣選單。
   // isQuitting 這條一定要留——before-quit 會走到 app.exit()，但 app.quit() 途中

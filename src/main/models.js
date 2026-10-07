@@ -23,6 +23,63 @@ const LLAMA_BUILD = 'b10666'
  * archive: true 表示下載到的是 zip，下載後解壓到模型資料夾根層
  * check: 有值時以「這些檔案都在」判定已安裝（archive 解壓後檔名跟下載名不同）
  */
+
+/**
+ * llama.cpp 官方 release 依平台選產物；非 win32 絕不下 Windows zip。
+ * @returns {{ files: string[], check: string[], binary: string, totalBytes: number, labelSuffix: string }}
+ */
+function llamaVulkanRuntime() {
+  if (process.platform === 'win32') {
+    return {
+      labelSuffix: 'Vulkan',
+      totalBytes: 34478547,
+      files: [`llama-${LLAMA_BUILD}-bin-win-vulkan-x64.zip`],
+      check: ['llama-server.exe', 'ggml-vulkan.dll', 'mtmd.dll'],
+      binary: 'llama-server.exe'
+    }
+  }
+  if (process.platform === 'linux') {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    return {
+      labelSuffix: 'Vulkan',
+      totalBytes: 33_000_000,
+      files: [`llama-${LLAMA_BUILD}-bin-ubuntu-vulkan-${arch}.tar.gz`],
+      check: ['llama-server'],
+      binary: 'llama-server'
+    }
+  }
+  // darwin
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  return {
+    labelSuffix: 'Metal／CPU',
+    totalBytes: 11_000_000,
+    files: [`llama-${LLAMA_BUILD}-bin-macos-${arch}.tar.gz`],
+    check: ['llama-server'],
+    binary: 'llama-server'
+  }
+}
+
+function llamaCudaRuntime() {
+  // CUDA 官方預建目前以 Windows zip 為主；Linux 另有 ubuntu 產物但需本機 CUDA，本輪先僅 win32
+  if (process.platform !== 'win32') return null
+  return {
+    label: `llama.cpp 執行環境 · CUDA 13.3（${LLAMA_BUILD}）`,
+    kind: 'runtime',
+    totalBytes: 537_500_000,
+    base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
+    files: [
+      `llama-${LLAMA_BUILD}-bin-win-cuda-13.3-x64.zip`,
+      'cudart-llama-bin-win-cuda-13.3-x64.zip'
+    ],
+    archive: true,
+    check: ['llama-server.exe', 'ggml-cuda.dll'],
+    binary: 'llama-server.exe'
+  }
+}
+
+const _llamaVulkan = llamaVulkanRuntime()
+const _llamaCuda = llamaCudaRuntime()
+
 const MODELS = {
   qwen3asr: {
     label: 'Qwen3-ASR 0.6B · INT8（CPU）',
@@ -64,29 +121,17 @@ const MODELS = {
    * 隨 CUDA 小版本會變）。cudart 沒解開的症狀是「啟動失敗」，`runtime.js` 的
    * stderr 尾巴看得到，不會靜默錯。
    */
-  llamaruntimecuda: {
-    label: `llama.cpp 執行環境 · CUDA 13.3（${LLAMA_BUILD}）`,
-    kind: 'runtime',
-    totalBytes: 537_500_000,
-    base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
-    files: [
-      `llama-${LLAMA_BUILD}-bin-win-cuda-13.3-x64.zip`,
-      'cudart-llama-bin-win-cuda-13.3-x64.zip'
-    ],
-    archive: true,
-    check: ['llama-server.exe', 'ggml-cuda.dll'],
-    binary: 'llama-server.exe'
-  },
-  /** GPU ASR 的執行檔（llama-server）；zip 內是扁平結構，解壓即用 */
+  ...(_llamaCuda ? { llamaruntimecuda: _llamaCuda } : {}),
+  /** GPU ASR 的執行檔（llama-server）；archive 內是扁平結構，解壓即用 */
   llamaruntime: {
-    label: `llama.cpp 執行環境 · Vulkan（${LLAMA_BUILD}）`,
+    label: `llama.cpp 執行環境 · ${_llamaVulkan.labelSuffix}（${LLAMA_BUILD}）`,
     kind: 'runtime',
-    totalBytes: 34478547,
+    totalBytes: _llamaVulkan.totalBytes,
     base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
-    files: [`llama-${LLAMA_BUILD}-bin-win-vulkan-x64.zip`],
+    files: _llamaVulkan.files,
     archive: true,
-    check: ['llama-server.exe', 'ggml-vulkan.dll', 'mtmd.dll'],
-    binary: 'llama-server.exe'
+    check: _llamaVulkan.check,
+    binary: _llamaVulkan.binary
   },
   /** 微調：繁中／英文／日文三語翻譯（v5e Q4_K_M） */
   linguaforge08q4: {
@@ -226,25 +271,41 @@ function psQuote(s) {
 }
 
 /**
- * 解壓 zip 到模型資料夾根層，成功後刪掉 zip。
- * 用 PowerShell 的 Expand-Archive：Windows 內建，不必為了一次解壓加一個依賴。
- * @param {string} zipPath
+ * 解壓 archive 到模型資料夾根層。
+ * Windows：PowerShell Expand-Archive（僅 .zip）。
+ * 其他平台：tar（.tar.gz／.tgz）或 unzip（.zip）；絕不呼叫 powershell。
+ * @param {string} archivePath
  * @param {string} destDir
  * @returns {Promise<void>}
  */
-function expandArchive(zipPath, destDir) {
+function expandArchive(archivePath, destDir) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-Command',
-        `Expand-Archive -LiteralPath '${psQuote(zipPath)}' -DestinationPath '${psQuote(destDir)}' -Force`
-      ],
-      { windowsHide: true, stdio: 'ignore' }
-    )
+    const lower = String(archivePath).toLowerCase()
+    /** @type {string} */
+    let file
+    /** @type {string[]} */
+    let args
+    if (process.platform === 'win32') {
+      if (!lower.endsWith('.zip')) {
+        reject(new Error('Windows 僅支援解壓 .zip'))
+        return
+      }
+      file = 'powershell.exe'
+      args = [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+        `Expand-Archive -LiteralPath '${psQuote(archivePath)}' -DestinationPath '${psQuote(destDir)}' -Force`
+      ]
+    } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+      file = 'tar'
+      args = ['-xzf', archivePath, '-C', destDir]
+    } else if (lower.endsWith('.zip')) {
+      file = 'unzip'
+      args = ['-o', archivePath, '-d', destDir]
+    } else {
+      reject(new Error(`不支援的壓縮格式：${path.basename(archivePath)}`))
+      return
+    }
+    const child = spawn(file, args, { windowsHide: true, stdio: 'ignore' })
     child.on('error', reject)
     child.on('close', (code) => {
       if (code === 0) resolve()
@@ -308,6 +369,9 @@ async function download(key, onProgress) {
         await fsp.rm(zipPath, { force: true })
       }
       if (!isDownloaded(key)) throw new Error('解壓完成但缺少必要檔案')
+      if (process.platform !== 'win32' && def.binary) {
+        try { fs.chmodSync(path.join(modelDir(key), def.binary), 0o755) } catch { /* 沒有也無妨 */ }
+      }
     }
   } catch (err) {
     // .part 留給下次續傳；只有明確移除模型時才一併刪掉。

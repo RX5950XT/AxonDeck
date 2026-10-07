@@ -464,6 +464,13 @@ const webglTries = new WeakMap()
 
 function attachRenderer(term) {
   if ((webglTries.get(term) || 0) > 3) return null
+  // Linux／遠端／軟體渲染常把 WebGL2 拉進 blocklist；先探一下，失敗就留 DOM renderer
+  try {
+    const probe = document.createElement('canvas')
+    if (!probe.getContext('webgl2') && !probe.getContext('webgl')) return null
+  } catch {
+    return null
+  }
   try {
     const webgl = new WebglAddon()
     webgl.onContextLoss(() => {

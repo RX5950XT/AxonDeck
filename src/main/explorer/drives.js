@@ -82,17 +82,55 @@ async function listPlaces() {
     ['Music', 'music', '音樂'],
     ['Videos', 'videos', '影片']
   ]
+  const xdg = platform.isWindows ? {} : readXdgUserDirs(home)
   for (const [folder, id, label] of known) {
-    let full = path.join(home, folder)
+    let full = xdg[id] || path.join(home, folder)
     try {
       const { app } = require('electron')
-      if (app) full = app.getPath(id)
+      if (app) {
+        const fromApp = app.getPath(id)
+        // Electron 在未設定 XDG 時會把 downloads／documents 等都退回 home，
+        // 側欄就會出現兩個都叫 /home/… 的「下載」「文件」——那種情況改用標準子目錄名。
+        if (fromApp && path.resolve(fromApp) !== path.resolve(home)) full = fromApp
+      }
     } catch {
-      // 純 Node 或系統位置取不到時，保留家目錄退路。
+      // 純 Node 或系統位置取不到時，保留家目錄／XDG 退路。
     }
+    if (path.resolve(full) === path.resolve(home)) continue
     pending.push(place(full, id, label))
   }
   return (await Promise.all(pending)).filter(Boolean)
+}
+
+/**
+ * 讀 ~/.config/user-dirs.dirs（XDG）。失敗就空物件。
+ * @param {string} home
+ * @returns {Record<string, string>}
+ */
+function readXdgUserDirs(home) {
+  /** @type {Record<string, string>} */
+  const out = {}
+  const file = path.join(
+    process.env.XDG_CONFIG_HOME || path.join(home, '.config'),
+    'user-dirs.dirs'
+  )
+  let text = ''
+  try { text = fs.readFileSync(file, 'utf8') } catch { return out }
+  const map = {
+    XDG_DESKTOP_DIR: 'desktop',
+    XDG_DOWNLOAD_DIR: 'downloads',
+    XDG_DOCUMENTS_DIR: 'documents',
+    XDG_PICTURES_DIR: 'pictures',
+    XDG_MUSIC_DIR: 'music',
+    XDG_VIDEOS_DIR: 'videos'
+  }
+  for (const line of text.split('\n')) {
+    const m = /^\s*([A-Z_]+)\s*=\s*"([^"]+)"/.exec(line)
+    if (!m || !map[m[1]]) continue
+    let value = m[2].replace(/\$HOME/g, home).replace(/^~(?=\/)/, home)
+    if (value.startsWith('/')) out[map[m[1]]] = value
+  }
+  return out
 }
 
 /**

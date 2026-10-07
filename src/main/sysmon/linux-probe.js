@@ -108,17 +108,23 @@ function collectTickRows() {
   const commitLimit = total + numFromMeminfo(mem, 'SwapTotal')
   rows.push(`M|${available}|${cached}|${committed}|${commitLimit}|${cached}`)
 
-  // 磁碟：累計 sectors → bytes；idle 留空（metrics 會讓 busy 為 null）
+  // 磁碟：sectors→bytes；名稱「序號 裝置」對齊 Windows「0 C:」讓 diskIndexOf／PDISK 對得上
+  // idle 用「牆鐘 − io_ticks」累計（100ns），metrics 才能算出 busy%
   const diskText = readText('/proc/diskstats')
+  let diskIdx = 0
   for (const line of diskText.split('\n')) {
     if (!line.trim()) continue
-    const p = line.trim().split(/\s+/)
-    if (p.length < 14) continue
-    const name = p[2]
+    const parts = line.trim().split(/\s+/)
+    if (parts.length < 14) continue
+    const name = parts[2]
     if (!/^(sd[a-z]+|nvme\d+n\d+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|mmcblk\d+)$/.test(name)) continue
-    const read = (Number(p[5]) || 0) * 512
-    const write = (Number(p[9]) || 0) * 512
-    rows.push(`D|${esc(name)}|${read}|${write}||${ts100}`)
+    const read = (Number(parts[5]) || 0) * 512
+    const write = (Number(parts[9]) || 0) * 512
+    const ioTicks = Number(parts[12]) || 0
+    const busy100 = Math.floor(ioTicks * 10000)
+    const idle100 = Math.max(0, ts100 - busy100)
+    rows.push(`D|${diskIdx} ${esc(name)}|${read}|${write}|${idle100}|${ts100}`)
+    diskIdx += 1
   }
 
   const netText = readText('/proc/net/dev')
@@ -127,12 +133,15 @@ function collectTickRows() {
     const [ifaceRaw, rest] = line.split(':')
     const iface = ifaceRaw.trim()
     if (!iface || iface === 'lo') continue
+    // 虛擬橋／容器介面常無 linkSpeed，仍回報吞吐；表頭占用%另有降級
     const cols = rest.trim().split(/\s+/)
     const rx = Number(cols[0]) || 0
     const tx = Number(cols[8]) || 0
     let linkSpeed = 0
     const speed = readText(`/sys/class/net/${iface}/speed`).trim()
-    if (speed && speed !== '-1') linkSpeed = (Number(speed) || 0) * 1_000_000
+    if (speed && speed !== '-1' && Number.isFinite(Number(speed))) {
+      linkSpeed = Number(speed) * 1_000_000
+    }
     rows.push(`N|${esc(iface)}|${rx}|${tx}|${linkSpeed}`)
   }
 
@@ -186,6 +195,30 @@ function cpuStaticRows() {
   return [`CPU|${esc(name)}|${cores}|${threads}|${Math.round(mhz)}|0|0||${esc(vendor)}`]
 }
 
+
+function physicalDiskRows() {
+  const rows = []
+  const diskText = readText('/proc/diskstats')
+  let idx = 0
+  for (const line of diskText.split('\n')) {
+    if (!line.trim()) continue
+    const parts = line.trim().split(/\s+/)
+    if (parts.length < 3) continue
+    const name = parts[2]
+    if (!/^(sd[a-z]+|nvme\d+n\d+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|mmcblk\d+)$/.test(name)) continue
+    let size = 0
+    const sizeStr = readText(`/sys/block/${name}/size`).trim()
+    if (sizeStr) size = (Number(sizeStr) || 0) * 512
+    const model = (readText(`/sys/block/${name}/device/model`) || name).trim() || name
+    const rota = readText(`/sys/block/${name}/queue/rotational`).trim()
+    const media = rota === '0' ? 'SSD' : (rota === '1' ? 'HDD' : '')
+    // PDISK|id|name|media|bus|size|health|serial|…
+    rows.push(`PDISK|${idx}|${esc(model || name)}|${esc(media)}||${size}|Healthy||||`)
+    idx += 1
+  }
+  return rows
+}
+
 function volumeRows() {
   const rows = []
   const mounts = readText('/proc/mounts').split('\n')
@@ -220,9 +253,11 @@ function nicStaticRows() {
     if (name === 'lo') continue
     const oper = readText(`/sys/class/net/${name}/operstate`).trim()
     const mac = readText(`/sys/class/net/${name}/address`).trim()
-    const speed = readText(`/sys/class/net/${name}/speed`).trim()
+    const speedTxt = readText(`/sys/class/net/${name}/speed`).trim()
+    const speed = speedTxt && speedTxt !== '-1' ? (Number(speedTxt) || 0) * 1_000_000 : 0
+    // parseStatic：connection|name|mac|speed|status(…NIC_STATUS)|ips|…
     const status = oper === 'up' ? 2 : 0
-    rows.push(`NIC|${esc(name)}|${esc(mac)}|${status}|${speed && speed !== '-1' ? Number(speed) * 1_000_000 : 0}||||`)
+    rows.push(`NIC|${esc(name)}|${esc(name)}|${esc(mac)}|${speed}|${status}|||||||`)
   }
   return rows
 }
@@ -256,6 +291,7 @@ function collectStaticRows() {
   rows.push(
     `OS|${esc(rel.PRETTY_NAME || rel.NAME || 'Linux')}|${esc(rel.VERSION_ID || '')}|${esc(os.release())}|${Math.floor(bootTimeMs())}|${esc(os.arch())}|||||||`
   )
+  rows.push(...physicalDiskRows())
   rows.push(...volumeRows())
   rows.push(...nicStaticRows())
   rows.push(...nvidiaStaticRows())

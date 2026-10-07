@@ -31,6 +31,9 @@ if (process.platform !== 'linux') {
   const diff = metrics.diffSamples(tick, again, require('os').cpus().length)
   assert.ok(Array.isArray(diff.processes))
   assert.ok(diff.memory)
+  assert.ok(tick.disks.length >= 1 && /^\d+ /.test(tick.disks[0].name), '磁碟名應為「序號 裝置」')
+  assert.ok(diff.disks.every((d) => Number.isFinite(d.busy)), 'io_ticks 應能算出 busy%')
+  assert.ok(tick.nets.length >= 1)
 }
 
 {
@@ -39,6 +42,9 @@ if (process.platform !== 'linux') {
   assert.ok(st.cpus.length >= 1)
   assert.ok(st.os?.caption)
   assert.ok(st.system?.hostname || st.system?.totalMemory >= 0)
+  assert.ok(st.physicalDisks.length >= 1, '應有 PDISK')
+  assert.ok(/^\d+$/.test(st.physicalDisks[0].id))
+  assert.ok(st.nics.some((n) => n.name), 'NIC 應有 name 欄')
 }
 
 {

@@ -54,6 +54,10 @@ async function main() {
     const typed = await linuxSearch.searchLocal('readme', { root, type: 'document' })
     assert.ok(typed.hits.some((h) => h.name === 'readme.md'))
 
+    fs.writeFileSync(path.join(root, 'Candy Circuit.wav'), Buffer.alloc(8))
+    const candy = await uffs.search('Candy', { root })
+    assert.ok(candy.hits.some((h) => h.name === 'Candy Circuit.wav'), '檔名搜尋要找得到 .wav')
+
     const viaUffs = await uffs.search('Notes', { root })
     assert.ok(viaUffs.hits.some((h) => /Notes/i.test(h.name)))
 

@@ -323,11 +323,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('workspace:renameEntry', id, relPath, name)
     ),
     removeEntry: (id, relPath) => ipcRenderer.invoke('workspace:removeEntry', id, relPath),
-    /** 專案內全文搜尋（純字串比對，main 不收 regex） */
+    /** 專案內搜尋：mode='name' 檔名／'content' 內容（純字串，main 不收 regex） */
     /** 快速開檔（Ctrl+P）用的檔案清單，只有相對路徑 */
     listFiles: (id) => ipcRenderer.invoke('workspace:listFiles', id),
-    search: (id, query, caseSensitive) => (
-      ipcRenderer.invoke('workspace:search', id, query, caseSensitive)
+    search: (id, query, caseSensitive, mode) => (
+      ipcRenderer.invoke('workspace:search', id, query, caseSensitive, mode)
     ),
     /** 這台機器正在聽的本機 TCP 埠（跟專案無關） */
     listPorts: () => ipcRenderer.invoke('workspace:listPorts'),

@@ -1006,7 +1006,7 @@ export function switchPage(pageName) {
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'cloud'|'voice'|'basic'} [section]
+ * @param {'cloud'|'voice'|'basic'|'cli'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
   switchPage('settings')
@@ -1014,7 +1014,7 @@ export function openSettingsPage(section = 'cloud') {
 }
 
 /**
- * 顯示指定設定分類。
+ * 顯示指定設定分類。CLI 區的面板是 CC Proxy 搬過來的，第一次點進去才查版本。
  * @param {string} target
  */
 function activateSettingsSection(target) {
@@ -1027,6 +1027,7 @@ function activateSettingsSection(target) {
   sections.forEach((section) => section.classList.toggle('active', section.dataset.section === target))
   const scroll = document.getElementById('settingsScroll')
   if (scroll) scroll.scrollTop = 0
+  if (target === 'cli') void loadCcSwitchPage().then((mod) => mod.refreshVersionsSection())
 }
 
 /**
@@ -1400,8 +1401,8 @@ let settingsDirty = false
 
 function markSettingsDirty(event) {
   const target = /** @type {HTMLElement|null} */ (event.target instanceof HTMLElement ? event.target : null)
-  // 「基本」即時套用；模型清單的下載／刪除也是當下就做，都不算草稿
-  if (!target || target.closest('#set-basic') || target.closest('.model-actions')) return
+  // 「基本」即時套用；CLI 版本區跟設定表單無關；模型清單的下載／刪除也是當下就做，都不算草稿
+  if (!target || target.closest('#set-basic') || target.closest('#set-cli') || target.closest('.model-actions')) return
   if (event.type === 'click' && !target.closest('button')) return
   settingsDirty = true
 }

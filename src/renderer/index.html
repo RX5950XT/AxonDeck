@@ -863,19 +863,19 @@
               <p id="hfError" class="live-error hidden" role="alert"></p>
 
               <div class="subtabs" id="hfSubtabs" role="tablist" aria-label="本機模型">
-                <button type="button" class="subtab active" data-subtab="discover" role="tab" aria-selected="true">
-                  探索
+                <button type="button" class="subtab active" data-subtab="runtime" role="tab" aria-selected="true">
+                  執行環境
                 </button>
                 <button type="button" class="subtab" data-subtab="recommend" role="tab" aria-selected="false">
                   推薦
                 </button>
-                <button type="button" class="subtab" data-subtab="runtime" role="tab" aria-selected="false">
-                  執行環境
+                <button type="button" class="subtab" data-subtab="discover" role="tab" aria-selected="false">
+                  探索
                 </button>
               </div>
 
               <!-- 探索：搜 HF（左邊清單、右邊模型卡，比照 LM Studio） -->
-              <div class="subtab-panel active" id="hf-discover" data-subtab="discover" role="tabpanel">
+              <div class="subtab-panel" id="hf-discover" data-subtab="discover" role="tabpanel">
                 <section class="hf-panel hf-discover">
                   <div class="hf-searchbar">
                     <input type="search" id="hfSearchInput" class="input" placeholder="搜尋模型，或直接貼上 owner/repo"
@@ -910,7 +910,7 @@
               </div>
 
               <!-- 執行環境：啟動列、本機模型（含資料夾）、占用、推論、log -->
-              <div class="subtab-panel" id="hf-runtime" data-subtab="runtime" role="tabpanel">
+              <div class="subtab-panel active" id="hf-runtime" data-subtab="runtime" role="tabpanel">
                 <div class="hf-runtime-layout">
                   <section class="hf-panel hf-run" aria-label="啟動與載入">
                     <div class="hf-run-main">
@@ -963,28 +963,34 @@
 
                   <section class="hf-panel" aria-label="推論">
                     <h2>推論</h2>
-                    <dl class="hf-specs" id="hfHardwareSpecs"></dl>
-                    <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
-                    <div id="cudaEnvRow" class="cuda-env-row hidden">
-                      <button type="button" id="installCudaEnvBtn" class="btn btn-secondary btn-sm">安裝 CUDA 環境</button>
-                      <button type="button" id="refreshGpuEnvBtn" class="btn btn-secondary btn-sm">重新偵測</button>
-                      <p id="cudaEnvStatus" class="setting-hint">偵測 CUDA Runtime…</p>
-                    </div>
-                    <div id="cudaInstallProgress" class="model-progress hidden">
-                      <div id="cudaInstallProgressFill" class="model-progress-fill"></div>
-                    </div>
-                    <button type="button" id="hfAutoInstallBtn" class="btn btn-secondary btn-sm">一鍵安裝最佳配置</button>
-                    <p id="hfAutoInstallHint" class="setting-hint" role="status"></p>
-                    <div id="hfRuntimeList" class="hf-runtime-list"></div>
-                    <div class="hf-setting-row">
-                      <div class="hf-setting-text">
-                        <span class="hf-setting-label">Hugging Face Token</span>
-                        <span class="setting-hint">只有 gated repo 需要。</span>
+                    <div class="hf-infer-grid">
+                      <div>
+                        <dl class="hf-specs" id="hfHardwareSpecs"></dl>
+                        <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
+                        <div id="cudaEnvRow" class="cuda-env-row hidden">
+                          <button type="button" id="installCudaEnvBtn" class="btn btn-secondary btn-sm">安裝 CUDA 環境</button>
+                          <button type="button" id="refreshGpuEnvBtn" class="btn btn-secondary btn-sm">重新偵測</button>
+                          <p id="cudaEnvStatus" class="setting-hint">偵測 CUDA Runtime…</p>
+                        </div>
+                        <div id="cudaInstallProgress" class="model-progress hidden">
+                          <div id="cudaInstallProgressFill" class="model-progress-fill"></div>
+                        </div>
+                        <button type="button" id="hfAutoInstallBtn" class="btn btn-secondary btn-sm">一鍵安裝最佳配置</button>
+                        <p id="hfAutoInstallHint" class="setting-hint" role="status"></p>
                       </div>
-                      <div class="hf-token-row">
-                        <input type="password" id="hfTokenInput" class="input" placeholder="hf_…"
-                               autocomplete="off" aria-label="Hugging Face Token">
-                        <button type="button" id="hfTokenSaveBtn" class="btn btn-secondary btn-sm">儲存</button>
+                      <div>
+                        <div id="hfRuntimeList" class="hf-runtime-list"></div>
+                        <div class="hf-setting-row">
+                          <div class="hf-setting-text">
+                            <span class="hf-setting-label">Hugging Face Token</span>
+                            <span class="setting-hint">只有 gated repo 需要。</span>
+                          </div>
+                          <div class="hf-token-row">
+                            <input type="password" id="hfTokenInput" class="input" placeholder="hf_…"
+                                   autocomplete="off" aria-label="Hugging Face Token">
+                            <button type="button" id="hfTokenSaveBtn" class="btn btn-secondary btn-sm">儲存</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -1024,8 +1030,8 @@
                 <button type="button" class="subtab" data-subtab="mcp" role="tab" aria-selected="false">
                   MCP
                 </button>
-                <button type="button" class="subtab" data-subtab="version" role="tab" aria-selected="false">
-                  CLI 版本
+                <button type="button" class="subtab" data-subtab="skills" role="tab" aria-selected="false">
+                  Skills 與記憶
                 </button>
                 <button type="button" class="subtab" data-subtab="stats" role="tab" aria-selected="false">
                   用量統計
@@ -1236,28 +1242,45 @@
                 </div>
               </div>
 
-              <!-- MCP -->
+              <!-- MCP（四家 AI CLI 共用同一套新增／編輯，家用上面的切換器選） -->
               <div class="subtab-panel" id="cc-mcp" data-subtab="mcp" role="tabpanel">
                 <section class="cc-panel" aria-labelledby="ccMcpTitle">
                   <div class="cc-panel-head">
                     <h2 id="ccMcpTitle" class="cc-panel-title">MCP 伺服器</h2>
                     <button type="button" id="ccAddMcpBtn" class="btn btn-primary btn-sm">新增伺服器</button>
                   </div>
+                  <div id="ccMcpHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
                   <p id="ccMcpPath" class="cc-panel-desc"></p>
                   <div id="ccMcpList" class="cc-list" role="list"></div>
                   <p id="ccMcpEmpty" class="cc-empty hidden">還沒有 MCP 伺服器</p>
                 </section>
               </div>
 
-              <!-- CLI 版本 -->
-              <div class="subtab-panel" id="cc-version" data-subtab="version" role="tabpanel">
-                <section class="cc-panel" aria-labelledby="ccVersionTitle">
+              <!-- Skills 與記憶：全域記憶檔在上、skills 開關在下 -->
+              <div class="subtab-panel" id="cc-skills" data-subtab="skills" role="tabpanel">
+                <section class="cc-panel" id="ccMemoryPanel" aria-labelledby="ccMemoryTitle">
                   <div class="cc-panel-head">
-                    <h2 id="ccVersionTitle" class="cc-panel-title">CLI 版本</h2>
-                    <button type="button" id="ccCheckVersionBtn" class="btn btn-secondary btn-sm">重新檢查</button>
+                    <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶</h2>
+                    <span class="cc-head-actions">
+                      <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                      <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
+                    </span>
                   </div>
-                  <p class="cc-panel-desc">安裝與更新會在背景執行；缺少必要環境時會自動安裝。</p>
-                  <div id="ccVersionList" class="cc-list" role="list" aria-live="polite"></div>
+                  <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔"></div>
+                  <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
+                            aria-label="記憶檔內容"></textarea>
+                  <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
+                </section>
+
+                <section class="cc-panel" aria-labelledby="ccSkillTitle">
+                  <div class="cc-panel-head">
+                    <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
+                    <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                  </div>
+                  <div id="ccSkillHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
+                  <p id="ccSkillPath" class="cc-panel-desc"></p>
+                  <div id="ccSkillList" class="cc-list" role="list"></div>
+                  <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
                 </section>
               </div>
 
@@ -2145,6 +2168,9 @@
                 <button type="button" class="settings-nav-item" data-section="basic">
                   <span class="settings-nav-icon" aria-hidden="true">🎨</span>基本
                 </button>
+                <button type="button" class="settings-nav-item" data-section="cli">
+                  <span class="settings-nav-icon" aria-hidden="true">⌨️</span>CLI 版本
+                </button>
               </nav>
 
               <div class="settings-body">
@@ -2382,6 +2408,22 @@
                         </div>
                       </div>
                       <p class="setting-hint">試聽用的是<strong>目前選到的語音與語速</strong>，不必先按儲存；需要連網。</p>
+                    </div>
+                  </section>
+
+                  <!-- CLI 版本（從 CC Proxy 搬過來，跟設定表單無關：按鈕不觸發未儲存提示） -->
+                  <section class="settings-section" id="set-cli" data-section="cli">
+                    <header class="settings-section-head">
+                      <h2 class="settings-section-title">CLI 版本</h2>
+                      <p class="settings-section-desc">五家 AI 命令列工具的版本與安裝更新。</p>
+                    </header>
+                    <div class="settings-card">
+                      <div class="cc-panel-head">
+                        <span class="settings-subsection-title">已安裝版本</span>
+                        <button type="button" id="ccCheckVersionBtn" class="btn btn-secondary btn-sm">重新檢查</button>
+                      </div>
+                      <p class="setting-hint">安裝與更新會在背景執行；缺少必要環境時會自動安裝。</p>
+                      <div id="ccVersionList" class="cc-list" role="list" aria-live="polite"></div>
                     </div>
                   </section>
                 </div>

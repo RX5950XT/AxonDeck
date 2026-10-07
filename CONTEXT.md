@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.41.0**（2026-10-06）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.42.0**（2026-10-07）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -12,7 +12,8 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | SI | `chat` | 側欄 Agent（專案）／Chat（對話）；主區三選一 `setChatPaneMode('chat'\|'workspace'\|'web')` |
 | Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格並排、共用 `persist:telegram` |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
-| CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP／CLI 版本／用量統計 |
+| CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP（Claude／Codex／Grok／OpenCode 四家）／Skills 與記憶／用量統計；CLI 版本搬去設定頁 |
+| 語音轉文字 | `stt` | 檔案與錄音（左轉入、右錄音）｜即時字幕（系統聲音／麥克風）｜語音輸入 |
 | 語音轉文字 | `stt` | 檔案與錄音（左轉入、右錄音）｜即時字幕（系統聲音／麥克風）｜語音輸入 |
 | 翻譯與 TTS | `translate` | local（LinguaForge）／cloud 翻譯；Edge TTS |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
@@ -156,6 +157,7 @@ native/
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| v1.42.0 | 10-07 | CC Proxy：MCP 管四家 CLI、Skills 開關＋全域記憶、CLI 版本搬設定頁；Local SI 子分頁執行環境擺第一 |
 | v1.39.3 | 10-05 | Grok 改借 Edge 過 Cloudflare 驗證；刪對話等可還原操作不再跳確認框 |
 | v1.39.2 | 10-04 | 全專案讀碼修掉五十多個 bug |
 | v1.39.1 | 10-04 | Grok 網頁版保留 Electron 識別，不再卡 Cloudflare 驗證 |

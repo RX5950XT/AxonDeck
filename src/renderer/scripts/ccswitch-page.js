@@ -1,8 +1,9 @@
 /**
  * Claude Code 工作台頁（renderer）。
  *
- * 子分頁：供應商切換／AGY 反代／MCP 伺服器／CLI 版本／用量統計。端點、檔案路徑與 npm 套件名都在
- * main 的固定表；上游格式由使用者在供應商彈窗選擇，這裡只送受限的格式值。
+ * 子分頁：供應商切換／AGY 反代／MCP 伺服器／Skills 與記憶／用量統計。CLI 版本搬去設定頁。
+ * 端點、檔案路徑與 npm 套件名都在 main 的固定表；上游格式由使用者在供應商彈窗選擇，
+ * 這裡只送受限的格式值。
  *
  * DOM 全程 `createElement` ＋ `textContent`，零 innerHTML（跟 `markdown.js` 同一條規矩）。
  * 刪除是就地二次確認（跟聊天側欄一樣），不用 `window.confirm`——原生彈窗會擋住整個 App。
@@ -12,6 +13,7 @@ import { syncCustomSelects } from './custom-select.js'
 import { createGridReorder } from './grid-reorder.js'
 import { groupCcModels } from './cc-model-groups.js'
 import { attachModelCombo } from './model-combo.js'
+import { openInFilesPage, cleanIpcError } from './app.js'
 
 const electronAPI = window.electronAPI
 
@@ -28,8 +30,26 @@ let currentId = ''
 let activeId = ''
 /** @type {Array<object>} */
 let mcpServers = []
+/** @type {string} 目前在看哪一家的 MCP */
+let mcpHome = 'claude'
+/** @type {Array<object>} */
+let mcpHomeList = []
 /** @type {Array<object>} */
 let versions = []
+/** @type {Array<object>} */
+let skillList = []
+/** @type {string} 目前在看哪一家的 skills */
+let skillHome = 'claude'
+/** @type {string} 目前這家的 skills 資料夾（「開資料夾」用） */
+let skillDir = ''
+/** @type {Array<object>} */
+let skillHomeList = []
+/** @type {Array<object>} */
+let memFiles = []
+/** @type {string} 目前在編哪個記憶檔 */
+let memFile = ''
+/** @type {string} 載入時的內容（判斷有沒有改過） */
+let memLoaded = ''
 /** 目前正在編輯哪一筆（空字串＝新增） */
 let editingProviderId = ''
 let providerDialogGeneration = 0
@@ -181,7 +201,7 @@ function presetById(id) {
 // ===== 子分頁 =====
 
 /**
- * @param {'providers'|'agy'|'mcp'|'version'|'stats'} name
+ * @param {'providers'|'agy'|'mcp'|'skills'|'stats'} name
  */
 function showSubtab(name) {
   activeSubtab = name
@@ -199,7 +219,7 @@ function showSubtab(name) {
   // 頁首的「重新整理」拿掉了：點回子分頁就是重讀
   if (name === 'providers') void reloadProviders().catch(() => {})
   if (name === 'mcp') void reloadMcp()
-  if (name === 'version') void reloadVersions()
+  if (name === 'skills') void reloadSkillsPage()
   // 用量統計會掃 GB 等級的本機記錄，程式碼也另外 dynamic import：沒點進來就不載
   if (name === 'stats') void refreshStats()
 }
@@ -950,11 +970,41 @@ async function loadModels() {
   }
 }
 
-// ===== MCP =====
+// ===== MCP（四家） =====
+
+function mcpHomeLabel(id) {
+  return mcpHomeList.find((row) => row.id === id)?.label || id
+}
+
+function renderMcpHomes() {
+  const box = document.getElementById('ccMcpHomes')
+  if (!box) return
+  box.replaceChildren()
+  for (const row of mcpHomeList) {
+    const btn = /** @type {HTMLButtonElement} */ (
+      el('button', 'cc-home-btn' + (row.id === mcpHome ? ' is-active' : ''), row.label)
+    )
+    btn.type = 'button'
+    btn.dataset.home = row.id
+    btn.setAttribute('aria-pressed', String(row.id === mcpHome))
+    btn.addEventListener('click', () => {
+      if (mcpHome === row.id) return
+      mcpHome = row.id
+      renderMcpHomes()
+      void reloadMcp()
+    })
+    box.append(btn)
+  }
+}
 
 async function reloadMcp() {
   try {
-    const data = await call(electronAPI.ccswitch.listMcp(), '讀取 MCP 清單失敗')
+    if (!mcpHomeList.length) {
+      mcpHomeList = await call(electronAPI.ccswitch.mcpHomes(), '讀取 MCP 家目錄失敗')
+      if (!mcpHomeList.some((row) => row.id === mcpHome)) mcpHome = 'claude'
+      renderMcpHomes()
+    }
+    const data = await call(electronAPI.ccswitch.listMcp(mcpHome), '讀取 MCP 清單失敗')
     mcpServers = Array.isArray(data?.servers) ? data.servers : []
     const pathEl = document.getElementById('ccMcpPath')
     if (pathEl) pathEl.textContent = `設定檔：${data?.path || ''}`
@@ -1011,12 +1061,12 @@ function renderMcp() {
  * @param {string} id
  * @param {boolean} enabled
  */
-/** MCP 寫在 ~/.claude.json，Claude Code 只在啟動時讀一次（跟切供應商同一句提醒） */
-const MCP_RESTART_NOTE = '已寫入 ~/.claude.json；開著的 Claude Code 要重開才會載入'
+/** 各家 CLI 只在啟動時讀一次 MCP 設定（跟切供應商同一句提醒） */
+const MCP_RESTART_NOTE = '已寫入設定檔；各家 CLI 只在啟動時讀一次，重開才會載入'
 
 async function toggleMcp(id, enabled) {
   try {
-    await call(electronAPI.ccswitch.toggleMcp(id, enabled), '切換 MCP 狀態失敗')
+    await call(electronAPI.ccswitch.toggleMcp(mcpHome, id, enabled), '切換 MCP 狀態失敗')
     await reloadMcp()
     showStatus(MCP_RESTART_NOTE)
   } catch {
@@ -1029,7 +1079,7 @@ async function toggleMcp(id, enabled) {
  */
 async function deleteMcp(id) {
   try {
-    await call(electronAPI.ccswitch.deleteMcp(id), '刪除 MCP 伺服器失敗')
+    await call(electronAPI.ccswitch.deleteMcp(mcpHome, id), '刪除 MCP 伺服器失敗')
     await reloadMcp()
     showStatus(MCP_RESTART_NOTE)
   } catch {
@@ -1046,7 +1096,12 @@ function openMcpDialog(id = '') {
   editingMcpId = id
   clearDialogMessages(dialog)
   const specHint = document.getElementById('ccMcpSpecHint')
-  if (specHint) specHint.textContent = 'stdio 要有 command；http／sse 要有 url。Windows 上的 npx／node 會自動包成 cmd /c。'
+  const home = mcpHomeList.find((row) => row.id === mcpHome)
+  if (specHint) {
+    specHint.textContent = home?.stdioOnly
+      ? `現在是 ${home.label}：只收 command 啟動的本機伺服器，http／sse 存了也跑不起來。`
+      : 'stdio 要有 command；http／sse 要有 url。Windows 上的 npx／node 會自動包成 cmd /c。'
+  }
   const item = id ? mcpServers.find((entry) => entry.id === id) : null
   const templateGroup = document.getElementById('ccMcpTemplateGroup')
   const templateSelect = /** @type {HTMLSelectElement} */ (document.getElementById('ccMcpTemplate'))
@@ -1112,7 +1167,7 @@ async function saveMcp() {
   const previous = editingMcpId ? mcpServers.find((entry) => entry.id === editingMcpId) : null
   try {
     await call(
-      electronAPI.ccswitch.saveMcp(id, spec, previous ? previous.enabled : true),
+      electronAPI.ccswitch.saveMcp(mcpHome, id, spec, previous ? previous.enabled : true),
       '儲存 MCP 伺服器失敗'
     )
     dialog.close()
@@ -1123,7 +1178,196 @@ async function saveMcp() {
   }
 }
 
+// ===== Skills 與全域記憶 =====
+
+function renderSkillHomes() {
+  const box = document.getElementById('ccSkillHomes')
+  if (!box) return
+  box.replaceChildren()
+  for (const row of skillHomeList) {
+    const btn = /** @type {HTMLButtonElement} */ (
+      el('button', 'cc-home-btn' + (row.id === skillHome ? ' is-active' : ''), row.label)
+    )
+    btn.type = 'button'
+    btn.dataset.home = row.id
+    btn.setAttribute('aria-pressed', String(row.id === skillHome))
+    btn.addEventListener('click', () => {
+      if (skillHome === row.id) return
+      skillHome = row.id
+      renderSkillHomes()
+      void reloadSkillsPage()
+    })
+    box.append(btn)
+  }
+}
+
+async function reloadSkillsPage() {
+  try {
+    if (!skillHomeList.length) {
+      skillHomeList = await call(electronAPI.ccswitch.skillHomes(), '讀取家目錄失敗')
+      if (!skillHomeList.some((row) => row.id === skillHome)) skillHome = 'claude'
+      renderSkillHomes()
+    }
+    const [skills, files] = await Promise.all([
+      call(electronAPI.ccswitch.listSkills(skillHome), '讀取 skills 失敗'),
+      call(electronAPI.ccswitch.memoryFiles(skillHome), '讀取記憶檔清單失敗')
+    ])
+    skillList = Array.isArray(skills?.skills) ? skills.skills : []
+    skillDir = typeof skills?.dir === 'string' ? skills.dir : ''
+    const pathEl = document.getElementById('ccSkillPath')
+    if (pathEl) {
+      const shared = Array.isArray(skills?.sharedWith) && skills.sharedWith.length
+        ? `（跟 ${skills.sharedWith.join('、')} 共用同一份）`
+        : ''
+      pathEl.textContent = `skills：${skillDir}${shared}`
+    }
+    renderSkills()
+    memFiles = Array.isArray(files) ? files : []
+    // 沒有記憶檔的家（.agents 共用）整塊記憶面板藏起來，只留 Skills
+    document.getElementById('ccMemoryPanel')?.classList.toggle('hidden', memFiles.length === 0)
+    renderMemoryFiles()
+    // 目前編的那個還在就留在那一檔，不在（切家）才跳第一檔
+    if (!memFiles.some((row) => row.file === memFile)) memFile = memFiles[0]?.file || ''
+    await loadMemoryEdit()
+  } catch {
+    // call() 已經顯示訊息
+  }
+}
+
+function renderSkills() {
+  const list = document.getElementById('ccSkillList')
+  const empty = document.getElementById('ccSkillEmpty')
+  if (!list) return
+  disarmDelete()
+  list.replaceChildren()
+  empty?.classList.toggle('hidden', skillList.length > 0)
+
+  for (const item of skillList) {
+    const row = el('div', 'cc-row')
+    row.setAttribute('role', 'listitem')
+    row.dataset.id = item.name
+
+    const main = el('div', 'cc-row-main')
+    const title = el('div', 'cc-row-title')
+    title.append(el('span', 'cc-row-name', item.name))
+    if (!item.enabled) title.append(el('span', 'cc-badge is-warn', '已停用'))
+    main.append(title)
+    if (item.description) main.append(el('div', 'cc-row-sub', item.description))
+    row.append(main)
+
+    const actions = el('div', 'cc-row-actions')
+    const toggleBtn = /** @type {HTMLButtonElement} */ (
+      el('button', 'btn btn-secondary btn-sm', item.enabled ? '停用' : '啟用')
+    )
+    toggleBtn.type = 'button'
+    toggleBtn.addEventListener('click', () => void toggleSkill(item.name, !item.enabled))
+    actions.append(toggleBtn)
+    row.append(actions)
+
+    list.append(row)
+  }
+}
+
+/**
+ * @param {string} name
+ * @param {boolean} enabled
+ */
+async function toggleSkill(name, enabled) {
+  try {
+    await call(electronAPI.ccswitch.setSkillEnabled(skillHome, name, enabled), '切換 skill 失敗')
+    await reloadSkillsPage()
+    showStatus(enabled ? '已啟用；CLI 重開才會載入' : '已搬到 .disabled；CLI 重開後就不會載入')
+  } catch {
+    // call() 已經顯示訊息
+  }
+}
+
+function renderMemoryFiles() {
+  const box = document.getElementById('ccMemoryFiles')
+  if (!box) return
+  box.replaceChildren()
+  for (const row of memFiles) {
+    const btn = /** @type {HTMLButtonElement} */ (
+      el('button', 'cc-home-btn' + (row.file === memFile ? ' is-active' : ''),
+        row.exists ? row.file : `${row.file}（還沒建）`)
+    )
+    btn.type = 'button'
+    btn.setAttribute('aria-pressed', String(row.file === memFile))
+    btn.addEventListener('click', () => {
+      if (memFile === row.file) return
+      memFile = row.file
+      renderMemoryFiles()
+      void loadMemoryEdit()
+    })
+    box.append(btn)
+  }
+}
+
+async function loadMemoryEdit() {
+  const edit = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('ccMemoryEdit'))
+  if (!edit) return
+  if (!memFile) {
+    edit.value = ''
+    edit.disabled = true
+    memLoaded = ''
+    syncMemoryHint()
+    return
+  }
+  edit.disabled = false
+  try {
+    const data = await call(electronAPI.ccswitch.readMemory(skillHome, memFile), '讀取記憶檔失敗')
+    memLoaded = typeof data?.content === 'string' ? data.content : ''
+    edit.value = memLoaded
+  } catch {
+    memLoaded = ''
+    edit.value = ''
+  }
+  syncMemoryHint()
+}
+
+function syncMemoryHint() {
+  const edit = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('ccMemoryEdit'))
+  const hint = document.getElementById('ccMemoryHint')
+  const save = /** @type {HTMLButtonElement|null} */ (document.getElementById('ccMemorySaveBtn'))
+  const dirty = edit && edit.value !== memLoaded
+  if (save) {
+    save.classList.toggle('btn-primary', Boolean(dirty))
+    save.classList.toggle('btn-secondary', !dirty)
+  }
+  if (hint) hint.textContent = dirty ? '還沒存。存檔前會先備份；切換檔案會捨棄還沒存的修改。' : '存檔前會先備份；切換檔案會捨棄還沒存的修改。'
+}
+
+async function saveMemory() {
+  const edit = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('ccMemoryEdit'))
+  if (!edit || !memFile) return
+  try {
+    await call(electronAPI.ccswitch.writeMemory(skillHome, memFile, edit.value), '儲存記憶檔失敗')
+    memLoaded = edit.value
+    syncMemoryHint()
+    showStatus(`已儲存 ${memFile}（舊版已備份）`)
+    const files = await call(electronAPI.ccswitch.memoryFiles(skillHome), '讀取記憶檔清單失敗')
+    memFiles = Array.isArray(files) ? files : []
+    renderMemoryFiles()
+  } catch {
+    // call() 已經顯示訊息
+  }
+}
+
+/** 在檔案頁開新分頁進這家的 skills 資料夾 */
+function openSkillDir() {
+  if (!skillDir) return
+  void openInFilesPage(skillDir, 'dir').catch((error) => showStatus(cleanIpcError(error), { page: true }))
+}
+
+/** 在檔案頁開新分頁進目前記憶檔那一層並選起來 */
+function openMemoryDir() {
+  const row = memFiles.find((item) => item.file === memFile) || memFiles[0]
+  if (!row?.path) return
+  void openInFilesPage(row.path, 'file').catch((error) => showStatus(cleanIpcError(error), { page: true }))
+}
+
 // ===== CLI 版本 =====
+// 面板搬去設定頁了，這裡只留邏輯給設定頁呼叫（`refreshVersionsSection`）。
 
 async function reloadVersions() {
   if (reloadVersions.pending) return reloadVersions.pending
@@ -1246,7 +1490,7 @@ function bindOnce() {
 
   document.querySelectorAll('#ccSubtabs .subtab').forEach((btn) => {
     btn.addEventListener('click', () => showSubtab(
-      /** @type {'providers'|'agy'|'mcp'|'version'|'stats'} */ (btn.dataset.subtab)
+      /** @type {'providers'|'agy'|'mcp'|'skills'|'stats'} */ (btn.dataset.subtab)
     ))
   })
 
@@ -1274,6 +1518,16 @@ function bindOnce() {
   document.getElementById('ccMcpSaveBtn')?.addEventListener('click', () => void saveMcp())
 
   document.getElementById('ccCheckVersionBtn')?.addEventListener('click', () => void reloadVersions())
+  document.getElementById('ccMemorySaveBtn')?.addEventListener('click', () => void saveMemory())
+  document.getElementById('ccMemoryEdit')?.addEventListener('input', syncMemoryHint)
+  document.getElementById('ccMemoryOpenBtn')?.addEventListener('click', openMemoryDir)
+  document.getElementById('ccSkillOpenBtn')?.addEventListener('click', openSkillDir)
+}
+
+/** 設定頁的 CLI 區用：面板搬過去了，邏輯留在這裡 */
+export function refreshVersionsSection() {
+  bindOnce()
+  if (!versions.length) void reloadVersions()
 }
 
 export function refreshCcSwitchPage() {
@@ -1284,8 +1538,8 @@ export function refreshCcSwitchPage() {
       await reloadProviders()
       window.setTimeout(() => void refreshModelSnapshot(), 1000)
       // 回到頁面時停在別的子分頁（例如去終端機更新完 CLI 回來）也要重查那一頁，不然還掛著「有新版」
-      if (activeSubtab === 'version' && versions.length) void reloadVersions()
-      else if (activeSubtab === 'mcp') void reloadMcp()
+      if (activeSubtab === 'mcp') void reloadMcp()
+      else if (activeSubtab === 'skills') void reloadSkillsPage()
       else if (activeSubtab === 'agy') void loadAgy().then((mod) => mod.refreshAgyPage())
     } catch {
       // call() 已經顯示訊息

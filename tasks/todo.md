@@ -6,6 +6,47 @@
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 
+# 2026-10-07 — CC Proxy：CLI搬家、MCP四家、Skills與記憶
+
+> 使用者拍板：版本搬去設定並移除分頁；MCP 四家都讀寫（claude/codex/grok/opencode，agy 先不做）；skills 啟用開關＋記憶檔可編輯。
+
+- [x] 後端 MCP 四家：`mcp-homes.js`（canonical spec↔各家格式；codex/grok TOML 走新依賴；未知鍵原樣保留；codex/claude 停用放 store，grok/opencode 用原生 enabled）。
+- [x] 後端 skills＋記憶：`skills.js`（四家 skills 清單讀 SKILL.md、停用用 `.disabled/` 搬移；記憶檔讀寫 CLAUDE.md/AGENTS.md/MEMORY.md，路徑驗證不跳脫）。
+- [x] IPC＋preload＋service 接線（`ccswitch:*` 新 channel，白名單測試同步）。
+- [x] 前端：設定頁加 CLI 版本區（CC Proxy 移除 version 分頁）；MCP 分頁加四家切換；新增 Skills 與記憶分頁。
+- [x] 單元測試（新跑＋舊跑）；`electron:pack`＋打包版 `e2e-ccswitch-cdp`＋smoke。
+- [x] TOML 依賴選型已定（見 Review）。
+
+## Review（選型，先記。中途停下換方法不超過兩次）
+
+- Codex：`~/.codex/config.toml` 的 `[mcp_servers.<id>]`（command／args／`env_vars`＋`[.<id>.env]`）；無 enabled 證據→停用放我方 store。
+- Grok：`~/.grok/config.toml` 的 `[mcp_servers.<id>]`，stdio 用 `.env`、remote 用 `.headers`，原生 `enabled`。
+- OpenCode：`~/.config/opencode/opencode.json` 的 `mcp`（v1 扁平；local／remote＋`environment`＋`enabled`）。
+- Grok 記憶是 `~/.grok/MEMORY.md`；codex 記憶用 `~/.codex/AGENTS.md`；`~/.claude/skills` 是 symlink 指到 `~/.agents/skills`（兩邊看到同一份，UI 要標共用）。
+- TOML 庫：`smol-toml`（零依賴、parse＋stringify 保鍵序；註解不保留，寫前備份＋原子替換比照既有）。
+
+## Review（驗收）
+
+- 單元：`test-mcp-homes` 31、`test-skills` 28 全過； commit 前全套 `run-tests.js` 115/115。
+- 打包版 `e2e-ccswitch-cdp` 144/144（含新的四家路徑、Skills、設定頁 CLI 區）。
+- 途中修的三個 bug：canonical 轉換掉 command／url（codex 第一筆讀不到）、http 該吃 headers 不是 env、`test-cli-install` 用註解標記切程式碼（標題改名把它弄斷，已恢復）。
+- 教訓：這台有設 `GROK_HOME`，測家目錄的測試一定要把 env 指到暫存；TOML 測試種子要用單引號字串（雙引號反斜線是跳脫）。
+- 2026-10-07 續：記憶搬上／Skills 搬下、兩顆「開資料夾」走檔案頁新分頁、共用家藏記憶。`e2e-ccswitch-cdp` 149/149、`run-tests.js` 115/115。長任務（pack／e2e／全套測試）改放後台跑，使用者傳訊息不再被卡。
+- 2026-10-07 續：Local SI 子分頁改執行環境／推薦／探索（預設執行環境）。`e2e-hf-cdp` 50/50。
+
+# 2026-10-07 — 執行環境：API 複製、統計改名、推論兩欄
+
+- [x] 啟動卡 API 列：OpenAI／Anthropic URL＋複製、已載入模型 id＋複製（只在執行中顯示）。
+- [x] 統計改名：預填充速度／解碼速度／輸入 tokens／輸出 tokens。
+- [x] 推論面板內容左右兩欄（窄螢幕自動疊回一欄）。
+- [x] `electron:pack`＋打包版 `e2e-hf-cdp.js` 重跑。
+
+## Review
+
+- 複製走 `terminal:clipboardWrite`（main 寫剪貼簿，沒焦點也成），按鈕按完變「已複製」1.2 秒。ID 都沒動，e2e 不用改。
+- API／統計只在 router 執行中展開（統計還要已載入模型才有 `/metrics`）；e2e 測不到這段，打包版 50/50 全過只保證沒撞壞舊版面。
+- `electron:pack` asar 267 支一致。
+
 # 2026-10-06 — Local SI 模型庫併進執行環境
 
 - [x] 拿掉「模型庫」子分頁，本機模型與資料夾放進「執行環境」。

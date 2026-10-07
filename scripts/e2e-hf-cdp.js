@@ -222,19 +222,19 @@ async function main() {
     })()`), 15_000, 'HF模型頁')
     assert(structure.order.includes('hfmodels'), 'nav 有 HF模型分頁', JSON.stringify(structure.order))
     assert(
-      JSON.stringify(structure.subtabs) === JSON.stringify(['discover', 'recommend', 'runtime']),
-      '三個子分頁：探索／推薦／執行環境',
+      JSON.stringify(structure.subtabs) === JSON.stringify(['runtime', 'recommend', 'discover']),
+      '三個子分頁：執行環境／推薦／探索',
       JSON.stringify(structure.subtabs)
     )
     assert(
-      structure.activePanels.length === 1 && structure.activePanels[0] === 'hf-discover',
+      structure.activePanels.length === 1 && structure.activePanels[0] === 'hf-runtime',
       '同時只有一個子分頁 active（兩個一起 active 會疊在一起）',
       JSON.stringify(structure.activePanels)
     )
 
     // 頂層面板要是 12px radius ＋ blur 的 glass（跟 e2e-visual-cdp 的 SIGNATURES 同一條規矩）
     const glass = await cdp.eval(`(() => {
-      const el = document.querySelector('#page-hfmodels .hf-panel')
+      const el = document.querySelector('#page-hfmodels .subtab-panel.active .hf-panel')
       if (!el) return null
       const s = getComputedStyle(el)
       return {

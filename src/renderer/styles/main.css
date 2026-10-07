@@ -9973,6 +9973,12 @@ h6.md-h { font-size: 14px; }
   margin-bottom: 12px;
 }
 
+/* 標題列右邊並排多顆按鈕（全域記憶：開資料夾＋儲存） */
+.cc-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .cc-panel-title {
   margin: 0;
   font-size: 16px;
@@ -9996,6 +10002,54 @@ h6.md-h { font-size: 14px; }
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+/* 家切換器（MCP／Skills 共用）：跟子分頁同一套語言，小一號 */
+.cc-home-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.cc-home-btn {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cc-home-btn:hover {
+  color: var(--text-primary);
+}
+
+.cc-home-btn.is-active {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.cc-memory-edit {
+  width: 100%;
+  min-height: 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface-glass-strong) 72%, transparent);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cc-memory-edit:focus {
+  outline: none;
+  border-color: var(--accent-primary);
 }
 
 /* --- 一列一個項目（供應商／MCP／CLI 共用同一個外框） --- */
@@ -11342,6 +11396,27 @@ h6.md-h { font-size: 14px; }
   width: min(200px, 100%);
 }
 
+/* 推論：左推論方式、右執行環境＋Token，窄螢幕疊回一欄（見 900px 那段） */
+.hf-infer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px 16px;
+  align-items: start;
+}
+
+.hf-infer-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* API 列的位址很長：有地方就斷行，後面的複製鈕不被擠掉 */
+#hfServerSpecs dd .btn {
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
 #hf-runtime .hf-specs {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px 8px;
@@ -11974,6 +12049,7 @@ h6.md-h { font-size: 14px; }
 
 @media (max-width: 900px) {
   .hf-runtime-grid,
+  .hf-infer-grid,
   #hf-runtime .hf-specs {
     grid-template-columns: minmax(0, 1fr);
   }

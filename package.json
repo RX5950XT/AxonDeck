@@ -1,6 +1,6 @@
 {
   "name": "axondeck",
-  "version": "1.41.0",
+  "version": "1.42.0",
   "description": "AxonDeck - Windows Desktop AI Workbench",
   "main": "src/main/main.js",
   "scripts": {
@@ -43,6 +43,7 @@
     "opencc-js": "^1.4.1",
     "pdfjs-dist": "6.3.289",
     "sherpa-onnx-node": "^1.13.4",
+    "smol-toml": "^1.9.0",
     "uiohook-napi": "^1.5.5"
   },
   "build": {

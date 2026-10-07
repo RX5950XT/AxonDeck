@@ -52,15 +52,34 @@ function registerCcSwitchIpc({ ipcMain, service, isMainSender }) {
     invoke(event, () => service.gatewayStatus())
   ))
 
-  ipcMain.handle('ccswitch:listMcp', (event) => invoke(event, () => service.listMcp()))
-  ipcMain.handle('ccswitch:saveMcp', (event, id, spec, enabled) => (
-    invoke(event, () => service.saveMcp(id, spec, enabled))
+  ipcMain.handle('ccswitch:mcpHomes', (event) => invoke(event, () => service.mcpHomesList()))
+
+  ipcMain.handle('ccswitch:listMcp', (event, home) => invoke(event, () => service.listMcp(home)))
+  ipcMain.handle('ccswitch:saveMcp', (event, home, id, spec, enabled) => (
+    invoke(event, () => service.saveMcp(home, id, spec, enabled))
   ))
-  ipcMain.handle('ccswitch:toggleMcp', (event, id, enabled) => (
-    invoke(event, () => service.toggleMcp(id, enabled))
+  ipcMain.handle('ccswitch:toggleMcp', (event, home, id, enabled) => (
+    invoke(event, () => service.toggleMcp(home, id, enabled))
   ))
-  ipcMain.handle('ccswitch:deleteMcp', (event, id) => (
-    invoke(event, () => service.deleteMcp(id))
+  ipcMain.handle('ccswitch:deleteMcp', (event, home, id) => (
+    invoke(event, () => service.deleteMcp(home, id))
+  ))
+
+  ipcMain.handle('ccswitch:skillHomes', (event) => invoke(event, () => service.skillHomes()))
+  ipcMain.handle('ccswitch:listSkills', (event, home) => (
+    invoke(event, () => service.listSkills(home))
+  ))
+  ipcMain.handle('ccswitch:setSkillEnabled', (event, home, name, enabled) => (
+    invoke(event, () => service.setSkillEnabled(home, name, enabled))
+  ))
+  ipcMain.handle('ccswitch:memoryFiles', (event, home) => (
+    invoke(event, () => service.memoryFiles(home))
+  ))
+  ipcMain.handle('ccswitch:readMemory', (event, home, file) => (
+    invoke(event, () => service.readMemory(home, file))
+  ))
+  ipcMain.handle('ccswitch:writeMemory', (event, home, file, content) => (
+    invoke(event, () => service.writeMemory(home, file, content))
   ))
 
   ipcMain.handle('ccswitch:listAccounts', (event) => (

@@ -140,7 +140,7 @@ function createScreentimeService(deps = {}) {
     applyConfig()
     running = true
     generation++
-    observer.start()
+    if (process.platform === 'win32') observer.start()
     startWeb()
     watchPower()
     return status()
@@ -174,10 +174,14 @@ function createScreentimeService(deps = {}) {
   }
 
   function status() {
+    // Linux／macOS：無前景視窗 observer（probe／PowerShell），勿假裝在記錄
+    const supported = process.platform === 'win32'
     return {
+      supported,
+      note: supported ? '' : 'Linux 尚未支援前景視窗時長觀測（使用時長圖表不會自動累積）。',
       webEnabled,
-      recording: observer.running,
-      observer: observer.running,
+      recording: supported && observer.running,
+      observer: supported && observer.running,
       webListening: web.listening,
       webClients: web.clients,
       webError: web.lastError,

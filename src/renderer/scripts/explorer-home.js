@@ -98,6 +98,7 @@ function bar(used) {
  *   folders: Array<{ label: string, path: string }>,
  *   disks: Array<{ letter: string, path: string, label?: string, fs?: string, total?: number, free?: number, type?: number, loading?: boolean }>,
  *   devices?: Array<{ name: string, path: string, type?: string }>,
+ *   mtpHint?: string,
  *   formatSize: (n: number) => string,
  *   onOpen: (path: string, newPage?: boolean) => void,
  *   onMenu?: (e: MouseEvent, path: string, name: string) => void,
@@ -142,6 +143,13 @@ export function paintHomePane(spec) {
     onMenu
   ).btn)
   if (local.length || phones.length) host.appendChild(section('裝置和磁碟機', [...local.map(build), ...phones]))
+  const mtpHint = String(spec.mtpHint || '').trim()
+  if (mtpHint && !phones.length) {
+    const hint = document.createElement('p')
+    hint.className = 'ex-empty ex-mtp-hint'
+    hint.textContent = mtpHint
+    host.appendChild(hint)
+  }
   if (net.length) host.appendChild(section('網路位置', net.map(build)))
   if (!host.childElementCount) {
     const empty = document.createElement('p')

@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * 檔案總管的殼層 sidecar 門面（目前僅 Windows；其他平台 ensure() 直接降級）。
+ * 檔案總管的殼層 sidecar 門面。Windows＝COM sidecar；Linux＝xdg-open／gio 最小選單。
  *
  * 右鍵選單裡的 7-Zip／WinRAR／「傳送到」／「內容」，以及 Google Drive 綠勾，
  * 都要真的去問殼層。這裡把 `shell-host.js` 的行協定收成幾個函式，並把 BGRA
@@ -61,6 +61,10 @@ async function ensure() {
 }
 
 function shutdown() {
+  if (!platform.isWindows) {
+    try { require('./shell-linux').shutdown() } catch {}
+    return
+  }
   starting = null
   if (!session) return
   try {
@@ -138,6 +142,7 @@ function absPath(target) {
  * @returns {Promise<{ token: number, items: object[] }>}
  */
 async function menu(spec) {
+  if (!platform.isWindows) return require('./shell-linux').menu(spec)
   const s = await ensure()
   if (!s) return { token: 0, items: [] }
   try {
@@ -179,6 +184,7 @@ async function menu(spec) {
  * @param {unknown} dir
  */
 async function invoke(token, cmd, dir) {
+  if (!platform.isWindows) return require('./shell-linux').invoke(token, cmd)
   const s = await ensure()
   const id = Number(token)
   const command = Number(cmd)
@@ -194,6 +200,7 @@ async function invoke(token, cmd, dir) {
  * @param {unknown} token
  */
 async function release(token) {
+  if (!platform.isWindows) return require('./shell-linux').release(token)
   const s = await ensure()
   const id = Number(token)
   if (!s || !Number.isInteger(id) || id < 1) return { released: true }

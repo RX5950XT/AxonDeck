@@ -48,24 +48,27 @@ function detectDisplayServer(env = process.env) {
   const session = String(env.XDG_SESSION_TYPE || '').toLowerCase()
   const wayland = Boolean(env.WAYLAND_DISPLAY) || session === 'wayland'
   const x11 = Boolean(env.DISPLAY) && !wayland
+  const dual =
+    'Wayland：全域右 Alt 可能無效或需額外權限（非完整對等 Windows 原生 hook）。'
+    + ' X11：uiohook 監聽通常較穩，但仍無法像 Windows 一樣吞鍵，前景程式可能仍收到右 Alt。'
   if (wayland) {
     return {
       platform: process.platform,
       display: 'wayland',
-      note: '目前是 Wayland：全域右 Alt 熱鍵可能無效或需額外權限；X11 工作階段通常較穩。這不是完整對等 Windows 原生 hook。'
+      note: '目前工作階段：Wayland。' + dual
     }
   }
   if (x11 || session === 'x11') {
     return {
       platform: process.platform,
       display: 'x11',
-      note: 'Linux 使用 uiohook 監聽模式（無法像 Windows 一樣吞掉按鍵）；前景程式仍可能收到右 Alt。'
+      note: '目前工作階段：X11。' + dual
     }
   }
   return {
     platform: process.platform,
     display: 'unknown',
-    note: 'Linux 熱鍵走 uiohook 監聽；無圖形工作階段時無法驗證全域熱鍵。'
+    note: '目前無法判斷顯示伺服器（無 WAYLAND_DISPLAY／DISPLAY）。' + dual
   }
 }
 

@@ -244,6 +244,8 @@ let disks = []
 let diskInfo = []
 /** 插著的手機／相機（MTP，沒有磁碟代號） @type {Array<{ name: string, path: string, type: string }>} */
 let devices = []
+/** Linux MTP 說明（無裝置時顯示） */
+let mtpHint = ''
 /** 分頁：一頁一條路徑與自己的上／下一頁歷史。切 nav 分頁回來要留著。 */
 /** @type {Array<{ id: string, cwd: string, history: string[], histIndex: number }>} */
 let tabs = []
@@ -2531,6 +2533,7 @@ function paintHome() {
     }),
     disks: diskInfo.length ? diskInfo : fallback,
     devices,
+    mtpHint,
     formatSize,
     onOpen: (target, newPage) => void (newPage ? newTab(target) : navigate(target)),
     onMenu: (e, target, name) => {
@@ -4205,6 +4208,7 @@ export async function refreshExplorerPage() {
     dualPane = boot.dualPane === true
     places = boot.places || []
     disks = boot.drives || []
+    mtpHint = (boot.mtp && boot.mtp.note) ? String(boot.mtp.note) : ''
     if (!tabs.length && Array.isArray(boot.tabs) && boot.tabs.length) {
       tabs = boot.tabs.map((tab, index) => normalizeBrowseTab(tab, `t${index + 1}`))
       const ids = new Set(tabs.map((tab) => tab.id))

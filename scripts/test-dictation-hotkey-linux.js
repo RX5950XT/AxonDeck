@@ -15,6 +15,7 @@ async function main() {
   })
   assert.equal(wayland.display, 'wayland')
   assert.match(wayland.note, /Wayland/)
+  assert.match(wayland.note, /X11/)
   assert.equal(hotkey.hotkeyLimitations({
     XDG_SESSION_TYPE: 'wayland',
     WAYLAND_DISPLAY: 'wayland-0'
@@ -25,6 +26,8 @@ async function main() {
     DISPLAY: ':0'
   })
   assert.equal(x11.display, 'x11')
+  assert.match(x11.note, /X11/)
+  assert.match(x11.note, /Wayland/)
   assert.equal(hotkey.hotkeyLimitations({ DISPLAY: ':0', XDG_SESSION_TYPE: 'x11' }).canGlobalHook, true)
 
   // 假 uiohook：start／stop 不應 throw

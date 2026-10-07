@@ -302,11 +302,14 @@ function isDevicePath(raw) {
 
 /**
  * 「本機」底下不是檔案系統的裝置（插著的手機、相機）。
- * Linux：MTP／殼層 COM 尚未移植 → 空清單（降級，不 crash）。
+ * Linux：走 gvfs 掛載最小清單（mtp-linux）；未掛載 → 空清單＋UI 文案。
  * @returns {Promise<Array<{ name: string, path: string, type: string }>>}
  */
 function listDevices() {
-  if (!platform.isWindows) return Promise.resolve([])
+  if (!platform.isWindows) {
+    // Linux：gvfs MTP 最小清單（見 mtp-linux.js）；沒掛載回空
+    return require('./mtp-linux').listDevices()
+  }
   const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new();'
     + ' @((New-Object -ComObject Shell.Application).NameSpace(17).Items() | Where-Object { -not $_.IsFileSystem } |'

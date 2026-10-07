@@ -53,6 +53,12 @@ function powershell(script, env) {
 }
 
 function stopTree(child, env, spawnImpl, done) {
+  // 真實 Linux spawn 沒有 taskkill；測試注入的 spawnImpl 仍走 Windows 路徑模擬
+  if (process.platform !== 'win32' && spawnImpl === spawn) {
+    try { child.kill() } catch {}
+    done()
+    return
+  }
   if (!child.pid) { child.kill(); done(); return }
   let killer
   let stopped = false
@@ -73,6 +79,11 @@ function stopTree(child, env, spawnImpl, done) {
 
 function runProcess(script, env, timeoutMs, spawnImpl = spawn) {
   return new Promise(resolve => {
+    // Linux／macOS：真實 spawn 不可跑 powershell.exe（ENOENT）；測試注入的 spawnImpl 仍可走
+    if (process.platform !== 'win32' && spawnImpl === spawn) {
+      resolve({ code: 'SPAWN_FAILED', output: '此平台不支援 Windows CLI 安裝器' })
+      return
+    }
     const command = powershell(script, env)
     let child
     let output = ''

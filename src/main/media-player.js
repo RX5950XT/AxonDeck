@@ -92,13 +92,7 @@ function resolveMediaExe(options = {}) {
     name: preferred
   })
   if (found) return found
-  if (process.platform !== 'win32') {
-    return resolveProbeExe({
-      resourcesPath: options.resourcesPath,
-      folder: 'media',
-      name: winName
-    }) || ''
-  }
+  // Linux／macOS：不要回退去找 .exe（誤跑 Windows 二進位會立刻失敗）
   return ''
 }
 

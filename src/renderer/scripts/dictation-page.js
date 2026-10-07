@@ -75,11 +75,18 @@ function fillSelect(select, options, current) {
  */
 function paintHotkeyNote(data) {
   const el = $('dictationHotkeyNote')
+  const tip = $('dictationHotkeyTipLinux')
+  const display = String(data?.display || '')
+  const linux = display === 'wayland' || display === 'x11' || display === 'unknown'
+  if (tip) {
+    tip.hidden = !linux
+    tip.classList.toggle('is-warn', display === 'wayland' || data?.canGlobalHook === false)
+  }
   if (!el) return
   const note = String(data?.note || '').trim()
   el.hidden = !note
   el.textContent = note
-  el.classList.toggle('is-warn', data?.display === 'wayland' || data?.canGlobalHook === false)
+  el.classList.toggle('is-warn', display === 'wayland' || data?.canGlobalHook === false)
 }
 
 function formatTime(at) {

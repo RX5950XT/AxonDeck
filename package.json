@@ -19,7 +19,8 @@
     "build:probe": "cargo build --release --manifest-path native/axondeck-probe/Cargo.toml && node scripts/copy-probe.js",
     "build:media": "node scripts/build-media.js",
     "electron:pack:linux": "vite build && electron-builder --linux AppImage --publish never",
-    "electron:build:linux": "vite build && electron-builder --linux AppImage --publish never"
+    "electron:build:linux": "vite build && electron-builder --linux AppImage --publish never",
+    "release:linux": "node scripts/release-linux.js"
   },
   "author": "",
   "license": "MIT",

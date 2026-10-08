@@ -34,6 +34,7 @@ const MAX_SUB_BYTES = 5 * 1024 * 1024
  *   exists?: (file: string) => boolean,
  *   spawnFn?: typeof spawn,
  *   mpvArgs?: string[],
+ *   mpvTmpRoot?: string,
  *   windowOptions?: object
  * }} deps
  */
@@ -48,6 +49,10 @@ function createController(deps) {
   const state = { items: [], urls: [], index: 0, seq: 0 }
   let mpv = null
   let mpvStarting = null
+  /** 還在 start()（連 IPC socket）的那一個；這段期間 mpv 程序已經在跑但 mpv 還是 null */
+  let startingSession = null
+  /** stopMpv／shutdown 每次 +1：啟動途中被叫停的 session 連上後要自己收掉，不能留成孤兒 */
+  let mpvGen = 0
   let lastPush = 0
   /** 最近的 mpv 事件（除錯用，不含路徑） */
   const recent = []
@@ -125,7 +130,7 @@ function createController(deps) {
     if (mpvStarting) return mpvStarting
     const bin = tools().mpv
     if (!bin) throw Object.assign(new Error('MEDIA_NO_MPV'), { code: 'MEDIA_NO_MPV', userMessage: '沒有安裝 mpv' })
-    const session = createMpvSession({ mpvPath: bin, spawnFn, extraArgs: deps.mpvArgs || [] })
+    const session = createMpvSession({ mpvPath: bin, spawnFn, extraArgs: deps.mpvArgs || [], tmpRoot: deps.mpvTmpRoot })
     session.on('property', (name, value) => {
       if (mpv && mpv !== session) return
       if (name !== 'time-pos') { send('mediaPlayer:mpvState', { props: { [name]: value } }); return }
@@ -152,11 +157,31 @@ function createController(deps) {
       mpv = null
       send('mediaPlayer:mpvState', { event: 'exit' })
     })
-    mpvStarting = session.start().then(() => { mpv = session; return session }).finally(() => { mpvStarting = null })
-    return mpvStarting
+    const gen = mpvGen
+    startingSession = session
+    const starting = session.start().then(() => {
+      if (gen !== mpvGen) {
+        // 啟動途中播放視窗被關掉或換了清單：這個 mpv 已經沒人要了
+        session.quit()
+        throw Object.assign(new Error('MEDIA_MPV_CANCELLED'), { code: 'MEDIA_MPV_CANCELLED' })
+      }
+      mpv = session
+      return session
+    }, (err) => {
+      // 連不上 IPC 時程序可能還活著，一起收掉
+      session.killNow()
+      throw err
+    }).finally(() => {
+      if (startingSession === session) startingSession = null
+      if (mpvStarting === starting) mpvStarting = null
+    })
+    mpvStarting = starting
+    return starting
   }
 
   function stopMpv() {
+    mpvGen += 1
+    mpvStarting = null
     const s = mpv
     mpv = null
     if (s) s.quit()
@@ -326,6 +351,9 @@ function createController(deps) {
   }
 
   function shutdown() {
+    mpvGen += 1
+    mpvStarting = null
+    if (startingSession) startingSession.killNow()
     if (mpv) mpv.killNow()
     mpv = null
   }

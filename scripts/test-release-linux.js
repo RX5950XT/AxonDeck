@@ -26,9 +26,7 @@ function check(name, fn) {
   }
 }
 
-// 啟用後在 .github/workflows/；還沒搬（推送需要 workflow 權限）時在 ci/github-workflows/
-const WF_PATHS = [path.join(ROOT, '.github', 'workflows', 'release-linux.yml'), path.join(ROOT, 'ci', 'github-workflows', 'release-linux.yml')]
-const wfText = fs.readFileSync(WF_PATHS.find((p) => fs.existsSync(p)), 'utf8')
+const wfText = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release-linux.yml'), 'utf8')
 const wf = yaml.load(wfText)
 const pkg = require(path.join(ROOT, 'package.json'))
 

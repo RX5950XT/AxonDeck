@@ -5,10 +5,6 @@
 #   - workflow_dispatch：手動補發／重跑，輸入既有 tag（例如 v1.43.0）。
 # 不用 tag push 觸發：發行流程是先 push tag、打完 NSIS 才 `gh release create`，tag push 時 Release 還不存在。
 #
-# 啟用：這份要放在 .github/workflows/ 才會生效。推送 workflow 檔需要帶 `workflow` 權限的 token
-#   （gh auth refresh -s workflow），所以先放在 ci/github-workflows/；啟用時
-#   git mv ci/github-workflows/release-linux.yml .github/workflows/release-linux.yml
-#
 # 只上傳 Linux 兩個檔（--clobber 只覆蓋同名檔），不動 .exe／.blockmap／latest.yml；Release 不存在就失敗、不自己建。
 name: release-linux
 

@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * 本機打 Linux AppImage 並附加到同版號的 GitHub Release（與 ci/github-workflows/release-linux.yml 同一套規則）。
+ * 本機打 Linux AppImage 並附加到同版號的 GitHub Release（與 .github/workflows/release-linux.yml 同一套規則）。
  *
  *     npm run release:linux                 # 打包 → 附加到 v<package.json version>
  *     npm run release:linux -- --dry-run    # 只列出會做什麼，不打包、不上傳

@@ -31,7 +31,7 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."   # 不可 --draft／--p
 gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z.exe.blockmap dist/latest.yml
 ```
 
-Linux：`gh release create` 後 `release-linux` workflow（`ci/github-workflows/`，啟用時搬到 `.github/workflows/`）自動附加 AppImage＋`latest-linux.yml`（或 Linux 本機 `npm run release:linux`），只附加不建 Release。
+Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/release-linux.yml`）自動附加 AppImage＋`latest-linux.yml`（或 Linux 本機 `npm run release:linux`），只附加不建 Release。
 
 缺 `.exe` → 下載 404；缺 `latest.yml` → 「沒有附帶更新資訊」。發版禁止 `--prepackaged`（會少 `app-update.yml`），要拆安裝檔確認有它。
 

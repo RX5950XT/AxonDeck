@@ -19,11 +19,15 @@
     "build:probe": "cargo build --release --manifest-path native/axondeck-probe/Cargo.toml && node scripts/copy-probe.js",
     "build:media": "node scripts/build-media.js",
     "electron:pack:linux": "vite build && electron-builder --linux AppImage --publish never",
-    "electron:build:linux": "vite build && electron-builder --linux AppImage --publish never",
+    "electron:build:linux": "vite build && electron-builder --linux AppImage deb rpm --publish never",
     "release:linux": "node scripts/release-linux.js"
   },
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RX5950XT/AxonDeck.git"
+  },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "electron": "43.4.1",
@@ -148,12 +152,79 @@
     ],
     "linux": {
       "target": [
-        "AppImage"
+        "AppImage",
+        "deb",
+        "rpm"
       ],
       "category": "Utility",
       "icon": "assets/icon.png",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "executableName": "axondeck",
+      "maintainer": "RX5950XT <123271969+RX5950XT@users.noreply.github.com>",
+      "vendor": "RX5950XT",
+      "synopsis": "AxonDeck desktop AI workbench",
+      "description": "AxonDeck: desktop AI workbench with chat, terminal, file explorer, live captions and system monitor.",
+      "desktop": {
+        "entry": {
+          "Name": "AxonDeck",
+          "Comment[zh_TW]": "桌面 AI 工作台",
+          "Keywords": "AI;Chat;Terminal;Explorer;",
+          "StartupNotify": "true"
+        }
+      }
+    },
+    "deb": {
+      "packageCategory": "utils",
+      "priority": "optional",
+      "depends": [
+        "libgtk-3-0 | libgtk-3-0t64",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0 | libatspi2.0-0t64",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2 | libasound2t64",
+        "libgbm1",
+        "libdrm2"
+      ],
+      "recommends": [
+        "gvfs",
+        "gvfs-backends",
+        "libglib2.0-bin",
+        "gnome-keyring | kwalletmanager",
+        "pkexec | policykit-1",
+        "x11-utils"
+      ]
+    },
+    "rpm": {
+      "packageCategory": "Applications/Utilities",
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "(libXtst or libXtst6)",
+        "xdg-utils",
+        "at-spi2-core",
+        "(libuuid or libuuid1)",
+        "(libsecret or libsecret-1-0)",
+        "(alsa-lib or libasound2)",
+        "(mesa-libgbm or libgbm1)"
+      ],
+      "fpm": [
+        "--rpm-tag",
+        "Recommends: gvfs",
+        "--rpm-tag",
+        "Recommends: (glib2 or glib2-tools)",
+        "--rpm-tag",
+        "Recommends: polkit",
+        "--rpm-tag",
+        "Recommends: xprop"
+      ]
     }
   }
 }

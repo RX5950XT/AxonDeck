@@ -14,8 +14,9 @@
  * 而我們的 `before-quit` 收完子程序是走 `app.exit(0)`（不發 quit 事件）。
  * 所以「結束時順便裝好」改由 main.js 在 exit 前呼叫 `installOnQuit()`。
  *
- * Linux：請用官方 AppImage 執行（`APPIMAGE` 環境變數）；`linux-unpacked` 目錄版
- * 即使有 app-update.yml，套用更新也可能失敗——此時狀態回 error／unsupported，不 crash。
+ * Linux：依安裝方式分流（見 updater-linux.js）——AppImage 替換重啟；deb／rpm 有 pkexec 時用
+ * electron-updater 的 DebUpdater／RpmUpdater 經套件管理器安裝，否則（含 `linux-unpacked` 目錄版）
+ * 改成手動：不自動下載，按鈕開 GitHub Release 頁。清單：x64 讀 `latest-linux.yml`、arm64 讀 `latest-linux-arm64.yml`。
  */
 
 const { app } = require('electron')
@@ -46,6 +47,25 @@ function isLinux() {
   return process.platform === 'linux'
 }
 
+/** @type {{ kind: string, auto: boolean, msg: ReturnType<typeof import('./updater-linux').messages> } | null} */
+let linuxCache = null
+
+/** Linux 的安裝方式與能不能在 App 內套用（只在 Linux 讀一次） */
+function linuxInfo() {
+  if (!linuxCache) {
+    const linux = require('./updater-linux')
+    const kind = linux.packageKind()
+    const auto = linux.canAutoInstall(kind)
+    linuxCache = { kind, auto, msg: linux.messages(kind, auto) }
+  }
+  return linuxCache
+}
+
+/** Linux 上不能在 App 內套用（目錄版、沒有 pkexec 的 deb／rpm）：只通知，按鈕開下載頁 */
+function isManual() {
+  return isLinux() && !linuxInfo().auto
+}
+
 /** 是否以 AppImage 執行（electron-updater 的 Linux 套用路徑）。 */
 function isAppImageRuntime() {
   return Boolean(process.env.APPIMAGE)
@@ -53,17 +73,13 @@ function isAppImageRuntime() {
 
 function downloadedMessage(version) {
   const ver = version || state.version || ''
-  if (isLinux()) {
-    return `v${ver} 已下載，重新啟動即可套用更新（AppImage）。`
-  }
+  if (isLinux()) return linuxInfo().msg.downloaded(ver)
   return `v${ver} 已下載完成，重新啟動即可完成安裝。`
 }
 
 function runtimeSupportNote() {
   if (!app.isPackaged) return '開發模式不檢查更新（只有安裝版才會自動更新）。'
-  if (isLinux() && !isAppImageRuntime()) {
-    return '目前不是 AppImage 執行中：可檢查更新，但套用可能失敗；請使用官方 AppImage。'
-  }
+  if (isLinux()) return linuxInfo().msg.note
   return ''
 }
 
@@ -73,7 +89,8 @@ function status() {
     ...state,
     currentVersion: app.getVersion(),
     autoUpdate: autoEnabled,
-    packageKind: isLinux() ? (isAppImageRuntime() ? 'appimage' : 'linux') : 'nsis',
+    packageKind: isLinux() ? linuxInfo().kind : 'nsis',
+    manual: isManual(),
     note: runtimeSupportNote()
   }
 }
@@ -86,7 +103,9 @@ function get() {
   }
   let autoUpdater
   try {
-    ;({ autoUpdater } = require('electron-updater'))
+    const mod = require('electron-updater')
+    // Linux 明確依安裝方式挑類別（AppImage／deb／rpm），Windows 照舊用 autoUpdater（NsisUpdater）
+    autoUpdater = isLinux() ? require('./updater-linux').createUpdater(mod, linuxInfo().kind) : mod.autoUpdater
   } catch (err) {
     console.error('[updater] electron-updater 載入失敗')
     emit({
@@ -96,7 +115,7 @@ function get() {
     })
     throw err
   }
-  autoUpdater.autoDownload = autoEnabled
+  autoUpdater.autoDownload = autoEnabled && !isManual()
   // 差分下載在這個 App 上是**反向優化**，一定要關（實測 v1.22.0 → v1.23.0）：
   // blockmap 把 406MB 的安裝檔切成 2 萬塊，比對後仍有 1963 段要下載（220MB），
   // 而 electron-updater 在 GitHub 上走的是「一段一個 HTTP request、完全序列」那條
@@ -109,12 +128,14 @@ function get() {
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.on('checking-for-update', () => emit({ state: 'checking', message: '正在檢查更新…', percent: 0 }))
   autoUpdater.on('update-available', (info) => emit({
-    state: autoEnabled ? 'downloading' : 'available',
+    state: autoEnabled && !isManual() ? 'downloading' : 'available',
     version: info?.version || '',
     percent: 0,
-    message: autoEnabled
-      ? `發現新版本 v${info?.version}，開始下載…`
-      : `發現新版本 v${info?.version}，按「下載更新」開始下載。`
+    message: isManual()
+      ? linuxInfo().msg.manualAvailable(info?.version || '')
+      : autoEnabled
+        ? `發現新版本 v${info?.version}，開始下載…`
+        : `發現新版本 v${info?.version}，按「下載更新」開始下載。`
   }))
   autoUpdater.on('update-not-available', () => emit({ state: 'none', percent: 0, message: '已經是最新版本。' }))
   autoUpdater.on('download-progress', (p) => emit({
@@ -140,7 +161,7 @@ function get() {
         ? '下載更新失敗，請稍後再按「檢查更新」重試。'
         : missingArtifact
           ? (isLinux()
-            ? '此版本沒有 Linux 更新資訊（需要 GitHub 上的 latest-linux.yml 與 AppImage）。'
+            ? '此版本沒有 Linux 更新資訊（需要 GitHub 上的 latest-linux.yml／latest-linux-arm64.yml 與對應的安裝檔）。'
             : '此版本沒有附帶更新資訊（需要 latest.yml）。')
           : '檢查更新失敗（無法連線到 GitHub，或這個版本沒有附帶更新資訊）。'
     })
@@ -160,7 +181,21 @@ function get() {
 function configure({ autoUpdate, onStatus }) {
   autoEnabled = autoUpdate !== false
   if (typeof onStatus === 'function') notify = onStatus
-  if (updater) updater.autoDownload = autoEnabled
+  if (updater) updater.autoDownload = autoEnabled && !isManual()
+}
+
+/** 手動模式按「前往下載頁」：開 GitHub Release 頁（網址由 main 組，renderer 不指定） */
+function openDownloadPage() {
+  const linux = require('./updater-linux')
+  const url = linux.releaseUrl(state.version)
+  try {
+    const { shell } = require('electron')
+    if (shell && typeof shell.openExternal === 'function') void shell.openExternal(url).catch(() => {})
+  } catch {
+    // 沒有 shell（測試）就只改文案
+  }
+  emit({ message: `已開啟下載頁：${url}` })
+  return url
 }
 
 /** 預覽可能不附更新設定；明確回報不支援，避免按鈕毫無反應。 */
@@ -179,6 +214,10 @@ async function check() {
   if (!app.isPackaged) return status()
   // 連點：第二下進來時已在下載／檢查，再檢查一次失敗會把進行中的下載蓋成 error
   if (state.state === 'downloading' || state.state === 'checking') return status()
+  if (state.state === 'available' && updater && isManual()) {
+    openDownloadPage()
+    return status()
+  }
   if (state.state === 'available' && updater) {
     emit({ state: 'downloading', percent: 0, message: `開始下載 v${state.version}…` })
     try {
@@ -203,7 +242,7 @@ async function check() {
       percent: 0,
       message: missingArtifact
         ? (isLinux()
-          ? '此版本沒有 Linux 更新資訊（需要 GitHub 上的 latest-linux.yml 與 AppImage）。'
+          ? '此版本沒有 Linux 更新資訊（需要 GitHub 上的 latest-linux.yml／latest-linux-arm64.yml 與對應的安裝檔）。'
           : '此版本沒有附帶更新資訊（需要 latest.yml）。')
         : '檢查更新失敗（無法連線到 GitHub，或這個版本沒有附帶更新資訊）。'
     })
@@ -227,11 +266,8 @@ function checkQuietly() {
  */
 function quitAndInstall() {
   if (!app.isPackaged || state.state !== 'downloaded') return false
-  if (isLinux() && !isAppImageRuntime()) {
-    emit({
-      state: 'error',
-      message: '請使用官方 AppImage 執行後再套用更新。'
-    })
+  if (isManual()) {
+    emit({ state: 'error', message: '這個安裝方式不能在 App 內套用更新，請到 GitHub Releases 下載新的套件安裝。' })
     return false
   }
   try {
@@ -255,7 +291,8 @@ function quitAndInstall() {
 function installOnQuit(sessionEnding = false) {
   if (sessionEnding) return false
   if (!app.isPackaged || !autoEnabled || state.state !== 'downloaded' || !updater) return false
-  if (isLinux() && !isAppImageRuntime()) return false
+  // deb／rpm 要跳系統密碼框，不在使用者按「結束」時突然冒出來；只走「重新啟動並安裝」
+  if (isLinux() && linuxInfo().kind !== 'appimage') return false
   try {
     return updater.install(true, false)
   } catch (err) {

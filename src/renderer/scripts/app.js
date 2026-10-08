@@ -703,7 +703,8 @@ function renderUpdateStatus(st) {
   statusEl.textContent = st?.message || ''
   const busy = st?.state === 'checking' || st?.state === 'downloading'
   checkBtn.disabled = busy || st?.state === 'unsupported'
-  checkBtn.textContent = st?.state === 'checking' ? '檢查中…' : st?.state === 'available' ? '下載更新' : '檢查更新'
+  // Linux 目錄版／沒有 pkexec 的 deb、rpm 不能在 App 內套用：按鈕改成開下載頁（Windows 沒有 manual，行為不變）
+  checkBtn.textContent = st?.state === 'checking' ? '檢查中…' : st?.state === 'available' ? (st?.manual ? '前往下載頁' : '下載更新') : '檢查更新'
   installBtn.classList.toggle('hidden', st?.state !== 'downloaded')
   if (autoInput) autoInput.disabled = st?.state === 'unsupported'
 }

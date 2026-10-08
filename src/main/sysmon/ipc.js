@@ -95,7 +95,11 @@ function registerSysmonIpc({ ipcMain, service, isMainSender }) {
   // 效能調整。renderer 只送數字；opcode、PCI 位址、裝置路徑都不准出現在這條路上。
   ipcMain.handle('sysmon:ocStatus', (event) => invoke(event, () => service.ocStatus()))
   ipcMain.handle('sysmon:ocSetDraft', (event, patch) => invoke(event, () => service.ocSetDraft(patch)))
-  ipcMain.handle('sysmon:ocApply', (event) => invoke(event, () => service.ocApply()))
+  ipcMain.handle('sysmon:ocApply', (event, opts) => (
+    invoke(event, () => service.ocApply({ confirmed: opts?.confirmed === true }))
+  ))
+  // Linux 一次性授權（pkexec 安裝固定內容的 udev 規則）；renderer 傳不進任何參數
+  ipcMain.handle('sysmon:ocAuthorize', (event) => invoke(event, () => service.ocAuthorize()))
   ipcMain.handle('sysmon:ocReset', (event) => invoke(event, () => service.ocReset()))
 
   ipcMain.handle('sysmon:cancelDiskBench', (event) => (

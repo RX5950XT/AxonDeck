@@ -1623,11 +1623,12 @@
                 <div class="oc-bar">
                   <span id="ocStatus" class="oc-status" role="status" aria-live="polite"></span>
                   <span class="oc-bar-spacer"></span>
+                  <button type="button" id="ocAuthBtn" class="btn btn-secondary btn-sm" hidden>授權效能調整（pkexec）</button>
                   <button type="button" id="ocResetBtn" class="btn btn-secondary btn-sm">還原出廠</button>
                   <button type="button" id="ocApplyBtn" class="btn btn-primary btn-sm">套用</button>
                 </div>
                 <div id="ocNotices" class="oc-notices"></div>
-                <p class="oc-hint">PBO／Curve Optimizer／功耗與時脈牆；只這次開機有效，過熱即還原。</p>
+                <p class="oc-hint" id="ocHint">PBO／Curve Optimizer／功耗與時脈牆；只這次開機有效，過熱即還原。</p>
                 <div class="oc-dash" id="ocDash" role="status" aria-live="off" aria-label="效能調整即時儀表">
                   <section class="oc-dash-group">
                     <h3>處理器即時</h3>

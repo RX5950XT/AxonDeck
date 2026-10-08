@@ -52,27 +52,34 @@ function accessError(code, userMessage) {
   return err
 }
 
-function createFanAccess(deps = {}) {
+/**
+ * pkexec 執行固定腳本（`/bin/sh -c <script> <$0> <args…>`）。參數走位置參數，不拼進腳本。
+ * 給風扇與效能調整共用：只有使用者按了按鈕才會呼叫，系統跳 polkit 密碼視窗。
+ * @param {{ spawnFn?: Function, exists?: (p: string) => boolean }} deps
+ */
+function createPkexecRunner(deps = {}) {
   const spawnFn = deps.spawnFn || spawn
   const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
-  const gidFn = deps.gid || (() => os.userInfo().gid)
-  const uidFn = deps.uid || (() => (typeof process.getuid === 'function' ? process.getuid() : -1))
-  const rulePath = deps.rulePath || RULE_PATH
 
   function pkexecPath() {
     return PKEXEC.find((p) => exists(p)) || ''
   }
 
-  function run(script, extra) {
+  /**
+   * @param {string} script
+   * @param {string[]} extra
+   * @param {{ name?: string, noPkexecMessage?: string, failMessage?: string, declinedMessage?: string }} [text]
+   */
+  function run(script, extra, text = {}) {
     const bin = pkexecPath()
     if (!bin) {
       return Promise.reject(accessError('SYSMON_FAN_NO_PKEXEC',
-        '系統沒有 pkexec（polkit）。請照 docs/linux-sensors.md 手動安裝 udev 規則。'))
+        text.noPkexecMessage || '系統沒有 pkexec（polkit）。請照 docs/linux-sensors.md 手動安裝 udev 規則。'))
     }
     return new Promise((resolve, reject) => {
       let child
       try {
-        child = spawnFn(bin, [SH, '-c', script, 'axondeck-fan-access', ...extra], { stdio: 'ignore' })
+        child = spawnFn(bin, [SH, '-c', script, text.name || 'axondeck-fan-access', ...extra], { stdio: 'ignore' })
       } catch {
         reject(accessError('SYSMON_FAN_ACCESS_FAILED', '無法啟動 pkexec。'))
         return
@@ -80,11 +87,23 @@ function createFanAccess(deps = {}) {
       child.on('error', () => reject(accessError('SYSMON_FAN_ACCESS_FAILED', '無法啟動 pkexec。')))
       child.on('close', (code) => {
         if (code === 0) resolve(true)
-        else if (PKEXEC_CANCELLED.has(code)) reject(accessError('SYSMON_FAN_ACCESS_DECLINED', '授權已取消，風扇維持由晶片自動控制。'))
-        else reject(accessError('SYSMON_FAN_ACCESS_FAILED', '安裝 udev 規則失敗。'))
+        else if (PKEXEC_CANCELLED.has(code)) reject(accessError('SYSMON_FAN_ACCESS_DECLINED', text.declinedMessage || '授權已取消，風扇維持由晶片自動控制。'))
+        else reject(accessError('SYSMON_FAN_ACCESS_FAILED', text.failMessage || '安裝 udev 規則失敗。'))
       })
     })
   }
+
+  return { run, pkexecPath }
+}
+
+function createFanAccess(deps = {}) {
+  const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
+  const gidFn = deps.gid || (() => os.userInfo().gid)
+  const uidFn = deps.uid || (() => (typeof process.getuid === 'function' ? process.getuid() : -1))
+  const rulePath = deps.rulePath || RULE_PATH
+  const runner = createPkexecRunner({ spawnFn: deps.spawnFn, exists })
+  const pkexecPath = runner.pkexecPath
+  const run = (script, extra) => runner.run(script, extra)
 
   return {
     /**
@@ -131,4 +150,4 @@ function createFanAccess(deps = {}) {
   }
 }
 
-module.exports = { createFanAccess, ruleText, RULE_PATH, INSTALL_SCRIPT, REMOVE_SCRIPT }
+module.exports = { createFanAccess, createPkexecRunner, accessError, ruleText, RULE_PATH, INSTALL_SCRIPT, REMOVE_SCRIPT, PKEXEC, SH }

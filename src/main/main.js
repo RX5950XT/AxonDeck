@@ -2028,6 +2028,7 @@ registerSysmonIpc({
     ocSetDraft: (...args) => loadSysmon().ocSetDraft(...args),
     ocApply: (...args) => loadSysmon().ocApply(...args),
     ocReset: (...args) => loadSysmon().ocReset(...args),
+    ocAuthorize: (...args) => loadSysmon().ocAuthorize(...args),
     // GPU 壓力測試期間把 renderer 的背景節流關掉，測完立刻打開。
     //
     // 視窗被別的視窗遮住時，Chromium 會把這個 renderer 降級——GPU 指令跟著被降優先，

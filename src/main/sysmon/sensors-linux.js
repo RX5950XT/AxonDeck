@@ -15,7 +15,7 @@
  * 安全網跟 sidecar 同一套：S／D／R／P 指令、5 秒沒有任何指令就全部交還（看門狗）、
  * 交還＝把 pwmN_enable 寫回接管前的值（通常是 2／5＝晶片自動），不是寫死某個數字。
  *
- * 效能調整（超頻）在 Linux 不支援：`oc` 一律回 writable=false 與原因，畫面照著顯示。
+ * 效能調整不走這裡：橋接的 `oc` 只提供 CPU 即時讀數（writable=false），可調項與寫入由 oc-linux.js 負責。
  */
 
 const fsp = require('fs').promises

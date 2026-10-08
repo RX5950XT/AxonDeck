@@ -1,0 +1,48 @@
+/* Linux 播放視窗（pages/media-player.html）。主視窗不載入這份。 */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: "Noto Sans TC", "Noto Sans CJK TC", "Segoe UI", sans-serif;
+  font-size: 13px;
+  --bg: #0d1012; --panel: #171b1f; --fg: #e8eaed; --muted: #9aa0a6; --accent: #4f8cff; --line: #2a3036;
+  background: var(--bg); color: var(--fg);
+}
+body.light { --bg: #f4f4f5; --panel: #ffffff; --fg: #1f2328; --muted: #5f6368; --accent: #2563eb; --line: #d6d8db; }
+.mp-root { display: flex; height: 100%; }
+.mp-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.mp-stage { position: relative; flex: 1; background: #000; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.mp-stage video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.mp-stage video.is-audio { display: none; }
+.mp-audio-art, .mp-panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #e8eaed; text-align: center; padding: 24px; }
+.mp-audio-art[hidden], .mp-panel[hidden], .mp-help[hidden], .mp-toast[hidden], .mp-queue[hidden] { display: none; }
+.mp-audio-icon { font-size: 72px; opacity: .5; }
+.mp-audio-name, .mp-panel-title { font-size: 16px; font-weight: 600; word-break: break-all; }
+.mp-panel-text { color: #b0b6bc; max-width: 560px; line-height: 1.6; }
+.mp-panel-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.mp-panel-actions button { padding: 6px 14px; border-radius: 6px; border: 1px solid #3a4148; background: #20262c; color: #e8eaed; cursor: pointer; }
+.mp-panel-actions button:hover { border-color: var(--accent); }
+.mp-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 6px 12px; border-radius: 6px; pointer-events: none; }
+.mp-help { position: absolute; inset: 24px; overflow: auto; background: rgba(13,16,18,.94); color: #e8eaed; border-radius: 8px; padding: 18px 22px; }
+.mp-help h2 { font-size: 15px; margin-bottom: 10px; }
+.mp-help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+.mp-help dt { color: #9ecbff; font-family: monospace; }
+.mp-controls { background: var(--panel); border-top: 1px solid var(--line); padding: 6px 10px 8px; }
+.mp-seek { width: 100%; accent-color: var(--accent); }
+.mp-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.mp-row button { min-width: 30px; height: 28px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--fg); cursor: pointer; font-size: 15px; }
+.mp-row button:hover { border-color: var(--line); }
+.mp-row button.is-on { color: var(--accent); border-color: var(--accent); }
+.mp-row select { height: 26px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); max-width: 150px; }
+.mp-time { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); margin-left: 6px; }
+.mp-backend { white-space: nowrap; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.mp-backend:empty { display: none; }
+.mp-spacer { flex: 1; }
+.mp-volume { width: 90px; accent-color: var(--accent); }
+.mp-queue { width: 280px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
+.mp-queue-head { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
+.mp-queue-head span { color: var(--muted); font-weight: 400; }
+.mp-queue ol { list-style: none; overflow: auto; flex: 1; }
+.mp-queue li { padding: 6px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); }
+.mp-queue li:hover { background: rgba(127,127,127,.12); }
+.mp-queue li.is-current { color: var(--accent); font-weight: 600; }
+.mp-queue li .mp-tag { font-size: 10px; color: var(--muted); margin-left: 6px; }

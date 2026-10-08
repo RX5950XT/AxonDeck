@@ -92,9 +92,11 @@ async function main() {
   assert.equal(await api.openPath(path.resolve('doc.txt')), '')
   assert.equal(calls.at(-1).system, path.resolve('doc.txt'))
 
-  // 無原生播放器：openMedia 回 false，openPath 改走系統開啟（勿 throw）
+  // Linux：交給 App 內播放視窗；它不接手（沒有能播的後端）就回 false，openPath 改走系統開啟（勿 throw）
   {
     const calls2 = []
+    let linuxAccepts = false
+    const linuxOpened = []
     const ctx2 = {
       Buffer, module: { exports: {} }, __dirname: path.join(__dirname, '../src/main'),
       process: { env: {}, platform: 'linux' },
@@ -111,15 +113,21 @@ async function main() {
         } }
         if (name === 'electron') return { shell: { openPath: async (file) => { calls2.push({ system: file }); return '' } } }
         if (name === 'child_process') return { spawn: () => { throw new Error('should not spawn media exe') } }
+        if (name === './media-linux/controller') return { getController: () => ({ open: async (file) => { linuxOpened.push(file); return linuxAccepts }, shutdown: () => {} }) }
         throw new Error(name)
       }
     }
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), ctx2)
     const np = ctx2.module.exports
     const mediaFile = path.resolve('fallback.wav')
-    assert.equal(await np.openMedia(mediaFile), false, '缺原生播放器不可 throw')
+    assert.equal(await np.openMedia(mediaFile), false, 'Linux 播放器不接手時不可 throw')
     assert.equal(await np.openPath(mediaFile), '')
     assert.equal(calls2.at(-1).system, mediaFile)
+    linuxAccepts = true
+    const before = calls2.length
+    assert.equal(await np.openPath(mediaFile), '')
+    assert.equal(calls2.length, before, 'Linux 播放器接手就不再呼叫系統開啟')
+    assert.equal(linuxOpened.at(-1), mediaFile)
     assert.equal(await np.initializeAssociations({
       isPackaged: true, isPreview: false, resourcesPath, userDataPath
     }), false, 'Linux 不跑媒體關聯初始化')

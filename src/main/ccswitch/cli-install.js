@@ -3,6 +3,7 @@
 const { spawn } = require('child_process')
 const path = require('path')
 const os = require('os')
+const linux = require('./cli-install-linux')
 
 // 官方 Windows 安裝方式；renderer 只能傳工具 key，不能傳指令或 URL。
 const INSTALLERS = Object.freeze({
@@ -52,13 +53,15 @@ function powershell(script, env) {
     args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(wrapped, 'utf16le').toString('base64')] }
 }
 
+// Linux：detached 讓子程序自成一個 process group，逾時整組 SIGTERM（curl | bash 的子孫一起停），3 秒後 SIGKILL
+function stopGroup(child, done) {
+  const signal = sig => { try { process.kill(-child.pid, sig) } catch { try { child.kill(sig) } catch {} } }
+  if (!child.pid) { try { child.kill() } catch {} done(); return }
+  signal('SIGTERM')
+  setTimeout(() => { signal('SIGKILL'); done() }, 3000)
+}
+
 function stopTree(child, env, spawnImpl, done) {
-  // 真實 Linux spawn 沒有 taskkill；測試注入的 spawnImpl 仍走 Windows 路徑模擬
-  if (process.platform !== 'win32' && spawnImpl === spawn) {
-    try { child.kill() } catch {}
-    done()
-    return
-  }
   if (!child.pid) { child.kill(); done(); return }
   let killer
   let stopped = false
@@ -77,17 +80,10 @@ function stopTree(child, env, spawnImpl, done) {
   killer.on('close', finish)
 }
 
-function runProcess(script, env, timeoutMs, spawnImpl = spawn) {
+function runProcess(script, env, timeoutMs, spawnImpl = spawn, platform = 'win32') {
+  const posix = platform !== 'win32'
   return new Promise(resolve => {
-    // Linux／macOS：真實 spawn 不可跑 powershell.exe（ENOENT）；測試注入的 spawnImpl 仍可走
-    if (process.platform !== 'win32' && spawnImpl === spawn) {
-      resolve({
-        code: 'UNSUPPORTED_PLATFORM',
-        output: 'Linux／macOS 請改用各工具官方安裝方式（此安裝器僅支援 Windows）'
-      })
-      return
-    }
-    const command = powershell(script, env)
+    const command = posix ? linux.bashCommand(script) : powershell(script, env)
     let child
     let output = ''
     let settled = false
@@ -97,10 +93,11 @@ function runProcess(script, env, timeoutMs, spawnImpl = spawn) {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve({ ...result, output })
+      const missing = posix && result.code === 'EXIT_FAILED' ? linux.missingTool(output) : ''
+      resolve(missing ? { ...result, code: 'MISSING_TOOL', missing, output } : { ...result, output })
     }
     try {
-      child = spawnImpl(command.exe, command.args, { env, cwd: os.homedir(), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawnImpl(command.exe, command.args, { env, cwd: os.homedir(), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...(posix ? { detached: true } : {}) })
     } catch { finish({ code: 'SPAWN_FAILED' }); return }
     const collect = chunk => { output = (output + chunk.toString('utf8')).slice(-16384) }
     child.stdout?.on('data', collect)
@@ -110,33 +107,46 @@ function runProcess(script, env, timeoutMs, spawnImpl = spawn) {
     timer = setTimeout(() => {
       timedOut = true
       // 只清本次 spawn 的 PID tree，避免留下 npm／安裝器繼續修改環境。
-      stopTree(child, env, spawnImpl, () => finish({ code: 'TIMEOUT' }))
+      const stopped = () => finish({ code: 'TIMEOUT' })
+      if (posix) stopGroup(child, stopped)
+      else stopTree(child, env, spawnImpl, stopped)
     }, Math.max(1, timeoutMs))
   })
 }
 
-function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOUT_MS } = {}) {
+// 測試注入 spawnImpl 而沒指定平台時維持 Windows 路徑（既有 mock 都是解 PowerShell -EncodedCommand）
+function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOUT_MS, platform } = {}) {
+  const posix = (platform || (spawnImpl === spawn ? process.platform : 'win32')) !== 'win32'
+  const installers = posix ? linux.INSTALLERS_LINUX : INSTALLERS
   const tasks = new Map()
-  let currentEnv = withPath(env)
+  let currentEnv = posix ? linux.withPathLinux(env) : withPath(env)
   let nodeSetup = null
   const status = key => ({ ...(tasks.get(key) || { phase: 'idle' }) })
   const execute = (script, deadline) => Date.now() >= deadline
     ? Promise.resolve({ code: 'TIMEOUT', output: '' })
-    : runProcess(script, currentEnv, deadline - Date.now(), spawnImpl)
+    : runProcess(script, currentEnv, deadline - Date.now(), spawnImpl, posix ? 'linux' : 'win32')
   async function refreshEnvironment(deadline = Date.now() + 10000) {
+    // Linux 沒有登錄檔 PATH：重新補一次已知位置（nvm 剛裝好新版之類）
+    if (posix) { currentEnv = linux.withPathLinux(env); return }
     const result = await execute(REGISTRY_PATH, deadline)
     if (result.code !== 'OK') throw result
     currentEnv = withPath(env, result.output)
   }
   async function readVersion(key, deadline = Date.now() + 10000) {
     if (!Object.hasOwn(INSTALLERS, key)) return ''
-    const result = await execute(`${key} --version`, deadline)
+    const result = await execute(posix ? linux.versionCommand(key) : `${key} --version`, deadline)
     if (result.code === 'TIMEOUT') throw result
     return result.code === 'OK' ? (result.output.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/)?.[0] || '') : ''
   }
   async function ensureNode(deadline) {
     if (nodeSetup) return nodeSetup
     nodeSetup = (async () => {
+      // Linux 不代裝 Node（要 sudo 或改使用者 shell 設定）：缺就回固定訊息
+      if (posix) {
+        const check = await execute(linux.NODE_CHECK, deadline)
+        if (check.code !== 'OK') throw check
+        return
+      }
       const node = await execute('node --version', deadline)
       const npm = await execute('npm --version', deadline)
       if (node.code === 'OK' && npm.code === 'OK') return
@@ -160,37 +170,26 @@ function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOU
       const action = local ? 'update' : 'install'
       tasks.set(key, { phase: 'running', action, message: action === 'install' ? '安裝中…' : '更新中…' })
       if (Date.now() >= deadline) throw { code: 'TIMEOUT' }
-      const result = await execute(action === 'install' ? INSTALLERS[key] : UPDATERS[key], deadline)
+      const result = await execute(action === 'install' ? installers[key] : UPDATERS[key], deadline)
       if (result.code !== 'OK') throw result
       await refreshEnvironment(deadline)
       const installed = await readVersion(key, Math.min(deadline, Date.now() + 10000))
       if (!installed) throw { code: Date.now() >= deadline ? 'TIMEOUT' : 'VERIFY_FAILED' }
       tasks.set(key, { phase: 'succeeded', action, local: installed, message: action === 'install' ? '安裝完成' : '更新完成' })
     } catch (error) {
-      const code = ['TIMEOUT', 'SPAWN_FAILED', 'EXIT_FAILED', 'VERIFY_FAILED', 'UNSUPPORTED_PLATFORM'].includes(error?.code) ? error.code : 'TASK_FAILED'
+      const code = ['TIMEOUT', 'SPAWN_FAILED', 'EXIT_FAILED', 'VERIFY_FAILED', 'MISSING_TOOL'].includes(error?.code) ? error.code : 'TASK_FAILED'
       const exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : undefined
-      const message = code === 'TIMEOUT'
-        ? '超過 10 分鐘，已停止'
-        : code === 'UNSUPPORTED_PLATFORM'
-          ? (String(error?.output || '').trim() || '此平台不支援 Windows CLI 安裝器')
-          : exitCode === undefined ? '執行失敗' : `執行失敗（結束碼 ${exitCode}）`
-      const summary = code === 'UNSUPPORTED_PLATFORM'
-        ? '請改用官方安裝方式'
-        : outputSummary(error?.output || '')
-      tasks.set(key, { ...status(key), phase: 'failed', code, exitCode, message, summary })
+      if (code === 'MISSING_TOOL') {
+        tasks.set(key, { ...status(key), phase: 'failed', code, exitCode, missing: error.missing, message: linux.missingMessage(error.missing), summary: `缺少 ${error.missing}` })
+        return status(key)
+      }
+      const message = code === 'TIMEOUT' ? '超過 10 分鐘，已停止' : exitCode === undefined ? '執行失敗' : `執行失敗（結束碼 ${exitCode}）`
+      tasks.set(key, { ...status(key), phase: 'failed', code, exitCode, message, summary: outputSummary(error?.output || '') })
     }
     return status(key)
   }
   function run(key) {
     if (typeof key !== 'string' || !Object.hasOwn(INSTALLERS, key)) return Promise.resolve({ phase: 'failed', code: 'INVALID_TOOL', message: '不支援這個工具' })
-    if (process.platform !== 'win32' && spawnImpl === spawn) {
-      return Promise.resolve({
-        phase: 'failed',
-        code: 'UNSUPPORTED_PLATFORM',
-        message: 'Linux／macOS 請改用各工具官方安裝方式（此安裝器僅支援 Windows）',
-        summary: '請改用官方安裝方式'
-      })
-    }
     if (tasks.get(key)?.phase === 'running') return Promise.resolve({ ...status(key), code: 'BUSY' })
     tasks.set(key, { phase: 'running', message: '準備中…' })
     return perform(key, Date.now() + timeoutMs)

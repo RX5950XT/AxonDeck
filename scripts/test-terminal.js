@@ -318,7 +318,7 @@ console.log('\n[admin 欄位]')
     { id: 'b', shell: shellKey, preset: 'shell', cwd: os.homedir(), admin: 'yes' },
     { id: 'c', shell: shellKey, preset: 'shell', cwd: os.homedir() }
   ])
-  ok('admin: true 留著（僅 Windows）', items[0].admin === (platform.isWindows ? true : false))
+  ok('admin: true 留著（Windows 系統管理員／Linux root）', items[0].admin === (platform.isWindows || platform.isLinux))
   ok('非布林的 admin 收斂成 false', items[1].admin === false)
   ok('沒有 admin 欄位的舊資料是 false', items[2].admin === false)
 }

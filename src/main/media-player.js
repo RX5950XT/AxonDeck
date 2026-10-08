@@ -39,7 +39,7 @@ async function initializedMarker(file) {
   } finally { if (handle) await handle.close() }
 }
 
-/** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。Linux 無原生媒體 sidecar。 */
+/** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。Linux 無原生媒體 sidecar（用 App 內播放視窗）。 */
 async function initializeAssociations(options = {}) {
   if (process.platform !== 'win32') return false
   const { isPackaged, isPreview, resourcesPath, userDataPath } = options
@@ -96,12 +96,31 @@ function resolveMediaExe(options = {}) {
   return ''
 }
 
+let linuxController = null
+function linuxPlayer() {
+  if (!linuxController) {
+    linuxController = require('./media-linux/controller').getController({
+      openWithSystem: (file) => openWithSystem(file),
+      theme: () => theme()
+    })
+  }
+  return linuxController
+}
+
+/** App 結束時收掉 Linux 播放器開的 mpv（Windows 的原生播放器是獨立程序，不用收）。 */
+function shutdown() {
+  if (linuxController) linuxController.shutdown()
+}
+
 /** caller 必須先過自己的路徑守衛；這層再確認只讀本機媒體檔。 */
 async function openMedia(file, options = {}) {
   if (!mediaKind(file)) return false
   if (!path.isAbsolute(file) || file.includes('\0')) throw fail('媒體路徑不合法')
   const stats = await fs.stat(file).catch(() => null)
   if (!stats?.isFile()) throw fail('找不到這個媒體檔案')
+  // Linux：沒有原生播放器，改用 App 內播放視窗（HTML5 → mpv → ffplay，見 media-linux/controller.js）；
+  // 它不接手（圖片、或沒有能播的後端）就回 false，呼叫端照舊走系統開啟。
+  if (process.platform === 'linux' && !options.exe) return linuxPlayer().open(file)
   const exe = resolveMediaExe(options)
   if (!exe || !await fs.access(exe).then(() => true, () => false)) {
     // 無原生播放器：回 false，讓 openPath／檔案頁改走系統關聯（xdg-open／Explorer）
@@ -149,5 +168,6 @@ module.exports = {
   openWithSystem,
   resolveMediaExe,
   setThemeGetter,
-  initializeAssociations
+  initializeAssociations,
+  shutdown
 }

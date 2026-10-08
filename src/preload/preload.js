@@ -756,6 +756,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     shellMenu: (spec) => ipcRenderer.invoke('explorer:shellMenu', spec),
     shellInvoke: (token, cmd, dir) => ipcRenderer.invoke('explorer:shellInvoke', token, cmd, dir),
     shellRelease: (token) => ipcRenderer.invoke('explorer:shellRelease', token),
+    /** Linux 限定：右鍵「解壓縮到這裡」同名確認、內容視窗、改權限（Windows 回 UNSUPPORTED） */
+    linuxShellConfirm: (id, accept) => ipcRenderer.invoke('explorer:linuxShellConfirm', id, accept),
+    linuxProperties: (list) => ipcRenderer.invoke('explorer:linuxProperties', list),
+    linuxPropertiesSize: (list, token) => ipcRenderer.invoke('explorer:linuxPropertiesSize', list, token),
+    linuxPropertiesCancel: (token) => ipcRenderer.invoke('explorer:linuxPropertiesCancel', token),
+    linuxChmod: (target, mode) => ipcRenderer.invoke('explorer:linuxChmod', target, mode),
+    onLinuxPropertiesSize: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('explorer:linuxPropertiesSize', handler)
+      return () => ipcRenderer.removeListener('explorer:linuxPropertiesSize', handler)
+    },
     copyImage: (filePath) => ipcRenderer.invoke('explorer:copyImage', filePath),
     setClipboard: (items, mode) => ipcRenderer.invoke('explorer:setClipboard', items, mode),
     paste: (toDir) => ipcRenderer.invoke('explorer:paste', toDir),

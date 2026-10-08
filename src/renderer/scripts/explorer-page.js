@@ -16,6 +16,7 @@ import { clearFileIconWork, paintFileIcons, paintDefaultFileIcon } from './explo
 import { openImageViewer, imageViewerOpen } from './image-viewer.js'
 import { openPreview as openFilePreview, closePreview as closeFilePreview, previewKind, previewOpen } from './explorer-preview.js'
 import { mountExplorerOperations } from './explorer-operations.js'
+import { handleLinuxShellResult, isLinuxShellResult } from './explorer-linux.js'
 import { nextZoomState } from './explorer-zoom.js'
 import { initResizer } from './pane-resize.js'
 import { syncCustomSelects } from './custom-select.js'
@@ -3204,12 +3205,19 @@ async function showProperties(items) {
       showToast(token ? '這個項目沒有「內容」' : '叫不出內容視窗（原生殼層選單僅支援 Windows）', 'error')
       return
     }
-    await electronAPI.explorer.shellInvoke(token, node.cmd, folder)
+    const result = await electronAPI.explorer.shellInvoke(token, node.cmd, folder)
+    // Linux：main 回 `linuxProperties`，開 App 內的內容視窗（Windows 已經叫出原生視窗，不會符合）
+    if (isLinuxShellResult(result)) void handleLinuxShellResult(result, linuxShellContext())
   } catch {
     showToast('叫不出內容視窗', 'error')
   } finally {
     if (token) void electronAPI.explorer.shellRelease(token)
   }
+}
+
+/** Linux 殼層右鍵結果要用的東西（吐司、重讀資料夾） */
+function linuxShellContext() {
+  return { api: electronAPI.explorer, toast: showToast, refresh: () => refreshAfterMutate() }
 }
 
 async function refreshAfterMutate() {
@@ -3634,7 +3642,11 @@ function openContextMenu(e, items, dir) {
       shell: shellItems,
       invokeShell: (cmd) => {
         if (!token) return Promise.resolve()
-        return electronAPI.explorer.shellInvoke(token, cmd, folder)
+        return electronAPI.explorer.shellInvoke(token, cmd, folder).then((result) => {
+          // Linux 的壓縮／解壓縮／內容／錯誤由 explorer-linux.js 接手；Windows 只回 { invoked }，不會進去
+          if (isLinuxShellResult(result)) void handleLinuxShellResult(result, linuxShellContext())
+          return result
+        })
       },
       onClose: () => {
         if (token) void electronAPI.explorer.shellRelease(token)

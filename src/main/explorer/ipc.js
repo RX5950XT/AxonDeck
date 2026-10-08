@@ -68,6 +68,18 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
     invoke(event, () => service.shellInvoke(token, cmd, dir))
   ))
   ipcMain.handle('explorer:shellRelease', (event, token) => invoke(event, () => service.shellRelease(token)))
+  // Linux 限定（Windows 回 UNSUPPORTED）：右鍵確認、內容視窗、改權限
+  ipcMain.handle('explorer:linuxShellConfirm', (event, id, accept) => (
+    invoke(event, () => service.linuxShellConfirm(id, accept))
+  ))
+  ipcMain.handle('explorer:linuxProperties', (event, list) => invoke(event, () => service.linuxProperties(list)))
+  ipcMain.handle('explorer:linuxPropertiesSize', (event, list, token) => (
+    invoke(event, () => service.linuxPropertiesSize(list, token))
+  ))
+  ipcMain.handle('explorer:linuxPropertiesCancel', (event, token) => (
+    invoke(event, () => service.linuxPropertiesCancel(token))
+  ))
+  ipcMain.handle('explorer:linuxChmod', (event, target, mode) => invoke(event, () => service.linuxChmod(target, mode)))
   ipcMain.handle('explorer:copyImage', (event, filePath) => (
     invoke(event, () => service.copyImage(filePath))
   ))

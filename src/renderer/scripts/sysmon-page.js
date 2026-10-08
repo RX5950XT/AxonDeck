@@ -1324,7 +1324,9 @@ function describeBlocks(s, inv) {
       id: 'system',
       title: '系統',
       accent: 'var(--accent-warm)',
-      sub: osInfo ? `${osInfo.caption} · 組建 ${osInfo.build}` : '偵測中…',
+      sub: osInfo
+        ? (inv?.platform === 'linux' ? `${osInfo.caption} · 核心 ${osInfo.build}` : `${osInfo.caption} · 組建 ${osInfo.build}`)
+        : '偵測中…',
       value: null,
       valueText: fmtUptime(osInfo?.bootedAt),
       spark: null,
@@ -1333,7 +1335,23 @@ function describeBlocks(s, inv) {
         ['處理程序', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))]
       ],
       viz: null,
-      specs: [
+      specs: inv?.platform === 'linux' ? [
+        // Linux：沒有 Windows 目錄／功能更新版本／工作群組這些概念，改列發行版、核心、主機名稱
+        ['作業系統', osInfo?.caption || DASH],
+        ['發行版版本', osInfo ? [osInfo.version, osInfo.edition ? `（${osInfo.edition}）` : ''].join('') || DASH : DASH],
+        ['核心版本', osInfo?.build || DASH],
+        ['核心組建', osInfo?.displayVersion || DASH],
+        ['系統架構', osInfo?.arch || DASH],
+        ['語系', osInfo?.languages || DASH],
+        ['時區', inv?.timeZone?.caption || DASH],
+        ['主機名稱', sys?.hostname || DASH],
+        ['登入使用者', sys?.user || DASH],
+        ['製造商 / 型號', sys ? `${sys.vendor} ${sys.model}`.trim() || DASH : DASH],
+        ['根目錄', osInfo?.systemDrive || DASH],
+        ['虛擬化', sys?.hypervisor ? '虛擬機（hypervisor）' : '實體機'],
+        ['處理程序數', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))],
+        ['已開機', fmtUptime(osInfo?.bootedAt)]
+      ] : [
         ['作業系統', osInfo?.caption || DASH],
         ['功能更新版本', osInfo?.displayVersion || DASH],
         ['版本 / 組建', osInfo

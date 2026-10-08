@@ -415,15 +415,27 @@ function collectStaticRows() {
   const totalMemory = os.totalmem()
   const dmi = dmiRows()
   // 有 DMI 就填廠商／型號；沒有（容器）也要送 SYS，讓 renderer 結束「偵測中」
-  rows.push(`SYS|${esc(dmi.sysVendor)}|${esc(dmi.product)}|${esc(os.arch())}|${totalMemory}|${esc(hostname)}|${esc(dmi.productFamily)}||||||`)
+  let user = ''
+  try { user = os.userInfo().username } catch { user = process.env.USER || '' }
+  // 虛擬機：/proc/cpuinfo 的 hypervisor 旗標（KVM／VMware／Hyper-V 客體都會設）
+  const hypervisor = /^flags\s*:.*\bhypervisor\b/m.test(readText('/proc/cpuinfo'))
+  rows.push(`SYS|${esc(dmi.sysVendor)}|${esc(dmi.product)}|${esc(os.arch())}|${totalMemory}|${esc(hostname)}|${esc(dmi.productFamily)}||False|${esc(user)}|${hypervisor ? 'True' : 'False'}|||`)
   if (dmi.chassisType || dmi.chassisVendor || dmi.chassisSerial) {
     rows.push(`CASE|${esc(dmi.chassisVendor)}|${esc(dmi.chassisType)}|${esc(dmi.chassisSerial)}`)
   }
   rows.push(...dmi.rows)
   rows.push(...cpuStaticRows())
+  // OS 列沿用 Windows 欄位位置：build＝核心版本（uname -r）、displayVersion＝核心組建字串、
+  // systemDrive＝根目錄檔案系統、edition＝版本代號（VERSION_CODENAME）
+  const rootFs = (readText('/proc/mounts').split('\n').map((l) => l.split(/\s+/)).find((p) => p[1] === '/') || [])[2] || ''
+  const lang = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || ''
   rows.push(
-    `OS|${esc(rel.PRETTY_NAME || rel.NAME || 'Linux')}|${esc(rel.VERSION_ID || '')}|${esc(os.release())}|${Math.floor(bootTimeMs())}|${esc(os.arch())}|||||||`
+    `OS|${esc(rel.PRETTY_NAME || rel.NAME || 'Linux')}|${esc(rel.VERSION_ID || '')}|${esc(os.release())}|${Math.floor(bootTimeMs())}|${esc(os.arch())}|${esc(typeof os.version === 'function' ? os.version() : '')}|0|${esc(lang)}|${esc(rootFs ? `/（${rootFs}）` : '/')}|||${esc(rel.VERSION_CODENAME || '')}|`
   )
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    if (tz) rows.push(`TZ|${esc(tz)}|${esc(tz)}|${-new Date().getTimezoneOffset()}`)
+  } catch { /* 沒有 Intl 時區 */ }
   rows.push(...physicalDiskRows())
   rows.push(...volumeRows())
   rows.push(...nicStaticRows())

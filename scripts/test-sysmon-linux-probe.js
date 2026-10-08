@@ -127,3 +127,15 @@ if (process.platform !== 'linux') {
   assert.equal(none.hasDmi, false)
   console.log('PASS 主機板：DMI 板子／BIOS／系統、root 限定欄位標示、沒有 DMI 也有終態')
 }
+
+{
+  // 系統卡：Linux 的 OS／主機名稱／時區欄位要有值（renderer 改列發行版、核心，不列 Windows 目錄）
+  const st = metrics.parseStatic(probe.collectStaticRows())
+  assert.ok(st.os.caption)
+  assert.equal(st.os.build, require('os').release(), 'build＝核心版本')
+  assert.ok(st.os.systemDrive.startsWith('/'), '根目錄')
+  assert.equal(st.os.windowsDir, '')
+  assert.equal(st.system.hostname, require('os').hostname())
+  assert.ok(st.timeZone?.caption, '時區')
+  console.log(`PASS 系統：${st.os.caption}、核心 ${st.os.build}、${st.system.hostname}、${st.timeZone.caption}`)
+}

@@ -3623,6 +3623,25 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   flex: 1;
 }
 
+.ws-search-modes {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ws-search-mode {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.ws-search-mode.is-on {
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
 .ws-search[hidden] {
   display: none;
 }
@@ -13829,4 +13848,9 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   background-color: var(--surface-glass-strong);
   box-shadow: var(--shadow);
   user-select: text;
+}
+
+
+.dict-hotkey-note.is-warn {
+  color: var(--warning, #c48a00);
 }

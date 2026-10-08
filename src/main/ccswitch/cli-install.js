@@ -53,6 +53,12 @@ function powershell(script, env) {
 }
 
 function stopTree(child, env, spawnImpl, done) {
+  // 真實 Linux spawn 沒有 taskkill；測試注入的 spawnImpl 仍走 Windows 路徑模擬
+  if (process.platform !== 'win32' && spawnImpl === spawn) {
+    try { child.kill() } catch {}
+    done()
+    return
+  }
   if (!child.pid) { child.kill(); done(); return }
   let killer
   let stopped = false
@@ -73,6 +79,14 @@ function stopTree(child, env, spawnImpl, done) {
 
 function runProcess(script, env, timeoutMs, spawnImpl = spawn) {
   return new Promise(resolve => {
+    // Linux／macOS：真實 spawn 不可跑 powershell.exe（ENOENT）；測試注入的 spawnImpl 仍可走
+    if (process.platform !== 'win32' && spawnImpl === spawn) {
+      resolve({
+        code: 'UNSUPPORTED_PLATFORM',
+        output: 'Linux／macOS 請改用各工具官方安裝方式（此安裝器僅支援 Windows）'
+      })
+      return
+    }
     const command = powershell(script, env)
     let child
     let output = ''
@@ -153,15 +167,30 @@ function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOU
       if (!installed) throw { code: Date.now() >= deadline ? 'TIMEOUT' : 'VERIFY_FAILED' }
       tasks.set(key, { phase: 'succeeded', action, local: installed, message: action === 'install' ? '安裝完成' : '更新完成' })
     } catch (error) {
-      const code = ['TIMEOUT', 'SPAWN_FAILED', 'EXIT_FAILED', 'VERIFY_FAILED'].includes(error?.code) ? error.code : 'TASK_FAILED'
+      const code = ['TIMEOUT', 'SPAWN_FAILED', 'EXIT_FAILED', 'VERIFY_FAILED', 'UNSUPPORTED_PLATFORM'].includes(error?.code) ? error.code : 'TASK_FAILED'
       const exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : undefined
-      const message = code === 'TIMEOUT' ? '超過 10 分鐘，已停止' : exitCode === undefined ? '執行失敗' : `執行失敗（結束碼 ${exitCode}）`
-      tasks.set(key, { ...status(key), phase: 'failed', code, exitCode, message, summary: outputSummary(error?.output || '') })
+      const message = code === 'TIMEOUT'
+        ? '超過 10 分鐘，已停止'
+        : code === 'UNSUPPORTED_PLATFORM'
+          ? (String(error?.output || '').trim() || '此平台不支援 Windows CLI 安裝器')
+          : exitCode === undefined ? '執行失敗' : `執行失敗（結束碼 ${exitCode}）`
+      const summary = code === 'UNSUPPORTED_PLATFORM'
+        ? '請改用官方安裝方式'
+        : outputSummary(error?.output || '')
+      tasks.set(key, { ...status(key), phase: 'failed', code, exitCode, message, summary })
     }
     return status(key)
   }
   function run(key) {
     if (typeof key !== 'string' || !Object.hasOwn(INSTALLERS, key)) return Promise.resolve({ phase: 'failed', code: 'INVALID_TOOL', message: '不支援這個工具' })
+    if (process.platform !== 'win32' && spawnImpl === spawn) {
+      return Promise.resolve({
+        phase: 'failed',
+        code: 'UNSUPPORTED_PLATFORM',
+        message: 'Linux／macOS 請改用各工具官方安裝方式（此安裝器僅支援 Windows）',
+        summary: '請改用官方安裝方式'
+      })
+    }
     if (tasks.get(key)?.phase === 'running') return Promise.resolve({ ...status(key), code: 'BUSY' })
     tasks.set(key, { phase: 'running', message: '準備中…' })
     return perform(key, Date.now() + timeoutMs)

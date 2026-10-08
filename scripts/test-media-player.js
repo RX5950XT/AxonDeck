@@ -19,7 +19,7 @@ async function main() {
   let hasUpdateManifest = true
   let markerReadFileCalls = 0
   const markerReads = []
-  const context = { Buffer, module: { exports: {} }, __dirname: path.join(__dirname, '../src/main'), process: { env: {} },
+  const context = { Buffer, module: { exports: {} }, __dirname: path.join(__dirname, '../src/main'), process: { env: {}, platform: 'win32' },
     require: (name) => {
       if (name === 'path') return path
       if (name === './native-probe') return { resolveProbeExe: ({ resourcesPath: root } = {}) => path.join(root || path.resolve('C:/workspace/resources'), 'media', 'axondeck-media.exe') }
@@ -91,6 +91,40 @@ async function main() {
   await assert.rejects(api.openMedia('https://example.com/image.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')
   assert.equal(await api.openPath(path.resolve('doc.txt')), '')
   assert.equal(calls.at(-1).system, path.resolve('doc.txt'))
+
+  // 無原生播放器：openMedia 回 false，openPath 改走系統開啟（勿 throw）
+  {
+    const calls2 = []
+    const ctx2 = {
+      Buffer, module: { exports: {} }, __dirname: path.join(__dirname, '../src/main'),
+      process: { env: {}, platform: 'linux' },
+      require: (name) => {
+        if (name === 'path') return path
+        if (name === './native-probe') return { resolveProbeExe: () => '' }
+        if (name === './media-formats.json') return require('../src/main/media-formats.json')
+        if (name === './raw-fs') return { promises: {
+          stat: async () => ({ isFile: () => true }),
+          access: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) },
+          mkdir: async () => {},
+          open: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) },
+          writeFile: async () => {}
+        } }
+        if (name === 'electron') return { shell: { openPath: async (file) => { calls2.push({ system: file }); return '' } } }
+        if (name === 'child_process') return { spawn: () => { throw new Error('should not spawn media exe') } }
+        throw new Error(name)
+      }
+    }
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), ctx2)
+    const np = ctx2.module.exports
+    const mediaFile = path.resolve('fallback.wav')
+    assert.equal(await np.openMedia(mediaFile), false, '缺原生播放器不可 throw')
+    assert.equal(await np.openPath(mediaFile), '')
+    assert.equal(calls2.at(-1).system, mediaFile)
+    assert.equal(await np.initializeAssociations({
+      isPackaged: true, isPreview: false, resourcesPath, userDataPath
+    }), false, 'Linux 不跑媒體關聯初始化')
+  }
+
   for (const caller of ['explorer/index.js', 'explorer/mtp.js', 'workspace/index.js']) {
     assert.match(fs.readFileSync(path.join(__dirname, '../src/main', caller), 'utf8'), /mediaPlayer\.openPath\(/)
   }

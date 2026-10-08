@@ -74,8 +74,8 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:removeEntry', (event, id, relPath) => (
     invoke(event, () => service.removeEntry(id, relPath))
   ))
-  ipcMain.handle('workspace:search', (event, id, query, caseSensitive) => (
-    invoke(event, () => service.searchFiles(id, query, caseSensitive))
+  ipcMain.handle('workspace:search', (event, id, query, caseSensitive, mode) => (
+    invoke(event, () => service.searchFiles(id, query, caseSensitive, mode))
   ))
   ipcMain.handle('workspace:listFiles', (event, id) => (
     invoke(event, () => service.listFiles(id))

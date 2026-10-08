@@ -20,7 +20,8 @@ function resolveFfmpegPath() {
   // spawn 不能執行 asar 內檔案，第一次轉錄拷到 userData。
   if (/app\.asar(?!\.unpacked)/.test(bin)) {
     const { app } = require('electron')
-    const dest = path.join(app.getPath('userData'), 'native', 'ffmpeg.exe')
+    const ffmpegName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+    const dest = path.join(app.getPath('userData'), 'native', ffmpegName)
     if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       // 不用 copyFileSync：從 asar 複製會先在 %TEMP% 解壓一份 80MB 的中繼檔，程序被強制結束就留著

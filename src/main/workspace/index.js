@@ -127,8 +127,8 @@ async function removeEntry(projectId, relPath) {
   return files.removeEntry(await rootOf(projectId), relPath)
 }
 
-async function searchFiles(projectId, query, caseSensitive) {
-  return search.search(await rootOf(projectId), query, caseSensitive)
+async function searchFiles(projectId, query, caseSensitive, mode) {
+  return search.search(await rootOf(projectId), query, caseSensitive, mode)
 }
 
 /**

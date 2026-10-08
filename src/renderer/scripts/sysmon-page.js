@@ -658,7 +658,9 @@ function describeStorage(s, inv, sensors) {
     const rate = row ? row.read + row.write : 0
     const temp = row ? row.temp : diskTempOf(p.id, p, sensors, liveTemps)
     const used = ownVols.reduce((n, v) => n + (v.size - v.free), 0)
-    const size = ownVols.reduce((n, v) => n + v.size, 0) || p.size
+    // Linux：這顆碟在本系統沒有掛載任何檔案系統（例如容器只看得到 overlay）時，不畫「0 B / 容量」假讀數
+    const unmountedLinux = inv?.platform === 'linux' && !ownVols.length
+    const size = unmountedLinux ? 0 : (ownVols.reduce((n, v) => n + v.size, 0) || p.size)
     blocks.push({
       id: `disk-${p.id}`,
       span: 1,
@@ -705,6 +707,9 @@ function describeStorage(s, inv, sensors) {
         ['型號', p.name],
         ['匯流排', [p.mediaType, p.busType].filter(Boolean).join(' · ') || DASH],
         ['容量', fmtBytes(p.size)],
+        ...(inv?.platform === 'linux' ? [['已用容量', ownVols.length
+          ? `${fmtBytes(used)} / ${fmtBytes(ownVols.reduce((n, v) => n + v.size, 0))}（${ownVols.map((v) => v.drive).join('、')}）`
+          : '本系統沒有掛載這顆碟的檔案系統']] : []),
         ['分割配置', p.partitionStyle || DASH],
         ['磁區', p.logicalSector > 0 ? `${p.logicalSector}B / ${p.physicalSector}B` : DASH],
         ['韌體', p.firmware || DASH],
@@ -992,9 +997,12 @@ function describeBlocks(s, inv) {
   const leftovers = invGpus
     .map((g, i) => ({ g, i }))
     .filter(({ g, i }) => !usedInv.has(i) && !isVirtualGpu(g))
+  // Linux：靜態清單來自 sysfs／lspci，沒有 Windows 的 GPU 計數器 → 使用率未知就顯示「—」，不假裝 0%
+  const linuxInv = inv?.platform === 'linux'
   leftovers.forEach(({ g }, n) => {
     const idx = gpuBlocks.length
     const pct = utilKeys[n] != null ? utilMap[utilKeys[n]] : (utilKeys.length ? Math.max(...utilKeys.map((k) => utilMap[k])) : 0)
+    const utilKnown = !linuxInv || utilKeys.length > 0
     const hw = takeHw(g.name)
     const gpuFanRpm = findFan(sensors, { ...GPU_FAN, name: hw?.n || g.name })
     pushGpu({
@@ -1003,20 +1011,28 @@ function describeBlocks(s, inv) {
       title: (nvCards.length + leftovers.length) > 1 ? `GPU ${idx + 1}` : 'GPU',
       accent: 'var(--success)',
       sub: g.name,
-      value: pct,
-      valueText: `${Math.round(pct)}%`,
-      spark: { key: `gpu${idx}`, value: pct, max: 100 },
+      value: utilKnown ? pct : null,
+      valueText: utilKnown ? `${Math.round(pct)}%` : DASH,
+      spark: utilKnown ? { key: `gpu${idx}`, value: pct, max: 100 } : null,
       stats: [
         ['專用記憶體', g.vram ? fmtBytes(g.vram) : DASH],
         ['風扇', gpuFanRpm != null ? `${Math.round(gpuFanRpm)} RPM` : DASH],
-        ['資料來源', nvCards.length ? 'Windows 計數器' : 'Windows 計數器']
+        ['資料來源', g.source || 'Windows 計數器']
       ],
-      viz: {
+      viz: utilKnown ? {
         kind: 'meters',
         label: '即時狀態',
         items: [{ label: '使用率', value: pct, max: 100, text: `${Math.round(pct)}%` }]
-      },
-      specs: [
+      } : null,
+      specs: linuxInv ? [
+        ['名稱', g.name || DASH],
+        ['廠商', g.processor || DASH],
+        ['驅動程式', g.driver || '未載入驅動'],
+        ['DRM 裝置', g.mode ? `/dev/dri/${g.mode}` : DASH],
+        ['PCI ID', g.pnpId || DASH],
+        ['專用記憶體', g.vram ? fmtBytes(g.vram) : DASH],
+        ['資料來源', g.source || DASH]
+      ] : [
         ['名稱', g.name || DASH],
         ['驅動版本', g.driver || DASH],
         ['驅動日期', g.driverDate || DASH],
@@ -1027,7 +1043,29 @@ function describeBlocks(s, inv) {
     })
   })
 
-  if (!gpuBlocks.length) {
+  if (!gpuBlocks.length && linuxInv) {
+    // Linux 清單已經回來、nvidia-smi／sysfs／PCI 都沒有顯示控制器：這是最終狀態，不是「偵測中」
+    pushGpu({
+      id: 'gpu0',
+      span: 2,
+      title: 'GPU',
+      accent: 'var(--success)',
+      sub: '未偵測到 GPU',
+      value: null,
+      valueText: DASH,
+      spark: null,
+      stats: [
+        ['顯示卡', '未偵測到'],
+        ['資料來源', 'sysfs（/sys/class/drm、PCI）']
+      ],
+      viz: null,
+      specs: [
+        ['狀態', '未偵測到顯示卡：/sys/class/drm 沒有顯示卡，PCI 也沒有顯示控制器（class 03），nvidia-smi 不可用'],
+        ['資料來源', 'sysfs（/sys/class/drm、/sys/bus/pci）、lspci、nvidia-smi']
+      ],
+      groups: sensorGroups(sensors, isGpuType, 'GPU ')
+    })
+  } else if (!gpuBlocks.length) {
     const utils = s.gpuAdapterUtil || {}
     const keys = Object.keys(utils)
     const pct = keys.length ? Math.max(...keys.map((k) => utils[k])) : 0
@@ -1106,7 +1144,7 @@ function describeBlocks(s, inv) {
         ['DHCP 伺服器', online.find((n) => n.dhcpServer)?.dhcpServer || DASH],
         ['連線速率', main?.speed > 0 && main.speed < 1e12 ? `${Math.round(main.speed / 1e6)} Mbps` : DASH],
         ['主機名稱', inv?.system?.hostname || DASH],
-        ['工作群組', inv?.system?.workgroup || DASH]
+        ...(inv?.platform === 'linux' ? [] : [['工作群組', inv?.system?.workgroup || DASH]])
       ],
       groups: [
         {
@@ -1147,7 +1185,9 @@ function describeBlocks(s, inv) {
       id: 'board',
       title: '主機板',
       accent: 'var(--accent-primary)',
-      sub: board ? `${board.vendor} ${board.product}` : '偵測中…',
+      sub: board
+        ? `${board.vendor} ${board.product}`.trim() || board.product || board.vendor
+        : (inv?.platform === 'linux' ? (inv?.system?.vendor || inv?.system?.model ? `${inv.system.vendor || ''} ${inv.system.model || ''}`.trim() || '無法讀取 DMI' : '無法讀取 DMI（容器／虛擬機常見）') : '偵測中…'),
       value: null,
       valueText: bios?.version ? `BIOS ${bios.version}` : DASH,
       spark: null,
@@ -1158,8 +1198,8 @@ function describeBlocks(s, inv) {
       ],
       viz: null,
       specs: [
-        ['製造商', board?.vendor || DASH],
-        ['型號', board?.product || DASH],
+        ['製造商', board?.vendor || (inv?.platform === 'linux' ? (sys?.vendor || DASH) : DASH)],
+        ['型號', board?.product || (inv?.platform === 'linux' ? (sys?.model || DASH) : DASH)],
         ['版本', board?.version || DASH],
         ['主機板序號', board?.serial || DASH],
         ['晶片組插槽', inv?.cpus?.[0]?.socket || DASH],
@@ -1289,7 +1329,9 @@ function describeBlocks(s, inv) {
       id: 'system',
       title: '系統',
       accent: 'var(--accent-warm)',
-      sub: osInfo ? `${osInfo.caption} · 組建 ${osInfo.build}` : '偵測中…',
+      sub: osInfo
+        ? (inv?.platform === 'linux' ? `${osInfo.caption} · 核心 ${osInfo.build}` : `${osInfo.caption} · 組建 ${osInfo.build}`)
+        : '偵測中…',
       value: null,
       valueText: fmtUptime(osInfo?.bootedAt),
       spark: null,
@@ -1298,7 +1340,23 @@ function describeBlocks(s, inv) {
         ['處理程序', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))]
       ],
       viz: null,
-      specs: [
+      specs: inv?.platform === 'linux' ? [
+        // Linux：沒有 Windows 目錄／功能更新版本／工作群組這些概念，改列發行版、核心、主機名稱
+        ['作業系統', osInfo?.caption || DASH],
+        ['發行版版本', osInfo ? [osInfo.version, osInfo.edition ? `（${osInfo.edition}）` : ''].join('') || DASH : DASH],
+        ['核心版本', osInfo?.build || DASH],
+        ['核心組建', osInfo?.displayVersion || DASH],
+        ['系統架構', osInfo?.arch || DASH],
+        ['語系', osInfo?.languages || DASH],
+        ['時區', inv?.timeZone?.caption || DASH],
+        ['主機名稱', sys?.hostname || DASH],
+        ['登入使用者', sys?.user || DASH],
+        ['製造商 / 型號', sys ? `${sys.vendor} ${sys.model}`.trim() || DASH : DASH],
+        ['根目錄', osInfo?.systemDrive || DASH],
+        ['虛擬化', sys?.hypervisor ? '虛擬機（hypervisor）' : '實體機'],
+        ['處理程序數', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))],
+        ['已開機', fmtUptime(osInfo?.bootedAt)]
+      ] : [
         ['作業系統', osInfo?.caption || DASH],
         ['功能更新版本', osInfo?.displayVersion || DASH],
         ['版本 / 組建', osInfo

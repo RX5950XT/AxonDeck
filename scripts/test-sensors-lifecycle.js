@@ -26,7 +26,7 @@ function fakeTask(onConnect) {
 async function main() {
   {
     let client
-    const bridge = createSensorBridge({ resolveExe: () => __filename, task: {
+    const bridge = createSensorBridge({ supportsWinNative: true,  resolveExe: () => __filename, task: {
       run: (pipe) => new Promise((resolve) => {
         client = net.connect(pipe, () => resolve(true))
         client.on('error', () => {})
@@ -53,7 +53,7 @@ async function main() {
 
   {
     const task = fakeTask((client) => { client.write('{"h":[],"c":[]}\n') })
-    const bridge = createSensorBridge({
+    const bridge = createSensorBridge({ supportsWinNative: true, 
       resolveExe: () => __filename,
       reconnectDelayMs: 25,
       task,
@@ -81,7 +81,7 @@ async function main() {
 
   {
     const task = fakeTask((client) => { client.write('{"h":[],"c":[]}\n') })
-    const bridge = createSensorBridge({
+    const bridge = createSensorBridge({ supportsWinNative: true, 
       resolveExe: () => __filename,
       staleMs: 80,
       healthMs: 20,

@@ -12,6 +12,7 @@
 
 const path = require('node:path')
 const store = require('./store')
+const platform = require('../platform')
 const status = require('./status')
 
 /** 每個階段留多少輸出，供切回分頁時重畫（整段字串，超過從頭砍） */
@@ -187,7 +188,8 @@ function ensureTick() {
  * @returns {{ exe: string, args: string[], integrated: boolean }}
  */
 function shellCommand(shellKey) {
-  const shell = store.SHELLS[shellKey] || store.SHELLS.cmd
+  const fallbackKey = store.DEFAULT_SHELL
+  const shell = store.SHELLS[shellKey] || store.SHELLS[fallbackKey]
   const integrated = shellKey === 'pwsh' || shellKey === 'powershell'
   return {
     exe: store.resolveExe(shell.exe) || shell.exe,
@@ -206,8 +208,9 @@ function shellCommand(shellKey) {
 function spawnSession(meta, cols, rows, editor, editorDir) {
   const { exe, args, integrated } = shellCommand(meta.shell)
 
-  // 管理員：ConPTY 開不出提權的 shell，交給提權的 host 程序去開（admin.js）
-  const term = meta.admin
+  // 管理員：僅 Windows（ConPTY 提權 host）。Linux 跳過 admin／axondeck-term，直接 node-pty。
+  const useAdmin = platform.isWindows && meta.admin
+  const term = useAdmin
     ? require('./admin').spawnAdmin(meta, cols, rows)
     : loadPty().spawn(exe, args, {
       name: 'xterm-256color',
@@ -403,7 +406,10 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   if (store.isSessionId(terminalId)) env.AXONDECK_TERMINAL_ID = terminalId
   else delete env.AXONDECK_TERMINAL_ID
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
-  if (homeKey && typeof agentHome === 'string' && /^[A-Za-z]:[\\/]/.test(agentHome)
+  const homeAbsOk = typeof agentHome === 'string' && (
+    platform.isWindows ? /^[A-Za-z]:[\\/]/.test(agentHome) : agentHome.startsWith('/')
+  )
+  if (homeKey && homeAbsOk
     && agentHome.length <= 1024 && !/[\u0000-\u001f]/.test(agentHome) && !agentHome.replace(/\\/g, '/').split('/').includes('..')) {
     for (const key of Object.keys(env)) if (key.toUpperCase() === homeKey) delete env[key]
     env[homeKey] = agentHome
@@ -541,7 +547,10 @@ function catalog() {
     presets: store.availablePresets(),
     maxSessions: store.MAX_SESSIONS,
     // 表單的預設工作目錄。renderer 沒有 os 模組，也不該自己猜路徑。
-    homeDir: store.normalizeCwd('')
+    homeDir: store.normalizeCwd(''),
+    // Linux 沒有 ConPTY／UAC 管理員終端機
+    supportsAdmin: platform.isWindows,
+    defaultShell: store.DEFAULT_SHELL
   }
 }
 

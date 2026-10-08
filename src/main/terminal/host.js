@@ -103,6 +103,9 @@ function run(userData) {
     })
   })
   server.on('error', () => process.exit(1))
+  if (process.platform !== 'win32') {
+    try { require('node:fs').unlinkSync(config.pipe) } catch { /* 沒有舊 socket */ }
+  }
   server.listen(config.pipe, idle)
 }
 

@@ -1,10 +1,10 @@
 'use strict'
 
 /**
- * Windows 資源回收筒（Main Process）。
+ * 資源回收筒（Main Process）。
  *
- * 丟進去走 OS 的 trash（Electron `shell.trashItem`，沒有 Electron 時改
- * VisualBasic FileIO）。列出／還原／清掉讀 `$Recycle.Bin` 的 `$I`／`$R`，
+ * Windows：Electron `shell.trashItem`／`$Recycle.Bin` 的 `$I`／`$R`。
+ * Linux：委派 `recycle-linux.js`（XDG Trash／gio trash）。
  * 不把使用者家目錄或磁碟根目錄送進回收筒（呼叫端先 `assertMutable`）。
  */
 
@@ -15,6 +15,7 @@ const path = require('path')
 const { execFile } = require('child_process')
 const paths = require('./paths')
 const drives = require('./drives')
+const platform = require('../platform')
 
 /** @type {string} */
 let cachedSid = ''
@@ -77,11 +78,14 @@ function parseIFile(buf) {
   }
   original = original.replace(/\u0000.*$/s, '').replace(/\//g, '\\').trim()
   if (!paths.DRIVE_ABS.test(original)) return null
+  if (original.indexOf(':', 2) !== -1) return null
   try {
-    original = paths.resolveAbs(original)
+    // $I 永遠是 Windows 路徑語意（即使在 Linux 開發機解析也一樣）
+    original = require('path').win32.resolve(original)
   } catch {
     return null
   }
+  if (!paths.DRIVE_ABS.test(original)) return null
   return { originalPath: original, size: Number.isFinite(size) ? size : 0, deletedAt }
 }
 
@@ -411,15 +415,31 @@ async function empty() {
   return { count }
 }
 
-module.exports = {
-  RECYCLE_CWD,
-  isRecyclePath,
-  parseIFile,
-  encodeIFile,
-  parseKey,
-  list,
-  trash,
-  restore,
-  purge,
-  empty
-}
+const linux = require('./recycle-linux')
+
+module.exports = platform.isWindows
+  ? {
+    RECYCLE_CWD,
+    isRecyclePath,
+    parseIFile,
+    encodeIFile,
+    parseKey,
+    list,
+    trash,
+    restore,
+    purge,
+    empty
+  }
+  : {
+    RECYCLE_CWD: linux.RECYCLE_CWD,
+    isRecyclePath: linux.isRecyclePath,
+    parseIFile,
+    encodeIFile,
+    parseKey,
+    list: linux.list,
+    trash: linux.trash,
+    restore: linux.restore,
+    purge: linux.purge,
+    empty: linux.empty,
+    parseTrashInfo: linux.parseTrashInfo
+  }

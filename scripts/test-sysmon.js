@@ -606,7 +606,7 @@ async function testPawnIo() {
   const tmp = tempDir('axondeck-pawnio-test-')
   try {
     // isInstalledFn 固定回 false，測試機本來就裝了 PawnIO 也走得到驗簽那一段
-    await pawnio.install({ fetchFn: fakeFetch, spawnFn: fakeSpawn, tmpDir: tmp, isInstalledFn: () => false })
+    await pawnio.install({ supportsWinNative: true, fetchFn: fakeFetch, spawnFn: fakeSpawn, tmpDir: tmp, isInstalledFn: () => false })
     ok('簽章不符時中止安裝', false, '竟然安裝成功了')
     ok('簽章不符時沒有跑過 Start-Process', false)
     ok('中止後不留下安裝檔', false)
@@ -638,6 +638,7 @@ async function testSensorReconnect() {
   const clients = []
   let lost = 0
   const bridge = createSensorBridge({
+    supportsWinNative: true,
     resolveExe: () => path.join(ROOT, 'package.json'), // 只要「存在」就好，這條測試不真的開 sidecar
     onLost: () => { lost += 1 },
     // 假的排程工作：直接用一條 socket 冒充連上來的 sidecar

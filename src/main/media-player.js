@@ -4,7 +4,11 @@ const path = require('path')
 const fs = require('./raw-fs').promises
 const { spawn } = require('child_process')
 const formats = require('./media-formats.json')
-const { shell } = require('electron')
+
+function electronShell() {
+  try { return require('electron').shell } catch { return null }
+}
+
 const { resolveProbeExe } = require('./native-probe')
 const types = new Map(Object.entries(formats).flatMap(([kind, list]) => list.map((ext) => [ext, kind])))
 let theme = () => 'dark'
@@ -35,8 +39,9 @@ async function initializedMarker(file) {
   } finally { if (handle) await handle.close() }
 }
 
-/** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。 */
+/** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。Linux 無原生媒體 sidecar。 */
 async function initializeAssociations(options = {}) {
+  if (process.platform !== 'win32') return false
   const { isPackaged, isPreview, resourcesPath, userDataPath } = options
   if (!isPackaged || isPreview || !resourcesPath || !userDataPath) return false
   if (associationInitPromise) return associationInitPromise
@@ -72,14 +77,36 @@ async function initializeAssociations(options = {}) {
   }
 }
 
+/**
+ * 解析原生播放器路徑；可注入 options.exe。沒有可執行檔時回空字串（呼叫端改走系統開啟）。
+ * @param {{ exe?: string, resourcesPath?: string }} options
+ */
+function resolveMediaExe(options = {}) {
+  if (options.exe) return options.exe
+  const winName = 'axondeck-media.exe'
+  const unixName = 'axondeck-media'
+  const preferred = process.platform === 'win32' ? winName : unixName
+  const found = resolveProbeExe({
+    resourcesPath: options.resourcesPath,
+    folder: 'media',
+    name: preferred
+  })
+  if (found) return found
+  // Linux／macOS：不要回退去找 .exe（誤跑 Windows 二進位會立刻失敗）
+  return ''
+}
+
 /** caller 必須先過自己的路徑守衛；這層再確認只讀本機媒體檔。 */
 async function openMedia(file, options = {}) {
   if (!mediaKind(file)) return false
   if (!path.isAbsolute(file) || file.includes('\0')) throw fail('媒體路徑不合法')
   const stats = await fs.stat(file).catch(() => null)
   if (!stats?.isFile()) throw fail('找不到這個媒體檔案')
-  const exe = options.exe || resolveProbeExe({ resourcesPath: options.resourcesPath, folder: 'media', name: 'axondeck-media.exe' })
-  if (!exe || !await fs.access(exe).then(() => true, () => false)) throw fail('原生播放器尚未安裝，請重新安裝 AxonDeck')
+  const exe = resolveMediaExe(options)
+  if (!exe || !await fs.access(exe).then(() => true, () => false)) {
+    // 無原生播放器：回 false，讓 openPath／檔案頁改走系統關聯（xdg-open／Explorer）
+    return false
+  }
   const hidden = options.hidden || process.env.AXONDECK_MEDIA_HIDDEN === '1'
   const args = [`--theme=${theme() === 'light' ? 'light' : 'dark'}`, ...(hidden ? ['--hidden'] : []), '--', file]
   await new Promise((resolve, reject) => {
@@ -89,8 +116,38 @@ async function openMedia(file, options = {}) {
   })
   return true
 }
+
+/**
+ * 系統預設程式開啟（Electron shell.openPath；無 Electron 時 Linux 用 xdg-open）。
+ * @param {string} file
+ * @returns {Promise<string>} 空字串＝成功；其餘＝失敗原因（同 shell.openPath）
+ */
+async function openWithSystem(file) {
+  const sh = electronShell()
+  if (sh && typeof sh.openPath === 'function') return sh.openPath(file)
+  if (process.platform === 'linux') {
+    await new Promise((resolve, reject) => {
+      const child = spawn('xdg-open', [file], { detached: true, stdio: 'ignore', shell: false })
+      child.once('error', () => reject(fail('無法用系統開啟此檔案')))
+      child.once('spawn', () => { child.unref(); resolve() })
+    })
+    return ''
+  }
+  return 'UNSUPPORTED'
+}
+
 /** 與 shell.openPath 的回傳方式相同；所有媒體入口共用這條分流。 */
 async function openPath(file) {
-  return await openMedia(file) ? '' : shell.openPath(file)
+  if (await openMedia(file)) return ''
+  return openWithSystem(file)
 }
-module.exports = { mediaKind, openMedia, openPath, setThemeGetter, initializeAssociations }
+
+module.exports = {
+  mediaKind,
+  openMedia,
+  openPath,
+  openWithSystem,
+  resolveMediaExe,
+  setThemeGetter,
+  initializeAssociations
+}

@@ -136,6 +136,10 @@ async function download(url, fetchFn, dest) {
 async function install(deps = {}) {
   const spawnFn = deps.spawnFn || spawn
   const installedFn = deps.isInstalledFn || isInstalled
+  const winNative = deps.supportsWinNative ?? (process.platform === 'win32')
+  if (!winNative) {
+    throw makeError('PAWNIO_UNSUPPORTED', 'PawnIO 僅支援 Windows。')
+  }
   if (installedFn()) return { installed: true, already: true }
 
   const tmpDir = deps.tmpDir || os.tmpdir()

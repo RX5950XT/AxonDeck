@@ -62,7 +62,11 @@ function connection(userData, create = false) {
   const config = JSON.parse(fs.readFileSync(file, 'utf8'))
   if (config.protocol !== PROTOCOL || !/^[a-f0-9]{64}$/.test(config.token)) throw hostError('HOST_CONFIG')
   const name = crypto.createHash('sha256').update(root.toLowerCase()).digest('hex').slice(0, 24)
-  return { root, token: config.token, protocol: PROTOCOL, pipe: `\\\\.\\pipe\\${HOST_PIPE_PREFIX}${PROTOCOL}-${name}` }
+  // Windows named pipe；POSIX 用 terminal-host 底下的 Unix domain socket
+  const pipe = process.platform === 'win32'
+    ? `\\\\.\\pipe\\${HOST_PIPE_PREFIX}${PROTOCOL}-${name}`
+    : path.join(root, `host-v${PROTOCOL}.sock`)
+  return { root, token: config.token, protocol: PROTOCOL, pipe }
 }
 
 /**
@@ -97,6 +101,8 @@ function runtimeName(execPath = process.execPath) {
  */
 function nativeHostExe() {
   if (process.env.AXONDECK_TERM_HOST === 'electron') return ''
+  // Linux MVP：跳過 ConPTY／axondeck-term；終端機走 in-process node-pty
+  if (process.platform !== 'win32') return ''
   return require('../native-probe').resolveProbeExe({ name: 'axondeck-term.exe' })
 }
 
@@ -109,12 +115,12 @@ function stageRuntime(root, execPath = process.execPath) {
     try {
       if (native) {
         // 同樣複製一份出來跑：安裝目錄的 exe 不能被常駐程序鎖住（更新要覆寫它）
-        fs.copyFileSync(native, path.join(staging, 'AxonDeckTerminalHost.exe'))
+        fs.copyFileSync(native, path.join(staging, process.platform === 'win32' ? 'AxonDeckTerminalHost.exe' : 'AxonDeckTerminalHost'))
         fs.writeFileSync(path.join(staging, 'ready'), version)
         fs.renameSync(staging, dir)
         return finishRuntime(root, dir, true)
       }
-      fs.copyFileSync(execPath, path.join(staging, 'AxonDeckTerminalHost.exe'))
+      fs.copyFileSync(execPath, path.join(staging, process.platform === 'win32' ? 'AxonDeckTerminalHost.exe' : 'AxonDeckTerminalHost'))
       for (const file of RUNTIME_FILES) fs.copyFileSync(path.join(path.dirname(execPath), file), path.join(staging, file))
       // 這幾支在 app.asar 裡：copyFileSync 會先解壓成 %TEMP%\<uuid>.tmp.js 當中繼，程序被強制結束就留在那裡；
       // readFileSync 直接讀 archive，不經暫存檔
@@ -122,8 +128,13 @@ function stageRuntime(root, execPath = process.execPath) {
       const modules = path.join(staging, 'node_modules/@lydell')
       fs.mkdirSync(modules, { recursive: true })
       fs.cpSync(ptyRoot, path.join(modules, 'node-pty'), { recursive: true })
-      const nativeRoot = unpacked(path.resolve(path.dirname(require.resolve('@lydell/node-pty-win32-x64')), '..'))
-      fs.cpSync(nativeRoot, path.join(modules, 'node-pty-win32-x64'), { recursive: true })
+      const nativePkg = process.platform === 'win32'
+        ? '@lydell/node-pty-win32-x64'
+        : process.platform === 'darwin'
+          ? (process.arch === 'arm64' ? '@lydell/node-pty-darwin-arm64' : '@lydell/node-pty-darwin-x64')
+          : '@lydell/node-pty-linux-x64'
+      const nativeRoot = unpacked(path.resolve(path.dirname(require.resolve(nativePkg)), '..'))
+      fs.cpSync(nativeRoot, path.join(modules, path.basename(nativePkg)), { recursive: true })
       fs.writeFileSync(path.join(staging, 'ready'), version)
       fs.renameSync(staging, dir)
     } catch (error) {
@@ -139,7 +150,8 @@ function stageRuntime(root, execPath = process.execPath) {
 function finishRuntime(root, dir, native) {
   if (fs.lstatSync(dir).isSymbolicLink() || fs.realpathSync.native(dir) !== dir) throw hostError('HOST_PATH')
   pruneRuntimes(root, path.basename(dir))
-  return { exe: path.join(dir, 'AxonDeckTerminalHost.exe'), entry: native ? '' : path.join(dir, 'host.js'), dir, native }
+  const hostBin = process.platform === 'win32' ? 'AxonDeckTerminalHost.exe' : 'AxonDeckTerminalHost'
+  return { exe: path.join(dir, hostBin), entry: native ? '' : path.join(dir, 'host.js'), dir, native }
 }
 
 /** 每次改版就多一份 248MB；執行中的宿主鎖著自己的 exe，開得起來才代表沒人在用。 */
@@ -150,7 +162,7 @@ function pruneRuntimes(root, keep) {
     // 沒有 ready 的是別人正在建立或建到一半的，交給下一次收。
     if (!fs.existsSync(path.join(dir, 'ready'))) continue
     try {
-      const exe = ['AxonDeckTerminalHost.exe', LEGACY_HOST_EXE].map(file => path.join(dir, file)).find(file => fs.existsSync(file))
+      const exe = ['AxonDeckTerminalHost.exe', 'AxonDeckTerminalHost', LEGACY_HOST_EXE].map(file => path.join(dir, file)).find(file => fs.existsSync(file))
       if (!exe) continue
       fs.closeSync(fs.openSync(exe, 'r+'))
       require('../safe-rm').removeTreeSync(dir)

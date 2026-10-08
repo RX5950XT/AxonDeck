@@ -56,7 +56,7 @@ const MAX_VISIBLE = 3
 /** @type {Array<{ id: string, title: string, shell: string, preset: string, cwd: string, state: string, exitCode: number | null }>} */
 let items = []
 let currentId = ''
-let catalog = { shells: [], presets: [], maxSessions: 20 }
+let catalog = { shells: [], presets: [], maxSessions: 20, supportsAdmin: true, defaultShell: '' }
 
 /**
  * @typedef {{
@@ -464,6 +464,13 @@ const webglTries = new WeakMap()
 
 function attachRenderer(term) {
   if ((webglTries.get(term) || 0) > 3) return null
+  // Linux／遠端／軟體渲染常把 WebGL2 拉進 blocklist；先探一下，失敗就留 DOM renderer
+  try {
+    const probe = document.createElement('canvas')
+    if (!probe.getContext('webgl2') && !probe.getContext('webgl')) return null
+  } catch {
+    return null
+  }
   try {
     const webgl = new WebglAddon()
     webgl.onContextLoss(() => {
@@ -1016,7 +1023,9 @@ function fillCatalogSelects() {
     option.disabled = !shell.available
     shellSelect.appendChild(option)
   }
-  const firstAvailable = catalog.shells.find((s) => s.available)
+  const preferred = catalog.defaultShell
+    && catalog.shells.find((s) => s.key === catalog.defaultShell && s.available)
+  const firstAvailable = preferred || catalog.shells.find((s) => s.available)
   if (firstAvailable) shellSelect.value = firstAvailable.key
 
   presetSelect.replaceChildren()
@@ -1025,6 +1034,15 @@ function fillCatalogSelects() {
     option.value = preset.key
     option.textContent = preset.label
     presetSelect.appendChild(option)
+  }
+
+  // Linux 沒有管理員終端機（ConPTY／UAC）；藏起勾選避免誤會
+  const adminRow = adminInput?.closest('label') || adminInput?.parentElement
+  if (adminInput) {
+    const showAdmin = catalog.supportsAdmin !== false
+    adminInput.disabled = !showAdmin
+    adminInput.checked = false
+    if (adminRow) adminRow.hidden = !showAdmin
   }
 }
 

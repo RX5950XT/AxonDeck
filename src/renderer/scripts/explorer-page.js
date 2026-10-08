@@ -1,5 +1,5 @@
 /**
- * AxonDeck — 「檔案」分頁：本機檔案總管 + UFFS 整機檔名搜尋。
+ * AxonDeck — 「檔案」分頁：本機檔案總管 + 檔名搜尋（Windows UFFS／Linux 資料夾樹）。
  *
  * DOM 一律 createElement + textContent（零 innerHTML）。路徑是外部輸入。
  */
@@ -46,6 +46,22 @@ import {
 const SEARCH_DEBOUNCE_MS = 180
 /** 虛擬位置：Windows 那樣的「本機」首頁（跟 recyclebin 同一種，不是真路徑）。 */
 const THIS_PC = 'thispc'
+
+/** 側欄／雙欄磁碟標籤：POSIX 掛載顯示路徑短名，Windows 仍用 `C:` */
+function driveSideLabel(disk) {
+  if (disk && typeof disk.path === 'string' && disk.path.startsWith('/')) {
+    return disk.path === '/' ? '/' : (disk.label || disk.path)
+  }
+  return `${disk.letter}:`
+}
+
+function pathUnder(child, parent) {
+  const here = pathKey(child)
+  const root = pathKey(parent)
+  if (!root) return false
+  if (here === root) return true
+  return here.startsWith(root + '/') || here.startsWith(root + '\\')
+}
 const TILE_SIZES = [48, 64, 96, 128, 180, 256]
 const DEFAULT_TILE = 96
 const BROWSE_PAGE_SIZE = typeof BROWSE_PAGE_SIZE_IMPORT === 'number' ? BROWSE_PAGE_SIZE_IMPORT : 500
@@ -298,6 +314,8 @@ let disks = []
 let diskInfo = []
 /** 插著的手機／相機（MTP，沒有磁碟代號） @type {Array<{ name: string, path: string, type: string }>} */
 let devices = []
+/** Linux MTP 說明（無裝置時顯示） */
+let mtpHint = ''
 /** 分頁：一頁一條路徑與自己的上／下一頁歷史。切 nav 分頁回來要留著。 */
 /** @type {Array<{ id: string, cwd: string, history: string[], histIndex: number }>} */
 let tabs = []
@@ -447,11 +465,23 @@ function paintSortControls(select, dirBtn, { searching, key, desc, disabled = fa
  * @param {HTMLElement | null} btn
  * @param {boolean} global
  */
+function folderSearchMode() {
+  return Boolean(uffs && uffs.mode === 'folder')
+}
+
 function paintScopeButton(btn, global) {
   if (!btn) return
-  btn.textContent = global ? '🌐' : '📁'
-  btn.title = global ? '搜尋整機檔案（按一下改成只篩這個資料夾）' : '只篩這個資料夾（按一下改成搜尋整機）'
-  btn.setAttribute('aria-label', `搜尋範圍：${global ? '整機' : '這個資料夾'}`)
+  const folder = folderSearchMode()
+  btn.textContent = global ? (folder ? '📂' : '🌐') : '📁'
+  if (folder) {
+    btn.title = global
+      ? '搜尋目前資料夾樹（按一下改成只篩這一層）'
+      : '只篩這一層（按一下改成搜尋資料夾樹）'
+    btn.setAttribute('aria-label', `搜尋範圍：${global ? '資料夾樹' : '這一層'}`)
+  } else {
+    btn.title = global ? '搜尋整機檔案（按一下改成只篩這個資料夾）' : '只篩這個資料夾（按一下改成搜尋整機）'
+    btn.setAttribute('aria-label', `搜尋範圍：${global ? '整機' : '這個資料夾'}`)
+  }
   btn.setAttribute('aria-pressed', global ? 'true' : 'false')
 }
 
@@ -1021,10 +1051,10 @@ function paintSidebar(nextPlaces, nextDisks) {
   })))
   paintSideList($('exDrives'), (nextDisks || []).map((d) => ({
     id: `drive-${d.letter}`,
-    label: `${d.letter}:`,
+    label: driveSideLabel(d),
     path: d.path,
     meta: d.total ? `${Math.round(((d.total - d.free) / d.total) * 100)}%` : '',
-    active: here === pathKey(d.path) || here.startsWith(pathKey(d.path) + '\\'),
+    active: pathUnder(cwd, d.path),
     reorder: false,
     custom: false
   })))
@@ -1479,7 +1509,11 @@ function setSecondScope(mode) {
   secondPane.searchMode = mode === 'global' ? 'global' : 'filter'
   const input = /** @type {HTMLInputElement | null} */ ($('exSecondSearch'))
   if (input) {
-    input.placeholder = secondPane.searchMode === 'global' ? '搜尋整機檔案…' : '篩選目前資料夾…'
+    if (secondPane.searchMode === 'global' && folderSearchMode()) {
+      input.placeholder = '搜尋目前資料夾樹…'
+    } else {
+      input.placeholder = secondPane.searchMode === 'global' ? '搜尋整機檔案…' : '篩選目前資料夾…'
+    }
   }
   secondPane.hits = []
   secondPane.searchSeq += 1
@@ -1895,10 +1929,10 @@ function paintSecondDrives() {
     btn.type = 'button'
     btn.className = 'btn-icon ex-second-drive'
     btn.dataset.path = disk.path
-    btn.textContent = `${disk.letter}:`
-    btn.title = `右欄切到 ${disk.letter}:`
+    btn.textContent = driveSideLabel(disk)
+    btn.title = `右欄切到 ${driveSideLabel(disk)}`
     btn.setAttribute('aria-label', btn.title)
-    btn.setAttribute('aria-pressed', here === key || here.startsWith(`${key}\\`) ? 'true' : 'false')
+    btn.setAttribute('aria-pressed', pathUnder(secondPane.cwd, disk.path) ? 'true' : 'false')
     btn.addEventListener('click', () => {
       setActivePane('right')
       void secondNavigate(disk.path)
@@ -2578,6 +2612,7 @@ function paintHome() {
     }),
     disks: diskInfo.length ? diskInfo : fallback,
     devices,
+    mtpHint,
     formatSize,
     onOpen: (target, newPage) => void (newPage ? newTab(target) : navigate(target)),
     onMenu: (e, target, name) => {
@@ -2783,8 +2818,14 @@ function paintSortHead() {
   paintScopeButton($('exScopeBtn'), global)
   const input = /** @type {HTMLInputElement | null} */ ($('exSearch'))
   if (input) {
-    input.placeholder = global ? '搜尋整機檔案…' : '篩選目前資料夾…'
-    input.setAttribute('aria-label', global ? '搜尋整機檔案' : '篩選目前資料夾')
+    const folder = folderSearchMode()
+    if (global && folder) {
+      input.placeholder = '搜尋目前資料夾樹…'
+      input.setAttribute('aria-label', '搜尋目前資料夾樹')
+    } else {
+      input.placeholder = global ? '搜尋整機檔案…' : '篩選目前資料夾…'
+      input.setAttribute('aria-label', global ? '搜尋整機檔案' : '篩選目前資料夾')
+    }
   }
   // 篩選條件只有整機搜尋用得到
   const filters = /** @type {HTMLDetailsElement | null} */ ($('exSearchFilters'))
@@ -2890,13 +2931,21 @@ function searchFilters(which = 'left') {
     const value = Date.parse(`${raw}${end ? 'T23:59:59.999' : 'T00:00:00.000'}`)
     return Number.isFinite(value) ? value : null
   }
+  const paneDir = which === 'right' ? secondPane.cwd : cwd
+  const root = (typeof paneDir === 'string'
+    && paneDir
+    && pathKey(paneDir) !== THIS_PC
+    && (paneDir.startsWith('/') || /^[A-Za-z]:/.test(paneDir)))
+    ? paneDir
+    : ''
   return {
     type: ['file', 'folder', 'image', 'video', 'audio', 'document'].includes(type) ? type : 'all',
     minSize: number('MinSize'),
     maxSize: number('MaxSize'),
     fromMs: date('From'),
     toMs: date('To', true),
-    location: String(at('Location')?.value || '').trim()
+    location: String(at('Location')?.value || '').trim(),
+    root
   }
 }
 
@@ -3152,7 +3201,7 @@ async function showProperties(items) {
     token = Number(res && res.ok && res.data && res.data.token) || 0
     const node = token ? findShellVerb(res.data.items, 'properties') : null
     if (!node) {
-      showToast(token ? '這個項目沒有「內容」' : '叫不出內容視窗（殼層元件沒有建置）', 'error')
+      showToast(token ? '這個項目沒有「內容」' : '叫不出內容視窗（原生殼層選單僅支援 Windows）', 'error')
       return
     }
     await electronAPI.explorer.shellInvoke(token, node.cmd, folder)
@@ -4153,6 +4202,18 @@ function paintUffs() {
     dot.classList.remove('is-on')
     return
   }
+  if (uffs && uffs.mode === 'folder') {
+    text.textContent = uffs.message || '資料夾樹搜尋就緒'
+    dot.classList.add('is-on')
+    if (enableBtn) enableBtn.hidden = true
+    return
+  }
+  if (uffs && uffs.unsupported) {
+    text.textContent = uffs.message || '整機搜尋僅支援 Windows'
+    dot.classList.remove('is-on')
+    if (enableBtn) enableBtn.hidden = true
+    return
+  }
   if (!uffs || !uffs.installed) {
     text.textContent = '尚未啟用快速搜尋'
     dot.classList.remove('is-on')
@@ -4267,6 +4328,7 @@ export async function refreshExplorerPage() {
     dualPane = boot.dualPane === true
     places = boot.places || []
     disks = boot.drives || []
+    mtpHint = (boot.mtp && boot.mtp.note) ? String(boot.mtp.note) : ''
     if (!tabs.length && Array.isArray(boot.tabs) && boot.tabs.length) {
       tabs = boot.tabs.map((tab, index) => normalizeBrowseTab(tab, `t${index + 1}`))
       const ids = new Set(tabs.map((tab) => tab.id))

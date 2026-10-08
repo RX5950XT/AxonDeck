@@ -12,6 +12,7 @@ const fs = require('../raw-fs')
 const path = require('path')
 const { execFile } = require('child_process')
 const paths = require('./paths')
+const platform = require('../platform')
 const store = require('./store')
 const files = require('./fs')
 const drives = require('./drives')
@@ -64,7 +65,11 @@ async function listPlaces() {
 
 async function bootstrap() {
   const state = await store.readState()
-  const [listed, disks] = await Promise.all([listPlaces(), drives.listDrives()])
+  const [listed, disks, mtpInfo] = await Promise.all([
+    listPlaces(),
+    drives.listDrives(),
+    platform.isWindows ? Promise.resolve({ mode: 'windows', note: '', supported: true }) : require('./mtp-linux').supportInfo()
+  ])
   // 沒存過就落在「本機」首頁（＝Windows 檔案總管的預設畫面）。
   let cwd = state.lastPath || drives.THIS_PC
   if (!recycle.isRecyclePath(cwd) && !drives.isThisPc(cwd)) {
@@ -75,10 +80,10 @@ async function bootstrap() {
       if (!reachable) throw new Error('gone')
       paths.resolveAbs(cwd)
     } catch {
-      cwd = listed[0] ? listed[0].path : (disks[0] ? disks[0].path : 'C:\\')
+      cwd = listed[0] ? listed[0].path : (disks[0] ? disks[0].path : platform.fallbackRoot())
     }
   }
-  return { ...state, lastPath: cwd, places: listed, drives: disks }
+  return { ...state, lastPath: cwd, places: listed, drives: disks, mtp: mtpInfo }
 }
 
 function saveState(patch) {
@@ -88,8 +93,8 @@ function saveState(patch) {
 }
 const listDrives = () => drives.listDrives()
 const driveInfo = () => drives.driveInfo()
-// 手機（MTP）：路徑是 `mtp:裝置名稱\…`，每個入口先問 `mtp.isMtp`（跟壓縮檔同一招）
-const listDevices = () => mtp.listDevices()
+// 手機（MTP）：Windows＝`mtp:`＋COM；Linux＝gvfs 真實路徑（見 mtp-linux）
+const listDevices = () => (platform.isWindows ? mtp.listDevices() : require('./mtp-linux').listDevices())
 const listDir = async (dirPath, opts) => {
   // 「本機」是虛擬位置，沒有檔案清單（renderer 自己畫首頁）。
   if (drives.isThisPc(dirPath)) {

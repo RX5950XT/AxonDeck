@@ -541,7 +541,7 @@
                     <button type="button" id="wsFilesRevealBtn" class="btn-icon" title="在檔案頁開啟" aria-label="在 App 的檔案頁開啟這個專案">
                       🗁
                     </button>
-                    <button type="button" id="wsFilesSearchBtn" class="btn-icon" title="在專案裡搜尋" aria-label="在專案裡搜尋" aria-pressed="false">
+                    <button type="button" id="wsFilesSearchBtn" class="btn-icon" title="在專案裡找檔名或內容" aria-label="在專案裡找檔名或內容" aria-pressed="false">
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="10.5" cy="10.5" r="6" />
                         <path d="M15 15l5 5" />
@@ -553,12 +553,16 @@
                   </div>
                   <div class="ws-tree" id="wsTree" aria-label="檔案總管"></div>
                   <div class="ws-search" id="wsSearch" hidden>
+                    <div class="ws-search-modes" role="group" aria-label="搜尋模式">
+                      <button type="button" id="wsSearchModeName" class="btn btn-secondary btn-sm ws-search-mode is-on" aria-pressed="true">檔名</button>
+                      <button type="button" id="wsSearchModeContent" class="btn btn-secondary btn-sm ws-search-mode" aria-pressed="false">內容</button>
+                    </div>
                     <input
                       type="search"
                       id="wsSearchInput"
                       class="input input-sm"
-                      placeholder="在這個專案裡找…（至少兩個字）"
-                      aria-label="搜尋字串"
+                      placeholder="找檔名…（例如 Candy）"
+                      aria-label="搜尋檔名"
                     />
                     <div class="ws-search-results" id="wsSearchResults" aria-label="搜尋結果"></div>
                   </div>
@@ -1993,6 +1997,10 @@
                   <p class="setting-hint">
                     按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
                   </p>
+                  <p id="dictationHotkeyTipLinux" class="setting-hint dict-hotkey-note" hidden>
+                    <strong>Wayland：</strong>全域右 Alt 可能無效或需額外權限。<strong>X11：</strong>uiohook 監聽通常較穩，但仍無法吞鍵。
+                  </p>
+                  <p id="dictationHotkeyNote" class="setting-hint dict-hotkey-note" hidden></p>
                 </div>
                 <div class="dict-state">
                   <div id="dictationStatus" class="dict-status" role="status" aria-live="polite">

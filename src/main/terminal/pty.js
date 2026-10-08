@@ -208,11 +208,14 @@ function shellCommand(shellKey) {
 function spawnSession(meta, cols, rows, editor, editorDir) {
   const { exe, args, integrated } = shellCommand(meta.shell)
 
-  // 管理員：僅 Windows（ConPTY 提權 host）。Linux 跳過 admin／axondeck-term，直接 node-pty。
+  // 管理員：Windows＝ConPTY 提權 host；Linux＝同一顆 node-pty，只是程式換成 sudo／run0／pkexec（見 root-linux.js）
   const useAdmin = platform.isWindows && meta.admin
+  const rootLinux = platform.isLinux && meta.admin ? require('./root-linux') : null
+  const rootTool = rootLinux ? rootLinux.detect() : null
+  const launch = rootLinux ? rootLinux.rootCommand(rootTool, exe, args, meta.cwd) : { exe, args }
   const term = useAdmin
     ? require('./admin').spawnAdmin(meta, cols, rows)
-    : loadPty().spawn(exe, args, {
+    : loadPty().spawn(launch.exe, launch.args, {
       name: 'xterm-256color',
       cols,
       rows,
@@ -235,8 +238,12 @@ function spawnSession(meta, cols, rows, editor, editorDir) {
   }
   live.set(meta.id, session)
 
+  // root 分頁先在畫面上講清楚是誰在問密碼（寫進畫面，不是送給 shell）
+  if (rootLinux) absorb(session, rootLinux.banner(rootTool))
+
   // 重開後沒有活著的 pty 才會進到這裡。合法的 Claude 對話 id 改打 `claude --resume <uuid>`。
-  const command = store.startupCommand(meta.preset, meta.claudeSessionId, meta.agentSessionId)
+  // root 分頁一律不自動送指令：第一個輸出是密碼提示，送下去就變成拿指令當密碼
+  const command = rootLinux ? '' : store.startupCommand(meta.preset, meta.claudeSessionId, meta.agentSessionId)
   let presetSent = !command
   term.onData((chunk) => {
     absorb(session, chunk)
@@ -249,6 +256,9 @@ function spawnSession(meta, cols, rows, editor, editorDir) {
     }
   })
   term.onExit(({ exitCode }) => {
+    // root 分頁沒開成（不在 sudoers、密碼錯三次、取消授權）：補一行中文說明
+    const hint = rootLinux ? rootLinux.failureHint(session.buffer.slice(-4096), exitCode) : ''
+    if (hint) absorb(session, hint)
     if (session.flushTimer) {
       clearTimeout(session.flushTimer)
       flush(session)
@@ -540,6 +550,23 @@ function killAll() {
   }
 }
 
+function linuxRoot() {
+  return require('./root-linux').detect()
+}
+
+function linuxRootCopy() {
+  const { COPY } = require('./root-linux')
+  const method = linuxRoot().method
+  const tool = method === 'root' ? '' : method
+  return {
+    ...COPY,
+    dialog: tool ? `${COPY.dialog}（${tool}）` : COPY.dialog,
+    hint: tool
+      ? `用 ${tool} 開：密碼在終端機裡輸入，由 ${tool} 直接讀，AxonDeck 不會看到也不會存。帳號沒有權限時終端機會顯示原因。`
+      : 'AxonDeck 本身就是 root，直接開 shell。'
+  }
+}
+
 /** 給 renderer 填「新終端機」表單用 */
 function catalog() {
   return {
@@ -548,8 +575,10 @@ function catalog() {
     maxSessions: store.MAX_SESSIONS,
     // 表單的預設工作目錄。renderer 沒有 os 模組，也不該自己猜路徑。
     homeDir: store.normalizeCwd(''),
-    // Linux 沒有 ConPTY／UAC 管理員終端機
-    supportsAdmin: platform.isWindows,
+    // Linux：有 sudo／run0／pkexec 就能開 root 終端機（密碼在終端機裡輸入）
+    supportsAdmin: platform.isWindows || (platform.isLinux && linuxRoot().method !== ''),
+    // 介面用字：Windows 不帶（renderer 用原本的字）；Linux 改叫 root 並在分頁上掛標記
+    adminCopy: platform.isLinux ? { ...linuxRootCopy(), method: linuxRoot().method } : null,
     defaultShell: store.DEFAULT_SHELL
   }
 }

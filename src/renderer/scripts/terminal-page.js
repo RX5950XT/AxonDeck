@@ -1,3 +1,4 @@
+import { setAdminCopy, adminCopy } from './terminal-admin-copy.js'
 import { electronAPI, showToast, setChatPaneMode } from './app.js'
 import { terminalStatusLabel, setTerminalStatuses } from './ws-terminal-status.js'
 import { registerTermLinks, oscLinkHandler } from './term-links.js'
@@ -151,6 +152,8 @@ function pushTabState(id) {
     state: viewOf(item),
     stateLabel: stateLabel(item),
     admin: Boolean(item.admin),
+    // Linux 的 root 分頁要看得出來（Windows 沒有 badge，維持原樣）
+    badge: item.admin ? adminCopy().badge : '',
     // 前景 shell 報到哪就顯示哪（OSC 7）；沒報過才退回開起來時的那個目錄
     cwd: item.liveCwd || item.cwd || '',
     split: isTerminalSplit(id),
@@ -1036,13 +1039,22 @@ function fillCatalogSelects() {
     presetSelect.appendChild(option)
   }
 
-  // Linux 沒有管理員終端機（ConPTY／UAC）；藏起勾選避免誤會
+  // 沒有提權工具（Linux 沒 sudo／run0／pkexec）就藏起勾選；Linux 的字改叫 root
   const adminRow = adminInput?.closest('label') || adminInput?.parentElement
   if (adminInput) {
     const showAdmin = catalog.supportsAdmin !== false
     adminInput.disabled = !showAdmin
     adminInput.checked = false
     if (adminRow) adminRow.hidden = !showAdmin
+    if (catalog.adminCopy) {
+      const text = adminRow?.querySelector('span')
+      if (text) text.textContent = adminCopy().dialog
+      const hint = adminRow?.parentElement?.querySelector('.setting-hint')
+      if (hint) {
+        hint.textContent = adminCopy().hint
+        hint.hidden = !showAdmin
+      }
+    }
   }
 }
 
@@ -1292,6 +1304,7 @@ export function initTerminalPage() {
       // 字級要在第一個分頁開起來之前讀好，不然會先用預設值畫一次再跳大小
       applyFontSize(await electronAPI.store.get('termFontSize', FONT_DEFAULT), false)
       catalog = await call(electronAPI.terminal.catalog(), '讀取設定失敗')
+      setAdminCopy(catalog)
       cwdInput.value = catalog.homeDir || ''
       await reloadList()
       await restorePreviousTerminals()

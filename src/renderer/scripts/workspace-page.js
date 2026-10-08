@@ -1,3 +1,4 @@
+import { adminCopy } from './terminal-admin-copy.js'
 import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { createListReorder } from './list-reorder.js'
 import { askConfirm, askInput, showAlert } from './app-dialog.js'
@@ -357,7 +358,7 @@ function startRename(row, item) {
 function showProjectMenu(at, row, item) {
   showMenu(at, [
     { label: '在此開啟終端機', onSelect: () => void launchProjectTerminal(item, false) },
-    { label: '以管理員身分開啟終端機', onSelect: () => void launchProjectTerminal(item, true) },
+    ...(adminCopy().supported ? [{ label: adminCopy().context, onSelect: () => void launchProjectTerminal(item, true) }] : []),
     { label: '重新命名', onSelect: () => startRename(row, item) },
     {
       label: '從清單移除…',

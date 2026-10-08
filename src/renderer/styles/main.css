@@ -2438,6 +2438,17 @@ option:disabled:checked {
   font-weight: 600;
 }
 
+.ws-tab-root {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #c62828;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+}
 .ws-tab-label {
   min-width: 0;
   white-space: nowrap;

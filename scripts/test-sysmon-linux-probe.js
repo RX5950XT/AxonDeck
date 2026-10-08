@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict')
 const metrics = require('../src/main/sysmon/metrics')
 const probe = require('../src/main/sysmon/linux-probe')
+const { tempDir } = require('./lib/test-temp')
 
 if (process.platform !== 'linux') {
   console.log('SKIP sysmon linux-probe（非 Linux）')
@@ -69,4 +70,35 @@ if (process.platform !== 'linux') {
       console.log('PASS linux-probe tick／static／假 child 協定')
     }, 50)
   }, 20)
+}
+
+{
+  // GPU：這台可能沒有顯示卡，但靜態清單必須結束（platform=linux），不能讓 UI 永遠「偵測中」
+  const st = metrics.parseStatic(probe.collectStaticRows())
+  assert.equal(st.platform, 'linux')
+  assert.ok(Array.isArray(st.gpus))
+  // 假 PCI 樹：一張 Intel VGA
+  const tmp = tempDir('axd-gpu-')
+  const slot = '0000:00:02.0'
+  const pci = require('path').join(tmp, 'sys/bus/pci/devices', slot)
+  const drm = require('path').join(tmp, 'sys/class/drm/card0')
+  require('fs').mkdirSync(pci, { recursive: true })
+  require('fs').mkdirSync(drm, { recursive: true })
+  require('fs').writeFileSync(require('path').join(pci, 'class'), '0x030000\n')
+  require('fs').writeFileSync(require('path').join(pci, 'vendor'), '0x8086\n')
+  require('fs').writeFileSync(require('path').join(pci, 'device'), '0x46a6\n')
+  require('fs').symlinkSync(pci, require('path').join(drm, 'device'))
+  const fakeExec = (cmd, args) => {
+    if (cmd === 'lspci') return '"VGA compatible controller [0300]" "Intel Corporation [8086]" "Alder Lake-P GT2 [46a6]" "-"\n'
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+  }
+  const rows = probe.drmGpuRows({ root: tmp, execFn: fakeExec })
+  assert.equal(rows.length, 1)
+  assert.match(rows[0], /^GPU\|Intel Corporation Alder Lake-P GT2\|/)
+  assert.match(rows[0], /sysfs（\/sys\/class\/drm）＋lspci$/)
+  const parsed = metrics.parseStatic(rows)
+  assert.equal(parsed.gpus[0].source.includes('sysfs'), true)
+  assert.equal(parsed.gpus[0].mode, 'card0')
+  
+  console.log('PASS GPU：platform=linux、sysfs／lspci 假樹可解析、無顯示卡時 gpus=[]（UI 顯示「未偵測到」）')
 }

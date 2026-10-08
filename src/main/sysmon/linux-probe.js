@@ -262,18 +262,25 @@ function nicStaticRows() {
   return rows
 }
 
-function nvidiaStaticRows() {
+/** PCI vendor id → 顯示名稱（沒有 lspci／pci.ids 時的退路） */
+const PCI_VENDORS = Object.freeze({
+  '10de': 'NVIDIA', '1002': 'AMD', '1022': 'AMD', '8086': 'Intel', '1af4': 'Red Hat Virtio', '1b36': 'Red Hat QXL',
+  '1234': 'QEMU（Bochs）', '15ad': 'VMware', '80ee': 'VirtualBox', '1414': 'Microsoft Hyper-V', '1a03': 'ASPEED', '102b': 'Matrox', '5143': 'Qualcomm'
+})
+
+function nvidiaStaticRows(execFn = execFileSync) {
   try {
-    const out = execFileSync('nvidia-smi', [
-      '--query-gpu=name,memory.total,driver_version',
+    const out = execFn('nvidia-smi', [
+      '--query-gpu=name,memory.total,driver_version,pci.bus_id',
       '--format=csv,noheader,nounits'
     ], { encoding: 'utf8', timeout: 3000, windowsHide: true })
     const rows = []
-    for (const line of out.split('\n')) {
+    for (const line of String(out).split('\n')) {
       if (!line.trim()) continue
-      const [name, memMiB, driver] = line.split(',').map((s) => s.trim())
+      const [name, memMiB, driver, busId] = line.split(',').map((s) => s.trim())
       const vram = (Number(memMiB) || 0) * 1024 * 1024
-      rows.push(`GPU|${esc(name)}|${vram}|${esc(driver)}|||||||${vram}`)
+      // GPU|name|adapterRam|driver|mode|driverDate|w|h|Hz|processor|pnpId|vram|source
+      rows.push(`GPU|${esc(name)}|${vram}|${esc(driver)}||||||NVIDIA|${esc(String(busId || '').toLowerCase())}|${vram}|nvidia-smi`)
     }
     return rows
   } catch {
@@ -281,8 +288,74 @@ function nvidiaStaticRows() {
   }
 }
 
-function collectStaticRows() {
+/** `lspci -mm -nn -s <slot>`：`00:02.0 "VGA compatible controller [0300]" "Intel Corporation [8086]" "Alder Lake-P GT2 [46a6]" ...` */
+function parseLspciName(text) {
+  const fields = [...String(text || '').matchAll(/"([^"]*)"/g)].map((m) => m[1].replace(/\s*\[[0-9a-f]{4}\]$/i, '').trim())
+  if (fields.length < 3) return ''
+  return [fields[1], fields[2]].filter(Boolean).join(' ')
+}
+
+/**
+ * PCI 顯示控制器（class 0x03xxxx）＋ /sys/class/drm 的 card*；有 lspci 就拿它的型號名稱。
+ * NVIDIA 卡已經由 nvidia-smi 列過就不重複。
+ * @param {{ root?: string, execFn?: typeof execFileSync, skipNvidia?: boolean }} [opts]
+ */
+function drmGpuRows(opts = {}) {
+  const root = opts.root || ''
+  const execFn = opts.execFn || execFileSync
+  const pciDir = `${root}/sys/bus/pci/devices`
+  const drmDir = `${root}/sys/class/drm`
+  /** PCI 位址 → drm card 名稱 */
+  const cards = new Map()
+  let drmEntries = []
+  try { drmEntries = fs.readdirSync(drmDir) } catch { drmEntries = [] }
+  for (const name of drmEntries) {
+    if (!/^card\d+$/.test(name)) continue
+    try {
+      const target = fs.realpathSync(`${drmDir}/${name}/device`)
+      cards.set(path.basename(target), name)
+    } catch { /* 不是 PCI 卡（例如 simpledrm） */ }
+  }
+  let slots = []
+  try { slots = fs.readdirSync(pciDir) } catch { slots = [] }
+  let hasLspci = true
   const rows = []
+  for (const slot of slots.sort()) {
+    const dev = `${pciDir}/${slot}`
+    const cls = readText(`${dev}/class`).trim().toLowerCase()
+    if (!/^0x03/.test(cls)) continue
+    const vendor = readText(`${dev}/vendor`).trim().toLowerCase().replace(/^0x/, '')
+    const device = readText(`${dev}/device`).trim().toLowerCase().replace(/^0x/, '')
+    if (opts.skipNvidia && vendor === '10de') continue
+    let driver = ''
+    try { driver = path.basename(fs.readlinkSync(`${dev}/driver`)) } catch { driver = '' }
+    let name = ''
+    if (hasLspci) {
+      try {
+        name = parseLspciName(execFn('lspci', ['-mm', '-nn', '-s', slot], { encoding: 'utf8', timeout: 3000 }))
+      } catch (err) {
+        if (err && err.code === 'ENOENT') hasLspci = false
+      }
+    }
+    const vendorName = PCI_VENDORS[vendor] || (vendor ? `PCI ${vendor}` : '')
+    if (!name) name = `${vendorName} 顯示控制器（${vendor}:${device}）`
+    const card = cards.get(slot) || ''
+    // amdgpu 會給 VRAM 總量；其他驅動沒有就留 0
+    const vram = Number(readText(`${dev}/mem_info_vram_total`).trim()) || 0
+    const source = [card ? 'sysfs（/sys/class/drm）' : 'sysfs（PCI）', name && hasLspci && !/顯示控制器（/.test(name) ? 'lspci' : ''].filter(Boolean).join('＋')
+    rows.push(`GPU|${esc(name)}|${vram}|${esc(driver)}|${esc(card)}|||||${esc(vendorName)}|${esc(`${vendor}:${device} @ ${slot}`)}|${vram}|${esc(source)}`)
+  }
+  return rows
+}
+
+function gpuRows(opts = {}) {
+  const nv = nvidiaStaticRows(opts.execFn)
+  return [...nv, ...drmGpuRows({ ...opts, skipNvidia: nv.length > 0 })]
+}
+
+function collectStaticRows() {
+  // PLAT：讓 renderer 分得出 Linux（Windows probe 不送這列 → inv.platform 是 undefined，行為不變）
+  const rows = ['PLAT|linux']
   const rel = osRelease()
   const hostname = os.hostname()
   const totalMemory = os.totalmem()
@@ -294,7 +367,7 @@ function collectStaticRows() {
   rows.push(...physicalDiskRows())
   rows.push(...volumeRows())
   rows.push(...nicStaticRows())
-  rows.push(...nvidiaStaticRows())
+  rows.push(...gpuRows())
   return rows
 }
 
@@ -398,6 +471,8 @@ module.exports = {
   collectTickRows,
   collectStaticRows,
   collectDetailRows,
+  drmGpuRows,
+  parseLspciName,
   handleCommand,
   createLinuxProbeChild,
   frame

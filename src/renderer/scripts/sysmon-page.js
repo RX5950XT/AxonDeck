@@ -992,9 +992,12 @@ function describeBlocks(s, inv) {
   const leftovers = invGpus
     .map((g, i) => ({ g, i }))
     .filter(({ g, i }) => !usedInv.has(i) && !isVirtualGpu(g))
+  // Linux：靜態清單來自 sysfs／lspci，沒有 Windows 的 GPU 計數器 → 使用率未知就顯示「—」，不假裝 0%
+  const linuxInv = inv?.platform === 'linux'
   leftovers.forEach(({ g }, n) => {
     const idx = gpuBlocks.length
     const pct = utilKeys[n] != null ? utilMap[utilKeys[n]] : (utilKeys.length ? Math.max(...utilKeys.map((k) => utilMap[k])) : 0)
+    const utilKnown = !linuxInv || utilKeys.length > 0
     const hw = takeHw(g.name)
     const gpuFanRpm = findFan(sensors, { ...GPU_FAN, name: hw?.n || g.name })
     pushGpu({
@@ -1003,20 +1006,28 @@ function describeBlocks(s, inv) {
       title: (nvCards.length + leftovers.length) > 1 ? `GPU ${idx + 1}` : 'GPU',
       accent: 'var(--success)',
       sub: g.name,
-      value: pct,
-      valueText: `${Math.round(pct)}%`,
-      spark: { key: `gpu${idx}`, value: pct, max: 100 },
+      value: utilKnown ? pct : null,
+      valueText: utilKnown ? `${Math.round(pct)}%` : DASH,
+      spark: utilKnown ? { key: `gpu${idx}`, value: pct, max: 100 } : null,
       stats: [
         ['專用記憶體', g.vram ? fmtBytes(g.vram) : DASH],
         ['風扇', gpuFanRpm != null ? `${Math.round(gpuFanRpm)} RPM` : DASH],
-        ['資料來源', nvCards.length ? 'Windows 計數器' : 'Windows 計數器']
+        ['資料來源', g.source || 'Windows 計數器']
       ],
-      viz: {
+      viz: utilKnown ? {
         kind: 'meters',
         label: '即時狀態',
         items: [{ label: '使用率', value: pct, max: 100, text: `${Math.round(pct)}%` }]
-      },
-      specs: [
+      } : null,
+      specs: linuxInv ? [
+        ['名稱', g.name || DASH],
+        ['廠商', g.processor || DASH],
+        ['驅動程式', g.driver || '未載入驅動'],
+        ['DRM 裝置', g.mode ? `/dev/dri/${g.mode}` : DASH],
+        ['PCI ID', g.pnpId || DASH],
+        ['專用記憶體', g.vram ? fmtBytes(g.vram) : DASH],
+        ['資料來源', g.source || DASH]
+      ] : [
         ['名稱', g.name || DASH],
         ['驅動版本', g.driver || DASH],
         ['驅動日期', g.driverDate || DASH],
@@ -1027,7 +1038,29 @@ function describeBlocks(s, inv) {
     })
   })
 
-  if (!gpuBlocks.length) {
+  if (!gpuBlocks.length && linuxInv) {
+    // Linux 清單已經回來、nvidia-smi／sysfs／PCI 都沒有顯示控制器：這是最終狀態，不是「偵測中」
+    pushGpu({
+      id: 'gpu0',
+      span: 2,
+      title: 'GPU',
+      accent: 'var(--success)',
+      sub: '未偵測到 GPU',
+      value: null,
+      valueText: DASH,
+      spark: null,
+      stats: [
+        ['顯示卡', '未偵測到'],
+        ['資料來源', 'sysfs（/sys/class/drm、PCI）']
+      ],
+      viz: null,
+      specs: [
+        ['狀態', '未偵測到顯示卡：/sys/class/drm 沒有顯示卡，PCI 也沒有顯示控制器（class 03），nvidia-smi 不可用'],
+        ['資料來源', 'sysfs（/sys/class/drm、/sys/bus/pci）、lspci、nvidia-smi']
+      ],
+      groups: sensorGroups(sensors, isGpuType, 'GPU ')
+    })
+  } else if (!gpuBlocks.length) {
     const utils = s.gpuAdapterUtil || {}
     const keys = Object.keys(utils)
     const pct = keys.length ? Math.max(...keys.map((k) => utils[k])) : 0

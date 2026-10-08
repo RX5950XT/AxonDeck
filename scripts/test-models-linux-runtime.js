@@ -6,6 +6,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const models = require('../src/main/models')
+const { tempDir } = require('./lib/test-temp')
 
 assert.ok(models.MODELS.llamaruntime, 'llamaruntime 必須存在')
 const files = models.MODELS.llamaruntime.files
@@ -33,7 +34,7 @@ const expand = (() => {
 })()
 
 if (process.platform !== 'win32') {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ad-models-'))
+  const tmp = tempDir('ad-models-')
   const payload = path.join(tmp, 'payload')
   fs.mkdirSync(payload)
   fs.writeFileSync(path.join(payload, 'hello.txt'), 'hi')
@@ -47,7 +48,7 @@ if (process.platform !== 'win32') {
   assert.equal(fs.readFileSync(path.join(dest, 'hello.txt'), 'utf8'), 'hi')
   // 確保 models.js 原始碼在非 win32 沒有無條件呼叫 powershell Expand-Archive
   const srcText = fs.readFileSync(path.join(__dirname, '../src/main/models.js'), 'utf8')
-  assert.ok(srcText.includes("process.platform === 'win32'"))
+  assert.ok(srcText.includes("HOST.platform === 'win32'"))
   assert.ok(srcText.includes("bin-ubuntu-vulkan") || srcText.includes('ubuntu-vulkan'))
   console.log('PASS models Linux runtime 產物與 tar 解壓路徑')
 } else {

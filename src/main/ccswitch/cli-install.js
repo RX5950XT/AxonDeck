@@ -182,6 +182,7 @@ function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOU
     return status(key)
   }
   function run(key) {
+    if (typeof key !== 'string' || !Object.hasOwn(INSTALLERS, key)) return Promise.resolve({ phase: 'failed', code: 'INVALID_TOOL', message: '不支援這個工具' })
     if (process.platform !== 'win32' && spawnImpl === spawn) {
       return Promise.resolve({
         phase: 'failed',
@@ -190,7 +191,6 @@ function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOU
         summary: '請改用官方安裝方式'
       })
     }
-    if (typeof key !== 'string' || !Object.hasOwn(INSTALLERS, key)) return Promise.resolve({ phase: 'failed', code: 'INVALID_TOOL', message: '不支援這個工具' })
     if (tasks.get(key)?.phase === 'running') return Promise.resolve({ ...status(key), code: 'BUSY' })
     tasks.set(key, { phase: 'running', message: '準備中…' })
     return perform(key, Date.now() + timeoutMs)

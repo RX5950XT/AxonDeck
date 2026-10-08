@@ -5,13 +5,14 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const mtpLinux = require('../src/main/explorer/mtp-linux')
+const { tempDir, removeTree } = require('./lib/test-temp')
 
 async function main() {
   assert.equal(mtpLinux.looksLikeMtpMount('mtp:host=%5Busb%3D001%2C005%5D'), true)
   assert.equal(mtpLinux.looksLikeMtpMount('gphoto2:host=Camera'), true)
   assert.equal(mtpLinux.looksLikeMtpMount('smb-share:server=x'), false)
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'axondeck-gvfs-'))
+  const root = tempDir('axondeck-gvfs-')
   const mount = path.join(root, 'mtp:host=Pixel%206a')
   fs.mkdirSync(mount)
 
@@ -29,7 +30,7 @@ async function main() {
 
   if (prev === undefined) delete process.env.XDG_RUNTIME_DIR
   else process.env.XDG_RUNTIME_DIR = prev
-  fs.rmSync(root, { recursive: true, force: true })
+  removeTree(root)
 
   const support = await mtpLinux.supportInfo()
   assert.ok(typeof support.note === 'string' && support.note.length > 10)

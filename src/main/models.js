@@ -24,12 +24,15 @@ const LLAMA_BUILD = 'b10666'
  * check: 有值時以「這些檔案都在」判定已安裝（archive 解壓後檔名跟下載名不同）
  */
 
+/** 執行平台；測試用 vm 沙盒沒有 process 時視為原本的 Windows 行為。 */
+const HOST = (typeof process === 'object' && process) ? process : { platform: 'win32', arch: 'x64' }
+
 /**
  * llama.cpp 官方 release 依平台選產物；非 win32 絕不下 Windows zip。
  * @returns {{ files: string[], check: string[], binary: string, totalBytes: number, labelSuffix: string }}
  */
 function llamaVulkanRuntime() {
-  if (process.platform === 'win32') {
+  if (HOST.platform === 'win32') {
     return {
       labelSuffix: 'Vulkan',
       totalBytes: 34478547,
@@ -38,8 +41,8 @@ function llamaVulkanRuntime() {
       binary: 'llama-server.exe'
     }
   }
-  if (process.platform === 'linux') {
-    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  if (HOST.platform === 'linux') {
+    const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
     return {
       labelSuffix: 'Vulkan',
       totalBytes: 33_000_000,
@@ -49,7 +52,7 @@ function llamaVulkanRuntime() {
     }
   }
   // darwin
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
   return {
     labelSuffix: 'Metal／CPU',
     totalBytes: 11_000_000,
@@ -61,7 +64,7 @@ function llamaVulkanRuntime() {
 
 function llamaCudaRuntime() {
   // CUDA 官方預建目前以 Windows zip 為主；Linux 另有 ubuntu 產物但需本機 CUDA，本輪先僅 win32
-  if (process.platform !== 'win32') return null
+  if (HOST.platform !== 'win32') return null
   return {
     label: `llama.cpp 執行環境 · CUDA 13.3（${LLAMA_BUILD}）`,
     kind: 'runtime',
@@ -282,7 +285,7 @@ function expandArchive(archivePath, destDir) {
     let file
     /** @type {string[]} */
     let args
-    if (process.platform === 'win32') {
+    if (HOST.platform === 'win32') {
       if (!lower.endsWith('.zip')) {
         reject(new Error('Windows 僅支援解壓 .zip'))
         return
@@ -366,7 +369,7 @@ async function download(key, onProgress) {
         await fsp.rm(zipPath, { force: true })
       }
       if (!isDownloaded(key)) throw new Error('解壓完成但缺少必要檔案')
-      if (process.platform !== 'win32' && def.binary) {
+      if (HOST.platform !== 'win32' && def.binary) {
         try { fs.chmodSync(path.join(modelDir(key), def.binary), 0o755) } catch { /* 沒有也無妨 */ }
       }
     }

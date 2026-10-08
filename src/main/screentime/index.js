@@ -25,6 +25,8 @@ const RETRY_MS = 15_000
  */
 function createScreentimeService(deps = {}) {
   const userDataPath = deps.userDataPath
+  /** 測試 vm 沙盒沒有 process 時維持原本 Windows 行為 */
+  const hostPlatform = deps.platform || ((typeof process === 'object' && process) ? process.platform : 'win32')
   const nowFn = deps.now || (() => new Date())
   let db = null
   let importInfo = { imported: false, reason: 'idle', dest: '', source: '' }
@@ -140,7 +142,7 @@ function createScreentimeService(deps = {}) {
     applyConfig()
     running = true
     generation++
-    if (process.platform === 'win32') observer.start()
+    if (hostPlatform === 'win32') observer.start()
     startWeb()
     watchPower()
     return status()
@@ -175,7 +177,7 @@ function createScreentimeService(deps = {}) {
 
   function status() {
     // Linux／macOS：無前景視窗 observer（probe／PowerShell），勿假裝在記錄
-    const supported = process.platform === 'win32'
+    const supported = hostPlatform === 'win32'
     return {
       supported,
       note: supported ? '' : 'Linux 尚未支援前景視窗時長觀測（使用時長圖表不會自動累積）。',

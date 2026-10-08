@@ -5,9 +5,10 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const shellLinux = require('../src/main/explorer/shell-linux')
+const { tempDir, removeTree } = require('./lib/test-temp')
 
 async function main() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'axondeck-shell-linux-'))
+  const dir = tempDir('axondeck-shell-linux-')
   const file = path.join(dir, 'sample.txt')
   fs.writeFileSync(file, 'ok')
 
@@ -33,7 +34,7 @@ async function main() {
   await shell.release(via.token)
   shell.shutdown()
 
-  fs.rmSync(dir, { recursive: true, force: true })
+  removeTree(dir)
   console.log('PASS: Linux 最小殼層選單')
 }
 

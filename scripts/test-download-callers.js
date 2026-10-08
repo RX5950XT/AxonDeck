@@ -51,6 +51,7 @@ async function main() {
     let verified = false
     let cancelled = false
     const uffsContext = { fs, path, AbortController, downloadCtl: null,
+      platform: { isWindows: true, isLinux: false },
       ZIP_NAME: 'uffs.zip', ZIP_URL: 'https://example.test/archive', SUMS_URL: 'https://example.test/CHECKSUMS.txt',
       MAX_ZIP_BYTES: 64 * 1024 * 1024, installDir: () => root,
       fail: (code, message) => Object.assign(new Error(message), { code }),

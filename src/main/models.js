@@ -16,6 +16,12 @@ const { removeTreeSync } = require('./safe-rm')
  * 不需要 CUDA／cuDNN。CUDA 版另外要 239MB＋373MB cudart，先不做第二套。
  */
 const LLAMA_BUILD = 'b10666'
+/**
+ * Linux CUDA 另外 pin：llama.cpp 官方 release 從 b10988（2026-09-15）才開始附 Ubuntu CUDA 產物
+ * （`llama-*-bin-ubuntu-cuda-13.3-<arch>.tar.gz`＋`cudart-llama-*-bin-ubuntu-cuda-13.3-<arch>.tar.gz`），
+ * b10666 只有 Windows CUDA。取第一個有官方 Linux CUDA 的版本，跟 b10666 差最少；Vulkan 仍是 b10666。
+ */
+const LLAMA_BUILD_LINUX_CUDA = 'b10988'
 
 /**
  * 模型 registry
@@ -48,7 +54,9 @@ function llamaVulkanRuntime() {
       totalBytes: 33_000_000,
       files: [`llama-${LLAMA_BUILD}-bin-ubuntu-vulkan-${arch}.tar.gz`],
       check: ['llama-server'],
-      binary: 'llama-server'
+      binary: 'llama-server',
+      // 官方 tar.gz 外面包一層 `llama-bXXXX/`；不剝掉 llama-server 會落在子資料夾、判定成「缺少必要檔案」
+      stripComponents: 1
     }
   }
   // darwin
@@ -63,7 +71,7 @@ function llamaVulkanRuntime() {
 }
 
 function llamaCudaRuntime() {
-  // CUDA 官方預建目前以 Windows zip 為主；Linux 另有 ubuntu 產物但需本機 CUDA，本輪先僅 win32
+  if (HOST.platform === 'linux') return llamaCudaRuntimeLinux()
   if (HOST.platform !== 'win32') return null
   return {
     label: `llama.cpp 執行環境 · CUDA 13.3（${LLAMA_BUILD}）`,
@@ -77,6 +85,30 @@ function llamaCudaRuntime() {
     archive: true,
     check: ['llama-server.exe', 'ggml-cuda.dll'],
     binary: 'llama-server.exe'
+  }
+}
+
+/**
+ * Linux CUDA：llama 那包＋cudart 那包（libcudart／libcublas／libcublasLt）解到同一層。
+ * `llama-server` 與 `libggml-cuda.so` 的 RUNPATH 是 `$ORIGIN`，不用設 LD_LIBRARY_PATH；
+ * `libcuda.so.1` 來自 NVIDIA 驅動（≥ 580，CUDA 13.x）。沒有驅動時 CUDA 後端載不起來，llama 退回 CPU。
+ */
+function llamaCudaRuntimeLinux() {
+  const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
+  const sizes = arch === 'arm64' ? 145_000_065 + 518_393_301 : 149_162_456 + 410_248_850
+  return {
+    label: `llama.cpp 執行環境 · CUDA 13.3（${LLAMA_BUILD_LINUX_CUDA}）`,
+    kind: 'runtime',
+    totalBytes: sizes,
+    base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD_LINUX_CUDA}/`,
+    files: [
+      `llama-${LLAMA_BUILD_LINUX_CUDA}-bin-ubuntu-cuda-13.3-${arch}.tar.gz`,
+      `cudart-llama-${LLAMA_BUILD_LINUX_CUDA}-bin-ubuntu-cuda-13.3-${arch}.tar.gz`
+    ],
+    archive: true,
+    stripComponents: 1,
+    check: ['llama-server', 'libggml-cuda.so', 'libcudart.so.13'],
+    binary: 'llama-server'
   }
 }
 
@@ -131,7 +163,8 @@ const MODELS = {
     files: _llamaVulkan.files,
     archive: true,
     check: _llamaVulkan.check,
-    binary: _llamaVulkan.binary
+    binary: _llamaVulkan.binary,
+    ...(_llamaVulkan.stripComponents ? { stripComponents: _llamaVulkan.stripComponents } : {})
   },
   /** 微調：繁中／英文／日文三語翻譯（v5e Q4_K_M） */
   linguaforge08q4: {
@@ -278,7 +311,7 @@ function psQuote(s) {
  * @param {string} destDir
  * @returns {Promise<void>}
  */
-function expandArchive(archivePath, destDir) {
+function expandArchive(archivePath, destDir, options = {}) {
   return new Promise((resolve, reject) => {
     const lower = String(archivePath).toLowerCase()
     /** @type {string} */
@@ -298,6 +331,8 @@ function expandArchive(archivePath, destDir) {
     } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
       file = 'tar'
       args = ['-xzf', archivePath, '-C', destDir]
+      const strip = Number(options.stripComponents) || 0
+      if (strip > 0) args.push(`--strip-components=${strip}`)
     } else if (lower.endsWith('.zip')) {
       file = 'unzip'
       args = ['-o', archivePath, '-d', destDir]
@@ -365,7 +400,7 @@ async function download(key, onProgress) {
       onProgress({ key, receivedBytes: def.totalBytes, totalBytes: def.totalBytes, stage: '解壓中…' })
       for (const file of def.files) {
         const zipPath = path.join(modelDir(key), file)
-        await expandArchive(zipPath, modelDir(key))
+        await expandArchive(zipPath, modelDir(key), { stripComponents: def.stripComponents })
         await fsp.rm(zipPath, { force: true })
       }
       if (!isDownloaded(key)) throw new Error('解壓完成但缺少必要檔案')
@@ -440,6 +475,8 @@ module.exports = {
   LLM_MODEL_KEYS,
   ASR_MODEL_KEYS,
   LLAMA_BUILD,
+  LLAMA_BUILD_LINUX_CUDA,
+  expandArchive,
   isLlmKey,
   isAsrKey,
   RETIRED_MODEL_KEYS,

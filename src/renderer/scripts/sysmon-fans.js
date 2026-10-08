@@ -660,6 +660,8 @@ function renderBar(data) {
   }
   const taskBtn = $('fanTaskBtn')
   if (taskBtn) taskBtn.hidden = !(state.taskStatus && !state.taskStatus.installed && state.taskStatus.canInstall)
+  // Linux 的授權按鈕換字（Windows 不帶 label，維持 HTML 原字）
+  if (taskBtn && state.taskStatus?.label) taskBtn.textContent = state.taskStatus.label
 
   const notices = $('fanNotices')
   if (!notices) return
@@ -670,7 +672,9 @@ function renderBar(data) {
   if (data.enabled && !data.available) {
     lines.push(['warn', '感測器沒有連線，風扇交由 BIOS 控制。'])
   }
-  if (state.taskStatus && !state.taskStatus.installed) {
+  if (state.taskStatus?.manual) {
+    if (state.taskStatus.hint) lines.push(['info', state.taskStatus.hint])
+  } else if (state.taskStatus && !state.taskStatus.installed) {
     lines.push(['info', state.taskStatus.canInstall
       ? '建立排程工作可免 UAC、並支援開機接管。'
       : state.taskStatus.reason])
@@ -751,7 +755,9 @@ export function initFanPanel() {
   })
   $('fanTaskBtn')?.addEventListener('click', () => {
     electronAPI.sysmon.fanTaskInstall().then((res) => {
-      if (res?.ok) state.taskStatus = { ...res.data, canInstall: true, reason: '' }
+      if (res?.ok) state.taskStatus = { ...res.data, canInstall: res.data?.manual ? res.data.canInstall : true, reason: '' }
+      // Linux：pkexec 被取消／失敗要講出來，不然按了像沒反應
+      else if (state.taskStatus?.manual) state.taskStatus = { ...state.taskStatus, hint: res?.error?.message || '授權失敗。' }
       poll()
     })
   })

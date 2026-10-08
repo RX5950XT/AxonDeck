@@ -339,5 +339,5 @@ function parseDevices(raw) {
 
 module.exports = {
   THIS_PC, isThisPc, listPlaces, listDrives, driveInfo, parseDriveInfo, isDirSoon,
-  listDevices, parseDevices
+  listDevices, parseDevices, readXdgUserDirs
 }

@@ -1,5 +1,11 @@
 'use strict'
 
+// UFFS CLI（uffs.exe）的參數／生命週期契約只存在於 Windows；Linux 走 plocate／自建索引（test-explorer-linux-index.js）
+if (process.platform !== 'win32') {
+  console.log('SKIP: UFFS CLI 契約只在 Windows 驗')
+  process.exit(0)
+}
+
 const assert = require('node:assert/strict')
 const Module = require('node:module')
 const { EventEmitter } = require('node:events')

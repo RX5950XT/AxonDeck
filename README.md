@@ -296,29 +296,75 @@ npm run electron:build   # NSIS 安裝檔 → dist/
 
 > 打包前先關閉開著的 `dist/win-unpacked/AxonDeck.exe`，否則檔案被佔用會失敗。
 
-### Linux（AppImage）
+### Linux（AppImage／deb／rpm，x64 與 arm64）
 
 ```bash
-npm run electron:build:linux   # AppImage → dist/AxonDeck-<版號>-linux-x86_64.AppImage＋dist/latest-linux.yml
-npm run release:linux          # 打包後附加到同版號的 GitHub Release（只傳上面兩個檔）
+npm run electron:build:linux   # 本機架構的 AppImage＋deb＋rpm＋更新清單（不交叉編譯）
+npm run electron:pack:linux    # 只打 AppImage（比較快）
+npm run release:linux          # 打包 →（有金鑰就簽章）→ 檢查 → 附加到同版號的 GitHub Release
 npm run release:linux -- --dry-run     # 只列出會做什麼
 npm run release:linux -- --skip-build  # 用 dist/ 現成產物
+node scripts/check-linux-artifacts.js --arch x64 --version <版號>   # 只檢查產物
 ```
+
+| 架構 | AppImage | deb（Debian／Ubuntu） | rpm（Fedora／openSUSE） | 更新清單 |
+| --- | --- | --- | --- | --- |
+| x64 | `AxonDeck-<版號>-linux-x86_64.AppImage` | `AxonDeck-<版號>-linux-amd64.deb` | `AxonDeck-<版號>-linux-x86_64.rpm` | `latest-linux.yml` |
+| arm64 | `AxonDeck-<版號>-linux-arm64.AppImage` | `AxonDeck-<版號>-linux-arm64.deb` | `AxonDeck-<版號>-linux-aarch64.rpm` | `latest-linux-arm64.yml` |
+
+安裝：`sudo apt install ./AxonDeck-…-amd64.deb`、`sudo dnf install ./AxonDeck-…-x86_64.rpm`（openSUSE 用 `zypper install`）。套件裝到 `/opt/AxonDeck`，`/usr/bin/axondeck` 指過去，附 desktop entry（`axondeck.desktop`）與 256px 圖示；相依包含 GTK3、NSS、libsecret（金鑰圈存 API 金鑰）、ALSA、libgbm 等，建議安裝 gvfs（資源回收筒／網路位置）、gnome-keyring 或 KWallet、pkexec（App 內套用更新）。
+
+自動更新依安裝方式：
+- **AppImage**：照舊下載後替換、重新啟動。
+- **deb／rpm**：有 `pkexec`（或 kdesudo／gksudo）時自動下載，按「重新啟動並安裝」會跳系統密碼視窗，用 dpkg／apt 或 dnf／zypper／rpm 安裝；結束 App 時不會自己跳密碼框。沒有圖形化提權工具時改成**手動**：只通知新版本，按鈕變成「前往下載頁」開 GitHub Release，並提示要下載哪個檔、用什麼指令裝。
+- **目錄版**（`linux-unpacked`）：一律手動。
 
 發行時 Linux 資產有兩條路，擇一即可，都只「附加」到既有 Release，不建 Release、不動 Windows 的 `.exe`／`latest.yml`：
 
-1. **GitHub Actions**（`.github/workflows/release-linux.yml`）：照下方發行流程 `gh release create vX.Y.Z` 之後自動觸發（`release: published`），在 `ubuntu-22.04` 打 AppImage、`gh release upload --clobber`。要補發或重跑：Actions → release-linux → Run workflow，輸入既有 tag。
-2. **本機**：在 Linux 上 `npm run release:linux`（需要已登入的 `gh`）。
+1. **GitHub Actions**（`.github/workflows/release-linux.yml`）：照下方發行流程 `gh release create vX.Y.Z` 之後自動觸發（`release: published`）。x64 在 `ubuntu-22.04`、arm64 在 `ubuntu-24.04-arm` 各自原生打包（原生模組在各自架構上安裝／重編），跑 `check-linux-artifacts.js` 驗檔名、更新清單雜湊、套件架構與每個 `.node` 的 ELF 架構，再 `gh release upload --clobber`。要補發或重跑：Actions → release-linux → Run workflow，輸入既有 tag。
+2. **本機**：在 Linux 上 `npm run release:linux`（需要已登入的 `gh`），只會打、傳本機那個架構。
 
 注意：
 - workflow 會 checkout 該 tag，所以 tag 那個 commit 裡要有這支 workflow 與 Linux 移植的程式碼；`package.json` 版號必須等於 tag（不等會直接失敗）。
 - 不用 tag push 觸發：發行流程是先 push tag、打完 NSIS 才建 Release，tag push 當下 Release 還不存在。
-- 缺 `latest-linux.yml` 時，AppImage 版的自動更新會顯示「沒有附帶更新資訊」。
+- 缺 `latest-linux.yml`（arm64 是 `latest-linux-arm64.yml`）時，自動更新會顯示「沒有附帶更新資訊」。
+- arm64 在 Ubuntu 24.04 上建置（glibc 2.39），所以 arm64 套件需要 Ubuntu 24.04／Debian 13／Fedora 40 這一代以上；x64 在 22.04 上建置（glibc 2.35）。
+- `uiohook-napi` 附的 `linux-arm64` prebuild 其實是 x86-64，所以 arm64 一定要靠打包時在 arm64 上重編出來的 `build/Release`（runner 會裝 X11 開發檔），檢查腳本會擋。
+
+#### Linux 套件簽章（選用）
+
+repo 有設 secret 才簽，沒設就略過、照常上傳（不會失敗）。有設時 workflow 會：
+- rpm 內嵌 GPG 簽章（`rpmsign --addsign`），並同步更新清單裡 rpm 的 sha512／size；
+- AppImage、deb、rpm 各附一個 `.asc` 分離簽章，外加 `SHA256SUMS-linux-<arch>.txt` 與它的 `.asc`；
+- 附上公鑰 `AxonDeck-linux-signing-key.asc`。
+- deb 不做內嵌簽章（`dpkg-sig` 已淘汰、dpkg 預設也不驗），請用 `.asc`／SHA256SUMS 驗證。
+
+設定方式（維護者自己做，金鑰不要放進 repo）：
+
+```bash
+# 1. 產生專用的簽章金鑰（建議只做簽章用途，設好到期日）
+gpg --quick-generate-key "AxonDeck Linux Release <你的信箱>" ed25519 sign 2y
+# 2. 匯出私鑰（ASCII armor），整段貼到 GitHub：Settings → Secrets and variables → Actions → New repository secret
+gpg --armor --export-secret-keys <金鑰指紋> > private.asc   # 內容 → LINUX_SIGNING_KEY；貼完立刻刪掉 private.asc
+#    有設密碼的話再加一個 secret：LINUX_SIGNING_PASSPHRASE（沒密碼就不用設）
+# 也可以用 gh：gh secret set LINUX_SIGNING_KEY < private.asc；gh secret set LINUX_SIGNING_PASSPHRASE
+```
+
+使用者驗證：
+
+```bash
+gpg --import AxonDeck-linux-signing-key.asc
+gpg --verify SHA256SUMS-linux-x64.txt.asc SHA256SUMS-linux-x64.txt && sha256sum -c --ignore-missing SHA256SUMS-linux-x64.txt
+gpg --verify AxonDeck-<版號>-linux-amd64.deb.asc AxonDeck-<版號>-linux-amd64.deb
+sudo rpm --import AxonDeck-linux-signing-key.asc && rpm -K AxonDeck-<版號>-linux-x86_64.rpm   # 要看到 signatures OK
+```
 
 常用驗證：
 
 ```bash
 node scripts/test-usage.js            # 額度合約、bounded I/O、唯讀 SQLite、IPC 邊界
+node scripts/test-linux-packaging.js  # Linux deb／rpm／arm64：更新策略、套件設定、產物檢查、簽章略過
+node scripts/test-release-linux.js    # Linux 發行 workflow（x64／arm64 矩陣、只上傳 Linux 檔）
 node scripts/test-agy-mappers.js      # 反代雙向協議轉換、SSE 信封、schema 清理
 npx electron scripts/e2e-agy.js       # 反代整條鏈（mock cloudcode-pa）
 node scripts/e2e-agy-cdp.js           # 反代頁打包版驗收

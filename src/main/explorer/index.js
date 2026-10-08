@@ -548,6 +548,41 @@ function shellRelease(token) {
   return shellExt.release(token)
 }
 
+function linuxOnly() {
+  if (platform.isWindows) throw paths.fail('UNSUPPORTED', '這個功能只在 Linux 上提供')
+}
+
+/** Linux 右鍵「解壓縮到這裡」遇到同名項目：使用者確認（或取消）之後回來 */
+function linuxShellConfirm(id, accept) {
+  linuxOnly()
+  return require('./shell-linux').confirm(id, accept)
+}
+
+/** Linux 的「內容」視窗：名稱、類型、時間、擁有者、權限、連結目標 */
+function linuxProperties(list) {
+  linuxOnly()
+  return require('./properties-linux').infoMany(list)
+}
+
+/** Linux 的「內容」視窗：遞迴算大小（可取消，進度走 explorer:linuxPropertiesSize） */
+function linuxPropertiesSize(list, token) {
+  linuxOnly()
+  return require('./properties-linux').totalSize(list, token, {
+    onProgress: (info) => emit('explorer:linuxPropertiesSize', info)
+  })
+}
+
+function linuxPropertiesCancel(token) {
+  linuxOnly()
+  return require('./properties-linux').cancelSize(token)
+}
+
+/** Linux 的「內容」視窗改權限（只收 0～7777 八進位） */
+function linuxChmod(target, mode) {
+  linuxOnly()
+  return require('./properties-linux').chmod(target, mode)
+}
+
 function folderSize(dirPath, token) {
   return size.folderSize(dirPath, token, {
     exe: nativeProbe.resolveProbeExe(),
@@ -817,6 +852,11 @@ module.exports = {
   shellMenu,
   shellInvoke,
   shellRelease,
+  linuxShellConfirm,
+  linuxProperties,
+  linuxPropertiesSize,
+  linuxPropertiesCancel,
+  linuxChmod,
   shutdown,
   copyImage,
   setClipboard,

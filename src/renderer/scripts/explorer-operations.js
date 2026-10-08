@@ -7,7 +7,7 @@ const STATUS_TEXT = {
   cancelled: '已取消'
 }
 
-const MODE_TEXT = { copy: '複製', move: '搬移', trash: '刪除' }
+const MODE_TEXT = { copy: '複製', move: '搬移', trash: '刪除', compress: '壓縮', extract: '解壓縮' }
 
 /** 同名時的三種處理，要跟 main 的 `operations.js` 對得起來 */
 const COLLISIONS = new Set(['rename', 'overwrite', 'skip'])

@@ -110,8 +110,12 @@ function makeItems(spec) {
   ))
 }
 
+/** Linux 的壓縮／解壓縮：只有 main 端自己帶 `runner` 函式時才收（IPC 傳不了函式，renderer 不能直接要求） */
+const RUNNER_MODES = new Set(['compress', 'extract'])
+
 function throwBadSpec(spec) {
-  if (!['copy', 'move', 'trash'].includes(spec.mode)) throw paths.fail('BAD_PATH', '操作類型不合法')
+  const runnerMode = RUNNER_MODES.has(spec.mode) && typeof spec.runner === 'function'
+  if (!['copy', 'move', 'trash'].includes(spec.mode) && !runnerMode) throw paths.fail('BAD_PATH', '操作類型不合法')
   if (!Array.isArray(spec.sources) && !Array.isArray(spec.items)) throw paths.fail('BAD_PATH', '路徑不合法')
 }
 
@@ -137,7 +141,8 @@ async function executeItem(state, item, controller) {
     }
   }
   let result
-  if (state.mode === 'copy') result = await files.copyEntry(item.source, item.plannedDestination, opts)
+  if (state.runner) result = await state.runner(item, opts)
+  else if (state.mode === 'copy') result = await files.copyEntry(item.source, item.plannedDestination, opts)
   else if (state.mode === 'move') result = await files.moveEntry(item.source, item.plannedDestination, opts)
   else result = await files.removeEntry(item.source)
   item.destination = result && result.path ? result.path : item.plannedDestination
@@ -176,6 +181,7 @@ async function run(rawSpec) {
     items: makeItems(spec),
     status: 'running',
     onEvent: spec.onEvent,
+    runner: RUNNER_MODES.has(spec.mode) ? spec.runner : null,
     firstError: null
   }
   active.set(state.id, { controller, state, spec })

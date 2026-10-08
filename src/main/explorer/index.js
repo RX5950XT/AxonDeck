@@ -68,7 +68,7 @@ async function bootstrap() {
   const [listed, disks, mtpInfo] = await Promise.all([
     listPlaces(),
     drives.listDrives(),
-    platform.isWindows ? Promise.resolve({ mode: 'windows', note: '', supported: true }) : require('./mtp-linux').supportInfo()
+    platform.isWindows ? Promise.resolve({ mode: 'windows', note: '', supported: true }) : mtp.supportInfo()
   ])
   // 沒存過就落在「本機」首頁（＝Windows 檔案總管的預設畫面）。
   let cwd = state.lastPath || drives.THIS_PC
@@ -93,8 +93,8 @@ function saveState(patch) {
 }
 const listDrives = () => drives.listDrives()
 const driveInfo = () => drives.driveInfo()
-// 手機（MTP）：Windows＝`mtp:`＋COM；Linux＝gvfs 真實路徑（見 mtp-linux）
-const listDevices = () => (platform.isWindows ? mtp.listDevices() : require('./mtp-linux').listDevices())
+// 手機（MTP）：Windows＝`mtp:`＋殼層 COM；Linux＝同一套 `mtp:` 路徑走 gio／jmtpfs（見 mtp-linux）
+const listDevices = () => mtp.listDevices()
 const listDir = async (dirPath, opts) => {
   // 「本機」是虛擬位置，沒有檔案清單（renderer 自己畫首頁）。
   if (drives.isThisPc(dirPath)) {
@@ -563,6 +563,8 @@ function shutdown() {
   size.folderSizeCancel()
   watch.stop()
   shellExt.shutdown()
+  // Linux 退路（jmtpfs／simple-mtpfs）：只卸掉我們自己掛的 FUSE
+  if (platform.isLinux) void mtp.shutdown?.()
   return uffs.shutdown()
 }
 

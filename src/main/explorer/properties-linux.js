@@ -23,6 +23,55 @@ const EXT_MIME = {
   gz: 'application/gzip', tar: 'application/x-tar', mp3: 'audio/mpeg', wav: 'audio/x-wav', mp4: 'video/mp4',
   mkv: 'video/x-matroska', sh: 'application/x-shellscript', py: 'text/x-python'
 }
+/**
+ * 常見 MIME 的中文說明。`gio info` 在 C 語系（這裡固定 LC_ALL=C.UTF-8，輸出才好解析）
+ * 多半不給 standard::description，給了也是英文，所以先查這張表，查不到才用 gio 的說明，
+ * 再查不到用大類（text／image／audio／video）。MIME 仍放在括號裡當次要資訊。
+ */
+const MIME_DESC = {
+  'text/plain': '純文字文件', 'text/markdown': 'Markdown 文件', 'text/html': 'HTML 網頁', 'text/css': 'CSS 樣式表',
+  'text/csv': 'CSV 試算表', 'text/xml': 'XML 文件', 'application/xml': 'XML 文件', 'text/javascript': 'JavaScript 程式碼',
+  'application/javascript': 'JavaScript 程式碼', 'application/json': 'JSON 文件', 'text/x-python': 'Python 程式碼',
+  'text/x-python3': 'Python 程式碼', 'application/x-shellscript': 'Shell 指令稿', 'text/x-shellscript': 'Shell 指令稿',
+  'text/x-csrc': 'C 原始碼', 'text/x-c++src': 'C++ 原始碼', 'text/x-chdr': 'C 標頭檔', 'text/x-java': 'Java 原始碼',
+  'text/rust': 'Rust 原始碼', 'text/x-go': 'Go 原始碼', 'application/x-yaml': 'YAML 文件', 'application/yaml': 'YAML 文件',
+  'application/toml': 'TOML 設定檔', 'text/x-log': '記錄檔',
+  'application/pdf': 'PDF 文件', 'application/zip': 'ZIP 壓縮檔', 'application/x-7z-compressed': '7-Zip 壓縮檔',
+  'application/gzip': 'Gzip 壓縮檔', 'application/x-gzip': 'Gzip 壓縮檔', 'application/x-tar': 'Tar 封存檔',
+  'application/x-compressed-tar': 'Tar 壓縮封存檔（gzip）', 'application/x-xz': 'XZ 壓縮檔', 'application/x-bzip2': 'Bzip2 壓縮檔',
+  'application/vnd.rar': 'RAR 壓縮檔', 'application/x-rar': 'RAR 壓縮檔', 'application/zstd': 'Zstandard 壓縮檔',
+  'application/vnd.debian.binary-package': 'Debian 套件', 'application/x-rpm': 'RPM 套件',
+  'application/x-executable': '可執行檔', 'application/x-pie-executable': '可執行檔', 'application/x-sharedlib': '共用程式庫',
+  'application/x-object': '目的檔', 'application/x-iso9660-image': '光碟映像檔', 'application/vnd.appimage': 'AppImage 應用程式',
+  'application/x-desktop': '桌面捷徑', 'application/octet-stream': '二進位檔案', 'application/x-sqlite3': 'SQLite 資料庫',
+  'application/msword': 'Word 文件', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word 文件',
+  'application/vnd.ms-excel': 'Excel 試算表', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel 試算表',
+  'application/vnd.ms-powerpoint': 'PowerPoint 簡報', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint 簡報',
+  'application/vnd.oasis.opendocument.text': 'OpenDocument 文字文件', 'application/vnd.oasis.opendocument.spreadsheet': 'OpenDocument 試算表',
+  'application/vnd.oasis.opendocument.presentation': 'OpenDocument 簡報',
+  'image/png': 'PNG 圖片', 'image/jpeg': 'JPEG 圖片', 'image/gif': 'GIF 圖片', 'image/webp': 'WebP 圖片', 'image/svg+xml': 'SVG 向量圖',
+  'image/bmp': 'BMP 圖片', 'image/tiff': 'TIFF 圖片', 'image/x-icon': '圖示檔', 'image/vnd.microsoft.icon': '圖示檔', 'image/heic': 'HEIC 圖片', 'image/avif': 'AVIF 圖片',
+  'audio/mpeg': 'MP3 音訊', 'audio/x-wav': 'WAV 音訊', 'audio/wav': 'WAV 音訊', 'audio/flac': 'FLAC 音訊', 'audio/ogg': 'Ogg 音訊',
+  'audio/x-ms-wma': 'WMA 音訊', 'audio/aac': 'AAC 音訊', 'audio/mp4': 'MPEG-4 音訊', 'audio/x-m4a': 'MPEG-4 音訊', 'audio/opus': 'Opus 音訊',
+  'video/mp4': 'MP4 影片', 'video/x-matroska': 'MKV 影片', 'video/webm': 'WebM 影片', 'video/x-msvideo': 'AVI 影片',
+  'video/quicktime': 'QuickTime 影片', 'video/x-ms-wmv': 'WMV 影片', 'video/mpeg': 'MPEG 影片',
+  'font/ttf': 'TrueType 字型', 'font/otf': 'OpenType 字型', 'font/woff2': 'WOFF2 網頁字型',
+  'inode/directory': '資料夾', 'inode/symlink': '符號連結', 'inode/x-empty': '空白檔案', 'application/x-zerosize': '空白檔案'
+}
+const MIME_MAJOR = { text: '文字檔', image: '圖片', audio: '音訊', video: '影片', font: '字型' }
+
+/**
+ * MIME → 給人看的說明（中文表 → gio 的說明 → 大類 → ''）
+ * @param {string} mime @param {string} [gioDescription]
+ */
+function describeMime(mime, gioDescription = '') {
+  const m = String(mime || '').toLowerCase()
+  if (MIME_DESC[m]) return MIME_DESC[m]
+  if (gioDescription) return gioDescription
+  const major = m.split('/')[0]
+  return MIME_MAJOR[major] || ''
+}
+
 /** 進行中的資料夾大小計算：token → { cancelled } */
 const sizeJobs = new Map()
 
@@ -116,7 +165,7 @@ async function info(target) {
     linkTarget,
     linkBroken,
     mime: kind.mime,
-    description: kind.description || (st.isDirectory() ? '資料夾' : isLink && linkBroken ? '損壞的連結' : ''),
+    description: isLink && linkBroken ? '損壞的連結' : (describeMime(kind.mime, kind.description) || (st.isDirectory() ? '資料夾' : '')),
     size: st.isDirectory() ? null : lst.isSymbolicLink() && linkBroken ? lst.size : st.size,
     created: iso(lst.birthtime),
     modified: iso(lst.mtime),
@@ -219,4 +268,4 @@ function cancelSize(token) {
   return true
 }
 
-module.exports = { info, infoMany, chmod, totalSize, cancelSize, modeString, parseGioInfo, mimeOf }
+module.exports = { info, infoMany, chmod, totalSize, cancelSize, modeString, parseGioInfo, mimeOf, describeMime }

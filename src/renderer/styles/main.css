@@ -13886,6 +13886,12 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   flex-wrap: wrap;
 }
 
+.lx-props-secondary {
+  color: var(--text-secondary, #9aa0a6);
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
 .lx-props-section {
   margin: 16px 0 8px;
   font-weight: 600;

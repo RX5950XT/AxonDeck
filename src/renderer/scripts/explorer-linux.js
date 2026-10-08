@@ -219,7 +219,12 @@ function fillBody(body, items, ctx, cleanups, refresh) {
   const grid = el('div', 'lx-props-grid')
   if (single) {
     row(grid, '名稱', single.name)
-    row(grid, '類型', single.description ? `${single.description}（${single.mime}）` : single.mime)
+    // 主要文字是說明（純文字文件），MIME 放次要樣式；沒有說明才直接顯示 MIME
+    const typeCell = row(grid, '類型', single.description || single.mime)
+    if (single.description && single.mime) {
+      typeCell.title = `${single.description}（${single.mime}）`
+      typeCell.append(el('span', 'lx-props-secondary', single.mime))
+    }
     if (single.isLink) row(grid, '連結目標', single.linkBroken ? `${single.linkTarget}（找不到目標）` : single.linkTarget)
   } else {
     row(grid, '項目', `${items.length} 個（${items.filter((i) => i.isDir).length} 個資料夾）`)

@@ -296,6 +296,30 @@ npm run electron:build   # NSIS 安裝檔 → dist/
 
 > 打包前先關閉開著的 `dist/win-unpacked/AxonDeck.exe`，否則檔案被佔用會失敗。
 
+### Linux（AppImage）
+
+```bash
+npm run electron:build:linux   # AppImage → dist/AxonDeck-<版號>-linux-x86_64.AppImage＋dist/latest-linux.yml
+npm run release:linux          # 打包後附加到同版號的 GitHub Release（只傳上面兩個檔）
+npm run release:linux -- --dry-run     # 只列出會做什麼
+npm run release:linux -- --skip-build  # 用 dist/ 現成產物
+```
+
+發行時 Linux 資產有兩條路，擇一即可，都只「附加」到既有 Release，不建 Release、不動 Windows 的 `.exe`／`latest.yml`：
+
+1. **GitHub Actions**（`ci/github-workflows/release-linux.yml`（啟用時搬到 `.github/workflows/`））：照下方發行流程 `gh release create vX.Y.Z` 之後自動觸發（`release: published`），在 `ubuntu-22.04` 打 AppImage、`gh release upload --clobber`。要補發或重跑：Actions → release-linux → Run workflow，輸入既有 tag。
+2. **本機**：在 Linux 上 `npm run release:linux`（需要已登入的 `gh`）。
+
+注意：
+- **啟用 workflow**：檔案目前放在 `ci/github-workflows/`（推送 `.github/workflows/` 需要帶 `workflow` 權限的 token）。用有權限的帳號執行一次：
+  ```bash
+  gh auth refresh -s workflow
+  git mv ci/github-workflows/release-linux.yml .github/workflows/release-linux.yml && git commit -m "ci: 啟用 Linux 發行 workflow" && git push
+  ```
+- workflow 會 checkout 該 tag，所以 tag 那個 commit 裡要有這支 workflow 與 Linux 移植的程式碼；`package.json` 版號必須等於 tag（不等會直接失敗）。
+- 不用 tag push 觸發：發行流程是先 push tag、打完 NSIS 才建 Release，tag push 當下 Release 還不存在。
+- 缺 `latest-linux.yml` 時，AppImage 版的自動更新會顯示「沒有附帶更新資訊」。
+
 常用驗證：
 
 ```bash

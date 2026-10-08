@@ -1,0 +1,94 @@
+# Linux AppImage 發行：在 ubuntu 上打 AppImage，把 .AppImage 與 latest-linux.yml 附加到「同名 tag」的 GitHub Release。
+#
+# 觸發：
+#   - release published：照 AGENTS.md 發行流程 `gh release create vX.Y.Z` 之後自動跑（Windows 資產照舊在本機上傳）。
+#   - workflow_dispatch：手動補發／重跑，輸入既有 tag（例如 v1.43.0）。
+# 不用 tag push 觸發：發行流程是先 push tag、打完 NSIS 才 `gh release create`，tag push 時 Release 還不存在。
+#
+# 啟用：這份要放在 .github/workflows/ 才會生效。推送 workflow 檔需要帶 `workflow` 權限的 token
+#   （gh auth refresh -s workflow），所以先放在 ci/github-workflows/；啟用時
+#   git mv ci/github-workflows/release-linux.yml .github/workflows/release-linux.yml
+#
+# 只上傳 Linux 兩個檔（--clobber 只覆蓋同名檔），不動 .exe／.blockmap／latest.yml；Release 不存在就失敗、不自己建。
+name: release-linux
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要附加 Linux 資產的既有 Release tag（例如 v1.43.0）
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-linux-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  appimage:
+    # 22.04：glibc 2.35，AppImage 在較舊發行版也跑得起來
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: 檢查 tag 格式與 Release 是否存在
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag 格式不對：$TAG（要 vX.Y.Z）"; exit 1
+          fi
+          gh release view "$TAG" --json tagName,isDraft -q '.tagName' >/dev/null \
+            || { echo "::error::找不到 Release $TAG；先照 AGENTS.md 發行流程 gh release create"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: package.json 版本要等於 tag
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          [ "v$VERSION" = "$TAG" ] || { echo "::error::package.json 是 $VERSION，tag 是 $TAG"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安裝相依
+        run: npm ci
+
+      - name: 打 AppImage（不發佈，上傳交給下一步）
+        run: npm run electron:build:linux
+
+      - name: 確認產物
+        run: |
+          VERSION="${TAG#v}"
+          test -f "dist/AxonDeck-${VERSION}-linux-x86_64.AppImage"
+          grep -q "^version: ${VERSION}$" dist/latest-linux.yml
+          ls -la dist/*.AppImage dist/latest-linux.yml
+
+      - name: 附加到 Release（只動 Linux 資產）
+        run: |
+          VERSION="${TAG#v}"
+          gh release upload "$TAG" \
+            "dist/AxonDeck-${VERSION}-linux-x86_64.AppImage" \
+            dist/latest-linux.yml \
+            --clobber
+
+      - name: 失敗時保留產物
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axondeck-linux-${{ env.TAG }}
+          path: |
+            dist/*.AppImage
+            dist/latest-linux.yml
+          if-no-files-found: ignore
+          retention-days: 7

@@ -2704,7 +2704,8 @@ async function enableSensors() {
   showSensorNote({ state: 'starting', message: '正在啟用完整感測器（第一次要 UAC，之後不用）…' })
   try {
     const task = await electronAPI.sysmon.fanTaskStatus().catch(() => null)
-    if (task?.ok && task.data?.canInstall && (!task.data.installed || task.data.stale)) {
+    // `manual`（Linux 的 udev 授權）只在使用者按風扇頁的按鈕時才裝，進頁不自動跳密碼框
+    if (task?.ok && task.data?.canInstall && !task.data.manual && (!task.data.installed || task.data.stale)) {
       await electronAPI.sysmon.fanTaskInstall().catch(() => null)
     }
     const res = await electronAPI.sysmon.enableSensors()

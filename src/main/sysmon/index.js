@@ -16,6 +16,7 @@ const { createSampler, INTERVALS } = require('./sampler')
 const { createGpuFeed } = require('./gpu')
 const { runDiskBench, cancelDiskBench, clampSizeMb } = require('./bench')
 const { createSensorBridge, PAWNIO_URL } = require('./sensors')
+const { createLinuxSensorBridge } = require('./sensors-linux')
 const { createStressRunner } = require('./stress')
 const { createFanEngine } = require('./fans')
 const { createOcEngine } = require('./oc')
@@ -130,7 +131,11 @@ function createSysmonService(deps = {}) {
   const spawnFn = deps.spawnFn || spawn
   const sampler = createSampler(deps.samplerDeps)
   const gpu = createGpuFeed(deps.gpuDeps)
-  const sensors = createSensorBridge(deps.sensorDeps)
+  // Linux：hwmon／thermal 免權限直讀，介面同 sidecar 橋接（測試注入 supportsWinNative 時仍走管道版）
+  const useLinuxSensors = process.platform === 'linux' && deps.sensorDeps?.supportsWinNative !== true
+  const sensors = useLinuxSensors
+    ? createLinuxSensorBridge({ ...deps.sensorDeps, readGpuCards: () => gpu.read().cards || [] })
+    : createSensorBridge(deps.sensorDeps)
   const icons = createProcessIcons(deps.iconDeps)
   const stress = createStressRunner()
   const fans = createFanEngine({ sensors })

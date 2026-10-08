@@ -40,6 +40,61 @@ function spec(dl, rows) {
   }
 }
 
+/** 複製鈕：先走 main（沒焦點也寫得進去），不行才退回 renderer 那條 */
+async function copyText(text, button) {
+  if (!text) return
+  try {
+    const result = await electronAPI?.terminal?.clipboardWrite?.(text)
+    if (result?.ok) { flashCopied(button); return }
+  } catch { /* 退回 renderer 那條 */ }
+  try {
+    await navigator.clipboard.writeText(text)
+    flashCopied(button)
+  } catch { /* 剪貼簿拒絕就不打擾使用者 */ }
+}
+
+function flashCopied(button) {
+  if (!button) return
+  const prev = button.textContent
+  button.textContent = '已複製'
+  button.disabled = true
+  setTimeout(() => { button.textContent = prev; button.disabled = false }, 1200)
+}
+
+function apiRow(label, text, copyValue) {
+  const group = el('div')
+  group.appendChild(el('dt', '', label))
+  const dd = el('dd', '', text || '—')
+  if (copyValue) {
+    const button = el('button', 'btn btn-secondary btn-sm', '複製')
+    button.type = 'button'
+    button.setAttribute('aria-label', `複製${label}`)
+    button.addEventListener('click', () => void copyText(copyValue, button))
+    dd.appendChild(document.createTextNode(' '))
+    dd.appendChild(button)
+  }
+  group.appendChild(dd)
+  return group
+}
+
+/** 聊天頁連的就是這組位址：執行中才展開，沒跑時收起來不佔位 */
+function renderApi(data) {
+  const dl = $('hfServerSpecs')
+  if (!dl) return
+  if (!data?.running) {
+    dl.classList.add('hidden')
+    dl.replaceChildren()
+    return
+  }
+  dl.classList.remove('hidden')
+  const loaded = (data.models || []).find((row) => row.status === 'loaded')
+  dl.replaceChildren(
+    apiRow('OpenAI', data.openaiBaseUrl, data.openaiBaseUrl),
+    apiRow('Anthropic', data.anthropicBaseUrl, data.anthropicBaseUrl),
+    apiRow('模型', loaded?.id || '—', loaded?.id)
+  )
+}
+
 /** 沒有資料就收起來，避免一排破折號跟旁邊的狀態列講同一件事 */
 function fillSpecs(id, rows) {
   const dl = $(id)
@@ -152,18 +207,16 @@ async function refresh(seq) {
   const data = result?.ok ? result.data : null
   if (!data || !on || seq !== generation) return
 
-  // 跑沒跑、埠號在大按鈕旁邊那一行。這裡只在真的有端點／用量時才展開。
-  fillSpecs('hfServerSpecs', data.running ? [
-    ['OpenAI', data.openaiBaseUrl || '—'],
-    ['Anthropic', data.anthropicBaseUrl || '—']
-  ] : null)
+  // 跑沒跑、埠號在大按鈕旁邊那一行。位址列帶複製（聊天頁連的就是這組）。
+  renderApi(data)
   const m = data.metrics || {}
+  // 有載入模型才有 `/metrics`：速度與 token 數是那顆模型從啟動到現在的累計
   fillSpecs('hfUsageSpecs', data.running && data.metrics ? [
     ['處理中 / 排隊', `${fmtInt(m.requestsProcessing)} / ${fmtInt(m.requestsDeferred)}`],
-    ['生成速度', fmtTps(m.predictedTps)],
-    ['Prompt 速度', fmtTps(m.promptTps)],
-    ['Prompt tokens', fmtInt(m.promptTokens)],
-    ['生成 tokens', fmtInt(m.predictedTokens)]
+    ['預填充速度', fmtTps(m.promptTps)],
+    ['解碼速度', fmtTps(m.predictedTps)],
+    ['輸入 tokens', fmtInt(m.promptTokens)],
+    ['輸出 tokens', fmtInt(m.predictedTokens)]
   ] : null)
   renderOccupancy(data.occupancy)
   renderGpus(data.devices, data.occupancy?.gpus)

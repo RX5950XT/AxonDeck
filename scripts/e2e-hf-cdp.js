@@ -222,19 +222,19 @@ async function main() {
     })()`), 15_000, 'HF模型頁')
     assert(structure.order.includes('hfmodels'), 'nav 有 HF模型分頁', JSON.stringify(structure.order))
     assert(
-      JSON.stringify(structure.subtabs) === JSON.stringify(['discover', 'recommend', 'runtime']),
-      '三個子分頁：探索／推薦／執行環境',
+      JSON.stringify(structure.subtabs) === JSON.stringify(['runtime', 'recommend', 'discover']),
+      '三個子分頁：執行環境／推薦／探索',
       JSON.stringify(structure.subtabs)
     )
     assert(
-      structure.activePanels.length === 1 && structure.activePanels[0] === 'hf-discover',
+      structure.activePanels.length === 1 && structure.activePanels[0] === 'hf-runtime',
       '同時只有一個子分頁 active（兩個一起 active 會疊在一起）',
       JSON.stringify(structure.activePanels)
     )
 
     // 頂層面板要是 12px radius ＋ blur 的 glass（跟 e2e-visual-cdp 的 SIGNATURES 同一條規矩）
     const glass = await cdp.eval(`(() => {
-      const el = document.querySelector('#page-hfmodels .hf-panel')
+      const el = document.querySelector('#page-hfmodels .subtab-panel.active .hf-panel')
       if (!el) return null
       const s = getComputedStyle(el)
       return {
@@ -255,10 +255,12 @@ async function main() {
       const rows = [...document.querySelectorAll('#hf-recommend .model-item')]
       if (rows.length !== 4 || !rows.every((r) => r.offsetHeight > 0)) return null
       return { keys: rows.map((r) => r.dataset.key), groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((r) => r.textContent),
+        labels: rows.map((r) => r.querySelector('.model-name')?.textContent),
         actions: rows.every((r) => r.querySelector('.model-actions button')?.offsetHeight > 0),
         legacySettings: !!document.getElementById('set-local') }
     })()`), 15_000, '四顆推薦模型')
     assert(JSON.stringify(recommend.keys) === JSON.stringify(['qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b']), '推薦正好 ASR 兩顆、翻譯兩顆', JSON.stringify(recommend))
+    assert(recommend.labels.every((label) => label && !/[（(](?:CPU|GPU)[）)]/.test(label)), '推薦模型名稱沒有 CPU／GPU 標籤')
     assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
     assert(JSON.stringify(recommend.groups) === JSON.stringify(['語音辨識', '翻譯']), '執行環境不混進推薦模型')
     const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')

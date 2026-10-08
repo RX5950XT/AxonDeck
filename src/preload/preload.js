@@ -421,11 +421,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 本機轉換閘道的狀態（回傳不含任何上游 token） */
     gatewayStatus: () => ipcRenderer.invoke('ccswitch:gatewayStatus'),
 
-    listMcp: () => ipcRenderer.invoke('ccswitch:listMcp'),
-    /** @param {string} id @param {object} spec @param {boolean} enabled */
-    saveMcp: (id, spec, enabled) => ipcRenderer.invoke('ccswitch:saveMcp', id, spec, enabled),
-    toggleMcp: (id, enabled) => ipcRenderer.invoke('ccswitch:toggleMcp', id, enabled),
-    deleteMcp: (id) => ipcRenderer.invoke('ccswitch:deleteMcp', id),
+    mcpHomes: () => ipcRenderer.invoke('ccswitch:mcpHomes'),
+    /** @param {string} [home] 不帶視同 claude */
+    listMcp: (home) => ipcRenderer.invoke('ccswitch:listMcp', home),
+    /** @param {string} home @param {string} id @param {object} spec @param {boolean} enabled */
+    saveMcp: (home, id, spec, enabled) => ipcRenderer.invoke('ccswitch:saveMcp', home, id, spec, enabled),
+    toggleMcp: (home, id, enabled) => ipcRenderer.invoke('ccswitch:toggleMcp', home, id, enabled),
+    deleteMcp: (home, id) => ipcRenderer.invoke('ccswitch:deleteMcp', home, id),
+
+    skillHomes: () => ipcRenderer.invoke('ccswitch:skillHomes'),
+    /** @param {string} home */
+    listSkills: (home) => ipcRenderer.invoke('ccswitch:listSkills', home),
+    setSkillEnabled: (home, name, enabled) => ipcRenderer.invoke('ccswitch:setSkillEnabled', home, name, enabled),
+    memoryFiles: (home) => ipcRenderer.invoke('ccswitch:memoryFiles', home),
+    readMemory: (home, file) => ipcRenderer.invoke('ccswitch:readMemory', home, file),
+    writeMemory: (home, file, content) => ipcRenderer.invoke('ccswitch:writeMemory', home, file, content),
 
     /** 在本 App 登入的 ChatGPT／xAI 帳號清單（**不含任何 token**） */
     listAccounts: () => ipcRenderer.invoke('ccswitch:listAccounts'),
@@ -746,6 +756,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     shellMenu: (spec) => ipcRenderer.invoke('explorer:shellMenu', spec),
     shellInvoke: (token, cmd, dir) => ipcRenderer.invoke('explorer:shellInvoke', token, cmd, dir),
     shellRelease: (token) => ipcRenderer.invoke('explorer:shellRelease', token),
+    copyImage: (filePath) => ipcRenderer.invoke('explorer:copyImage', filePath),
     setClipboard: (items, mode) => ipcRenderer.invoke('explorer:setClipboard', items, mode),
     paste: (toDir) => ipcRenderer.invoke('explorer:paste', toDir),
     dropEntries: (items, toDir, mode) => ipcRenderer.invoke('explorer:dropEntries', items, toDir, mode),

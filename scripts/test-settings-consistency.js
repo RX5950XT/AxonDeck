@@ -89,6 +89,19 @@ async function testBanner() {
 }
 
 async function run() {
+  await check('推薦名稱不綁 CPU／GPU，本地選單不混入執行環境或探索模型', () => {
+    const ctx = vm.createContext({ module: { exports: {} }, require: () => ({}) })
+    vm.runInContext(read('src/main/models.js'), ctx)
+    const { MODELS, ASR_MODEL_KEYS, LLM_MODEL_KEYS } = ctx.module.exports
+    const recommended = [...ASR_MODEL_KEYS, ...LLM_MODEL_KEYS]
+    assert.equal(MODELS.qwen3asr.runtime, 'llama')
+    assert.equal(MODELS.qwen3asr.requires, 'llamaruntime')
+    assert.ok(MODELS.qwen3asr.files.every((file) => file.endsWith('.gguf')))
+    for (const key of recommended) assert.doesNotMatch(MODELS[key].label, /[（(](?:CPU|GPU)[）)]/)
+    picker.modelsMap = { ...MODELS, explored: { label: '探索模型', downloaded: true } }
+    const options = vm.runInContext('[...asrOptions(modelsMap, {}), ...translateOptions(modelsMap, {})].filter((o) => o.value.startsWith("local:"))', picker)
+    assert.deepEqual(Array.from(options, (o) => o.value), recommended.map((key) => `local:${key}`))
+  })
   await check('GPU 門檻只容許 8GB 卡的回報誤差', async () => {
     let memory = 7680
     const ctx = vm.createContext({ module: { exports: {} }, process, require: (id) => {

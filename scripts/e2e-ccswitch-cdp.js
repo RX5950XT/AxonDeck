@@ -948,8 +948,97 @@ async function main() {
       'MCP 彈窗取消關得掉'
     )
 
-    // ===== CLI 版本子分頁（唯讀） =====
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"version\"]').click()")
+    // 四家切換：只讀各家設定檔路徑，不寫使用者家目錄
+    const mcpHomePaths = await cdp.eval(`(async () => {
+      const out = {}
+      for (const btn of document.querySelectorAll('#ccMcpHomes .cc-home-btn')) {
+        btn.click()
+        await new Promise((resolve) => setTimeout(resolve, 800))
+        out[btn.dataset.home] = document.getElementById('ccMcpPath').textContent
+      }
+      return out
+    })()`)
+    assert(mcpHomePaths.claude.includes('.claude.json'), 'MCP 預設是 Claude 家', JSON.stringify(mcpHomePaths))
+    assert(mcpHomePaths.codex.includes('config.toml'), 'Codex 家指到 config.toml', JSON.stringify(mcpHomePaths))
+    assert(mcpHomePaths.grok.includes('config.toml'), 'Grok 家指到 config.toml', JSON.stringify(mcpHomePaths))
+    assert(mcpHomePaths.opencode.includes('opencode.json'), 'OpenCode 家指到 opencode.json', JSON.stringify(mcpHomePaths))
+    await cdp.eval(`(() => {
+      document.querySelector('#ccMcpHomes .cc-home-btn[data-home="claude"]').click()
+    })()`)
+
+    // ===== Skills 與記憶子分頁（唯讀：只看清單與記憶檔按鈕，不寫家目錄） =====
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"skills\"]').click()")
+    assert(
+      await cdp.eval("document.getElementById('cc-skills').classList.contains('active')"),
+      'Skills 子分頁切得過去'
+    )
+    const skillHomeCount = await waitFor(
+      () => cdp.eval(`(() => {
+        const btns = document.querySelectorAll('#ccSkillHomes .cc-home-btn')
+        return btns.length === 5 ? btns.length : null
+      })()`),
+      10_000,
+      'Skills 五家切換器'
+    )
+    assert(skillHomeCount === 5, 'Skills 有五家切換器')
+    const memFileCount = await cdp.eval("document.querySelectorAll('#ccMemoryFiles .cc-home-btn').length")
+    assert(memFileCount >= 1, '記憶檔按鈕有列出來', `files=${memFileCount}`)
+    assert(
+      await cdp.eval("document.getElementById('ccMemoryEdit') !== null"),
+      '記憶檔編輯框在'
+    )
+    // 全域記憶在上、Skills 在下
+    assert(
+      await cdp.eval(`(() => {
+        const panel = document.getElementById('cc-skills')
+        const pos = document.getElementById('ccMemoryPanel').compareDocumentPosition(document.querySelector('#cc-skills .cc-panel:last-child'))
+        return (pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 && panel.children[0].id === 'ccMemoryPanel'
+      })()`),
+      '全域記憶在上、Skills 在下'
+    )
+    // 兩顆「開資料夾」都在
+    assert(
+      await cdp.eval("document.getElementById('ccSkillOpenBtn') !== null && document.getElementById('ccMemoryOpenBtn') !== null"),
+      'Skills 與記憶都有開資料夾鈕'
+    )
+    // Skills 開資料夾 → 檔案頁開新分頁
+    await cdp.eval("document.getElementById('ccSkillOpenBtn').click()")
+    assert(
+      await waitFor(
+        () => cdp.eval(`document.querySelector('.nav-tab[data-page="explorer"]')?.classList.contains('active') || null`),
+        10_000,
+        '開資料夾跳到檔案頁'
+      ),
+      '按開資料夾跳到檔案頁新分頁'
+    )
+    await cdp.eval("document.querySelector('.nav-tab[data-page=\"ccswitch\"]').click()")
+    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"skills\"]').click()")
+    // .agents 共用家：只留 Skills，記憶整塊藏起來
+    await cdp.eval(`document.querySelector('#ccSkillHomes .cc-home-btn[data-home="agents"]').click()`)
+    assert(
+      await waitFor(
+        () => cdp.eval(`document.getElementById('ccMemoryPanel')?.classList.contains('hidden') || null`),
+        10_000,
+        '共用家藏記憶'
+      ),
+      '.agents 共用家不擺全域記憶'
+    )
+    await cdp.eval(`document.querySelector('#ccSkillHomes .cc-home-btn[data-home="claude"]').click()`)
+    assert(
+      await waitFor(
+        () => cdp.eval(`!document.getElementById('ccMemoryPanel')?.classList.contains('hidden') || null`),
+        10_000,
+        '切回來顯示記憶'
+      ),
+      '切回家記憶面板回來'
+    )
+    // ===== CLI 版本搬去設定頁（唯讀） =====
+    await cdp.eval("document.querySelector('.nav-tab[data-page=\"settings\"]').click()")
+    await cdp.eval("document.querySelector('#settingsNav .settings-nav-item[data-section=\"cli\"]').click()")
+    assert(
+      await cdp.eval("document.getElementById('set-cli').classList.contains('active')"),
+      '設定頁 CLI 區切得過去'
+    )
     await waitFor(
       () => cdp.eval("document.querySelectorAll('#ccVersionList .cc-row').length >= 5"),
       40_000,

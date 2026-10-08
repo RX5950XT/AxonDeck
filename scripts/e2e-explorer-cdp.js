@@ -719,8 +719,13 @@ async function main() {
       assert(zoomed.iconWidth > grid.iconWidth, 'Ctrl+滾輪往上滾＝圖示真的變大', JSON.stringify(zoomed))
 
       const persisted = await cdp.eval(`window.electronAPI.explorer.bootstrap()`)
-      assert(persisted.ok && persisted.data.tile === zoomed.tile, '放大後的大小存得進 explorer.json',
-        JSON.stringify(persisted.data && persisted.data.tile))
+      // v1.37.0 起大小存在各資料夾的 `folderViews`，不再是全域 `tile`
+      const seedKey = SEED_DIR.replace(/\\+$/, '').toLowerCase()
+      const savedTile = persisted.ok && persisted.data.folderViews && persisted.data.folderViews[seedKey]
+        ? persisted.data.folderViews[seedKey].tile
+        : persisted.ok && persisted.data.tile
+      assert(savedTile === zoomed.tile, '放大後的大小存得進 explorer.json（各資料夾的 folderViews）',
+        JSON.stringify(savedTile))
 
       // 一路縮到底要掉回清單檢視（跟檔案總管一樣），不是卡在最小的方格
       const backToList = await waitFor(async () => {

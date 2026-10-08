@@ -181,7 +181,7 @@ function sanitizeTab(raw, fallbackId = 't1') {
     tile: sanitizeTile(state.tile),
     sort: sanitizeSortKey(state.sort),
     sortDesc: state.sortDesc === true,
-    showHidden: state.showHidden === true,
+    showHidden: state.showHidden !== false,
     search,
     searchSort: SORT_KEYS.has(state.searchSort)
       ? state.searchSort
@@ -265,7 +265,7 @@ function readState() {
       tile: sanitizeTile(s.get('tile', DEFAULT_TILE)),
       sort: sanitizeSortKey(s.get('sort', 'name')),
       sortDesc: s.get('sortDesc', false) === true,
-      showHidden: s.get('showHidden', false) === true,
+      showHidden: s.get('showHidden', true) !== false,
       dualPane: s.get('dualPane', false) === true,
       uffsAuto: sanitizeAuto(s.get('uffsAuto', true)),
       places: places.sanitizePlaces(s.get('places', [])),
@@ -303,8 +303,8 @@ function writeState(patch) {
         ? patch.sortDesc === true
         : s.get('sortDesc', false) === true,
       showHidden: patch.showHidden !== undefined
-        ? patch.showHidden === true
-        : s.get('showHidden', false) === true,
+        ? patch.showHidden !== false
+        : s.get('showHidden', true) !== false,
       dualPane: patch.dualPane !== undefined
         ? patch.dualPane === true
         : s.get('dualPane', false) === true,

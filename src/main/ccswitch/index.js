@@ -13,6 +13,8 @@ const claudeSettings = require('./claude-settings')
 const presets = require('./presets')
 const providers = require('./providers')
 const mcp = require('./mcp')
+const mcpHomes = require('./mcp-homes')
+const skills = require('./skills')
 const cliVersion = require('./cli-version')
 const gateway = require('./gateway/server')
 const gatewayCredential = require('./gateway/credential')
@@ -39,6 +41,7 @@ function configure({ userDataPath, openExternal, getAgy }) {
   if (typeof getAgy === 'function') loadAgy = getAgy
   claudeSettings.configure({ backupDir: path.join(userDataPath, 'claude-backup') })
   mcp.configure(providers.getStore)
+  mcpHomes.configure({ getStore: providers.getStore })
   // 登入要開系統瀏覽器；用注入的而不是在這裡 require electron，模組才 node 直測得動
   oauth.configure({ getStore: providers.getStore, openExternal })
 }
@@ -320,25 +323,63 @@ async function scanProviderModels(id) {
   }
 }
 
-// ===== MCP =====
+// ===== MCP（四家；不帶 home 視同 claude，舊呼叫照樣能動） =====
 
-function listMcp() {
-  return mcp.list()
+/** @param {string} [home] */
+function mcpHomesList() {
+  return mcpHomes.homes()
 }
 
-/** @param {string} id @param {object} spec @param {boolean} enabled */
-function saveMcp(id, spec, enabled) {
-  return mcp.upsert(id, spec, enabled !== false)
+/** @param {string} [home] */
+function listMcp(home) {
+  return mcpHomes.list(home || 'claude')
 }
 
-/** @param {string} id @param {boolean} enabled */
-function toggleMcp(id, enabled) {
-  return mcp.toggle(id, enabled)
+/** @param {string} home @param {string} id @param {object} spec @param {boolean} enabled */
+function saveMcp(home, id, spec, enabled) {
+  return mcpHomes.upsert(home || 'claude', id, spec, enabled !== false)
 }
 
-/** @param {string} id */
-function deleteMcp(id) {
-  return mcp.remove(id)
+/** @param {string} home @param {string} id @param {boolean} enabled */
+function toggleMcp(home, id, enabled) {
+  return mcpHomes.toggle(home || 'claude', id, enabled)
+}
+
+/** @param {string} home @param {string} id */
+function deleteMcp(home, id) {
+  return mcpHomes.remove(home || 'claude', id)
+}
+
+// ===== Skills 與全域記憶檔 =====
+
+/** @returns {Array<object>} */
+function skillHomes() {
+  return skills.homes().map((row) => ({ ...row, skillsDir: row.dir }))
+}
+
+/** @param {string} home */
+function listSkills(home) {
+  return skills.list(home)
+}
+
+/** @param {string} home @param {string} name @param {boolean} enabled */
+function setSkillEnabled(home, name, enabled) {
+  return skills.setEnabled(home, name, enabled)
+}
+
+/** @param {string} home */
+function memoryFiles(home) {
+  return skills.memoryFiles(home)
+}
+
+/** @param {string} home @param {string} file */
+function readMemory(home, file) {
+  return skills.readMemory(home, file)
+}
+
+/** @param {string} home @param {string} file @param {string} content */
+function writeMemory(home, file, content) {
+  return skills.writeMemory(home, file, content)
 }
 
 // ===== OAuth 登入 =====
@@ -403,10 +444,17 @@ module.exports = {
   activateProvider,
   testProvider,
   scanProviderModels,
+  mcpHomesList,
   listMcp,
   saveMcp,
   toggleMcp,
   deleteMcp,
+  skillHomes,
+  listSkills,
+  setSkillEnabled,
+  memoryFiles,
+  readMemory,
+  writeMemory,
   listAccounts,
   beginLogin,
   loginStatus,

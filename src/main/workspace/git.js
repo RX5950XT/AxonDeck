@@ -22,6 +22,8 @@ const files = require('./files')
 
 /** 單次 git 指令的逾時（push 會走網路，給寬一點） */
 const TIMEOUT_MS = 60000
+/** 最近提交最多列幾筆（面板展開看的清單；一次 merge 幾千檔的上限另在 MAX_LOG_FILES） */
+const LOG_LIMIT = 30
 /** 變更檔案最多列幾筆（幾萬筆的 repo 不要把 UI 弄死） */
 const MAX_FILES = 500
 /** 單筆提交展開時最多列幾個檔案（一次 merge 可以動到幾千個） */
@@ -235,7 +237,7 @@ async function rootOf(projectId) {
 
 /**
  * @param {string} projectId
- * @returns {Promise<{ repo: boolean, branch?: string, upstream?: string, ahead?: number, behind?: number, files?: Array<object>, truncated?: boolean }>}
+ * @returns {Promise<{ repo: boolean, branch?: string, upstream?: string, ahead?: number, behind?: number, unpushed?: number, files?: Array<object>, truncated?: boolean }>}
  */
 async function status(projectId) {
   const cwd = await rootOf(projectId)
@@ -243,8 +245,33 @@ async function status(projectId) {
   // 不是 repo 不是錯誤，是一種正常狀態（使用者就是加了一個普通資料夾）
   if (res.code !== 0) return { repo: false }
   const parsed = parseStatus(res.stdout)
-  const [, url] = await Promise.all([attachLineCounts(cwd, parsed.files), githubUrl(cwd)])
-  return { repo: true, ...parsed, githubUrl: url }
+  const [, url, unpushed] = await Promise.all([
+    attachLineCounts(cwd, parsed.files),
+    githubUrl(cwd),
+    unpushedCount(cwd, parsed)
+  ])
+  return { repo: true, ...parsed, githubUrl: url, unpushed }
+}
+
+/**
+ * 已經提交、還沒推送的筆數。面板「↑N 未推送」那顆 chip 看這個，不是只看 ahead——
+ * 沒有上游時 `branch.ab` 根本不會印（ahead 永遠是 0），但本機可能已經有一疊提交。
+ * 失敗（沒有 HEAD、git 出錯）一律回 0，不讓整個 status 跟著壞掉。
+ *
+ * @param {string} cwd
+ * @param {{ upstream?: string, ahead?: number }} parsed
+ * @returns {Promise<number>}
+ */
+async function unpushedCount(cwd, parsed) {
+  if (parsed.upstream) return Number(parsed.ahead) || 0
+  try {
+    const res = await run(cwd, ['rev-list', '--count', 'HEAD', '--not', '--remotes', '--'])
+    if (res.code !== 0) return 0
+    const n = Number(res.stdout.trim())
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch {
+    return 0
+  }
 }
 
 /** 遠端只換成 GitHub 倉庫網址，憑證不送到 renderer 或瀏覽器。 */
@@ -423,18 +450,19 @@ function relPathOf(value) {
  */
 function parseLog(raw) {
   const out = []
+  const sep = String.fromCharCode(31)
   let current = null
   const take = () => {
     if (!current) return
-    if (out.length < 10) out.push(current)
+    if (out.length < LOG_LIMIT) out.push(current)
     current = null
   }
   for (const line of String(raw || '').split('\n')) {
     if (!line) continue
-    if (line.includes('\x1f')) {
+    if (line.includes(sep)) {
       take()
-      if (out.length >= 10) break
-      const parts = line.split('\x1f')
+      if (out.length >= LOG_LIMIT) break
+      const parts = line.split(sep)
       if (parts.length < 3) continue
       const at = Number(parts[1])
       const hasAuthor = parts.length >= 4
@@ -442,7 +470,7 @@ function parseLog(raw) {
         short: parts[0],
         at: Number.isFinite(at) ? at : 0,
         author: hasAuthor ? parts[2] : '',
-        subject: hasAuthor ? parts.slice(3).join('\x1f') : parts[2],
+        subject: hasAuthor ? parts.slice(3).join(sep) : parts[2],
         added: 0,
         removed: 0,
         files: [],
@@ -483,7 +511,7 @@ async function log(projectId) {
     // 改名那型的 numstat 會印成 `path{old => new}`，展開時點不開那個檔案
     '--no-renames',
     '-n',
-    '10'
+    String(LOG_LIMIT)
   ])
   // 空 repo（還沒有 commit）不是錯誤，回空清單
   if (res.code !== 0) return []
@@ -871,6 +899,8 @@ module.exports = {
   MAX_LOG_FILES,
   MAX_BRANCHES,
   TIMEOUT_MS,
+  LOG_LIMIT,
+  unpushedCount,
   checkRef,
   ignoredPaths,
   parseNumstat,

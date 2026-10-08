@@ -307,7 +307,7 @@ function gitLogLayoutChecks() {
 
   // 展開看這筆改了哪些檔案（資料是 `git log --numstat` 本來就帶著的那幾列）
   check('提交列可以展開', /aria-expanded/.test(logFn) && /gitLogFiles\(/.test(logFn))
-  check('清單第一次展開才建（十筆 × 幾百個檔案不先畫出來）',
+  check('清單第一次展開才建（三十筆 × 幾百個檔案不先畫出來）',
     /if \(!open && !files\)[\s\S]{0,120}gitLogFiles\(/.test(logFn))
   const filesFn = workspacePage.slice(
     workspacePage.indexOf('function gitLogFiles'),
@@ -318,6 +318,32 @@ function gitLogLayoutChecks() {
   check('超過上限時講得出還有幾個', /entry\.more/.test(filesFn))
   check('展開的清單收得起來（`[hidden]` 要自己補 display:none）',
     /\.ws-git-log-files\[hidden\]\s*\{\s*display:\s*none/.test(css))
+}
+
+/**
+ * Git 分支列：未提交／未推送／無上游一次看懂（以前只有 `↑2 ↓1`，
+ * 沒有上游時整疊提交直接隱形，也看不出有幾個檔案還沒提交）。
+ */
+function gitStatusBarChecks() {
+  console.log('\n[F4] Git 分支列的狀態')
+  const branchFn = workspacePage.slice(
+    workspacePage.indexOf('function paintGitBranch'),
+    workspacePage.indexOf('async function renderGit')
+  )
+  check('分支列有未提交筆數', /未提交/.test(branchFn))
+  check('分支列有未推送筆數（不是只印箭頭）', /未推送/.test(branchFn))
+  check('沒有上游時講得出來', /無上游/.test(branchFn))
+  check('未推送看 unpushed（沒有上游時 ahead 永遠是 0）', /status\.unpushed/.test(branchFn))
+  check('重畫時把未提交檔案數傳進去',
+    /paintGitBranch\(status, Array\.isArray\(status\.files\)/.test(workspacePage))
+  check('分組標題有狀態說明（已暫存／還沒暫存）',
+    /GIT_GROUP_TITLES/.test(workspacePage)
+    && /已經暫存、還沒提交/.test(workspacePage)
+    && /還沒暫存/.test(workspacePage))
+  check('提交紀錄上限 30（跟 main 的 LOG_LIMIT 對齊）',
+    /const GIT_LOG_LIMIT = 30/.test(workspacePage) && /只列出最近/.test(workspacePage))
+  check('未提交 chip 有樣式', /\.ws-git-chip\.is-uncommitted/.test(css))
+  check('無上游 chip 有樣式', /\.ws-git-chip\.is-no-upstream/.test(css))
 }
 
 /**
@@ -495,7 +521,7 @@ function editorDefaultsChecks() {
   check('Ctrl+S 真的呼叫存檔', /saveActiveFile\(\)/.test(save))
 }
 
-runAgentPathChecks().then(gitStatusCacheChecks).then(zoomChecks).then(gitRowLayoutChecks).then(gitLogLayoutChecks).then(gitActionsWrapChecks).then(treeRefreshAndStatusSpinChecks).then(editorDefaultsChecks).then(diffToggleChecks).then(browserChecks).then(runFileChecks).then(() => {
+runAgentPathChecks().then(gitStatusCacheChecks).then(zoomChecks).then(gitRowLayoutChecks).then(gitLogLayoutChecks).then(gitStatusBarChecks).then(gitActionsWrapChecks).then(treeRefreshAndStatusSpinChecks).then(editorDefaultsChecks).then(diffToggleChecks).then(browserChecks).then(runFileChecks).then(() => {
   console.log(`\n${passed} passed, ${failed} failed`)
   process.exitCode = failed ? 1 : 0
 }).catch((error) => {

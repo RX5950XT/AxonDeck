@@ -6,6 +6,104 @@
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 
+# 2026-10-08 — 專案側邊 Git 狀態一次看懂＋提交紀錄加到 30 筆
+
+- [x] main `git.js`：`LOG_LIMIT = 30`（`parseLog` 上限與 `log -n` 同一個數字）；`status()` 多回 `unpushed`（有上游＝ahead，沒有上游＝`rev-list --count HEAD --not --remotes`，失敗回 0）
+- [x] renderer：分支列加 `●N 未提交`／`↑N 未推送`／`↓N 待拉`／`無上游` 四顆 chip；四組標題加狀態說明（不斷 e2e 按字找的 `變更`／`最近提交`）；log 見底加「只列出最近 30 筆」
+- [x] 回歸：`test-workspace.js`（上限 30、截斷、unpushed 三路）＋`test-workspace-ui.js`（新 [F4] 9 項）；新斷言先在舊碼紅過（主檔 3 FAIL、UI 檔 9 FAIL）再綠
+- [x] 全套 `run-tests.js` 116/116；真 repo 實測：23 改＋1 新增分組正確、log 回 30 筆、unpushed 為 0（與遠端同步）
+
+## Review
+
+- 中途用 Edit 改到 `parseLog` 的 `%x1f` 分隔判斷（新字串的跳脫被吃掉變空字串，整段 log 解析全滅）。修法：含跳脫／控制字元的行一律走暫存腳本按行處理、分隔符改 `String.fromCharCode(31)` 共用 `sep`——跟 `tasks/lessons.md` 既有那條一致，以後照做。
+- e2e 沒重跑（`electron:pack`＋`e2e-workspace-cdp`）：改動只加 chip／title／尾註，所有 e2e 按字找的文字與 ID 都沒動；要發版前再跑一次打包版確認。
+
+# 2026-10-08 — Local SI 推薦模型名稱
+
+- [x] 移除推薦模型名稱的 CPU／GPU 標籤，確認本地選單只列推薦模型。
+- [x] 驗證 NVIDIA 8GB 自動判斷與模型／執行環境分離。
+- [x] 使用者選擇 0.6B 換 GGUF：兩顆 ASR 共用 router，保留設定 key；真音訊驗 GPU／CPU。
+- [x] 重打包並跑 Local SI CDP。
+- [ ] 同步 `dist/win-unpacked`：已開啟的 `axondeck-preview` 鎖住 exe，待使用者決定是否關閉。
+
+## Review（Local SI 推薦模型）
+
+- `test-settings-consistency` 15/15、`test-asr-router`、`test-model-scope`、`test-hfmodels` 178/178、dictation 2/2 支、error-hygiene 85/85、temp-hygiene 與 diff --check 通過。推薦名稱檢查修前紅、修後綠。
+- `probe-asr-auto.js` 來源與打包 asar 各驗 GPU／CPU：0.6B／1.7B 都正確轉出繁中並保留另一 scope 模型；CPU 是模擬沒有合格裝置，推論本身真 CPU。
+- 0.6B 官方 GGUF 與 mmproj 已下載到原模型資料夾，兩份官方 SHA256 相符；舊 ONNX 未覆寫。原設定 key 保留。
+- `electron:pack` asar 269 支 src 一致、打包版 `e2e-hf-cdp` 51/51；同步預覽 exe 因另一份已開啟預覽被鎖而等待，安裝版未動。
+- 既有 `e2e-stt-cdp` 19/20：唯一失敗是設定分區仍預期 3 個，現況含 CLI 版本為 4 個；與本次修改無關，未改該預期。
+
+# 2026-10-08 — 檔案頁右鍵「複製圖片」（貼進對話框）
+
+- [x] main `explorer:copyImage`：`resolveExisting` 驗路徑＋副檔名白名單（SVG 除外）＋20MB 上限＋讀檔逾時 10 秒；`raw-fs` 讀檔、`nativeImage.createFromBuffer`→`clipboard.writeImage`；ipc／preload／main 白名單三份對齊
+- [x] renderer：`explorer-dnd.js` 有 `act.copyImage` 才列「複製圖片」；`explorer-page.js` `canCopyImage`（單一本機點陣圖，壓縮檔／手機／回收筒不給）＋成功 toast 提示去對話框 Ctrl+V
+- [x] 回歸 `scripts/test-explorer-copy-image.js`（14 項：成功寫剪貼簿一次＋6 種拒絕＋選單列不列＋三份清單＋呼叫點）
+- [x] `run-tests.js explorer` 24/24、`test-ipc-invoke`、`test-error-hygiene`、`test-temp-hygiene` 全綠
+
+## Review
+
+- 對話框本來就吃剪貼簿圖片（`chat-page.js onPaste`→`addAttachments`），所以只要把圖寫進系統剪貼簿圖片格，不用改聊天頁。
+- `paths.fail` 的訊息是代碼（message＝code），測試要斷 `userMessage`，斷 message 會只看到 `BAD_PATH`。
+
+# 2026-10-07 — 檔案頁方格縮圖整片閃爍（像一直重新載入）
+
+> 根因：`paintList()` 整批重建 DOM，而 `explorer-icons.js` 用 pane 物件判過期＋重試預算掛在 element 上。
+> 重畫一次就丟掉載入中的縮圖請求、重試預算歸零再要一次；監看／點選又頻繁觸發整批重畫 → 縮圖永遠在「 fallback → 載入 → 被丟掉」循環。
+
+- [x] 量測：vm 回歸測試先紅（重畫中 resolve 要照收、不重複要圖、重試預算跨重畫共用）
+- [x] 修 `explorer-icons.js`：載入按快取鍵去重＋遲到結果寫快取並補畫現行列＋重試預算按鍵算（30 秒冷卻）
+- [x] 修 `explorer-page.js`：`browseFingerprint`（放 `explorer-browse.js`＋單元測試）；監看 silent 重讀無變化不重畫；選取只就地改列
+- [x] 驗收：`run-tests.js` 115/115＋`electron:pack`（asar 269 支一致）＋打包版 `e2e-explorer-cdp` exit 0＋`e2e-explorer-dual-cdp` 52/52
+
+## Review
+
+- 中途改壞一行 `if (pathKey(dirPath) === THIS_PC)`（loadSecond）：`test-explorer-page-state` vm 轉換直接 SyntaxError，修回後綠。教訓：改 `if` 包裝時確認條件行還在。
+- 兩個舊 e2e 斷言早已跟不上行為（與本次無關，順手修）：C11 還在看全域 `tile`（v1.37.0 起改存 `folderViews`，todo 早有記錄）；dual [7] 還在等刪除確認框（v1.39.3 起回收筒不問，`git show 629a74f` 確認）。
+- dual [7] 卡住時先懷疑自己的改動，重跑必現後才去查 `deleteItems` 確認邏輯＋git 歷史定位——對的順序。
+
+# 2026-10-07 — CC Proxy：CLI搬家、MCP四家、Skills與記憶
+
+> 使用者拍板：版本搬去設定並移除分頁；MCP 四家都讀寫（claude/codex/grok/opencode，agy 先不做）；skills 啟用開關＋記憶檔可編輯。
+
+- [x] 後端 MCP 四家：`mcp-homes.js`（canonical spec↔各家格式；codex/grok TOML 走新依賴；未知鍵原樣保留；codex/claude 停用放 store，grok/opencode 用原生 enabled）。
+- [x] 後端 skills＋記憶：`skills.js`（四家 skills 清單讀 SKILL.md、停用用 `.disabled/` 搬移；記憶檔讀寫 CLAUDE.md/AGENTS.md/MEMORY.md，路徑驗證不跳脫）。
+- [x] IPC＋preload＋service 接線（`ccswitch:*` 新 channel，白名單測試同步）。
+- [x] 前端：設定頁加 CLI 版本區（CC Proxy 移除 version 分頁）；MCP 分頁加四家切換；新增 Skills 與記憶分頁。
+- [x] 單元測試（新跑＋舊跑）；`electron:pack`＋打包版 `e2e-ccswitch-cdp`＋smoke。
+- [x] TOML 依賴選型已定（見 Review）。
+
+## Review（選型，先記。中途停下換方法不超過兩次）
+
+- Codex：`~/.codex/config.toml` 的 `[mcp_servers.<id>]`（command／args／`env_vars`＋`[.<id>.env]`）；無 enabled 證據→停用放我方 store。
+- Grok：`~/.grok/config.toml` 的 `[mcp_servers.<id>]`，stdio 用 `.env`、remote 用 `.headers`，原生 `enabled`。
+- OpenCode：`~/.config/opencode/opencode.json` 的 `mcp`（v1 扁平；local／remote＋`environment`＋`enabled`）。
+- Grok 記憶是 `~/.grok/MEMORY.md`；codex 記憶用 `~/.codex/AGENTS.md`；`~/.claude/skills` 是 symlink 指到 `~/.agents/skills`（兩邊看到同一份，UI 要標共用）。
+- TOML 庫：`smol-toml`（零依賴、parse＋stringify 保鍵序；註解不保留，寫前備份＋原子替換比照既有）。
+
+## Review（驗收）
+
+- 單元：`test-mcp-homes` 31、`test-skills` 28 全過； commit 前全套 `run-tests.js` 115/115。
+- 打包版 `e2e-ccswitch-cdp` 144/144（含新的四家路徑、Skills、設定頁 CLI 區）。
+- 途中修的三個 bug：canonical 轉換掉 command／url（codex 第一筆讀不到）、http 該吃 headers 不是 env、`test-cli-install` 用註解標記切程式碼（標題改名把它弄斷，已恢復）。
+- 教訓：這台有設 `GROK_HOME`，測家目錄的測試一定要把 env 指到暫存；TOML 測試種子要用單引號字串（雙引號反斜線是跳脫）。
+- 2026-10-07 續：記憶搬上／Skills 搬下、兩顆「開資料夾」走檔案頁新分頁、共用家藏記憶。`e2e-ccswitch-cdp` 149/149、`run-tests.js` 115/115。長任務（pack／e2e／全套測試）改放後台跑，使用者傳訊息不再被卡。
+- 2026-10-07 續：Local SI 子分頁改執行環境／推薦／探索（預設執行環境）。`e2e-hf-cdp` 50/50。
+- 2026-10-07 續：發行 v1.42.0（commit a2d0018＋tag 已推；NSIS 三件套已上傳 GitHub release）。
+
+# 2026-10-07 — 執行環境：API 複製、統計改名、推論兩欄
+
+- [x] 啟動卡 API 列：OpenAI／Anthropic URL＋複製、已載入模型 id＋複製（只在執行中顯示）。
+- [x] 統計改名：預填充速度／解碼速度／輸入 tokens／輸出 tokens。
+- [x] 推論面板內容左右兩欄（窄螢幕自動疊回一欄）。
+- [x] `electron:pack`＋打包版 `e2e-hf-cdp.js` 重跑。
+
+## Review
+
+- 複製走 `terminal:clipboardWrite`（main 寫剪貼簿，沒焦點也成），按鈕按完變「已複製」1.2 秒。ID 都沒動，e2e 不用改。
+- API／統計只在 router 執行中展開（統計還要已載入模型才有 `/metrics`）；e2e 測不到這段，打包版 50/50 全過只保證沒撞壞舊版面。
+- `electron:pack` asar 267 支一致。
+
 # 2026-10-06 — Local SI 模型庫併進執行環境
 
 - [x] 拿掉「模型庫」子分頁，本機模型與資料夾放進「執行環境」。
@@ -170,3 +268,18 @@
 - test-cli-install 37/37、test-ccswitch 266/266、test-ccswitch-cli-models 7/7、test-ipc-invoke 11/11、test-error-hygiene 85/85；10 檔語法與指定檔案 diff --check 通過。
 - agy 官方 install.ps1 的公開 Windows manifest 回傳 1.2.17；本機 agy --version 同為 1.2.17，update --help 未提供 --check。
 - 依本次範圍未實際安裝／更新、未打包／CDP；真實安裝器與權限行為尚未驗證。
+
+# 2026-10-08 — 終端機重複貼上
+
+- [x] 追查鍵盤與右鍵貼上，新增會先失敗的重現。
+- [x] 最小修正重複觸發，保留文字、圖片與連續貼上。
+- [x] 跑相關回歸、打包與隔離 CDP 驗證。
+
+## Review（重複貼上）
+
+- 根因：xterm custom key handler 的 return false 不會取消 Chromium 原生 paste；App 非同步貼上與原生貼上各送一次。補 preventDefault，Ctrl+V／Ctrl+Shift+V／Alt+V 忽略 repeat；再次按鍵仍能貼上相同內容。未改 PTY 傳送與 JS／Rust 宿主。
+- 修復前 test-terminal-ui 新斷言失敗；舊包真按鍵加一次 repeat 送出 4 份文字。修復後 `node scripts/run-tests.js terminal` 8/8 支、`node scripts/test-terminal-ui.js` 13/13、指定檔案 `git diff --check` 通過。
+- 使用既有 pack-preview 流程，只在記憶體把 PREVIEW 改為 dist/terminal-paste-qa，保留正在使用的 win-unpacked；asar 269 支 src 比對通過，另驗 terminal-page.js 與 source 完全一致。
+- `AXONDECK_EXE=dist/terminal-paste-qa/AxonDeck.exe` 跑 e2e-terminal-cdp：真按鍵、repeat、再次貼同樣內容、真右鍵、文字／圖片／直接語音插入皆通過。完整首輪 64 passed／2 failed：nav 既有預期 10、實際 9；9000 字斷言誤抓舊畫面數字，補本測試畫面清理。
+- 最後以 Node Module 執行同支 CDP 的建立／貼上／9000 字區段，保留 finally 清理，33 passed／1 failed；唯一失敗是無關的 nav 數量。7 條新增真操作斷言與 9000 字皆通過。使用者同時複製文字曾干擾重跑，新增測試固定本實例 service.clipboardText，原生 paste 仍讀真正系統剪貼簿，收尾還原。
+- 測試自己的程序已收掉。未替換現行安裝版／正在執行的預覽版，未 commit／push／發版。

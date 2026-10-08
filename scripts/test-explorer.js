@@ -382,7 +382,7 @@ console.log('\n[H3] 隱藏項目啟發式與 showHidden')
   fs.writeFileSync(path.join(dir, 'desktop.ini'), 'x')
   fs.writeFileSync(path.join(dir, 'NTUSER.DAT.LOG1'), 'x')
 
-  const hiddenOff = await files.listDir(dir)
+  const hiddenOff = await files.listDir(dir, { showHidden: false })
   const offNames = hiddenOff.entries.map((e) => e.name)
   ok('showHidden false 濾掉 .git', !offNames.includes('.git'))
   ok('showHidden false 濾掉 $RECYCLE.BIN', !offNames.includes('$RECYCLE.BIN'))
@@ -396,6 +396,10 @@ console.log('\n[H3] 隱藏項目啟發式與 showHidden')
     hiddenOff.entries.every((e) => e.hidden === false),
     hiddenOff.entries.map((e) => `${e.name}:${e.hidden}`).join(',')
   )
+
+  const hiddenDefault = await files.listDir(dir)
+  const defaultNames = hiddenDefault.entries.map((e) => e.name)
+  ok('預設顯示隱藏項目（.git）', defaultNames.includes('.git'), defaultNames.join('｜'))
 
   const hiddenOn = await files.listDir(dir, { showHidden: true })
   const onNames = hiddenOn.entries.map((e) => e.name)
@@ -939,14 +943,16 @@ console.log('\n[S6] 隱藏／系統項目有開關')
 
   const pageSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
   ok('列目錄有把開關送給 main', /listDir\(dirPath, \{ sort: sortBy, desc: sortDesc, showHidden \}\)/.test(pageSrc6))
-  ok('開關記得住', /saveState\(\{ showHidden \}\)/.test(pageSrc6) && /showHidden = boot\.showHidden === true/.test(pageSrc6))
+  ok('開關記得住', /saveState\(\{ showHidden \}\)/.test(pageSrc6) && /showHidden = boot\.showHidden !== false/.test(pageSrc6))
+  ok('預設顯示隱藏項目', /let showHidden = true/.test(pageSrc6))
   ok('隱藏的項目畫淡一點', /if \(entry\.hidden\) row\.classList\.add\('is-dim'\)/.test(pageSrc6))
   const storeSrc6 = fs.readFileSync(path.join(ROOT, 'src/main/explorer/store.js'), 'utf8')
   ok('explorer.json 存得下這個欄位',
-    /showHidden: s\.get\('showHidden', false\) === true/.test(storeSrc6)
+    /showHidden: s\.get\('showHidden', true\) !== false/.test(storeSrc6)
       && /s\.set\('showHidden', next\.showHidden\)/.test(storeSrc6))
   const cssSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/styles/main.css'), 'utf8')
   ok('淡化樣式在', /\.ex-row\.is-dim/.test(cssSrc6))
+  ok('圖示也淡化', /\.ex-row\.is-dim \.ex-row-icon/.test(cssSrc6))
   const fsMod6 = require(path.join(ROOT, 'src/main/explorer/fs.js'))
   // 這條是刻意的決定，不要「順手」改回 Unix 慣例：Windows 上點開頭沒有隱藏的意思
   ok('.gitignore／.env／.vscode 不准被當成隱藏檔',

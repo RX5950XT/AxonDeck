@@ -144,7 +144,7 @@ async function main() {
     `--user-data-dir=${USER_DATA_DIR}`,
     '--hidden',
     '--disable-backgrounding-occluded-windows'
-  ], { stdio: 'ignore' })
+  ], { stdio: 'ignore', detached: true })
   /** 測試自己建立的工作階段 id，收尾要刪掉（兩個都要，中途失敗才不會留下垃圾） */
   let createdId = ''
   let secondId = ''
@@ -309,6 +309,64 @@ async function main() {
 
         const needle = `VI-PASTE-${Date.now()}`
         await mainCdp.eval(`${clip}.writeText(${JSON.stringify(needle)})`)
+        // 使用者可能同時複製其他文字；只固定本測試實例的 IPC 讀值。
+        // 若漏取消原生貼上，Chromium 仍會額外送出真正的系統剪貼簿。
+        await mainCdp.eval(`(() => {
+          const service = process.mainModule.require(process.mainModule.require('electron').app.getAppPath() + '/src/main/terminal/service.js')
+          globalThis.__originalClipboardText = service.clipboardText
+          service.clipboardText = () => ${JSON.stringify(needle)}
+        })()`)
+        // 真按鍵會觸發 Chromium 預設貼上；合成 KeyboardEvent 測不到雙重貼上。
+        for (const [label, modifiers] of [['Ctrl+V', 2], ['Ctrl+Shift+V', 10], ['Alt+V', 1]]) {
+          await cdp.eval(`(() => {
+            const term = window.__testTerminal
+            term.textarea.focus()
+            window.__pasteSent = []
+            window.__pasteCapture = term.onData(d => {
+              if (d !== '\\x1b[I' && d !== '\\x1b[O') window.__pasteSent.push(d)
+            })
+          })()`)
+          const key = { key: 'v', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers }
+          await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key })
+          await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key, autoRepeat: true })
+          await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key })
+          await sleep(500)
+          const once = await cdp.eval(`window.__pasteSent.join('')`)
+          ok(`${label} 真按鍵與長按只貼一次`, once === needle, JSON.stringify(once))
+          await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key })
+          await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key })
+          await sleep(500)
+          const twice = await cdp.eval(`(() => {
+            window.__pasteCapture.dispose()
+            return window.__pasteSent.join('')
+          })()`)
+          ok(`${label} 再按一次可貼同樣內容`, twice === needle + needle, JSON.stringify(twice))
+          await cdp.eval(`window.electronAPI.terminal.write(${JSON.stringify(createdId)}, '\\x03')`)
+          await sleep(200)
+        }
+        const point = await cdp.eval(`(() => {
+          const term = window.__testTerminal
+          term.clearSelection()
+          window.__pasteSent = []
+          window.__pasteCapture = term.onData(d => window.__pasteSent.push(d))
+          const rect = term.element.getBoundingClientRect()
+          return { x: rect.x + 30, y: rect.y + 30 }
+        })()`)
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'right', clickCount: 1, ...point })
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'right', clickCount: 1, ...point })
+        await sleep(500)
+        const rightPaste = await cdp.eval(`(() => {
+          window.__pasteCapture.dispose()
+          return window.__pasteSent.join('')
+        })()`)
+        ok('右鍵真滑鼠只貼一次', rightPaste === needle, JSON.stringify(rightPaste))
+        await cdp.eval(`window.electronAPI.terminal.write(${JSON.stringify(createdId)}, '\\x03')`)
+        await sleep(200)
+        await mainCdp.eval(`(() => {
+          process.mainModule.require(process.mainModule.require('electron').app.getAppPath() + '/src/main/terminal/service.js').clipboardText = globalThis.__originalClipboardText
+          delete globalThis.__originalClipboardText
+          ${clip}.writeText(${JSON.stringify(needle)})
+        })()`)
         const pastedText = await cdp.eval(`(async () => {
           const term = window.__testTerminal
           const sent = []
@@ -428,6 +486,11 @@ async function main() {
         ok('Ctrl+V 貼上', false, error.message)
       } finally {
         if (mainCdp) {
+          await mainCdp.eval(`(() => {
+            if (!globalThis.__originalClipboardText) return
+            process.mainModule.require(process.mainModule.require('electron').app.getAppPath() + '/src/main/terminal/service.js').clipboardText = globalThis.__originalClipboardText
+            delete globalThis.__originalClipboardText
+          })()`).catch(() => {})
           if (typeof savedClipboard === 'string') {
             try {
               await mainCdp.eval(savedClipboard
@@ -464,6 +527,8 @@ async function main() {
       const term = window.__testTerminals && window.__testTerminals.get(paneId)
       if (!term) return { found: '', paneId }
       const want = 9000
+      // 前面的貼上含時間戳與路徑，清掉舊畫面避免把舊數字當成這次的長度。
+      term.clear()
       term.paste("Write-Host ('" + 'A'.repeat(want) + "').Length")
       await new Promise((r) => setTimeout(r, 1200))
       await window.electronAPI.terminal.write(paneId, '\\r')

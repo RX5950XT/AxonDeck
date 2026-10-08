@@ -3,14 +3,23 @@
 // 殼層第一次常回 pending（影片／PDF 還在現生）：先畫暫時的圖，稍後再問，不把暫時的寫進快取。
 const cache = new Map()
 const visible = new WeakSet()
-const inflight = new WeakSet()
-const retryCount = new WeakMap()
-// 每個清單（左欄、右欄）各一份 observer／重試計時：雙欄時兩欄輪流重畫，
+// 快取鍵 → 還在等它回來的那幾欄。`paintList` 整批重建 DOM 時請求不重發，
+// 同一張圖同時只問一次，回來再補畫各欄現行那一列。
+/** @type {Map<string, Set<HTMLElement>>} */
+const inflight = new Map()
+// 快取鍵 → { attempt, at }。重試預算跟著圖走不跟著列走，重畫不能歸零，
+// 否則 pending 的影片／PDF 每次重畫都重拿三次預算，永遠停不下來。
+/** @type {Map<string, { attempt: number, at: number }>} */
+const retryState = new Map()
+// 快取鍵 → { id, hosts }。重試計時不綁 pane：重畫只換列不換鍵，計時照跑；
+// 離開檔案頁才整批清（`clearFileIconWork`）。
+/** @type {Map<string, { id: ReturnType<typeof setTimeout>, hosts: Set<HTMLElement> }>} */
+const retryTimers = new Map()
+// 每個清單（左欄、右欄）各一份 observer：雙欄時兩欄輪流重畫，
 // 共用一份的話後畫的那欄會把另一欄還沒載完的圖示整批丟掉，停在預設圖。
-// 回來的結果用「pane 物件還是不是同一個」判斷過期，取代全域 generation。
-/** @type {Map<HTMLElement, { readIcon: Function, observer: IntersectionObserver | null, timers: Set<ReturnType<typeof setTimeout>> }>} */
+/** @type {Map<HTMLElement, { readIcon: Function, observer: IntersectionObserver | null }>} */
 const panes = new Map()
-/** @type {{ el: HTMLElement, host: HTMLElement }[]} */
+/** @type {{ host: HTMLElement, key: string, size: number }[]} */
 let queue = []
 let running = 0
 
@@ -19,6 +28,8 @@ const THUMB_SIZE = 96
 const THUMB_MAX = 256
 const RETRY_MS = 400
 const MAX_RETRY = 3
+// 預算用完後多久才給新的（殼層現生中的縮圖晚一點再問，不要整批重問）。
+const RETRY_COOLDOWN_MS = 30_000
 
 // 同一張折角文件底，靠顏色與符號辨認類型；SVG 在 20px 清單和 256px 方格都不會糊。
 const FILE_TYPES = [
@@ -95,56 +106,122 @@ function loadIcon(el, host, readIcon, size) {
 
 function dropPane(host) {
   const pane = panes.get(host)
-  if (!pane) return
+  if (!pane) {
+    queue = queue.filter((item) => item.host !== host)
+    return
+  }
   pane.observer?.disconnect()
-  for (const id of pane.timers) clearTimeout(id)
   panes.delete(host)
   queue = queue.filter((item) => item.host !== host)
 }
 
 export function clearFileIconWork() {
   for (const host of [...panes.keys()]) dropPane(host)
+  for (const [, entry] of retryTimers) clearTimeout(entry.id)
+  retryTimers.clear()
+  queue = []
+}
+
+/**
+ * 這張圖還能不能再問（重試預算用完就停，冷卻過了才給新的）。
+ * @param {string} key
+ */
+function budgetOk(key) {
+  const state = retryState.get(key)
+  if (!state || state.attempt <= MAX_RETRY) return true
+  if (Date.now() - state.at >= RETRY_COOLDOWN_MS) {
+    retryState.delete(key)
+    return true
+  }
+  return false
+}
+
+/**
+ * 這一欄現在看得到的那一列（重畫後是新的節點，用鍵找不拿舊引用）。
+ * @param {HTMLElement} host
+ * @param {string} key
+ */
+function findCurrentIcon(host, key) {
+  let list = []
+  try {
+    list = host.querySelectorAll('.ex-row-icon[data-path]') || []
+  } catch {
+    return null
+  }
+  for (const el of list) {
+    try {
+      if (cacheKey(el, wantThumb(host, el), thumbSize(host)) === key) return el
+    } catch {
+      // 這一列的 dataset 壞掉就跳過
+    }
+  }
+  return null
+}
+
+function unobserveKey(host, key) {
+  const pane = panes.get(host)
+  if (!pane) return
+  const el = findCurrentIcon(host, key)
+  if (el) pane.observer?.unobserve(el)
+}
+
+function paintCurrent(hosts, key, data) {
+  for (const host of hosts) {
+    if (!panes.get(host)) continue
+    const el = findCurrentIcon(host, key)
+    if (el && el.isConnected) showIcon(el, data)
+  }
+}
+
+function cancelRetryTimer(key) {
+  const entry = retryTimers.get(key)
+  if (!entry) return
+  clearTimeout(entry.id)
+  retryTimers.delete(key)
+}
+
+function scheduleRetry(key, hosts, attempt) {
+  const live = [...hosts].filter((host) => panes.get(host))
+  if (!live.length) return
+  const prev = retryTimers.get(key)
+  if (prev) {
+    for (const host of live) prev.hosts.add(host)
+    return
+  }
+  const delay = RETRY_MS * (2 ** (attempt - 1))
+  const entry = { id: 0, hosts: new Set(live) }
+  entry.id = setTimeout(() => {
+    retryTimers.delete(key)
+    for (const host of entry.hosts) {
+      if (!panes.get(host)) continue
+      const el = findCurrentIcon(host, key)
+      if (!el || !el.isConnected || !visible.has(el)) continue
+      if (cache.has(key)) continue
+      enqueue(el, host)
+    }
+    pump()
+  }, delay)
+  retryTimers.set(key, entry)
 }
 
 function enqueue(el, host) {
-  if (cache.has(cacheKey(el, wantThumb(host, el), thumbSize(host)))) return
-  if (inflight.has(el)) return
-  if (queue.some((item) => item.el === el)) return
-  queue.push({ el, host })
-}
-
-function scheduleRetry(el, host, pane, attempt) {
-  const delay = RETRY_MS * (2 ** (attempt - 1))
-  const id = setTimeout(() => {
-    pane.timers.delete(id)
-    if (panes.get(host) !== pane) return
-    if (!el.isConnected || !visible.has(el)) return
-    enqueue(el, host)
-    pump()
-  }, delay)
-  pane.timers.add(id)
-}
-
-function applyThumb(el, host, pane, result, thumb, size) {
-  if (!result?.ok || (!result.data?.folder && !result.data?.fallback && !/^data:image\/png;base64,/.test(result.data?.url))) return
-  if (result.data.pending === true) {
-    if (el.isConnected) showIcon(el, result.data)
-    const attempt = (retryCount.get(el) || 0) + 1
-    retryCount.set(el, attempt)
-    if (attempt <= MAX_RETRY) scheduleRetry(el, host, pane, attempt)
-    else pane.observer?.unobserve(el)
+  if (!el || !host) return
+  const key = cacheKey(el, wantThumb(host, el), thumbSize(host))
+  if (cache.has(key) || !budgetOk(key)) return
+  const flying = inflight.get(key)
+  if (flying) {
+    flying.add(host)
     return
   }
-  retryCount.delete(el)
-  pane.observer?.unobserve(el)
-  cache.set(cacheKey(el, thumb, size), result.data)
-  if (cache.size > 256) cache.delete(cache.keys().next().value)
-  if (el.isConnected) showIcon(el, result.data)
+  if (queue.some((item) => item.key === key && item.host === host)) return
+  // 要哪個尺寸在**發問當下**就定住：回來時使用者可能已經又滾了一格，
+  // 拿新的尺寸當快取鍵會把小圖存成大圖那一格。
+  queue.push({ host, key, size: thumbSize(host) })
 }
 
 export function paintFileIcons(host, readIcon) {
   dropPane(host)
-  const pane = { readIcon, observer: null, timers: new Set() }
+  const pane = { readIcon, observer: null }
   panes.set(host, pane)
   pane.observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
@@ -158,32 +235,62 @@ export function paintFileIcons(host, readIcon) {
     pump()
   }, { root: host })
   for (const el of host.querySelectorAll('.ex-row-icon[data-path]')) {
-    retryCount.delete(el)
-    const cached = cache.get(cacheKey(el, wantThumb(host, el), thumbSize(host)))
-    if (cached) showIcon(el, cached)
-    else pane.observer.observe(el)
+    const key = cacheKey(el, wantThumb(host, el), thumbSize(host))
+    const cached = cache.get(key)
+    if (cached) {
+      showIcon(el, cached)
+      continue
+    }
+    if (!budgetOk(key)) continue
+    const flying = inflight.get(key)
+    if (flying) {
+      flying.add(host)
+      visible.add(el)
+      continue
+    }
+    pane.observer.observe(el)
   }
 }
 
 function pump() {
   while (running < 4 && queue.length) {
-    const { el, host } = queue.shift()
-    const pane = panes.get(host)
-    if (!pane || !el.isConnected || inflight.has(el)) continue
-    if (cache.has(cacheKey(el, wantThumb(host, el), thumbSize(host)))) continue
+    const job = queue.shift()
+    if (cache.has(job.key) || !budgetOk(job.key)) continue
+    const flying = inflight.get(job.key)
+    if (flying) {
+      flying.add(job.host)
+      continue
+    }
+    const pane = panes.get(job.host)
+    if (!pane) continue
+    const el = findCurrentIcon(job.host, job.key)
+    if (!el || !el.isConnected) continue
+    const hosts = new Set([job.host])
+    inflight.set(job.key, hosts)
     running++
-    inflight.add(el)
-    const thumb = wantThumb(host, el)
-    // 要哪個尺寸在**發問當下**就定住：回來時使用者可能已經又滾了一格，
-    // 拿新的尺寸當快取鍵會把小圖存成大圖那一格。
-    const size = thumbSize(host)
-    void loadIcon(el, host, pane.readIcon, size).then((result) => {
-      if (panes.get(host) !== pane) return
-      applyThumb(el, host, pane, result, thumb, size)
+    void loadIcon(el, job.host, pane.readIcon, job.size).then((result) => {
+      if (!result?.ok || (!result.data?.folder && !result.data?.fallback && !/^data:image\/png;base64,/.test(result.data?.url))) return
+      if (result.data.pending === true) {
+        paintCurrent(hosts, job.key, result.data)
+        const attempt = (retryState.get(job.key)?.attempt || 0) + 1
+        retryState.set(job.key, { attempt, at: Date.now() })
+        if (retryState.size > 512) retryState.delete(retryState.keys().next().value)
+        if (attempt <= MAX_RETRY) scheduleRetry(job.key, hosts, attempt)
+        else {
+          cancelRetryTimer(job.key)
+          for (const host of hosts) unobserveKey(host, job.key)
+        }
+        return
+      }
+      retryState.delete(job.key)
+      cancelRetryTimer(job.key)
+      cache.set(job.key, result.data)
+      if (cache.size > 256) cache.delete(cache.keys().next().value)
+      paintCurrent(hosts, job.key, result.data)
     }).catch(() => {
       // 檔案可能剛被刪除，保留原本的類型圖示。
     }).finally(() => {
-      inflight.delete(el)
+      inflight.delete(job.key)
       running--
       pump()
     })

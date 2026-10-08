@@ -2094,14 +2094,17 @@ let gitFilter = ''
 let lastGitStatus = null
 
 /**
- * 面板最上面那一行：分支名 ＋ 領先／落後上游幾筆。
+ * 面板最上面那一行：分支名 ＋ 狀態 chip。
  *
- * 以前是把 `main ↑2 ↓1` 接成一個字串塞進去，箭頭跟分支名同一個顏色、
- * 分不出哪個是要推的哪個是要拉的。改成兩顆各自上色的 chip。
+ * 以前只有領先／落後的 `↑2 ↓1`，三種狀態看不出來：① 檔案改了還沒提交（看下面清單才知道有幾筆）；
+ * ② 已經提交、還沒推送（沒有上游時 ahead 永遠是 0，整疊提交直接隱形）；
+ * ③ 沒有上游（只藏在 title 裡，滑鼠不移上去等於沒寫）。
+ * 現在四顆各自上色、一眼分得出哪個是要提交、哪個是要推、哪個是要拉。
  *
- * @param {{ branch?: string, upstream?: string, ahead?: number, behind?: number }} status
+ * @param {{ branch?: string, upstream?: string, ahead?: number, behind?: number, unpushed?: number }} status
+ * @param {number} [uncommitted] 還沒提交的檔案數（暫存區＋變更＋未追蹤，含衝突）
  */
-function paintGitBranch(status) {
+function paintGitBranch(status, uncommitted = 0) {
   if (!el.gitBranch) return
   el.gitBranch.replaceChildren()
   const name = document.createElement('span')
@@ -2116,8 +2119,17 @@ function paintGitBranch(status) {
     span.title = title
     return span
   }
-  if (status.ahead) el.gitBranch.appendChild(chip(`↑${status.ahead}`, 'is-ahead', `有 ${status.ahead} 筆還沒推上去`))
-  if (status.behind) el.gitBranch.appendChild(chip(`↓${status.behind}`, 'is-behind', `上游多了 ${status.behind} 筆還沒拉下來`))
+  if (uncommitted > 0) {
+    el.gitBranch.appendChild(chip(`●${uncommitted} 未提交`, 'is-uncommitted', `${uncommitted} 個檔案改了還沒提交（暫存區＋變更＋未追蹤）`))
+  }
+  const unpushed = Number(status.unpushed) || Number(status.ahead) || 0
+  if (unpushed > 0) {
+    el.gitBranch.appendChild(chip(`↑${unpushed} 未推送`, 'is-ahead', `有 ${unpushed} 筆已提交、還沒推送`))
+  }
+  if (status.behind) el.gitBranch.appendChild(chip(`↓${status.behind} 待拉`, 'is-behind', `上游多了 ${status.behind} 筆還沒拉下來`))
+  if (!status.upstream) {
+    el.gitBranch.appendChild(chip('無上游', 'is-no-upstream', '這個分支沒有對應的遠端分支，推送前要先設上游'))
+  }
   el.gitBranch.title = status.upstream ? `上游：${status.upstream}` : '沒有設定上游'
 }
 
@@ -2163,7 +2175,7 @@ async function renderGit() {
     void renderGitLog()
     return
   }
-  paintGitBranch(status)
+  paintGitBranch(status, Array.isArray(status.files) ? status.files.length : 0)
   lastGitStatus = status
   paintGitFiles(project, status)
   void renderWorktrees()
@@ -2476,12 +2488,20 @@ async function adoptWorktree(project, tree) {
   }
 }
 
-/** 每一組的標題文字 */
+/** 每一組的標題文字（e2e 按這個找，先不要改字） */
 const GIT_GROUP_LABELS = {
   conflict: '衝突',
   staged: '暫存區',
   worktree: '變更',
   untracked: '未追蹤'
+}
+
+/** 每一組標題的說明：滑鼠移上去看得到「這組是什麼狀態」 */
+const GIT_GROUP_TITLES = {
+  conflict: '合併衝突還沒解完，一次只能一列一列按「解決了」',
+  staged: '已經暫存、還沒提交：按「提交」就會進下一筆',
+  worktree: '還沒暫存：按「暫存」先進暫存區；每一列的徽章是改／刪／新',
+  untracked: '新增、還沒追蹤：按「暫存」開始追蹤；刪掉救不回來'
 }
 
 /**
@@ -2501,6 +2521,7 @@ function gitGroup(files, side, project, host, ambiguous) {
   const head = document.createElement('div')
   head.className = 'ws-git-group'
   if (side === 'conflict') head.classList.add('is-conflict')
+  if (GIT_GROUP_TITLES[side]) head.title = GIT_GROUP_TITLES[side]
 
   const label = document.createElement('span')
   label.className = 'ws-git-group-label'
@@ -2670,6 +2691,9 @@ function gitLogRow(project, entry) {
   return row
 }
 
+/** 最近提交最多列幾筆（跟 main `git.js` 的 LOG_LIMIT 對齊，兩邊一起改） */
+const GIT_LOG_LIMIT = 30
+
 async function renderGitLog() {
   const project = currentProject()
   if (!project || !el.gitLog) return
@@ -2690,6 +2714,12 @@ async function renderGitLog() {
     return
   }
   for (const entry of log) el.gitLog.appendChild(gitLogRow(project, entry))
+  if (log.length >= GIT_LOG_LIMIT) {
+    const note = document.createElement('p')
+    note.className = 'ws-tree-note'
+    note.textContent = `只列出最近 ${GIT_LOG_LIMIT} 筆，再舊的請在終端機看 git log`
+    el.gitLog.appendChild(note)
+  }
 }
 
 async function stageAll() {

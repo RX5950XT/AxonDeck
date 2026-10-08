@@ -2,15 +2,14 @@
  * AxonDeck - 本地 ASR 模組選擇（Main Process）
  *
  * 使用者在「語音轉文字」頁選的是哪一顆本地模型，決定要用哪一支實作：
- *   qwen3asr    → local-asr.js（sherpa-onnx，只有 CPU）
- *   qwen3asrgpu → llama-asr.js（llama-server sidecar，Vulkan GPU）
+ *   qwen3asr／qwen3asrgpu → llama-asr.js（共用 router，自動 GPU／CPU）
  *
  * 兩支的對外介面一樣，所以選擇邏輯只寫在這一個檔案，
  * `engine.js`／`file-transcribe.js`／`main.js` 都只認這個門面，不各寫一份 if。
  */
 
-const localAsr = require('./local-asr')
 const llamaAsr = require('./llama-asr')
+const localAsr = llamaAsr.createAsr('qwen3asr')
 const modelScope = require('./model-scope')
 
 const DEFAULT_ASR_MODEL_KEY = 'qwen3asr'

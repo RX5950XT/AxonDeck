@@ -82,24 +82,21 @@ const _llamaCuda = llamaCudaRuntime()
 
 const MODELS = {
   qwen3asr: {
-    label: 'Qwen3-ASR 0.6B · INT8（CPU）',
+    label: 'Qwen3-ASR 0.6B · Q8_0',
     kind: 'asr',
-    /** sherpa-onnx，只有 CPU；即時字幕的預設 */
-    runtime: 'sherpa',
-    totalBytes: 987015347,
-    base: 'https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main/',
+    runtime: 'llama',
+    totalBytes: 1019141728,
+    base: 'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/',
     files: [
-      'conv_frontend.onnx',
-      'encoder.int8.onnx',
-      'decoder.int8.onnx',
-      'tokenizer/vocab.json',
-      'tokenizer/merges.txt',
-      'tokenizer/tokenizer_config.json'
-    ]
+      'Qwen3-ASR-0.6B-Q8_0.gguf', 'mmproj-Qwen3-ASR-0.6B-Q8_0.gguf'
+    ],
+    gguf: 'Qwen3-ASR-0.6B-Q8_0.gguf',
+    mmproj: 'mmproj-Qwen3-ASR-0.6B-Q8_0.gguf',
+    requires: 'llamaruntime'
   },
   /** 大顆的那個：走 llama-server（Vulkan GPU），需要 llamaruntime 一起裝 */
   qwen3asrgpu: {
-    label: 'Qwen3-ASR 1.7B · Q8_0（GPU）',
+    label: 'Qwen3-ASR 1.7B · Q8_0',
     kind: 'asr',
     runtime: 'llama',
     totalBytes: 2520744288,

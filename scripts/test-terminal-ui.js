@@ -48,6 +48,33 @@ function fakeTerm(writes) {
 }
 
 async function main() {
+  // xterm 的 custom handler 回 false 不會取消瀏覽器的原生貼上。
+  {
+    const page = readPlain('terminal-page.js')
+    const handler = page.slice(page.indexOf('  term.attachCustomKeyEventHandler('), page.indexOf('  // 輸入法的候選字視窗'))
+    const pasted = []
+    let onKey
+    vm.runInNewContext(handler, {
+      term: { attachCustomKeyEventHandler: (fn) => { onKey = fn } },
+      id: 'paste-test', handleCopyKey: () => false,
+      pasteFromClipboard: () => { pasted.push('paste') }
+    })
+    for (const modifiers of [{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }, { altKey: true }]) {
+      pasted.length = 0
+      const event = {
+        type: 'keydown', key: 'v', ...modifiers,
+        preventDefault() { this.defaultPrevented = true }
+      }
+      assert.equal(onKey(event), false)
+      assert.equal(event.defaultPrevented, true, '貼上鍵要取消原生貼上，否則 main 與 xterm 各貼一次')
+      onKey({ ...event, repeat: true })
+      onKey({ ...event, type: 'keyup' })
+      assert.equal(pasted.length, 1, '長按與 keyup 不可重複貼上')
+      onKey({ ...event, defaultPrevented: false })
+      assert.equal(pasted.length, 2, '再次按下仍可貼同樣內容')
+    }
+    ok('三種貼上鍵取消原生貼上、忽略長按，仍可連續貼上')
+  }
   // ── 排隊的輸出要接成一段再寫 ──
   {
     const api = load()

@@ -69,7 +69,7 @@ export function normalizeBrowseState(raw = {}, fallback = {}) {
     tile: sanitizeTile(merged.tile),
     sort: BROWSE_SORT_KEYS.has(merged.sort) ? merged.sort : 'name',
     sortDesc: merged.sortDesc === true,
-    showHidden: merged.showHidden === true,
+    showHidden: merged.showHidden !== false,
     search: typeof merged.search === 'string' ? merged.search.trim().slice(0, MAX_TAB_SEARCH) : '',
     searchSort: BROWSE_SEARCH_SORTS.has(merged.searchSort) ? merged.searchSort : 'rank',
     searchMode: merged.searchMode === 'filter' ? 'filter' : 'global',
@@ -168,6 +168,35 @@ export function pageOffsetsForRange(start, end, pageSize = BROWSE_PAGE_SIZE) {
 export function browseEntryId(entry) {
   if (!entry || typeof entry !== 'object') return ''
   return String(entry.recycleKey || entry.path || entry.name || '')
+}
+
+/**
+ * 這次畫出的清單指紋。監看重讀回來內容完全一樣就不用重畫，
+ * 否則整批縮圖回到 fallback 再載一次（整片一直閃爍）。
+ * 選取是疊加狀態不算在內（選取只就地改列，不重畫）。
+ * @param {{ cwd?: string, view?: string, tile?: number, total?: number, truncated?: boolean, search?: string, entries?: object[] }} snapshot
+ * @returns {string}
+ */
+export function browseFingerprint(snapshot = {}) {
+  const value = snapshot && typeof snapshot === 'object' ? snapshot : {}
+  const rows = Array.isArray(value.entries) ? value.entries : []
+  const sig = rows.filter(Boolean).map((entry) => ([
+    entry.recycleKey || entry.path || entry.name || '',
+    entry.name || '',
+    Number(entry.mtimeMs) || 0,
+    Number(entry.size) || 0,
+    entry.dir ? 1 : 0,
+    entry.hidden ? 1 : 0
+  ].join(':'))).join('|')
+  return [
+    String(value.cwd || ''),
+    String(value.view || ''),
+    Number(value.tile) || 0,
+    Number(value.total) || 0,
+    value.truncated ? 1 : 0,
+    String(value.search || ''),
+    sig
+  ].join('\n')
 }
 
 /**

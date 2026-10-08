@@ -307,7 +307,7 @@ npm run release:linux -- --skip-build  # 用 dist/ 現成產物
 
 發行時 Linux 資產有兩條路，擇一即可，都只「附加」到既有 Release，不建 Release、不動 Windows 的 `.exe`／`latest.yml`：
 
-1. **GitHub Actions**（`ci/github-workflows/release-linux.yml`（啟用時搬到 `.github/workflows/`））：照下方發行流程 `gh release create vX.Y.Z` 之後自動觸發（`release: published`），在 `ubuntu-22.04` 打 AppImage、`gh release upload --clobber`。要補發或重跑：Actions → release-linux → Run workflow，輸入既有 tag。
+1. **GitHub Actions**（`ci/github-workflows/release-linux.yml`，啟用時搬到 `.github/workflows/`）：照下方發行流程 `gh release create vX.Y.Z` 之後自動觸發（`release: published`），在 `ubuntu-22.04` 打 AppImage、`gh release upload --clobber`。要補發或重跑：Actions → release-linux → Run workflow，輸入既有 tag。
 2. **本機**：在 Linux 上 `npm run release:linux`（需要已登入的 `gh`）。
 
 注意：

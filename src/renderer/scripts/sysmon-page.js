@@ -1180,7 +1180,9 @@ function describeBlocks(s, inv) {
       id: 'board',
       title: '主機板',
       accent: 'var(--accent-primary)',
-      sub: board ? `${board.vendor} ${board.product}` : '偵測中…',
+      sub: board
+        ? `${board.vendor} ${board.product}`.trim() || board.product || board.vendor
+        : (inv?.platform === 'linux' ? (inv?.system?.vendor || inv?.system?.model ? `${inv.system.vendor || ''} ${inv.system.model || ''}`.trim() || '無法讀取 DMI' : '無法讀取 DMI（容器／虛擬機常見）') : '偵測中…'),
       value: null,
       valueText: bios?.version ? `BIOS ${bios.version}` : DASH,
       spark: null,
@@ -1191,8 +1193,8 @@ function describeBlocks(s, inv) {
       ],
       viz: null,
       specs: [
-        ['製造商', board?.vendor || DASH],
-        ['型號', board?.product || DASH],
+        ['製造商', board?.vendor || (inv?.platform === 'linux' ? (sys?.vendor || DASH) : DASH)],
+        ['型號', board?.product || (inv?.platform === 'linux' ? (sys?.model || DASH) : DASH)],
         ['版本', board?.version || DASH],
         ['主機板序號', board?.serial || DASH],
         ['晶片組插槽', inv?.cpus?.[0]?.socket || DASH],

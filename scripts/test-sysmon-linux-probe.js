@@ -102,3 +102,28 @@ if (process.platform !== 'linux') {
   
   console.log('PASS GPU：platform=linux、sysfs／lspci 假樹可解析、無顯示卡時 gpus=[]（UI 顯示「未偵測到」）')
 }
+
+{
+  // 主機板：假 /sys/class/dmi/id；序號檔讀不到（要 root）要明講，不是空白
+  const fs = require('fs')
+  const path = require('path')
+  const tmp = tempDir('axd-dmi-')
+  const id = path.join(tmp, 'sys/class/dmi/id')
+  fs.mkdirSync(id, { recursive: true })
+  const vals = { board_vendor: 'ASUSTeK COMPUTER INC.', board_name: 'ROG STRIX B650-A', board_version: 'Rev 1.xx', bios_vendor: 'American Megatrends Inc.', bios_version: '3201', bios_date: '01/15/2024', sys_vendor: 'ASUS', product_name: 'System Product Name' }
+  for (const [k, v] of Object.entries(vals)) fs.writeFileSync(path.join(id, k), `${v}\n`)
+  fs.writeFileSync(path.join(id, 'board_serial'), 'SECRET\n', { mode: 0o000 })
+  const dmi = probe.dmiRows(tmp)
+  const st = metrics.parseStatic(dmi.rows)
+  assert.equal(st.board.vendor, 'ASUSTeK COMPUTER INC.')
+  assert.equal(st.board.product, 'ROG STRIX B650-A')
+  assert.equal(st.bios.version, '3201')
+  assert.equal(st.bios.releaseDate, '01/15/2024')
+  assert.equal(dmi.product, 'System Product Name')
+  if (process.getuid && process.getuid() !== 0) assert.equal(st.board.serial, '需要 root 權限')
+  // 沒有 DMI 目錄：不丟錯、沒有 BOARD／BIOS 列（UI 走「無法讀取 DMI」終態）
+  const none = probe.dmiRows(path.join(tmp, 'nope'))
+  assert.deepEqual(none.rows, [])
+  assert.equal(none.hasDmi, false)
+  console.log('PASS 主機板：DMI 板子／BIOS／系統、root 限定欄位標示、沒有 DMI 也有終態')
+}

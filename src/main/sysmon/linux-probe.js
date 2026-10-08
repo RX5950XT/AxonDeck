@@ -353,13 +353,73 @@ function gpuRows(opts = {}) {
   return [...nv, ...drmGpuRows({ ...opts, skipNvidia: nv.length > 0 })]
 }
 
+/**
+ * /sys/class/dmi/id：板子／BIOS／系統廠商。有些檔要 root 才能讀 → 讀不到就空字串，不丟錯。
+ * 容器／無 DMI 的環境整個目錄不存在 → board／bios 仍為 null，但靜態清單已結束（UI 不再「偵測中」）。
+ * @param {string} [root]
+ */
+function dmiText(name, root = '') {
+  const file = `${root}/sys/class/dmi/id/${name}`
+  const text = readText(file).trim()
+  if (text) return text
+  // 序號類（board_serial、product_serial…）預設 0400 root：檔案在但讀不到就明講，不是「沒有」
+  try { fs.accessSync(file, fs.constants.F_OK) } catch { return '' }
+  try { fs.accessSync(file, fs.constants.R_OK); return '' } catch { return '需要 root 權限' }
+}
+
+/**
+ * @param {string} [root]
+ * @returns {string[]} BOARD／BIOS／SYS 列
+ */
+function dmiRows(root = '') {
+  const boardVendor = dmiText('board_vendor', root)
+  const boardName = dmiText('board_name', root)
+  const boardVersion = dmiText('board_version', root)
+  const boardSerial = dmiText('board_serial', root)
+  const biosVendor = dmiText('bios_vendor', root)
+  const biosVersion = dmiText('bios_version', root)
+  const biosDate = dmiText('bios_date', root)
+  const product = dmiText('product_name', root)
+  const sysVendor = dmiText('sys_vendor', root)
+  const productFamily = dmiText('product_family', root)
+  const productSerial = dmiText('product_serial', root)
+  const chassisVendor = dmiText('chassis_vendor', root)
+  const chassisType = dmiText('chassis_type', root)
+  const chassisSerial = dmiText('chassis_serial', root)
+  const rows = []
+  if (boardVendor || boardName || boardVersion || boardSerial) {
+    rows.push(`BOARD|${esc(boardVendor)}|${esc(boardName)}|${esc(boardVersion)}|${esc(boardSerial)}`)
+  }
+  if (biosVendor || biosVersion || biosDate) {
+    rows.push(`BIOS|${esc(biosVendor)}|${esc(biosVersion)}|${esc(biosDate)}||||`)
+  }
+  // SYS 列在 collectStaticRows 組，這裡只回傳產品資訊給它用
+  return {
+    rows,
+    sysVendor,
+    product,
+    productFamily,
+    productSerial,
+    chassisVendor,
+    chassisType,
+    chassisSerial,
+    hasDmi: Boolean(boardVendor || boardName || biosVendor || biosVersion || sysVendor || product)
+  }
+}
+
 function collectStaticRows() {
   // PLAT：讓 renderer 分得出 Linux（Windows probe 不送這列 → inv.platform 是 undefined，行為不變）
   const rows = ['PLAT|linux']
   const rel = osRelease()
   const hostname = os.hostname()
   const totalMemory = os.totalmem()
-  rows.push(`SYS|||${esc(os.arch())}|${totalMemory}|${esc(hostname)}|||||||`)
+  const dmi = dmiRows()
+  // 有 DMI 就填廠商／型號；沒有（容器）也要送 SYS，讓 renderer 結束「偵測中」
+  rows.push(`SYS|${esc(dmi.sysVendor)}|${esc(dmi.product)}|${esc(os.arch())}|${totalMemory}|${esc(hostname)}|${esc(dmi.productFamily)}||||||`)
+  if (dmi.chassisType || dmi.chassisVendor || dmi.chassisSerial) {
+    rows.push(`CASE|${esc(dmi.chassisVendor)}|${esc(dmi.chassisType)}|${esc(dmi.chassisSerial)}`)
+  }
+  rows.push(...dmi.rows)
   rows.push(...cpuStaticRows())
   rows.push(
     `OS|${esc(rel.PRETTY_NAME || rel.NAME || 'Linux')}|${esc(rel.VERSION_ID || '')}|${esc(os.release())}|${Math.floor(bootTimeMs())}|${esc(os.arch())}|||||||`
@@ -473,6 +533,7 @@ module.exports = {
   collectDetailRows,
   drmGpuRows,
   parseLspciName,
+  dmiRows,
   handleCommand,
   createLinuxProbeChild,
   frame

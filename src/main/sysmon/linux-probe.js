@@ -245,19 +245,135 @@ function volumeRows() {
   return rows
 }
 
+/** 十六進位小端 → dotted IPv4（/proc/net/route 的 Destination／Gateway） */
+function hexIpv4(hex) {
+  const n = Number.parseInt(String(hex || ''), 16)
+  if (!Number.isFinite(n)) return ''
+  return [(n) & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255].join('.')
+}
+
+/** 預設閘道：/proc/net/route 的 Destination=00000000（IPv4） */
+function defaultGateways() {
+  /** @type {Map<string, string>} */
+  const map = new Map()
+  for (const line of readText('/proc/net/route').split('\n').slice(1)) {
+    const p = line.trim().split(/\s+/)
+    if (p.length < 8 || p[1] !== '00000000') continue
+    const gw = hexIpv4(p[2])
+    if (gw && gw !== '0.0.0.0') map.set(p[0], gw)
+  }
+  return map
+}
+
+/** DNS：優先 resolvectl，否則 /etc/resolv.conf 的 nameserver */
+function dnsServers() {
+  try {
+    const out = execFileSync('resolvectl', ['dns'], { encoding: 'utf8', timeout: 2000 })
+    const all = new Set()
+    /** @type {Map<string, string>} */
+    const byIface = new Map()
+    for (const line of String(out).split('\n')) {
+      // Link 2 (enp0s4): 10.0.0.2 8.8.8.8
+      const m = /\(([^)]+)\):\s*(.+)$/.exec(line)
+      if (!m) continue
+      const list = m[2].trim().split(/\s+/).filter((x) => x && x !== ':')
+      if (list.length) {
+        byIface.set(m[1], list.join(', '))
+        list.forEach((x) => all.add(x))
+      }
+    }
+    return { byIface, all: [...all].join(', ') }
+  } catch { /* 沒有 systemd-resolved */ }
+  const all = []
+  for (const line of readText('/etc/resolv.conf').split('\n')) {
+    const m = /^nameserver\s+(\S+)/.exec(line)
+    if (m) all.push(m[1])
+  }
+  return { byIface: new Map(), all: all.join(', ') }
+}
+
+/**
+ * DHCP 狀態：nmcli → systemd-networkd 租約 → dhclient 租約。
+ * @returns {{ byIface: Map<string, { mode: string, server: string }>, available: boolean }}
+ */
+function dhcpStatus() {
+  /** @type {Map<string, { mode: string, server: string }>} */
+  const byIface = new Map()
+  try {
+    const out = execFileSync('nmcli', ['-t', '-f', 'GENERAL.DEVICE,GENERAL.CONNECTION,IP4.GATEWAY,DHCP4.OPTION', 'd', 'show'], {
+      encoding: 'utf8', timeout: 3000
+    })
+    let cur = ''
+    for (const line of String(out).split('\n')) {
+      const m = /^GENERAL\.DEVICE:(.+)$/.exec(line)
+      if (m) { cur = m[1]; continue }
+      if (!cur) continue
+      if (/^DHCP4\.OPTION:/.test(line) || /dhcp_server_identifier/.test(line)) {
+        const server = /dhcp_server_identifier\s*=\s*(\S+)/.exec(line)?.[1] || ''
+        byIface.set(cur, { mode: 'dhcp', server })
+      }
+    }
+    if (byIface.size) return { byIface, available: true }
+  } catch { /* NetworkManager 沒裝或不在 PATH */ }
+  // systemd-networkd：/run/systemd/netif/leases/<ifindex>
+  try {
+    const dir = '/run/systemd/netif/leases'
+    for (const name of fs.readdirSync(dir)) {
+      const text = readText(`${dir}/${name}`)
+      const iface = (/^IFACE=(.+)$/m.exec(text) || [])[1] || ''
+      const server = (/^SERVER_ADDRESS=(.+)$/m.exec(text) || [])[1] || ''
+      if (iface) byIface.set(iface, { mode: 'dhcp', server })
+    }
+    if (byIface.size) return { byIface, available: true }
+  } catch { /* 沒有 networkd 租約 */ }
+  for (const dir of ['/var/lib/dhcp', '/var/lib/dhclient']) {
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (!/lease/i.test(name)) continue
+        const text = readText(`${dir}/${name}`)
+        const iface = (/interface\s+"([^"]+)"/.exec(text) || [])[1]
+        const server = (/option\s+dhcp-server-identifier\s+([0-9.]+)/.exec(text) || [])[1] || ''
+        if (iface) byIface.set(iface, { mode: 'dhcp', server })
+      }
+    } catch { /* */ }
+  }
+  return { byIface, available: byIface.size > 0 }
+}
+
 function nicStaticRows() {
   const rows = []
   let ifaces = []
   try { ifaces = fs.readdirSync('/sys/class/net') } catch { ifaces = [] }
+  const addrs = os.networkInterfaces()
+  const gateways = defaultGateways()
+  const dns = dnsServers()
+  const dhcp = dhcpStatus()
   for (const name of ifaces) {
     if (name === 'lo') continue
     const oper = readText(`/sys/class/net/${name}/operstate`).trim()
     const mac = readText(`/sys/class/net/${name}/address`).trim()
     const speedTxt = readText(`/sys/class/net/${name}/speed`).trim()
     const speed = speedTxt && speedTxt !== '-1' ? (Number(speedTxt) || 0) * 1_000_000 : 0
-    // parseStatic：connection|name|mac|speed|status(…NIC_STATUS)|ips|…
     const status = oper === 'up' ? 2 : 0
-    rows.push(`NIC|${esc(name)}|${esc(name)}|${esc(mac)}|${speed}|${status}|||||||`)
+    const list = addrs[name] || []
+    const v4 = list.filter((a) => a.family === 'IPv4' || a.family === 4)
+    const all6 = list.filter((a) => (a.family === 'IPv6' || a.family === 6) && !a.internal)
+    const global6 = all6.filter((a) => !a.address.toLowerCase().startsWith('fe80'))
+    // 沒有全域 IPv6 就退回連結本機位址（標示清楚），跟 Windows 網路卡內容一樣不留白
+    const v6 = global6.length ? global6 : all6.map((a) => ({ ...a, address: `${a.address.replace(/%.*$/, '')}（連結本機）` }))
+    const ips = v4.map((a) => a.address).join(', ')
+    const subnet = v4.map((a) => a.netmask).filter(Boolean).join(', ')
+    const ipv6 = v6.map((a) => a.address).join(', ')
+    const gateway = gateways.get(name) || ''
+    const dnsList = dns.byIface.get(name) || (gateway || ips ? dns.all : '')
+    const d = dhcp.byIface.get(name)
+    // dhcp 欄：dhcp／static／空（查不到就空，讓 UI 顯示 —）
+    let dhcpMode = ''
+    if (d) dhcpMode = d.mode
+    else if (ips && dhcp.available) dhcpMode = 'static'
+    const dhcpServer = d?.server || ''
+    // parseStatic：connection|name|mac|speed|status|ips|gateway|dns|dhcp|subnet|dhcpServer|ipv6|adapterType|pnpId
+    rows.push(`NIC|${esc(name)}|${esc(name)}|${esc(mac)}|${speed}|${status}|${esc(ips)}|${esc(gateway)}|${esc(dnsList)}|${esc(dhcpMode)}|${esc(subnet)}|${esc(dhcpServer)}|${esc(ipv6)}||`)
   }
   return rows
 }
@@ -546,6 +662,9 @@ module.exports = {
   drmGpuRows,
   parseLspciName,
   dmiRows,
+  defaultGateways,
+  dnsServers,
+  hexIpv4,
   handleCommand,
   createLinuxProbeChild,
   frame

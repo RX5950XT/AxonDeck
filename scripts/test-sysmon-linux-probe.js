@@ -139,3 +139,18 @@ if (process.platform !== 'linux') {
   assert.ok(st.timeZone?.caption, '時區')
   console.log(`PASS 系統：${st.os.caption}、核心 ${st.os.build}、${st.system.hostname}、${st.timeZone.caption}`)
 }
+
+{
+  // 網路：主要介面要有 IPv4／閘道／DNS；DHCP 查不到就空字串（UI 顯示 —）
+  const st = metrics.parseStatic(probe.collectStaticRows())
+  const main = st.nics.find((n) => n.gateway && n.ips) || st.nics.find((n) => n.status === '已連線')
+  assert.ok(main, '應有已連線網卡')
+  assert.ok(main.ips, `IPv4 ${main.name}`)
+  assert.ok(main.gateway, `閘道 ${main.name}`)
+  assert.ok(main.dns, `DNS ${main.name}`)
+  assert.ok(main.subnet, '子網路遮罩')
+  assert.equal(probe.hexIpv4('01001EAC'), '172.30.0.1')
+  const has6 = Object.values(require('os').networkInterfaces()[main.name] || {}).some((a) => a.family === 'IPv6' || a.family === 6)
+  if (has6) assert.ok(main.ipv6, 'IPv6（全域或連結本機）')
+  console.log(`PASS 網路：${main.name} ${main.ips} gw=${main.gateway} dns=${main.dns} dhcp=${main.dhcp || '—'} ipv6=${main.ipv6 || '—'}`)
+}

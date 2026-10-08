@@ -1139,7 +1139,7 @@ function describeBlocks(s, inv) {
         ['DHCP 伺服器', online.find((n) => n.dhcpServer)?.dhcpServer || DASH],
         ['連線速率', main?.speed > 0 && main.speed < 1e12 ? `${Math.round(main.speed / 1e6)} Mbps` : DASH],
         ['主機名稱', inv?.system?.hostname || DASH],
-        ['工作群組', inv?.system?.workgroup || DASH]
+        ...(inv?.platform === 'linux' ? [] : [['工作群組', inv?.system?.workgroup || DASH]])
       ],
       groups: [
         {

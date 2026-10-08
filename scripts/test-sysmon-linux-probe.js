@@ -154,3 +154,34 @@ if (process.platform !== 'linux') {
   if (has6) assert.ok(main.ipv6, 'IPv6（全域或連結本機）')
   console.log(`PASS 網路：${main.name} ${main.ips} gw=${main.gateway} dns=${main.dns} dhcp=${main.dhcp || '—'} ipv6=${main.ipv6 || '—'}`)
 }
+
+{
+  // 磁碟：分割區對回實體碟；容器 overlay 根目錄只在「唯一一顆有掛且有寫入」時推定，否則不猜
+  const fs = require('fs')
+  const path = require('path')
+  const idx = new Map([['sda', 0], ['nvme0n1', 1], ['mmcblk0', 2]])
+  assert.equal(probe.resolveDiskId('/dev/sda', idx), '0')
+  assert.equal(probe.resolveDiskId('/dev/sda3', idx), '0')
+  assert.equal(probe.resolveDiskId('/dev/nvme0n1p2', idx), '1')
+  assert.equal(probe.resolveDiskId('/dev/mmcblk0p1', idx), '2')
+  assert.equal(probe.resolveDiskId('overlay', idx), '')
+  const tmp = tempDir('axd-ovl-')
+  fs.mkdirSync(path.join(tmp, 'sys/fs/ext4/vda'), { recursive: true })
+  fs.mkdirSync(path.join(tmp, 'sys/fs/ext4/vdb'), { recursive: true })
+  fs.mkdirSync(path.join(tmp, 'proc'), { recursive: true })
+  const ds = (name, writes) => ` 254 0 ${name} 100 0 800 10 ${writes} 0 ${writes * 8} 5 0 10 15 0 0 0 0`
+  fs.writeFileSync(path.join(tmp, 'proc/diskstats'), `${ds('vda', 500)}\n${ds('vdb', 0)}\n`)
+  const two = new Map([['vda', 0], ['vdb', 1]])
+  assert.equal(probe.guessOverlayBacking(two, tmp), 'vda', '唯一有寫入的那顆')
+  fs.writeFileSync(path.join(tmp, 'proc/diskstats'), `${ds('vda', 500)}\n${ds('vdb', 9)}\n`)
+  assert.equal(probe.guessOverlayBacking(two, tmp), '', '兩顆都有寫入 → 不猜')
+  // 真機：每個磁碟區的 diskId 不是空就是存在的 PDISK
+  const st = metrics.parseStatic(probe.collectStaticRows())
+  for (const v of st.volumes) assert.ok(!v.diskId || st.physicalDisks.some((d) => d.id === v.diskId), `${v.drive} → ${v.diskId}`)
+  for (const d of st.physicalDisks) assert.ok(['SSD', 'HDD', '虛擬磁碟', ''].includes(d.mediaType), d.mediaType)
+  const summary = st.physicalDisks.map((d) => {
+    const own = st.volumes.filter((v) => v.diskId === d.id)
+    return `${d.name}(${d.mediaType}/${d.busType}) 已用 ${own.reduce((n, v) => n + v.size - v.free, 0)}`
+  }).join('；')
+  console.log(`PASS 磁碟：分割區→實體碟、overlay 推定規則、${summary}`)
+}

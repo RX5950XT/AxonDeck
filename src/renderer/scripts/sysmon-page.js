@@ -658,7 +658,9 @@ function describeStorage(s, inv, sensors) {
     const rate = row ? row.read + row.write : 0
     const temp = row ? row.temp : diskTempOf(p.id, p, sensors, liveTemps)
     const used = ownVols.reduce((n, v) => n + (v.size - v.free), 0)
-    const size = ownVols.reduce((n, v) => n + v.size, 0) || p.size
+    // Linux：這顆碟在本系統沒有掛載任何檔案系統（例如容器只看得到 overlay）時，不畫「0 B / 容量」假讀數
+    const unmountedLinux = inv?.platform === 'linux' && !ownVols.length
+    const size = unmountedLinux ? 0 : (ownVols.reduce((n, v) => n + v.size, 0) || p.size)
     blocks.push({
       id: `disk-${p.id}`,
       span: 1,
@@ -705,6 +707,9 @@ function describeStorage(s, inv, sensors) {
         ['型號', p.name],
         ['匯流排', [p.mediaType, p.busType].filter(Boolean).join(' · ') || DASH],
         ['容量', fmtBytes(p.size)],
+        ...(inv?.platform === 'linux' ? [['已用容量', ownVols.length
+          ? `${fmtBytes(used)} / ${fmtBytes(ownVols.reduce((n, v) => n + v.size, 0))}（${ownVols.map((v) => v.drive).join('、')}）`
+          : '本系統沒有掛載這顆碟的檔案系統']] : []),
         ['分割配置', p.partitionStyle || DASH],
         ['磁區', p.logicalSector > 0 ? `${p.logicalSector}B / ${p.physicalSector}B` : DASH],
         ['韌體', p.firmware || DASH],

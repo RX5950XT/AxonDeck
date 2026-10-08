@@ -196,8 +196,13 @@ function cpuStaticRows() {
 }
 
 
+/**
+ * @returns {{ rows: string[], index: Map<string, number> }}
+ */
 function physicalDiskRows() {
   const rows = []
+  /** @type {Map<string, number>} */
+  const index = new Map()
   const diskText = readText('/proc/diskstats')
   let idx = 0
   for (const line of diskText.split('\n')) {
@@ -210,27 +215,112 @@ function physicalDiskRows() {
     const sizeStr = readText(`/sys/block/${name}/size`).trim()
     if (sizeStr) size = (Number(sizeStr) || 0) * 512
     const model = (readText(`/sys/block/${name}/device/model`) || name).trim() || name
+    // HDD／SSD：/sys/block/X/queue/rotational（0＝SSD／NVMe，1＝旋轉碟；virtio 常回 1）
     const rota = readText(`/sys/block/${name}/queue/rotational`).trim()
-    const media = rota === '0' ? 'SSD' : (rota === '1' ? 'HDD' : '')
-    // PDISK|id|name|media|bus|size|health|serial|…
-    rows.push(`PDISK|${idx}|${esc(model || name)}|${esc(media)}||${size}|Healthy||||`)
+    let media = rota === '0' ? 'SSD' : (rota === '1' ? 'HDD' : '')
+    // virtio_blk／xen-blkfront 的 rotational 是核心預設值（多半是 1），不代表真的是旋轉碟
+    if (/^(vd|xvd)/.test(name)) media = '虛擬磁碟'
+    let bus = ''
+    if (/^nvme/.test(name)) bus = 'NVMe'
+    else if (/^vd|^xvd/.test(name)) bus = 'VirtIO'
+    else if (/^mmcblk/.test(name)) bus = 'MMC'
+    else {
+      try {
+        const real = fs.realpathSync(`/sys/block/${name}`)
+        if (/\/usb/.test(real)) bus = 'USB'
+        else if (/\/ata/.test(real) || /\/scsi/.test(real)) bus = 'SATA'
+      } catch { /* */ }
+    }
+    let serial = readText(`/sys/block/${name}/device/serial`).trim()
+    if (!serial) serial = readText(`/sys/block/${name}/serial`).trim()
+    // 分割區數
+    let partitions = 0
+    try {
+      partitions = fs.readdirSync(`/sys/block/${name}`).filter((n) => n.startsWith(name) && n !== name).length
+    } catch { /* */ }
+    // PDISK|id|name|media|bus|size|health|serial|firmware|spindle|…|partitions|…
+    rows.push(`PDISK|${idx}|${esc(model || name)}|${esc(media)}|${esc(bus)}|${size}|Healthy|${esc(serial)}||||${partitions}|${esc(bus)}|`)
+    index.set(name, idx)
     idx += 1
   }
-  return rows
+  return { rows, index }
 }
 
-function volumeRows() {
+/**
+ * 把 /dev/sda1、/dev/nvme0n1p2、/dev/mapper/… 對回實體碟名稱（sda、nvme0n1）。
+ * @param {string} device
+ * @param {Map<string, number>} diskIndex 實體碟名稱 → PDISK id
+ */
+function resolveDiskId(device, diskIndex) {
+  let name = String(device || '').replace(/^\/dev\//, '')
+  if (!name || name.includes('/')) return ''
+  // 已是實體碟
+  if (diskIndex.has(name)) return String(diskIndex.get(name))
+  // /sys/class/block/<part>/ → 往上找實體碟（partition 檔存在＝是分割區）
+  try {
+    let cur = name
+    for (let i = 0; i < 4; i++) {
+      if (diskIndex.has(cur)) return String(diskIndex.get(cur))
+      // 符號連結目標的父目錄名稱就是實體碟（…/block/sda/sda1）
+      try {
+        const real = fs.realpathSync(`/sys/class/block/${cur}`)
+        const parent = path.basename(path.dirname(real))
+        if (diskIndex.has(parent)) return String(diskIndex.get(parent))
+      } catch { /* sysfs 沒有這個名稱（例如測試或已拔除）→ 走下面的名稱規則 */ }
+      // 退路：剝掉尾端數字／pN（sda1→sda、nvme0n1p2→nvme0n1、mmcblk0p1→mmcblk0）
+      const next = cur.replace(/p?\d+$/, '')
+      if (!next || next === cur) break
+      cur = next
+    }
+  } catch { /* */ }
+  return ''
+}
+
+/**
+ * 容器的 overlay 根目錄看不到底層裝置。overlayfs 的 statfs 回報的是 upper 層所在的檔案系統，
+ * upper 一定可寫，所以：核心有掛（/sys/fs/ext4|xfs 列得到）、而且有寫入量的實體碟只有一顆時，就推定是它。
+ * 推不出來（零顆或多顆）就回 ''，不亂猜。
+ * @param {Map<string, number>} diskIndex
+ * @param {string} [root]
+ * @returns {string} 實體碟名稱
+ */
+function guessOverlayBacking(diskIndex, root = '') {
+  const mounted = new Set()
+  for (const fsType of ['ext4', 'xfs', 'f2fs']) {
+    try { fs.readdirSync(`${root}/sys/fs/${fsType}`).forEach((n) => mounted.add(n)) } catch { /* */ }
+  }
+  const writes = new Map()
+  for (const line of readText(`${root}/proc/diskstats`).split('\n')) {
+    const p = line.trim().split(/\s+/)
+    if (p.length >= 10) writes.set(p[2], Number(p[9]) || 0)
+  }
+  const candidates = [...diskIndex.keys()].filter((name) => {
+    // 分割區也算（vda1 掛著 → vda）
+    const hasFs = [...mounted].some((m) => m === name || (m.startsWith(name) && /^p?\d+$/.test(m.slice(name.length))))
+    return hasFs && (writes.get(name) || 0) > 0
+  })
+  return candidates.length === 1 ? candidates[0] : ''
+}
+
+/**
+ * @param {Map<string, number>} [diskIndex]
+ */
+function volumeRows(diskIndex) {
+  const index = diskIndex || new Map()
   const rows = []
   const mounts = readText('/proc/mounts').split('\n')
   const seen = new Set()
+  // 虛擬／容器檔案系統：只有根目錄保留（容量仍要顯示），其他略過
+  const virtFs = new Set(['proc', 'sysfs', 'devtmpfs', 'devpts', 'tmpfs', 'cgroup', 'cgroup2', 'overlay', 'squashfs', 'fuse', 'fuseblk', 'fusectl', 'tracefs', 'debugfs', 'securityfs', 'configfs', 'bpf', 'nsfs', 'ramfs', 'hugetlbfs', 'mqueue', 'efivarfs', 'binfmt_misc', 'autofs'])
   for (const line of mounts) {
     const p = line.split(/\s+/)
     if (p.length < 3) continue
+    const device = p[0]
     const mountPoint = p[1]
     const fstype = p[2]
     if (!mountPoint.startsWith('/')) continue
-    if (['proc', 'sysfs', 'devtmpfs', 'devpts', 'tmpfs', 'cgroup', 'cgroup2', 'overlay', 'squashfs'].includes(fstype)) {
-      if (mountPoint !== '/') continue
+    if (virtFs.has(fstype) || fstype.startsWith('fuse.')) {
+      if (!(mountPoint === '/' && (fstype === 'overlay' || fstype === 'rootfs'))) continue
     }
     if (seen.has(mountPoint)) continue
     seen.add(mountPoint)
@@ -239,7 +329,13 @@ function volumeRows() {
       const size = Number(st.blocks) * Number(st.bsize)
       const free = Number(st.bavail) * Number(st.bsize)
       if (!(size > 0)) continue
-      rows.push(`VOL|${esc(mountPoint)}||${size}|${free}|${esc(fstype)}|`)
+      let diskId = resolveDiskId(device, index)
+      let label = ''
+      if (!diskId && mountPoint === '/' && fstype === 'overlay') {
+        const guess = guessOverlayBacking(index)
+        if (guess) { diskId = String(index.get(guess)); label = `（推定位於 ${guess}）` }
+      }
+      rows.push(`VOL|${esc(mountPoint)}|${esc(label)}|${size}|${free}|${esc(fstype)}|${esc(diskId)}`)
     } catch { /* 無權限或虛擬掛載 */ }
   }
   return rows
@@ -552,8 +648,9 @@ function collectStaticRows() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
     if (tz) rows.push(`TZ|${esc(tz)}|${esc(tz)}|${-new Date().getTimezoneOffset()}`)
   } catch { /* 沒有 Intl 時區 */ }
-  rows.push(...physicalDiskRows())
-  rows.push(...volumeRows())
+  const disks = physicalDiskRows()
+  rows.push(...disks.rows)
+  rows.push(...volumeRows(disks.index))
   rows.push(...nicStaticRows())
   rows.push(...gpuRows())
   return rows
@@ -662,6 +759,8 @@ module.exports = {
   drmGpuRows,
   parseLspciName,
   dmiRows,
+  resolveDiskId,
+  guessOverlayBacking,
   defaultGateways,
   dnsServers,
   hexIpv4,

@@ -302,6 +302,7 @@ async function testServiceWiring() {
   const { createSysmonService } = require('../src/main/sysmon')
   const svc = createSysmonService({
     sensorDeps: { sysfsRoot: sys, procRoot: proc, tickMs: 60_000, access: noAccess },
+    ocDeps: { smiPath: '' },
     diskTreeExe: '',
     gpuDeps: { spawnFn: () => { const c = new EventEmitter(); c.stdout = new EventEmitter(); c.kill = () => {}; return c } }
   })
@@ -310,11 +311,13 @@ async function testServiceWiring() {
   assert.equal(status.platform, 'linux')
   const fanList = svc.fanList()
   assert.equal(fanList.channels.length, 2)
-  const oc = svc.ocStatus()
+  // 效能調整改由 oc-linux 引擎接手（細節見 test-sysmon-oc-linux.js）；這台假機器沒有 cpufreq policy／RAPL 牆／drm
+  const oc = await svc.ocStatus()
+  assert.equal(oc.platform, 'linux')
   assert.equal(oc.available, true)
   assert.equal(oc.live.cpu.writable, false)
-  assert.equal(oc.live.cpu.reason, OC_REASON)
-  assert.throws(() => svc.ocApply(), (err) => err.userMessage === OC_REASON)
+  assert.match(oc.linux.cpu.reason, /cpufreq/)
+  await assert.rejects(svc.ocApply(), (err) => err.code === 'SYSMON_OC_NOTHING')
   const task = svc.fanTaskStatus()
   assert.equal(task.manual, true)
   await svc.shutdown()

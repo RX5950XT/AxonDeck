@@ -510,7 +510,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     fanTaskRemove: () => ipcRenderer.invoke('sysmon:fanTaskRemove'),
     ocStatus: () => ipcRenderer.invoke('sysmon:ocStatus'),
     ocSetDraft: (patch) => ipcRenderer.invoke('sysmon:ocSetDraft', patch || {}),
-    ocApply: () => ipcRenderer.invoke('sysmon:ocApply'),
+    ocApply: (opts) => ipcRenderer.invoke('sysmon:ocApply', { confirmed: opts?.confirmed === true }),
+    ocAuthorize: () => ipcRenderer.invoke('sysmon:ocAuthorize'),
     ocReset: () => ipcRenderer.invoke('sysmon:ocReset'),
 
     /** @param {(payload: { type: string, data: any }) => void} callback */

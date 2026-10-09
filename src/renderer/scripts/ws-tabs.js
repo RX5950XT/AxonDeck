@@ -10,7 +10,7 @@ import {
   disposeModel, disposeModelsExcept, retargetModel, revealLine, cursorInfo, currentValue, pushValue, showDiff,
   selectionInfo, diffGoTo, diffChangeCount, diffCursor, releaseEditors, flushChange
 } from './ws-monaco.js'
-import { paintAiSession } from './ws-ai-session.js'
+import { paintAiSession, startAiSessionWatch, stopAiSessionWatch, invalidateAiSessionRead, sessionContentKey } from './ws-ai-session.js'
 import { nextZoom } from './ws-zoom.js'
 import { toolIcon } from './ws-tool-icons.js'
 import {
@@ -773,6 +773,7 @@ async function activate(id) {
   if (id !== activeId) stash()
   activeId = id
   setChatPaneMode('workspace')
+  if (tab.kind !== 'ai-session') stopAiSessionWatch()
 
   if (tab.kind === 'terminal') {
     // 終端機那一格由 terminal-page 管；它會自己 showSurface('terminal')
@@ -791,6 +792,13 @@ async function activate(id) {
   } else if (tab.kind === 'ai-session') {
     paintAiSessionTab(tab)
     showSurface('ai-session')
+    startAiSessionWatch(tab, {
+      hidden: () => document.hidden,
+      current: () => activeId === tab.id && findTab(tab.id) === tab && !staleOpen(generation, tab.projectId || ''),
+      read: (cursor) => readAiSession(tab, cursor),
+      paint: () => { if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab) },
+      body: () => el.aiSessionBody
+    })
   } else {
     paintBrowser(tab)
     showSurface('browser')
@@ -2787,30 +2795,50 @@ function paintAiSessionTab(tab) {
 }
 
 /** 每次只保留一頁內容；前一頁用游標重讀，不累積整份巨型 log。 */
+async function readAiSession(tab, cursor) {
+  const row = tab.sessionRow
+  if (!tab.projectId || !row) return null
+  const result = await electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor)
+  return result?.ok ? result.data : null
+}
+
 async function loadAiSessionPage(tab, direction) {
   if (tab.sessionLoading || !tab.projectId || !tab.sessionRow) return
   const page = tab.sessionPage || 0
-  const cursors = tab.sessionPageCursors || [null]
+  const follow = tab.sessionFollow !== false
+  const cursors = (tab.sessionPageCursors || [null]).slice()
   const nextPage = page + direction
   if (nextPage < 0 || (direction > 0 && !tab.sessionData?.nextCursor)) return
   const cursor = direction > 0 ? tab.sessionData.nextCursor : cursors[nextPage]
+  cursors[nextPage] = cursor
+  tab.sessionPageCursors = cursors
+  tab.sessionPage = nextPage
+  tab.sessionFollow = false
+  invalidateAiSessionRead()
   const gen = projectSwitch
   tab.sessionLoading = true
   paintAiSessionTab(tab)
   try {
-    const row = tab.sessionRow
-    const data = await call(electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor), '讀取這頁對話失敗')
-    if (staleOpen(gen, tab.projectId) || findTab(tab.id) !== tab) return
+    const data = await call(electronAPI.workspace.agentSessionDetail(tab.projectId, tab.sessionRow.agent, tab.sessionRow.id, cursor), '讀取這頁對話失敗')
+    if (staleOpen(gen, tab.projectId) || findTab(tab.id) !== tab) {
+      tab.sessionPage = page
+      tab.sessionFollow = follow
+      return
+    }
     tab.sessionData = data
     tab.sessionPage = nextPage
-    cursors[nextPage] = cursor
-    tab.sessionPageCursors = cursors
-    if (activeId === tab.id && el.aiSessionBody) el.aiSessionBody.scrollTop = 0
+    tab.sessionFollow = direction > 0 && !data?.hasMore
+    tab.sessionKey = sessionContentKey(data, nextPage)
   } catch {
+    tab.sessionPage = page
+    tab.sessionFollow = follow
     // call 已顯示錯誤；保留現在這頁。
   } finally {
     tab.sessionLoading = false
-    if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab)
+    if (activeId === tab.id && findTab(tab.id) === tab) {
+      paintAiSessionTab(tab)
+      if (el.aiSessionBody) el.aiSessionBody.scrollTop = tab.sessionFollow ? el.aiSessionBody.scrollHeight : 0
+    }
   }
 }
 

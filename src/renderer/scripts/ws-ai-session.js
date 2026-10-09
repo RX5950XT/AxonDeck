@@ -263,3 +263,96 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   }
   els.body.prepend(navigation)
 }
+
+const PAGE_BUDGET = 40
+let watchTimer = 0
+let watchToken = 0
+let readGeneration = 0
+
+/** 剛打開跟著最新頁；使用者翻回舊頁時 sessionFollow 為 false。 */
+export function sessionReadPlan(tab) {
+  const cursors = Array.isArray(tab?.sessionPageCursors) ? tab.sessionPageCursors : [null]
+  const page = tab?.sessionPage || 0
+  return { follow: tab?.sessionFollow !== false, page, cursor: cursors[page] ?? null, cursors }
+}
+
+/** 跟著最新內容時才往後翻；一輪最多走到 limit 頁，下一輪從這一頁繼續。 */
+export function advanceSessionRead(plan, data, limit) {
+  const page = plan.page || 0
+  const cursors = plan.cursors || [null]
+  if (plan.follow && data?.hasMore && data.nextCursor && page + 1 < limit) {
+    const next = cursors.slice()
+    next[page + 1] = data.nextCursor
+    return { follow: true, page: page + 1, cursor: data.nextCursor, cursors: next, walk: true }
+  }
+  return { follow: Boolean(plan.follow), page, cursor: plan.cursor ?? null, cursors, walk: false }
+}
+
+/** 頁碼、有沒有後續、每一句的角色與文字。沒變就不要整頁重畫。 */
+export function sessionContentKey(data, page) {
+  const turns = Array.isArray(data?.turns) ? data.turns : []
+  const body = turns.map((turn) => `${turn?.role || ''}\u0000${turn?.continued ? 1 : 0}\u0000${turn?.text || ''}`).join('\u0001')
+  return `${page}\u0000${data?.sessionId || ''}\u0000${data?.hasMore ? 1 : 0}\u0000${body}`
+}
+
+export function invalidateAiSessionRead() {
+  readGeneration += 1
+  return readGeneration
+}
+
+export function stopAiSessionWatch() {
+  if (watchTimer) clearInterval(watchTimer)
+  watchTimer = 0
+  watchToken += 1
+}
+
+async function readFollowedPage(tab, hooks, token, generation) {
+  let plan = sessionReadPlan(tab)
+  const ceiling = plan.page + PAGE_BUDGET
+  let data = null
+  for (;;) {
+    if (token !== watchToken || generation !== readGeneration || !hooks.current(tab)) return null
+    data = await hooks.read(plan.cursor)
+    if (!data || token !== watchToken || generation !== readGeneration || !hooks.current(tab)) return null
+    const next = advanceSessionRead(plan, data, ceiling)
+    if (!next.walk) return { plan, data }
+    plan = next
+  }
+}
+
+async function reloadFollowedSession(tab, hooks, token) {
+  const generation = readGeneration
+  const before = tab.sessionPage || 0
+  const found = await readFollowedPage(tab, hooks, token, generation)
+  if (!found || token !== watchToken || generation !== readGeneration || !hooks.current(tab)) return
+  const key = sessionContentKey(found.data, found.plan.page)
+  if (key === tab.sessionKey) return
+  const body = hooks.body()
+  const gap = body ? body.scrollHeight - body.scrollTop - body.clientHeight : 0
+  const top = body ? body.scrollTop : 0
+  const stick = !tab.sessionKey || found.plan.page !== before || gap < 80
+  tab.sessionData = found.data
+  tab.sessionPage = found.plan.page
+  tab.sessionPageCursors = found.plan.cursors
+  tab.sessionFollow = found.plan.follow
+  tab.sessionKey = key
+  hooks.paint()
+  const nextBody = hooks.body()
+  if (!nextBody) return
+  if (found.plan.follow && stick) nextBody.scrollTop = nextBody.scrollHeight
+  else nextBody.scrollTop = top
+}
+
+/** 這個分頁還開著時，約每 2 秒重讀目前這一段的尾頁。手動翻頁不會被蓋掉。 */
+export function startAiSessionWatch(tab, hooks) {
+  stopAiSessionWatch()
+  const token = watchToken
+  let reading = false
+  const run = () => {
+    if (reading || token !== watchToken || hooks.hidden() || !hooks.current(tab)) return
+    reading = true
+    void reloadFollowedSession(tab, hooks, token).catch(() => {}).finally(() => { reading = false })
+  }
+  run()
+  watchTimer = setInterval(run, 2000)
+}

@@ -12,6 +12,7 @@ const HOST_PIPE_PREFIX = 'voiceink-terminal-v'
 const LEGACY_HOST_EXE = 'VoiceInkTerminalHost.exe'
 const HOST_FILES = ['host.js', 'host-runtime.js', 'pty.js', 'store.js', 'status.js', 'admin.js', 'admin-host.js']
 const RUNTIME_FILES = ['icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin']
+const NAV_FILE = 'opencode/navigation.mjs'
 
 function hostError(code = 'TERMINAL_HOST_ERROR') {
   const error = new Error(code)
@@ -78,11 +79,13 @@ function runtimeName(execPath = process.execPath) {
   if (native) {
     // Rust 宿主：整份就是一支 exe，內容雜湊就是版本
     const hash = crypto.createHash('sha256').update(`axondeck-term-${PROTOCOL}`).update(fs.readFileSync(native))
+    hash.update(fs.readFileSync(path.join(__dirname, NAV_FILE)))
     return { name: `runtime-${hash.digest('hex').slice(0, 24)}`, version: 'native', ptyRoot: '', native }
   }
   const version = process.versions.electron || fs.readFileSync(path.join(path.dirname(execPath), 'version'), 'utf8').trim()
   const hash = crypto.createHash('sha256').update(version)
   for (const name of HOST_FILES) hash.update(fs.readFileSync(path.join(__dirname, name)))
+  hash.update(fs.readFileSync(path.join(__dirname, NAV_FILE)))
   // 打包後 fs.cpSync 讀不了 asar 裡的檔案（會靜靜地留下半套 node_modules），
   // 所以 node-pty 的 JS 與原生檔都改指 app.asar.unpacked。
   const ptyRoot = unpacked(path.dirname(require.resolve('@lydell/node-pty')))
@@ -107,6 +110,11 @@ function stageRuntime(root, execPath = process.execPath) {
   if (!fs.existsSync(path.join(dir, 'ready'))) {
     const staging = fs.mkdtempSync(path.join(root, 'runtime-building-'))
     try {
+      fs.mkdirSync(path.join(staging, 'opencode'))
+      fs.writeFileSync(path.join(staging, NAV_FILE), fs.readFileSync(path.join(__dirname, NAV_FILE)))
+      fs.writeFileSync(path.join(staging, 'opencode/tui.json'), JSON.stringify({
+        plugin: [require('node:url').pathToFileURL(path.join(dir, NAV_FILE)).href]
+      }))
       if (native) {
         // 同樣複製一份出來跑：安裝目錄的 exe 不能被常駐程序鎖住（更新要覆寫它）
         fs.copyFileSync(native, path.join(staging, 'AxonDeckTerminalHost.exe'))

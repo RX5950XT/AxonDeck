@@ -1,10 +1,227 @@
 # tasks/todo.md — 進行中與待辦
 
+# 2026-10-10 — Claude 切對話即時改綁
+
+- [x] pid 檔已更新時，同一秒再寫入的舊 jsonl 不得蓋過。
+- [x] pid 檔停在舊 id、jsonl 晚兩秒以上時，仍改綁較新的那份。
+- [x] 回歸先紅再綠，然後打包重開預覽；不重開終端機宿主。
+
+## Review（Claude 切對話）
+
+- 這支 Claude 的 `/resume` 會改 `sessions/<pid>.json`。離開的 jsonl 晚了約 50ms，舊邏輯一直綁在剛離開的那份。
+- 現在 pid 檔有效就用它；只有 pid 檔停住、專案 jsonl 晚兩秒以上，才改看較新的紀錄。
+- 回歸先紅（實際綁到舊 id）再綠。`npm run electron:pack` 結束碼 0，asar 275 支 src 與原始碼相同。預覽重開後，store 的對話前綴已與 pid 檔相同。宿主與那支 Claude 沒關。未 commit。
+
+# 2026-10-10 — Claude 改綁、Codex 少停頓、OpenCode 一顆按鈕、Grok 滾軸、AGY 清單
+
+- [x] Claude：這個目錄只有一支時，改綁程序開始後較新的專案 jsonl。
+- [x] Codex：同一句只出現一次時從畫面底部停住，框線不擋定位。
+- [x] OpenCode：拿掉終端機裡的第二顆對話按鈕，側欄那顆改成單一圖示。
+- [x] Grok：啟動與恢復改回 `--minimal --no-alt-screen`。
+- [x] AGY：這次程序已證實的對話庫，工作區路徑不同也綁定並讀得出來。
+- [x] 測試通過後打包並重開預覽；不重開正在跑的終端機宿主。
+
+## Review（五項對話紀錄）
+
+- Claude 的 `/resume` 不改 `sessions/<pid>.json`。這個目錄只有一支 Claude 時，改綁程序開始後較新的專案 jsonl。
+- Codex 同一句只從畫面底部找到最新一份就停；框線 `│` 不再讓定位失敗後整段重播。
+- OpenCode 右上角兩顆是 AxonDeck 的 `☷`（這個字本身像兩顆）加上外掛又畫一顆。側欄改 `☰`，外掛按鈕拿掉。隔離真 CLI 探針通過。
+- Grok 改回 `--minimal --no-alt-screen`。探針：一般緩衝區、滑鼠回報關閉。單獨 `--fullscreen` 仍會進 alternate screen。
+- AGY 工作區路徑和終端機目錄不同時，仍綁定這次程序的對話庫，導覽讀得到；專案頁的完整記錄仍拒絕別的目錄。
+- `node scripts/run-tests.js terminal` 13/13。`cargo test --bin axondeck-term` 14 通過。`npm run electron:pack` 結束碼 0，asar 275 支 src 與原始碼相同。預覽已重開。未重開終端機宿主，未 commit。
+
+# 2026-10-10 — 跳轉停在該則、Grok 全螢幕、OpenCode 捲動、AGY 清單、不攔截滑鼠
+
+- [x] 最後一則也停在該則，額度中斷後的輸出留在下面；Codex 重複命中不再整段重播。
+- [x] 不攔截 CLI 滑鼠模式；全螢幕仍留對話清單，只收起 AxonDeck 捲軸。
+- [x] Grok 改 `--fullscreen --no-alt-screen`，先確認不進 alternate screen。
+- [x] OpenCode 側欄點列寫跳轉檔，外掛把內部捲軸移到該則。
+- [x] AGY 這次 log 沒有串流代碼時，用這個目錄的 `last_conversations.json`。
+- [x] 測試、交接、打包並重開預覽。
+
+## Review（跳轉停在該則）
+
+- 點最後一則停在該則開頭，後面的輸出留在下面。Codex 畫面裡同一句多一份時直接跳第一份，不再整段重播。
+- Grok 啟動與恢復是 `grok --fullscreen --no-alt-screen`。旗標探測：這個組合不進 alternate screen；單獨 `--fullscreen` 會進去。
+- OpenCode 點清單會把內部捲軸移到該則。`node scripts/probe-opencode-native-navigation.js` 通過。1.18.35 的回答沒有節點 ID，同一提問內用第一行唯一吻合。
+- AGY 這次 log 沒有串流代碼時，用這個目錄的 `last_conversations.json`。
+- 滑鼠模式不再攔截；Ctrl+滾輪仍改字級。`node scripts/probe-terminal-mouse.js` 13 項通過。
+- `npm run electron:pack` 結束碼 0，asar 275 支 src 與原始碼相同。`node scripts/e2e-terminal-conversation-cdp.js` 28 項通過。未 commit。已運行的 OpenCode／Grok 要重開那一格才吃到新外掛與全螢幕旗標；宿主若提示版本不符，不要自動重開，否則會關掉正在跑的終端機。
+
+# 2026-10-09 — 五家 resume 後清單與跳轉
+
+- [x] 回歸先失敗：全螢幕 alternate buffer 被當成沒有這則訊息；Grok 的 system-reminder 被當成提問。
+- [x] 跳轉改搜目前畫面；導覽略過 system-reminder。
+- [x] 打包後用隔離實例確認 OpenCode 跳轉與 Grok 清單第一列是測試提問。Codex／AGY 跳轉、五家改綁已在目前打包版量過。
+
+## Review（五家 resume 與跳轉）
+
+- 隔離打包版、既有測試專案、沒有新提問。Codex A↔B 1.4／1.8 秒，標題是對話名稱；點提問後畫面停在該則，並標成目前列。OpenCode B→A 1.0／1.7 秒，標題 `OC | 對話名稱`。Grok B→A 1.3／1.4 秒；清單第一列現在是測試提問，點了之後標成目前列，提問還在第 16 列。Antigravity B→A 0.9／1.4 秒，點了之後標成目前列，提問在第 8 列。
+- OpenCode 點列時，全螢幕緩衝區裡沒有那則提問文字，所以仍顯示找不到。它的畫面只留著回答。
+- Claude 的 `/resume` 會列出其他專案的真實對話，這次沒有代按。
+- `node scripts/test-terminal-conversation.js` 先紅（全螢幕被當成沒有訊息、system-reminder 被收成提問）後綠。`npm run electron:pack` 結束碼 0，asar 274 支 src 與原始碼相同。未 commit。
+
+# 2026-10-09 — Codex 標題只有資料夾名稱時無法跳轉
+
+- [x] 回歸先失敗：忙碌圖示讓標題對不上；資料夾名稱要改綁這次執行期間更新的紀錄。
+- [x] 去掉忙碌圖示後再對標題；對不上時，單一 Codex 終端機改綁這次開始後唯一較新的紀錄。
+- [x] 相關測試通過後打包，只換使用者正在看的預覽；安裝版不關，不送新提問，不 commit。
+
+## Review（Codex 跳轉）
+
+- 根因：Codex 預設 OSC 標題是忙碌圖示加資料夾名稱，對不到對話名稱。被接回的紀錄已在啟動基準裡，也不會當成新 ID。Miroxen 三筆已知紀錄只有一筆在啟動後約 11 秒有寫入，終端機仍是未綁定。
+- 修復前 `node scripts/test-terminal-agent-resume.js` 失敗，實際停在 `another-codex-session`。修復後同一支兩行 PASS；`node scripts/run-tests.js terminal-session-switch` 1/1。
+- `npm run electron:pack` 結束碼 0，asar 274 支 src 與原始碼相同。預覽重開為 PID 52152（`dist\win-unpacked`、`axondeck-dev`，視窗可見）。安裝版 PID 42652 與預覽宿主 PID 51212 仍在。沒有再送 Codex 提問，未 commit。真的 Codex 畫面沒有點選跳轉。
+
+# 2026-10-09 — 同終端機 resume 即時切換對話紀錄
+
+- [x] 回歸：掃描進行中又來的查詢要看到換過的標題，而且只補掃一次。
+- [x] 改綁寫入成功才通知該分頁重讀；寫入被拒不通知。
+- [x] 面板關著的使用中分頁也換成新的一段。
+- [x] 先看到回歸失敗，再跑相關測試；把含這次修正的預覽開給使用者。
+
+## Review（同終端機 resume）
+
+- 根因：進行中的掃描會把舊標題交給後到的查詢；改綁寫入後也沒通知分頁。面板關著時那一次刷新落空，清單就停在上一段。
+- 修復前 `node scripts/test-terminal-agent-resume.js` 失敗：實際仍是 `ses_first12345`。修復後同一支通過；`node scripts/run-tests.js terminal-session-switch` 1/1。
+- `npm run electron:pack` 結束碼 0，asar 274 支 src 與原始碼相同，已更新 `dist\win-unpacked`。預覽改開這份，userData 仍是 `%APPDATA%\axondeck-dev`（PID 43436，視窗可見）。安裝版 PID 42652 沒關。沒有再送 Claude／Codex／Antigravity 提問，未 commit。
+
+# 2026-10-09 — 五家真實訊息與 CLI 內切換
+
+- [x] 隔離 App 與測試目錄，五家送出短訊息並量測清單更新。
+- [x] 經 CLI 原生 resume 選單切另一段，再驗清單及後續回答。
+- [x] 有失敗先留重現，修根因並驗相關測試及打包；記錄真實限制。
+
+## Review（五家真實訊息與 CLI 內切換）
+
+- 隔離包是這次打好的 `dist/win-unpacked`。安裝版與 `dist/terminal-bottom` 預覽沒有關。沒有改產品程式，也沒有 commit。
+- 清單面板開著時，用各家自己的選單切到另一段，側邊清單會換成那段的提問與回答：Codex `/resume` 第一段 496ms、換段 2620ms；Grok `/resume` 752ms、2736ms；OpenCode `/sessions` 493ms、1735ms；Antigravity `/resume` 1355ms、2153ms。Grok 的 OSC 標題全程停在 `grok`，改綁靠 `active_sessions.json`。Antigravity 標題仍是 PowerShell，改綁靠 cli log。
+- 新提問：Codex 的使用者那列約 2 秒進清單，模型回用量限制，下次可試是 10 月 10 日凌晨 2:09，沒有再送。Claude 的使用者那列約 5 秒進清單（session `8834486b-9359-4781-befe-fa3c6869f388`），記錄裡的回答是每週額度，台北時間 10 月 11 日凌晨 3 點重置；`stop_reason` 為 `stop_sequence`，導覽清單不收這則。沒有打開使用者其他的 Claude 對話。Antigravity 畫面是額度用完，只切換既有的兩段，沒有再送新提問。
+- 面板關著時，OpenCode 的標題先變、session id 後到，關著的清單不會自己重畫；滑入或面板維持開著才會在約 1 秒內跟上。這次量到的更新都是面板開著的結果。
+
+# 2026-10-09 — 接續五家清單與捲軸驗收
+
+- [x] 讀取 Grok 交接並核對現有程式與打包產物。
+- [x] 補齊五家清單提問跳轉、最新項目置底與續輸入的打包版檢查。
+- [x] 跑相關單元、真 CLI 與隔離打包版驗收，記錄覆蓋範圍及限制。
+
+## Review（接續驗收）
+
+- 本輪只補 `e2e-terminal-conversation-cdp.js` 五家逐一真滑鼠點選：提問出現在可見畫面、最新項目令 viewport 與捲軸同時到底、同一 xterm 接收未送出的輸入。沒有再改產品程式。
+- `AXONDECK_EXE=dist/terminal-bottom/AxonDeck.exe node scripts/e2e-terminal-conversation-cdp.js`：28 passed, 0 failed。包含五家拖曳／滾輪、長文、重複提問、切回位置、持續輸出與窄畫面。測試使用隔離 userData 與五家格式樣本，HostClient 回應替身；不冒充五家真實長對話驗收。
+- 現有 terminal-bottom asar 的 266 支 src JS／MJS／CSS 與目前來源逐檔完全一致，因此沿用該包驗收。`node scripts/run-tests.js terminal`：11/11；`test-ai-session-live.js`、`test-workspace-agent-list.js`、`test-workspace-agents-full.js`、`probe-terminal-fullscreen-mouse.js` 全過；語法與 `git diff --check` 通過。
+- `probe-opencode-native-navigation.js` 真 CLI／ConPTY 40 則匯入訊息通過：提問／回答跳轉、最新置底、拖曳／滾輪、草稿與續輸入。`probe-grok-native-navigation.js` 通過一般緩衝區與草稿檢查；`probe-terminal-native-scroll.js` 五家真 CLI 啟動／旗標／畫面模式通過。
+- 未送出新的 AI 提問，Claude／Codex／Grok／Antigravity 的真實長對話未逐筆點選；Antigravity 仍依賴本機既有 `altScreenMode: never`。保留使用中的安裝版與預覽視窗，未 commit／push。
+
+# 2026-10-09 — 全螢幕 CLI 原生捲動與對話導覽
+
+- [x] 分別驗證 OpenCode、Grok、Claude／Codex／Antigravity 的原生捲軸與指定訊息跳轉入口。
+- [x] 接上已證實可用的原生操作，修正 AxonDeck 攔截滑鼠的衝突；保留既有對話及全螢幕功能。
+- [x] 驗證捲軸拖曳、滾輪、即時跳轉、重開紀錄與可繼續輸入；沒有控制入口的工具明確記錄限制，不製造假定位。
+- [x] 查驗證據、跑受影響測試及隔離打包驗收，更新交接與結果。
+
+## Review（全螢幕原生捲動）
+
+- OpenCode 維持全螢幕。宿主用 `OPENCODE_TUI_CONFIG` 載入 `opencode/navigation.mjs`：原生捲軸常駐，右上角滑入列出已保存的提問／最終回答，依訊息 ID 直接跳。1.18.35 的回答沒有標 ID，只接受同一提問內唯一且完全相同的 Markdown。`node scripts/probe-opencode-native-navigation.js` 通過：跳到第一則與最後回答、拖曳、滾輪、草稿還在且可繼續輸入。
+- Grok Build 1.0.50 的命令面板搜尋 jump 是 No matches，沒有原生輪次跳轉。正式啟動維持 `--minimal --no-alt-screen`（不進 alternate screen、不開滑鼠回報），捲軸與清單仍由 AxonDeck 畫在一般緩衝區。`--fullscreen` 會進 alternate screen 並打開滑鼠回報，因此不採用。`node scripts/probe-grok-native-navigation.js` 通過。
+- Claude／Codex／Antigravity 同樣停在一般緩衝區（Claude 環境變數、Codex `--no-alt-screen`、本機 AGY `altScreenMode: never`）。`node scripts/probe-terminal-native-scroll.js`：五家只有 OpenCode 進入 alternate screen。
+- 全螢幕且 CLI 自己收滑鼠時，AxonDeck 收起右緣捲軸與導覽，點擊／拖曳／滾輪交給 CLI；Shift＋拖曳仍是本地選取。`node scripts/probe-terminal-fullscreen-mouse.js` 通過。
+- `node scripts/run-tests.js terminal` 11/11。隔離包 `dist/terminal-native-nav` asar 273 支 src 與原始碼相同；該 exe 的 `e2e-terminal-conversation-cdp.js` 23/23。沒有替換正在跑的 `dist/win-unpacked`（user-data 在 `%APPDATA%\axondeck-preview`）與安裝版。未 commit／push。
+
 > 非簡單任務先在這裡列可勾選計畫，完成後補 Review。只留最近幾輪；更早的紀錄查 git log（`git log -- tasks/todo.md`）。
+
+# 2026-10-08 — 導覽只捲動運行中的 CLI
+
+- [x] 移除保存文字替換畫面的分支，保留單一可輸入終端機。
+- [x] 一般緩衝區直接定位，全螢幕沿 CLI 滾輪定位；無法定位明確提示。
+- [x] 先重現錯誤，再驗打包版真點選、捲動與輸入，接回原程序。
+
+## Review（只捲動原 CLI）
+
+- 使用者明確修正：選單是捲動運行中的 CLI，不是替換成紀錄文字。刪除 term-history.js、第二個 xterm、唯讀模式／回到目前輸出按鈕及相關 CSS；清單仍讀正式紀錄，但只控制原 CLI。
+- 一般畫面依實際文字定位，相同提問完整保留時按出現次序；全螢幕經原 SGR 滾輪逐段查找，最多 20 秒，操作／切格／換 session 可取消。CLI 已清除、重複而無法確認、未公開可捲動畫面時提示找不到，不重畫保存文字。
+- 抓到 refreshTerminalPage 經 app.js:948 呼叫 scrollToBottom 的真實堆疊；移除切換入口和頁面更新的強制置底，尺寸同步仍保留。
+- 舊包新增「不得產生第二份畫面」斷言先紅；新版 dist/terminal-live-navigation 的 e2e-terminal-conversation-cdp.js 22/22，包括原 CLI 真滑鼠、重複提示詞、切回位置、鍵盤／語音續輸入、全螢幕原畫面查找與分割。
+- node scripts/run-tests.js terminal 9/9；新增全螢幕定位／取消檢查的 test-terminal-conversation.js 通過，最後 test-terminal-ui.js 13/13。probe-terminal-agents-restart-cdp.js 六項通過，五家真 ConPTY 在 App 重開後仍是原 PID／輸出與可輸入畫面。探針改用實際 xterm 尺寸，文字比對忽略雙寬字換行空白。
+- 最新包 asar 271 支 src 與來源一致。已關閉本輪舊預覽，原資料不重建；目前使用者保留的 OpenCode 真 CLI 上下拖曳、提問與回答點選均可見對應原文字，僅一顆可輸入 xterm，PTY PID 49024 保留。Codex 分頁已由使用者移除，沒有重建。新版預覽已開啟。
+- 未 commit／push。
+
+# 2026-10-08 — 五家捲軸同步與直接定位
+
+- [x] 使用者接受原生捲動版面；五家模式已確認，移除逐段捲動搜尋。
+- [x] 滾輪／捲軸共用實際列號；點選同一次事件直接跳轉，不用虛構百分比。
+- [x] 補齊舊對話辨識與清單；使用者同意在同一終端機補回保存紀錄，原 CLI 保留輸入。
+
+## Review（原生捲動）
+
+- 新啟動與 resume 參數回歸先紅後綠；terminal 10/10 支、程序辨識測試、Rust 14/14 通過。build:probe 與打包完成，asar 272 支 src 一致。
+- 打包版 e2e-terminal-conversation-cdp 23/23（五家真滑鼠滾輪／捲軸位置一致、同步跳轉、完整長文補回、原 CLI 輸入、分割）；restart probe 6 項、JS／Rust host 真 ConPTY 與 PowerShell/cmd 指令守衛通過。
+- probe-terminal-native-scroll：五家已安裝真 CLI 不帶 alt screen，參數均接受，未送 AI 提問；尚未把這項啟動煙霧測試當成五家真長對話完整驗收。
+- 經使用者批准重啟並接回原 Claude／OpenCode；修掉 Claude 預設 home 錯設 CLAUDE_CONFIG_DIR 造成首次啟動畫面的問題（JS／Rust 同步，先紅後綠）。Antigravity 設定只改 altScreenMode，原檔備份 settings.json.axon-native-scroll-1791468456553.bak。
+- 經使用者另行同意，保存紀錄先補到同一 xterm 上方，下方保留原 PTY。CLI 內換對話或畫面紀錄遺失時，先排隊即時輸出，再取原 PTY 快照補回；seq 去重與暫停排隊回歸先紅後綠，test-terminal-ui 14/14。CLI 硬換行定位亦先紅後綠。
+- 舊包 e2e 在未重播訊息跳轉失敗；最新包 23/23 全過，最新 packaged restart probe 6 項全過。預覽改用 dist/terminal-restored-history，沿用 dist/terminal-history-qa/user-data。真實 Claude 47/47、OpenCode 2/2 選單項目同事件完成跳轉；真滑鼠驗第一個回答、滾輪同步，沒有發送 SGR 捲動指令。兩顆 xterm 仍可輸入，PTY PID 5708／48992 在更新畫面前後不變。
+- 最新預覽已 showInactive 開啟；未改安裝版、未 commit／push。50000 列緩衝上限仍適用；五家未送出新的 AI 提問，真長對話逐筆點選驗的是目前兩家，另外三家以真 CLI 啟動及五家格式／ConPTY／重開整合測試涵蓋。
 
 ## 待辦
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
+
+# 2026-10-08 — 修復實際 CLI 接續入口失效
+
+- [x] 用預覽原有的 OpenCode／Codex 接續狀態重現，不預先填入對話 ID。
+- [x] 從 CLI 回報的明確對話標題與正式索引辨識目前對話，重名不猜；捲軸不依賴清單才能操作。
+- [x] 打包驗原始失敗入口、真拖曳與訊息點選，新預覽沿用原資料位置與原程序。
+
+## Review（實際 CLI 接續入口）
+
+- 根因：CLI 自己選回舊對話不會產生新 ID，原 tracker 只找新 ID；Codex 的正式命名另在 session_index.jsonl。改用同 agent／cwd 的唯一明確標題，已綁定後切對話也重新辨識；重名不猜。
+- 全螢幕拖曳沿用 CLI SGR 滾輪，不因已有紀錄就換成短篇紀錄畫面；放開與後續重畫不重設位置。CLI 未回報絕對位置時，range 僅表示相對操作位置。
+- `node scripts/run-tests.js terminal` 9/9、`node scripts/test-workspace-agents-full.js` 五家格式通過；最新 `dist/terminal-history-fixed` 的 `e2e-terminal-conversation-cdp.js` 22/22、`npx electron scripts/probe-terminal-mouse.js` 13/13。此前同修正的 `probe-terminal-agents-restart-cdp.js` 六項通過。asar 272 支來源一致。
+- 原預覽未綁定的兩個終端機實測：OpenCode／Codex 各出現提問與回答；真滑鼠上下拖曳均改變實際 CLI 畫面，點提問／回答均在可見區讀到對應文字。原 PTY PID 49024／40524 保留，新預覽已開啟，資料仍在 terminal-history-qa/user-data。
+- 本輪打包事故：舊 robocopy /MIR 清掉預覽 user-data，並沿 models junction 刪除真實本機模型。已恢復原 host 連線與兩分頁 metadata，設定從正式資料複製；原始對話檔與 CLI 程序未刪。六組已登錄模型／runtime 重新下載完成，四組 GGUF 檔案以官方 SHA256／大小驗證，runtime 必要檔案存在。無法保證預覽專屬設定逐項與事故前完全一致。
+- pack-preview 加 /XJ 與排除 user-data；`node scripts/test-pack-preview-data.js` 修復前紅、修復後綠，真 robocopy 驗證 metadata 與 junction 目標保留。未 commit／push。
+
+# 2026-10-08 — 真實終端機紀錄跳轉與捲軸回彈
+
+- [x] 先重現全螢幕捲軸放開回到中間，改用實際可捲動紀錄。
+- [x] 選單只列提示詞／最終回答，點選直接捲到終端機內；移除預覽區與獨立閱讀器。
+- [x] 沿用已保存的 session id 與原始紀錄重建索引，驗切回／重啟仍可跳轉。
+- [x] 打包驗五家捲軸、重複／長對話、持續輸出與分割畫面，保留運行中的 CLI。
+
+## Review（真實紀錄跳轉與捲軸回彈）
+
+- 舊打包版先紅：拖動全螢幕捲軸後放開會回到 50。改為依真正的 viewportY/baseY 定位；全螢幕與已清除的訊息由正式紀錄分頁載進同區域的 xterm，原 CLI 緩衝區與程序保留，回到目前輸出即可繼續使用。
+- 移除獨立預覽／閱讀器／重讀按鈕；每輪提問與最終回答各自點選跳轉。索引從已保存的 session id 重建，重複文字按來源 cursor 區分。另先紅再修復舊紀錄焦點仍可把語音文字貼到隱藏 CLI 的問題。
+- `node scripts/run-tests.js terminal` 9/9；最後修改另跑 `node scripts/test-terminal-conversation.js` 通過。隔離 `pack-preview.js` 產生 `dist/terminal-history-qa`，asar 272 支 src 與來源一致；該 exe 的 `e2e-terminal-conversation-cdp.js` 20/20、`probe-terminal-ime.js` 13/13。包含五家真滑鼠捲動、放開／持續輸出不回彈、重複／跨頁長文末尾、切換、無輸入送往 CLI、560／900／1440px 分割及刪除清理；展開截圖 `navigation.png` 已目視確認。
+- `AXONDECK_EXE=dist/terminal-history-qa/AxonDeck.exe node scripts/probe-terminal-agents-restart-cdp.js` 六項 PASS：五家真 ConPTY（以本機假 CLI 接住，不呼叫登入 API）、關 App 再開仍保留原 PID／輸出、不重送指令，五家索引與訊息跳轉仍可還原；宿主消失後仍按原 session id 接續。`git diff --check` 通過。
+
+# 2026-10-08 — 導覽與捲軸同欄
+
+- [x] 右上角只留導覽按鈕，滑入展開、離開收合，移除釘選與叉叉。
+- [x] 五家 AI 共用常駐捲軸，一般畫面拖曳捲動，全螢幕畫面沿用 CLI 的滾輪處理。
+- [x] 打包後驗真滑鼠、五家捲動、分割畫面與原有跳轉。
+
+## Review（導覽與捲軸同欄）
+
+- 移除獨立輪次按鈕列、叉叉與釘選；滑鼠離開即收合，不被按鈕焦點擋住，鍵盤仍可展開／Escape 收合。右側共用 range 捲軸與導覽同欄；一般畫面讀實際 viewportY/baseY，全螢幕 SGR 畫面沿用 term-mouse 的 CLI 滾輪事件，放開回中間，不猜 CLI 內部位置。
+- 新 CDP 斷言先在舊包失敗（仍有叉叉）；`node scripts/run-tests.js terminal` 9/9 支通過。沿用 pack-preview 流程產出 `dist/terminal-scrollbar-qa`，asar 271 支 src 與原始碼相同。
+- `AXONDECK_EXE=dist/terminal-scrollbar-qa/AxonDeck.exe` 的 `node scripts/e2e-terminal-conversation-cdp.js` 最終 24/24：五家真拖曳上下捲動、右上角同欄、滑入／離開／點擊不釘選、全螢幕上下 SGR、提問／回答跳轉、長文、重畫、即時更新、分割窄畫面與刪除清理。截圖只保留收合後入口與捲軸；曾嘗試顯示隱藏測試窗拍展開圖，但視窗尺寸變動使截圖操作失敗，改回隔離隱藏驗收後全綠。
+- 打包版 `node scripts/probe-terminal-ime.js` 13/13，`npx electron scripts/probe-terminal-mouse.js` 13/13，`git diff --check` 通過。已用獨立 dist/user-data 開啟更新後預覽（PID 42056，主視窗 AxonDeck）；未替換使用中的安裝版／win-unpacked，未 commit／push。
+
+# 2026-10-08 — 終端機對話導覽
+
+- [x] 沿用五家 AI 正式紀錄，依終端機 ID 驗證所有權；排除思考／工具／過程訊息並保留分頁。
+- [x] 右側常駐入口，滑入展開每輪提示詞與最終回答；點擊跳到 xterm，舊畫面不可定位時讀唯讀紀錄。
+- [x] 驗證重複提示詞、長文分頁、即時更新、分割／切分頁／清理與鍵盤操作。
+- [x] 單元測試、打包、隔離 CDP 真滑鼠與截圖驗收。
+
+## Review（對話導覽）
+
+- `terminal:conversation` 只收 terminal id／cursor，main 取已綁定的 agent/session/cwd 並沿用所有權驗證與 256KB 分頁。導覽保留每段最多 1800 字預覽，全文按來源 cursor 分頁讀；不保存工具結果。Claude 看 `stop_reason=end_turn`，Codex 排除非 final channel／phase；五家都排除思考與工具。
+- `term-conversation.js` 每格獨立、滑入或鍵盤展開、點擊提問／回答跳轉。xterm markers 隨捲動追蹤，定位前驗文字；重複提示詞不能唯一定位、已清除或備用畫面時，直接開該輪完整唯讀紀錄。沒有已驗證 session id 時不猜對話。
+- 新測試先在舊碼紅（缺少對話解析）；`node scripts/run-tests.js` 118/118，最後定位／Claude 結束旗標調整另跑 `test-terminal-conversation` 與 `test-workspace-agents-full` 全綠。`git diff --check` 通過。
+- 沿用 `pack-preview.js`，只在記憶體將 PREVIEW 改成 `dist/terminal-conversation-qa`；asar 270 支 src 與來源一致。該 exe 的 `e2e-terminal-conversation-cdp` 16/16、`probe-terminal-ime` 13/13，真滑鼠、實際 viewportY、長文末尾、即時 IPC、CLI 重畫、900／560px 分割與清理皆驗；截圖 `dist/terminal-conversation-qa/navigation.png` 已目視確認。
+- 既有完整 `e2e-terminal-cdp` 65 passed／1 failed：唯一失敗是舊 nav 數量預期 10、實際 9（本次未動 nav）。貼上／圖片／語音／9000 字／背景輸出／跨專案分頁均通過。PTY 與 JS／Rust 宿主未改；使用中的安裝版與 win-unpacked 未替換；本輪未 commit／push／發版。
 
 # 2026-10-08 — 專案側邊 Git 狀態一次看懂＋提交紀錄加到 30 筆
 

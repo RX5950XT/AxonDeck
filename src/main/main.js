@@ -1779,6 +1779,8 @@ registerTerminalIpc({
   service: {
     catalog: (...args) => loadTerminal().catalog(...args),
     listSessions: (...args) => loadTerminal().listSessions(...args),
+    conversation: (...args) => loadTerminal().conversation(...args),
+    navJump: (...args) => loadTerminal().navJump(...args),
     // 宿主是不是更新前的舊程式碼（漏這兩支＝更新後 pty.js 的修正永遠不會生效）
     hostState: (...args) => loadTerminal().hostState(...args),
     restartHost: (...args) => loadTerminal().restartHost(...args),

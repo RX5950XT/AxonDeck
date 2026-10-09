@@ -34,10 +34,10 @@ const PRESETS = {
   shell: { label: '純 shell', command: '' },
   claude: { label: 'Claude Code', command: 'claude' },
   // ponytail: Codex 的 Windows 背景 daemon 會彈出工具視窗；上游修好後可恢復共用 daemon。
-  codex: { label: 'Codex CLI', command: 'codex --no-daemon' },
+  codex: { label: 'Codex CLI', command: 'codex --no-daemon --no-alt-screen' },
   opencode: { label: 'OpenCode', command: 'opencode' },
   agy: { label: 'Antigravity CLI', command: 'agy' },
-  grok: { label: 'Grok CLI', command: 'grok' }
+  grok: { label: 'Grok CLI', command: 'grok --minimal --no-alt-screen' }
 }
 
 const DEFAULT_SHELL = 'pwsh'
@@ -174,8 +174,8 @@ function startupCommand(preset, sessionId, agentSessionId) {
   const key = normalizePreset(preset)
   const base = PRESETS[key].command
   if (isAgentSessionId(key, agentSessionId)) {
-    const resume = { claude: 'claude --resume', codex: 'codex resume --no-daemon',
-      opencode: 'opencode --session', agy: 'agy --conversation', grok: 'grok --resume' }
+    const resume = { claude: 'claude --resume', codex: 'codex resume --no-daemon --no-alt-screen',
+      opencode: 'opencode --session', agy: 'agy --conversation', grok: 'grok --minimal --no-alt-screen --resume' }
     return `${resume[key]} ${agentSessionId}`
   }
   if (key === 'claude' && isClaudeSessionId(sessionId)) return `claude --resume ${sessionId}`
@@ -424,7 +424,7 @@ function setAgentSession(id, agent, sessionId, expectedStartedAt) {
     const items = await readAll()
     if (!isAgentSessionId(agent, sessionId)) return false
     if (expectedStartedAt !== undefined && !items.some(item => item.id === id && item.preset === agent
-      && !item.agentSessionId && item.agentStartedAt === expectedStartedAt)) return false
+      && item.agentStartedAt === expectedStartedAt)) return false
     const next = items.map(item => item.id === id ? { ...item, preset: agent, agentSessionId: sessionId } : item)
     if (!items.some(item => item.id === id)) return false
     await writeAll(next)

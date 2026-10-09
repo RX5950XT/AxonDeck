@@ -71,7 +71,8 @@ function overwriteInPlace(from, to) {
 function syncPreview(built) {
   fs.mkdirSync(PREVIEW, { recursive: true })
   // robocopy：0–7 是成功（有沒有複製到東西），8 以上才是失敗
-  const copy = spawnSync('robocopy', [built, PREVIEW, '/MIR', '/XF', 'app.asar', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit', windowsHide: true })
+  // 預覽資料可能就在輸出底下，且 models 是 junction；MIR 不得清掉它或連結對面的真資料。
+  const copy = spawnSync('robocopy', [built, PREVIEW, '/MIR', '/XJ', '/XD', path.join(PREVIEW, 'user-data'), '/XF', 'app.asar', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit', windowsHide: true })
   if (copy.status === null || copy.status >= 8) throw new Error(`同步 dist/win-unpacked 失敗（robocopy exit ${copy.status}）；預覽版還開著的話先關掉`)
   const from = path.join(built, 'resources', 'app.asar')
   const to = path.join(PREVIEW, 'resources', 'app.asar')

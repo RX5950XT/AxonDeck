@@ -603,6 +603,7 @@ function setPanel(next) {
     btn.setAttribute('aria-selected', on ? 'true' : 'false')
   })
   void renderPanel()
+  syncAgentWatch()
 }
 
 async function renderPanel(project = currentProject(), seq = projectSeq) {
@@ -2755,14 +2756,28 @@ async function pullCurrent() {
 
 // ===== AI 對話記錄 =====
 
-async function renderAgents() {
+let agentSeq = 0
+let agentWatch = 0
+
+function syncAgentWatch() {
+  window.clearInterval(agentWatch)
+  agentWatch = panel === 'agents' ? window.setInterval(() => {
+    if (panel === 'agents' && !document.hidden) void renderAgents(true)
+  }, 4000) : 0
+}
+
+async function renderAgents(quiet = false) {
   const project = currentProject()
   if (!project || !el.agentList) return
-  el.agentList.replaceChildren()
-  const loading = document.createElement('p')
-  loading.className = 'ws-tree-note'
-  loading.textContent = '搜尋中…'
-  el.agentList.appendChild(loading)
+  const seq = ++agentSeq
+  const scroll = el.agentList.scrollTop
+  if (!quiet) {
+    el.agentList.replaceChildren()
+    const loading = document.createElement('p')
+    loading.className = 'ws-tree-note'
+    loading.textContent = '搜尋中…'
+    el.agentList.appendChild(loading)
+  }
 
   let rows
   try {
@@ -2771,7 +2786,7 @@ async function renderAgents() {
     return
   }
   // 讀取期間可能已經換過專案
-  if (currentProject()?.id !== project.id) return
+  if (seq !== agentSeq || currentProject()?.id !== project.id) return
 
   el.agentList.replaceChildren()
   if (!rows.length) {
@@ -2825,6 +2840,7 @@ async function renderAgents() {
     wrap.append(item, resume)
     el.agentList.appendChild(wrap)
   }
+  el.agentList.scrollTop = scroll
 }
 
 /**

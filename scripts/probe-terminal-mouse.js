@@ -11,14 +11,13 @@
  * `mouseTrackingMode` 變成 `x10`。少了這半邊，「永遠是 none」這條斷言就是恆真。
  *
  *  [A] 沒掛的對照組：`?1000h` 真的會進滑鼠模式（CLI 送的那串確實有效）
- *  [B] 掛上之後 `?9h`／`?1000h`／`?1002h`／`?1003h` 都進不了滑鼠模式
- *  [C] 混在同一串裡的非滑鼠模式（`?1002;1004h`）照常生效，只有滑鼠那幾個被丟掉
+ *  [B] 掛上之後 `?9h`／`?1000h`／`?1002h`／`?1003h` 仍進入滑鼠模式，點選與滾輪交給 CLI
+ *  [C] 混在同一串裡的焦點回報（`?1002;1004h`）照常生效
  *  [D] 跟滑鼠無關的私有模式（`?1049h` 備用畫面）一個字都不准被吃掉
- *  [E] 關閉（`?1000l`）也要吞掉，不可以漏出去變成畫面上的亂碼
- *  [F] CLI 開了滑鼠回報＋備用畫面（Claude Code 全螢幕）時，滾輪要轉成 SGR 滾輪事件送給 CLI，
- *      不可以變成 ↑↓ 方向鍵（那會在輸入框翻提示詞歷史，使用者說的「滾輪變成回滾提示詞」）
- *  [G] 備用畫面但 CLI 沒要滑鼠（less 那類）→ 維持 xterm 原本的方向鍵；一般畫面照常捲 scrollback；
- *      Ctrl+滾輪是字級，不送任何東西給 CLI
+ *  [E] 關閉（`?1000l`）由 xterm 自己處理，不可以漏出去變成畫面上的亂碼
+ *  [F] CLI 開了滑鼠回報時，滾輪是 xterm 原本的 SGR，不是另外轉一次
+ *  [G] 備用畫面但 CLI 沒要滑鼠（less 那類）→ 維持 xterm 原本的方向鍵；
+ *      一般畫面若 CLI 開了滑鼠，滾輪也交給 CLI；Ctrl+滾輪不送給 CLI
  */
 
 'use strict'
@@ -90,16 +89,16 @@ app.whenReady().then(async () => {
   const plainMode = await tracking('plain')
   ok('?1000h 真的會讓 xterm 進滑鼠模式', plainMode === 'vt200', `mouseTrackingMode=${plainMode}`)
 
-  console.log('\n[實驗組：掛上 blockMouseReporting]')
-  for (const [mode, name] of [[9, 'X10'], [1000, 'VT200'], [1002, '拖曳'], [1003, '全部移動']]) {
+  console.log('\n[實驗組：不攔截滑鼠模式]')
+  for (const [mode, name, expected] of [[9, 'X10', 'x10'], [1000, 'VT200', 'vt200'], [1002, '拖曳', 'drag'], [1003, '全部移動', 'any']]) {
     await write('blocked', `\\x1b[?${mode}h`)
     const mouse = await tracking('blocked')
-    ok(`?${mode}h（${name}）進不了滑鼠模式`, mouse === 'none', `mouseTrackingMode=${mouse}`)
+    ok(`?${mode}h（${name}）交給 CLI`, mouse === expected, `mouseTrackingMode=${mouse}`)
   }
 
   await write('blocked', '\\x1b[?1002;1004h')
   const mixed = await run('({ tracking: window.__blocked.modes.mouseTrackingMode, focus: window.__blocked.modes.sendFocusMode })')
-  ok('?1002;1004h 只丟掉滑鼠那個，焦點回報照常打開', mixed.tracking === 'none' && mixed.focus === true, JSON.stringify(mixed))
+  ok('?1002;1004h 滑鼠與焦點回報都打開', mixed.tracking === 'drag' && mixed.focus === true, JSON.stringify(mixed))
 
   await write('blocked', '\\x1b[?1049h')
   const alt = await run('window.__blocked.buffer.active.type')
@@ -125,7 +124,7 @@ app.whenReady().then(async () => {
   ok('備用畫面但 CLI 沒要滑鼠：照 xterm 原本送方向鍵', less === '\x1b[A', JSON.stringify(less))
   await write('blocked', '\\x1b[?1049l\\x1b[?1000h\\x1b[?1006h')
   const main = await wheel({ deltaY: -100 })
-  ok('一般畫面：滾輪留給 scrollback，不送給 CLI', main === '', JSON.stringify(main))
+  ok('一般畫面且 CLI 要滑鼠：滾輪交給 CLI', /^\x1b\[<64;\d+;\d+M$/.test(main), JSON.stringify(main))
 
   console.log(`\n${passed} passed, ${failed} failed`)
   win.destroy()

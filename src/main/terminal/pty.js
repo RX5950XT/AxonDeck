@@ -386,6 +386,14 @@ const CLAUDE_SESSION_VARS = [
  * @param {string} [editorDir]
  * @param {string} [terminalId] 工作階段 id，給 Claude hook 的 `AXONDECK_TERMINAL_ID`
  */
+/** 只有 staged 宿主才知道 userData。原始碼與測試執行檔不猜路徑。 */
+function stagedNavFile(terminalId) {
+  if (!store.isSessionId(terminalId)) return ''
+  const hostDir = path.dirname(__dirname)
+  if (path.basename(hostDir) !== 'terminal-host' || !path.basename(__dirname).startsWith('runtime-')) return ''
+  return path.join(hostDir, '..', 'terminal-nav', `${terminalId}.json`)
+}
+
 function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   const env = { ...process.env, TERM: 'xterm-256color' }
   delete env.ELECTRON_RUN_AS_NODE
@@ -402,11 +410,24 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   // 不合法就連繼承來的也拿掉，免得子程序沿用別的分頁的 id。
   if (store.isSessionId(terminalId)) env.AXONDECK_TERMINAL_ID = terminalId
   else delete env.AXONDECK_TERMINAL_ID
+  const jump = stagedNavFile(terminalId)
+  if (jump) env.AXONDECK_NAV_JUMP = jump
+  else delete env.AXONDECK_NAV_JUMP
+  if (agent === 'claude') {
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN') delete env[key]
+    env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN = '1'
+  }
+  // 純 shell 裡再打 opencode 也要繼承外掛，否則側欄點列找不到全螢幕裡的訊息。
+  const config = path.join(__dirname, 'opencode/tui.json')
+  if (require('node:fs').existsSync(config) && !Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_TUI_CONFIG' && env[key])) {
+    env.OPENCODE_TUI_CONFIG = config
+  }
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
   if (homeKey && typeof agentHome === 'string' && /^[A-Za-z]:[\\/]/.test(agentHome)
     && agentHome.length <= 1024 && !/[\u0000-\u001f]/.test(agentHome) && !agentHome.replace(/\\/g, '/').split('/').includes('..')) {
     for (const key of Object.keys(env)) if (key.toUpperCase() === homeKey) delete env[key]
-    env[homeKey] = agentHome
+    const defaultClaude = agent === 'claude' && path.resolve(agentHome).toLowerCase() === path.join(require('os').homedir(), '.claude').toLowerCase()
+    if (!defaultClaude) env[homeKey] = agentHome
   }
   return env
 }

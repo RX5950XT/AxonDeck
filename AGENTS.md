@@ -119,7 +119,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 忙碌判定 OSC 133（帶 history id 比大小）＋靜默雙軌；無標記的 cmd 不套「送出後一直算運行中」。
 - 輸入法：組字期間用 CSS 變數＋`!important` 釘錨點（`term-ime.js`），不要改回每幀 JS 擺位；textarea 用透明色藏不用 `opacity: 0`；`.term-host` 用 `overflow: clip`。
 - 用 WebGL renderer（DOM 版游標會亂閃）；`onContextLoss` 要 dispose 重掛；Unicode 11 要 load 後再 `activeVersion = '11'`；`.xterm-viewport` 要 `background-color: transparent` 與 `scrollbar-width: none`。
-- CLI 滑鼠回報在 parser 擋掉（`term-mouse.js`），備用畫面的滾輪自己送 SGR；必須給 `linkHandler`（OSC 8）。
+- 不要攔截 CLI 滑鼠模式（`term-mouse.js` 只把 Ctrl+滾輪留給字級）；Shift+拖曳仍是本地選取；必須給 `linkHandler`（OSC 8）。
 - 剪貼簿一律跟 main 要（`navigator.clipboard` 沒焦點會 reject）；截圖落檔貼路徑；有選取 Ctrl+C／右鍵＝複製。Shift+Enter 送 `\x1b\r`。
 - 切回終端機走 `fitAndSync`；分割不搬 DOM、每格各自 fit；狀態變動就地改那一列不 `renderList()`。標題／cwd 欄位叫 `osTitle`／`liveCwd`；連結：`provideLinks` 是整份緩衝區 1-based 列號、x 是 cell 欄位；路徑先問 main 存不存在再畫底線。
 - Ctrl+G 橋接：batch 只能 ASCII、路徑不出 batch；`EDITOR=notepad` 不算使用者選過；`EDITOR`／`VISUAL` 都要蓋；存檔不收分頁、關分頁才放走；放走過的請求進忽略名單。

@@ -2252,6 +2252,59 @@ option:disabled:checked {
   display: block;
 }
 
+/* 捲軸與右上角導覽同一欄，展開只覆蓋畫面，不重排 CLI。 */
+.term-screen { position: absolute; inset: 0 30px 0 0; }
+.term-pane.has-native-tui .term-screen { right: 0; }
+.term-pane.has-native-tui > .term-scrollbar { display: none; }
+.term-scrollbar {
+  position: absolute; top: 32px; right: 2px; bottom: 0; width: 24px;
+  height: calc(100% - 32px); margin: 0; padding: 0; z-index: 5;
+  writing-mode: vertical-lr; direction: ltr; appearance: none; cursor: pointer;
+  background: transparent; accent-color: var(--text-secondary);
+}
+.term-scrollbar::-webkit-slider-runnable-track {
+  width: 6px; border-radius: 4px; background: var(--border-color);
+}
+.term-scrollbar::-webkit-slider-thumb {
+  appearance: none; width: 12px; height: 34px; margin-left: -3px;
+  border-radius: 6px; background: var(--text-secondary);
+}
+.term-scrollbar:hover::-webkit-slider-thumb { background: var(--text-primary); }
+.term-scrollbar:disabled { cursor: default; opacity: .45; }
+.term-scrollbar:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+/* 只保留這一條共用捲軸；不能再開 xterm 的原生 viewport 捲軸。 */
+.term-pane .xterm-scrollable-element > .scrollbar.vertical { visibility: hidden; pointer-events: none; }
+.term-conversation { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.term-conversation-rail {
+  position: absolute; top: 0; right: 0; width: 28px; height: 30px;
+  display: flex; flex-direction: column; pointer-events: auto;
+}
+.term-conversation button {
+  font: inherit; color: var(--text-secondary); background: transparent;
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+}
+.term-conversation button:hover, .term-conversation button[aria-current='true'] {
+  color: var(--text-primary); background: var(--surface-hover);
+}
+.term-conversation button:focus-visible {
+  outline: 2px solid var(--accent-primary); outline-offset: -2px;
+}
+.term-conversation button:disabled { opacity: .5; cursor: default; }
+.term-conversation-toggle { min-height: 30px; font-size: 20px !important; }
+.term-conversation-panel {
+  position: absolute; top: 0; right: 28px; width: min(330px, calc(100% - 28px)); max-height: 100%;
+  display: flex; flex-direction: column; min-height: 0; pointer-events: auto;
+  padding: 6px; border: 1px solid var(--border-color); border-radius: 8px;
+  background: var(--bg-secondary); color: var(--text-primary); font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+}
+.term-conversation-panel[hidden], .term-conversation-status[hidden] { display: none; }
+.term-conversation-status { color: var(--text-secondary); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
+.term-conversation-list { flex: 1; min-height: 0; overflow-y: auto; }
+.term-conversation-row { display: block; width: 100%; text-align: left; padding: 8px; overflow-wrap: anywhere; }
+.term-conversation-row span { display: block; white-space: pre-wrap; line-height: 1.45; }
+.term-conversation-role { display: block; font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px; }
+.term-conversation-turn + .term-conversation-turn { border-top: 1px solid var(--border-color); }
 /* 分割顯示：並排的每一格各佔一份寬度。**順序用 `order` 排、不搬 DOM**——
    搬 xterm 的節點等於逼它整份重新量尺寸。 */
 .term-host.is-split {
@@ -5722,27 +5775,31 @@ label.chat-model-flag {
 }
 
 .usage-quota-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-/* 名字｜量表｜百分比｜倒數，四欄對齊 */
-.usage-quota-row {
   display: grid;
-  grid-template-columns: minmax(3.2em, auto) minmax(60px, 1fr) 3.4ch minmax(4.6em, auto);
+  grid-template-columns: auto minmax(60px, 1fr) 4ch auto;
+  column-gap: 8px;
+  row-gap: 7px;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
   font-size: 12px;
 }
 
+/* 名字｜量表｜百分比｜倒數，四欄對齊：整張卡共用同一組欄寬才對得齊，
+   所以 row 本身不佔格（contents），四個子元素直接當同一張 grid 的格子；
+   以前每列是各自獨立的 grid，名字／倒數一長一短就把量表擠成不一樣長 */
+.usage-quota-row {
+  display: contents;
+}
+
 .usage-quota-name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-secondary);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .usage-progress-track {
+  min-width: 0;
   height: 6px;
   overflow: hidden;
   border-radius: 999px;

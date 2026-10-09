@@ -21,6 +21,8 @@ function registerTerminalIpc({ ipcMain, service, isMainSender, dialog, getWindow
 
   ipcMain.handle('terminal:catalog', (event) => invoke(event, () => service.catalog()))
   ipcMain.handle('terminal:list', (event) => invoke(event, () => service.listSessions()))
+  ipcMain.handle('terminal:conversation', (event, id, cursor) => invoke(event, () => service.conversation(id, cursor)))
+  ipcMain.handle('terminal:navJump', (event, id, req) => invoke(event, () => service.navJump(id, req)))
   ipcMain.handle('terminal:hostState', (event) => invoke(event, () => service.hostState()))
   ipcMain.handle('terminal:restartHost', (event) => invoke(event, () => service.restartHost()))
   ipcMain.handle('terminal:create', (event, req) => (

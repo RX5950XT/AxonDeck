@@ -56,7 +56,7 @@ async function main() {
     let onKey
     vm.runInNewContext(handler, {
       term: { attachCustomKeyEventHandler: (fn) => { onKey = fn } },
-      id: 'paste-test', handleCopyKey: () => false,
+      id: 'paste-test', handleCopyKey: () => false, cliMouse: () => false, nativeMouse: false,
       pasteFromClipboard: () => { pasted.push('paste') }
     })
     for (const modifiers of [{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }, { altKey: true }]) {
@@ -127,6 +127,25 @@ async function main() {
     assert.equal(entry.queue.length, 0)
     assert.equal(entry.seq, 2)
     ok('寫入期間進來的片段接著收')
+  }
+
+  // 補舊紀錄會暫停畫面寫入；正在到達的新輸出不能插進保存紀錄中。
+  {
+    const api = load(), writes = []
+    const entry = { ready: true, writing: false, seq: 0, queue: [{ seq: 1, data: 'A' }] }
+    entry.term = { write(data, done) {
+      writes.push(data)
+      if (data === 'A') { entry.ready = false; entry.queue.push({ seq: 2, data: 'B' }, { seq: 3, data: 'C' }) }
+      done()
+    } }
+    await api.drainOutput(entry)
+    assert.equal(writes.join(''), 'A', '補紀錄期間新輸出必須留在佇列')
+    entry.seq = 2 // 接回的 PTY 快照已經包含 B。
+    entry.ready = true
+    await api.drainOutput(entry)
+    assert.equal(writes.join(''), 'AC', '恢復後只接尚未顯示的 C，不重播快照中的 B')
+    assert.equal(entry.seq, 3)
+    ok('補回歷史時暫停輸出，接回快照後順序不亂也不重複')
   }
 
   // ── 快照還沒回來就不寫 ──

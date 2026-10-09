@@ -9,7 +9,6 @@ const clipboardImage = require('./clipboard-image')
 const background = require('./background')
 const claudeHooks = require('./claude-hooks')
 const agents = require('../workspace/agents')
-const agentResume = require('./agent-resume').createTracker(store, agents)
 const { HostClient } = require('./host-client')
 
 /** 複製上限：scrollback 5000 列 × 寬螢幕也到不了這麼多，擋的是 renderer 亂送 */
@@ -17,6 +16,9 @@ const CLIPBOARD_MAX_CHARS = 8 * 1024 * 1024
 
 let client
 let emit = () => {}
+const agentResume = require('./agent-resume').createTracker(store, agents, Date.now, () => getClient().request('list'),
+  (states, terminals) => require('./agent-processes').identifySessions(states, terminals, agents.claudeHomes()),
+  (id, sessionId) => emit('terminal:session', { id, sessionId }))
 
 function getClient() {
   if (!client) client = new HostClient(require('electron').app.getPath('userData'), forward)
@@ -138,7 +140,7 @@ async function writeSession(id, data) {
   if (typeof data !== 'string' || !data) return false
   const key = String(id || '')
   // AI 記錄「送到現有終端機」用固定 resume 指令；驗記錄所屬目錄後一起保存 metadata。
-  const match = data.match(/^(claude --resume|codex resume(?: --no-daemon)?|grok --resume|agy --conversation|opencode --session) ([A-Za-z0-9_-]{6,64})\r?\n?$/)
+  const match = data.match(/^(claude --resume|codex resume(?: --no-daemon)?(?: --no-alt-screen)?|grok(?: --(?:fullscreen|minimal) --no-alt-screen)? --resume|agy --conversation|opencode(?: --mini)? --session) ([A-Za-z0-9_-]{6,64})\r?\n?$/)
   if (match) {
     const meta = await store.get(key)
     const agent = match[1].split(' ')[0]
@@ -171,6 +173,25 @@ async function createSession(req = {}) {
   return terminal.createSession(req)
 }
 
+/** 只收終端機 ID；對話與目錄由 main 的已驗證 metadata 取，不能讀別顆的記錄。 */
+async function conversation(id, cursor) {
+  const meta = typeof id === 'string' ? await store.get(id) : null
+  if (!meta) throw Object.assign(new Error('NO_SESSION'), { code: 'NO_SESSION', userMessage: '找不到這個工作階段' })
+  await agentResume.capture()
+  const current = await store.get(id)
+  const sessionId = current?.agentSessionId || current?.claudeSessionId
+  const agent = current?.claudeSessionId && !current.agentSessionId ? 'claude' : current?.preset
+  if (!sessionId || !agents.AGENTS[agent]) return { sessionId: '', turns: [], nextCursor: null }
+  const page = await agents.sessionConversation(current.cwd, agent, sessionId, cursor)
+  return { sessionId, agent, agentLabel: page.agentLabel, turns: page.turns, nextCursor: page.nextCursor }
+}
+
+/** OpenCode 全螢幕的文字不在 xterm 儲存格裡。外掛讀這個檔，把內部捲軸移到該則。 */
+async function navJump(id, req) {
+  const dir = require('node:path').join(require('electron').app.getPath('userData'), 'terminal-nav')
+  return require('./nav-jump').requestJump(dir, String(id || ''), req)
+}
+
 module.exports = {
   setEmitter(fn) {
     emit = typeof fn === 'function' ? fn : () => {}
@@ -187,6 +208,8 @@ module.exports = {
   // pty.js 是宿主檔，一改就得重開宿主（見 AGENTS.md「宿主活得比 App 久」）
   catalog: () => ({ ...terminal.catalog(), winBuild: Number(require('os').release().split('.')[2]) || 0 }),
   createSession,
+  conversation,
+  navJump,
   renameSession: terminal.renameSession,
   listSessions,
   hostState,

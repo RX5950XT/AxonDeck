@@ -20,8 +20,8 @@ if (!process.versions.electron) {
   const userData = tempDir('agent-host-')
   const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const expected = {
-    claude: `--resume ${uuid}`, codex: `resume --no-daemon ${uuid}`,
-    grok: `--resume ${uuid}`, agy: `--conversation ${uuid}`, opencode: '--session ses_123456789'
+    claude: `--resume ${uuid}`, codex: `resume --no-daemon --no-alt-screen ${uuid}`,
+    grok: `--minimal --no-alt-screen --resume ${uuid}`, agy: `--conversation ${uuid}`, opencode: '--session ses_123456789'
   }
   const metas = Object.keys(expected).map(preset => ({
     id: `t_${preset}_resume`, shell: 'cmd', preset, cwd: userData,

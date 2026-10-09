@@ -188,6 +188,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @returns {Promise<{ ok: boolean, data?: { shells: object[], presets: object[], maxSessions: number } }>} */
     catalog: () => ipcRenderer.invoke('terminal:catalog'),
     list: () => ipcRenderer.invoke('terminal:list'),
+    conversation: (id, cursor) => ipcRenderer.invoke('terminal:conversation', id, cursor),
+    /** 全螢幕 CLI 的內部捲軸。文字、角色與第幾次出現由清單來，路徑不從 renderer 收。 */
+    navJump: (id, req) => ipcRenderer.invoke('terminal:navJump', id, req),
     hostState: () => ipcRenderer.invoke('terminal:hostState'),
     restartHost: () => ipcRenderer.invoke('terminal:restartHost'),
     /** @param {{ shell?: string, preset?: string, cwd?: string, title?: string }} req */
@@ -246,6 +249,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const wrapped = (_event, payload) => handler(payload)
       ipcRenderer.on('terminal:agent', wrapped)
       return () => ipcRenderer.removeListener('terminal:agent', wrapped)
+    },
+    /** 同一個終端機改綁到另一段對話。面板關著也要重讀。 @param {(payload: { id: string, sessionId: string }) => void} handler */
+    onSession: (handler) => {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('terminal:session', wrapped)
+      return () => ipcRenderer.removeListener('terminal:session', wrapped)
     }
   },
 

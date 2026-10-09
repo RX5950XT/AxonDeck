@@ -126,8 +126,8 @@ const EDIT_TOOLS = /^(edit|write|multiedit|notebookedit|apply_patch|str_replace(
  */
 const AGENTS = {
   claude: { label: 'Claude Code', resume: (id) => `claude --resume ${id}` },
-  codex: { label: 'Codex', resume: (id) => `codex resume --no-daemon ${id}` },
-  grok: { label: 'Grok', resume: (id) => `grok --resume ${id}` },
+  codex: { label: 'Codex', resume: (id) => `codex resume --no-daemon --no-alt-screen ${id}` },
+  grok: { label: 'Grok', resume: (id) => `grok --minimal --no-alt-screen --resume ${id}` },
   opencode: { label: 'OpenCode', resume: (id) => `opencode --session ${id}` },
   agy: { label: 'Antigravity', resume: (id) => `agy --conversation ${id}` }
 }
@@ -363,6 +363,23 @@ function normalizeProjectFile(projectPath, rawPath) {
  * @param {string} projectPath 專案根目錄（絕對路徑，由 main 從 store 取）
  * @returns {Promise<Array<{ agent: string, agentLabel: string, id: string, title: string, mtime: number }>>}
  */
+async function codexTitles(home) {
+  const file = path.join(home, 'session_index.jsonl')
+  try {
+    if ((await fsp.stat(file)).size > 8 * 1024 * 1024) return new Map()
+    const titles = new Map()
+    for (const line of (await fsp.readFile(file, 'utf8')).split('\n')) {
+      let row
+      try { row = JSON.parse(line) } catch { continue }
+      if (typeof row?.id === 'string' && ID_RE.test(row.id) && typeof row.thread_name === 'string') titles.set(row.id, toTitle(row.thread_name))
+    }
+    return titles
+  } catch (error) {
+    if (error.code === 'ENOENT') return new Map()
+    throw error
+  }
+}
+
 async function sessions(projectPath) {
   const sinceMs = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000
   /** @type {Array<{ agent: string, agentLabel: string, id: string, title: string, mtime: number, source: string }>} */
@@ -391,6 +408,7 @@ async function sessions(projectPath) {
 
   // Codex：檔名不含 cwd，只能開第一行看 session_meta
   for (const home of codexHomes()) {
+    const titles = await codexTitles(home)
     /** @type {Array<{ file: string, mtime: number }>} */
     const found = []
     for (const root of ['sessions', 'archived_sessions']) {
@@ -409,6 +427,7 @@ async function sessions(projectPath) {
         agentLabel: AGENTS.codex.label,
         id: head.sessionId,
         title: head.title,
+        sessionTitle: titles.get(head.sessionId) || '',
         mtime: item.mtime,
         source: sourceLabel(home)
       })
@@ -417,7 +436,7 @@ async function sessions(projectPath) {
 
   const extra = await formats.extraSessions(projectPath, samePath, ID_RE)
   out.push(...extra.map(row => ({ ...row, agentLabel: AGENTS[row.agent].label, source: sourceLabel(row.home) })))
-  return dedupeSessions(out).slice(0, MAX_SESSIONS)
+  return latestPerAgent(out)
 }
 
 /**
@@ -445,6 +464,25 @@ function dedupeSessions(rows) {
     best.set(key, next)
   }
   return [...best.values()].sort((a, b) => b.mtime - a.mtime)
+}
+
+/**
+ * 每家各留最新幾筆。五家混在一起再切一段的話，比較忙的那家會把另一家整段擠掉。
+ * @template {{ agent: string, id: string, mtime: number, title?: string }} T
+ * @param {T[]} rows
+ * @param {number} [limit]
+ * @returns {T[]}
+ */
+function latestPerAgent(rows, limit = MAX_SESSIONS) {
+  const taken = new Map()
+  const out = []
+  for (const row of dedupeSessions(rows)) {
+    const count = taken.get(row.agent) || 0
+    if (count >= limit) continue
+    taken.set(row.agent, count + 1)
+    out.push(row)
+  }
+  return out
 }
 
 /**
@@ -525,19 +563,34 @@ async function resume(projectPath, agent, sessionId) {
   }
 }
 
+async function conversationSource(projectPath, agent, sessionId, conversationOnly) {
+  try {
+    return await findSessionFile(projectPath, agent, sessionId)
+  } catch (error) {
+    if (!(conversationOnly && agent === 'agy' && error.code === 'SESSION_NOT_FOUND')) throw error
+    const owned = formats.agyOwnedFile(sessionId)
+    if (!owned) throw error
+    return owned
+  }
+}
+
+function ownedConversation(agent, sessionId) {
+  return agent === 'agy' ? formats.agyOwnedFile(sessionId) : null
+}
+
 /**
  * 讀取並結構化解析單一會話（卡片式檢視，不需 resume）
  * @param {string} projectPath
  * @param {string} agent
  * @param {string} sessionId
  */
-async function sessionDetail(projectPath, agent, sessionId, cursor = null) {
+async function sessionDetail(projectPath, agent, sessionId, cursor = null, conversationOnly = false) {
   const pageCursor = validateCursor(cursor)
-  const found = await findSessionFile(projectPath, agent, sessionId)
+  const found = await conversationSource(projectPath, agent, sessionId, conversationOnly)
   const stat = await fsp.stat(found.file)
   const turns = [], toolUsage = {}, editedFiles = new Set(), readFiles = new Set()
   let chars = 0, nextCursor = null
-  for await (const record of formats.records(found, agent, pageCursor.offset)) {
+  for await (const record of formats.records(found, agent, pageCursor.offset, conversationOnly)) {
     const parsed = record.turns.flatMap(turn => [
       ...(turn.text ? [{ ...turn, tools: undefined }] : []),
       ...(turn.tools || []).map(tool => ({ role: 'assistant', text: '', tools: [tool] }))
@@ -554,7 +607,9 @@ async function sessionDetail(projectPath, agent, sessionId, cursor = null) {
         let end = Math.min(value.length, textOffset + TEXT_CHARS)
         if (end < value.length && /[\uD800-\uDBFF]/.test(value[end - 1])) end--
         const chunk = value.slice(textOffset, end)
-        turns.push(tool ? { ...turn, tools: [{ ...tool, detail: chunk }], continued: textOffset > 0 } : { ...turn, text: chunk, continued: textOffset > 0 })
+        const position = { offset: record.offset, part, text: textOffset }
+        turns.push(tool ? { ...turn, tools: [{ ...tool, detail: chunk }], continued: textOffset > 0 }
+          : { ...turn, text: chunk, continued: textOffset > 0, ...(conversationOnly ? { cursor: position } : {}) })
         if (tool && textOffset === 0) {
           toolUsage[tool.name] = (toolUsage[tool.name] || 0) + 1
           const file = normalizeProjectFile(projectPath, codexFileArg(value))
@@ -615,6 +670,7 @@ module.exports = {
   existingDirs,
   sourceLabel,
   dedupeSessions,
+  latestPerAgent,
   codexFileArg,
   findSessionFile,
   resume,
@@ -627,5 +683,7 @@ module.exports = {
   sessions,
   list: sessions,
   resumeCommand,
-  sessionDetail
+  sessionDetail,
+  sessionConversation: (projectPath, agent, sessionId, cursor) => sessionDetail(projectPath, agent, sessionId, cursor, true),
+  ownedConversation
 }

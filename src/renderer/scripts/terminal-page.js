@@ -1422,6 +1422,6 @@ export function refreshTerminalPage() {
   // 回到這一頁＝看到了目前這個階段，未讀點該清掉
   if (currentId) unread.delete(currentId)
   void reloadList()
-  // 分頁剛顯示，這一幀才量得到尺寸
+  // 分頁剛顯示，這一幀才量得到尺寸。不把捲軸拉回最底，對話跳轉的位置才留得住。
   requestAnimationFrame(fitVisible)
 }

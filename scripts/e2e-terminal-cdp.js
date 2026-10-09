@@ -191,8 +191,8 @@ async function main() {
       termNewBtn: !!document.getElementById('termNewBtn')
     }))()`)
     // 終端機已併入聊天頁：nav 不再有 terminal 分頁，終端機在主區的分頁列上
-    ok('nav 十個分頁、聊天排第一、Telegram 與檔案在後、沒有 terminal 分頁',
-      nav.order.length === 10 && nav.order[0] === 'chat' && nav.order[1] === 'telegram' && nav.order[2] === 'explorer' &&
+    ok('nav 九個分頁、聊天排第一、Telegram 與檔案在後、沒有 terminal 分頁',
+      nav.order.length === 9 && nav.order[0] === 'chat' && nav.order[1] === 'telegram' && nav.order[2] === 'explorer' &&
         !nav.order.includes('terminal'), JSON.stringify(nav.order))
     ok('分頁列有「＋」按鈕', nav.newBtn)
     ok('側欄沒有終端機清單，也沒有「＋ 終端機」', !nav.termList && !nav.termNewBtn, JSON.stringify(nav))
@@ -305,7 +305,10 @@ async function main() {
         await mainCdp.connect()
         const clip = `process.mainModule.require('electron').clipboard`
         // 這支跑在使用者自己的機器上：測完要把剪貼簿原樣放回去
-        savedClipboard = await mainCdp.eval(`${clip}.readText()`)
+        await mainCdp.eval(`globalThis.__savedClipboard = {
+          text: ${clip}.readText(), html: ${clip}.readHTML(), rtf: ${clip}.readRTF(), image: ${clip}.readImage()
+        }`)
+        savedClipboard = true
 
         const needle = `VI-PASTE-${Date.now()}`
         await mainCdp.eval(`${clip}.writeText(${JSON.stringify(needle)})`)
@@ -491,11 +494,19 @@ async function main() {
             process.mainModule.require(process.mainModule.require('electron').app.getAppPath() + '/src/main/terminal/service.js').clipboardText = globalThis.__originalClipboardText
             delete globalThis.__originalClipboardText
           })()`).catch(() => {})
-          if (typeof savedClipboard === 'string') {
+          if (savedClipboard) {
             try {
-              await mainCdp.eval(savedClipboard
-                ? `process.mainModule.require('electron').clipboard.writeText(${JSON.stringify(savedClipboard)})`
-                : `process.mainModule.require('electron').clipboard.clear()`)
+              const restoredClipboard = await mainCdp.eval(`(() => {
+                const clipboard = process.mainModule.require('electron').clipboard
+                const saved = globalThis.__savedClipboard
+                clipboard.write(saved)
+                const restored = clipboard.readText() === saved.text &&
+                  clipboard.readHTML() === saved.html && clipboard.readRTF() === saved.rtf &&
+                  clipboard.readImage().toPNG().equals(saved.image.toPNG())
+                delete globalThis.__savedClipboard
+                return restored
+              })()`)
+              ok('還原剪貼簿原有文字、格式與圖片', restoredClipboard)
             } catch { /* App 可能已經關了 */ }
           }
           mainCdp.close()
@@ -632,8 +643,9 @@ async function main() {
     ok('跨專案切回沿用同一個終端機畫面，不重建 xterm', await cdp.eval(`
       document.querySelector('.term-pane[data-id="${createdId}"]') === window.__retainedPane
       && window.__testTerminals.get(${JSON.stringify(createdId)}) === window.__retainedTerm`))
-    ok('切回專案直接顯示最下面的最新訊息', await cdp.eval(`
-      window.__retainedTerm.buffer.active.viewportY === window.__retainedTerm.buffer.active.baseY`))
+    // 對話跳轉後換專案再回來，要留在原本那一列。
+    ok('切回專案保留原本的捲動位置', await cdp.eval(`
+      window.__retainedTerm.buffer.active.viewportY === 0 && window.__retainedTerm.buffer.active.baseY > 0`))
 
     // ===== 未讀點之一：人在別的主區（對話）時跑完 =====
     // 合頁後沒有「別的分頁」：切到某個對話＝使用者離開終端機主區。
@@ -746,10 +758,14 @@ async function main() {
       document.querySelector('.ws-tab[data-id="${createdId}"] .ws-tab-open')?.click()
       await new Promise((r) => setTimeout(r, 600))
       const pane = document.querySelector('.term-pane[data-id="${createdId}"]')
-      return { before, after: rows().textContent.length, active: pane.classList.contains('is-active'), bottom: wasScrolledUp && term.buffer.active.viewportY === term.buffer.active.baseY }
+      return {
+        before, after: rows().textContent.length, active: pane.classList.contains('is-active'),
+        kept: wasScrolledUp && term.buffer.active.viewportY === 0,
+        y: term.buffer.active.viewportY, base: term.buffer.active.baseY
+      }
     })()`)
     ok('切走再切回來畫面沒被重畫', kept.after >= kept.before && kept.active, JSON.stringify(kept))
-    ok('離開其他頁再回終端機直接捲到底部', kept.bottom, JSON.stringify(kept))
+    ok('離開其他頁再回終端機仍留在原本的捲動位置', kept.kept, JSON.stringify(kept))
 
     // ===== 改名（分頁右鍵 → 就地改名）=====
     const renamed = await cdp.eval(`(async () => {

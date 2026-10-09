@@ -555,3 +555,15 @@
 - `test-workspace-ui.js` 192/192、`test-temp-hygiene.js`、兩支語法與 diff 檢查通過。`npm run electron:pack` 完成，276 支 src 與 asar 一致，更新 dist/win-unpacked。
 - `probe-workspace-agents-cdp.js` 新檢查先在原打包版失敗（0/5 複製按鈕），修改後五家真格式／真滑鼠／真 IPC 的路徑、不開對話與 260／320px 無重疊全部通過；既有全文／搜尋／置頂／更新／隔離檢查亦通過。剪貼簿最末端使用攔截並還原的 service，保留使用者系統剪貼簿；sidebar-copy.png 已目視確認。
 - 使用既有 axondeck-ai-session-find-preview 隔離 profile 開啟新版；正式安裝版與使用者資料保留，未新增 IPC／依賴，未 commit／push／發版。本輪未重跑完整工作區套件。
+
+# 2026-10-10 — v1.43.0 正式發行
+
+- [x] 確認 master／遠端／版本與變更範圍；更新版本及發行說明。
+- [x] 全部單元回歸、必要原生建置與打包版實際驗收。
+- [ ] 正式 NSIS 建置、拆包確認更新設定與檔案完整性。
+- [ ] 提交、tag、推送與 GitHub Release；核對遠端三件套與更新入口。
+
+## Review（v1.43.0 發行前）
+
+- 版本 1.43.0，master 與 origin 同在 `0ca83b9`，tag 仍停在 v1.42.0。終端機換頁／換專案保留捲動位置，舊測試改成這個預期；不把捲軸拉回最底，對話跳轉才留得住。
+- `node scripts/run-tests.js` 126/126。`npm run electron:pack` asar 276 支 src 與原始碼相同。`node scripts/e2e-terminal-cdp.js` 67/67。

@@ -4,8 +4,8 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.42.0**（2026-10-07）。
-nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.43.0**（2026-10-10）。
+nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -13,7 +13,6 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格並排、共用 `persist:telegram` |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
 | CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP（Claude／Codex／Grok／OpenCode 四家）／Skills 與記憶／用量統計；CLI 版本搬去設定頁 |
-| 語音轉文字 | `stt` | 檔案與錄音（左轉入、右錄音）｜即時字幕（系統聲音／麥克風）｜語音輸入 |
 | 語音轉文字 | `stt` | 檔案與錄音（左轉入、右錄音）｜即時字幕（系統聲音／麥克風）｜語音輸入 |
 | 翻譯與 TTS | `translate` | local（LinguaForge）／cloud 翻譯；Edge TTS |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |

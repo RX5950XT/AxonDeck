@@ -560,10 +560,11 @@
 
 - [x] 確認 master／遠端／版本與變更範圍；更新版本及發行說明。
 - [x] 全部單元回歸、必要原生建置與打包版實際驗收。
-- [ ] 正式 NSIS 建置、拆包確認更新設定與檔案完整性。
-- [ ] 提交、tag、推送與 GitHub Release；核對遠端三件套與更新入口。
+- [x] 正式 NSIS 建置、拆包確認更新設定與檔案完整性。
+- [x] 提交、tag、推送與 GitHub Release；核對遠端三件套與更新入口。
 
 ## Review（v1.43.0 發行前）
 
 - 版本 1.43.0，master 與 origin 同在 `0ca83b9`，tag 仍停在 v1.42.0。終端機換頁／換專案保留捲動位置，舊測試改成這個預期；不把捲軸拉回最底，對話跳轉才留得住。
 - `node scripts/run-tests.js` 126/126。`npm run electron:pack` asar 276 支 src 與原始碼相同。`node scripts/e2e-terminal-cdp.js` 67/67。
+- `npm run electron:build` 通過：安裝檔、blockmap、latest.yml 與 app-update.yml 一致。GitHub Release v1.43.0 已公開，三件套大小與本機相同。

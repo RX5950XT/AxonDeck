@@ -3311,9 +3311,9 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 8px 12px;
-  overflow-y: auto;
+  gap: 6px;
+  padding: 6px 8px;
+  overflow: hidden;
 }
 
 .ws-ai-session[hidden] {
@@ -3323,40 +3323,124 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 .ws-ai-session-bar {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 6px;
 }
 
-/* 窄的時候先縮標題與附註，按鈕永遠一行不折 */
+/* 標題獨立一列，操作鈕不會被長文字推到中間。 */
 .ws-ai-session-bar .btn {
   flex: none;
   white-space: nowrap;
 }
 
 .ws-ai-session-title {
+  flex-basis: 100%;
   min-width: 0;
   font-weight: 600;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.ws-ai-session-title > .ws-ai-title-fold {
+  margin: 0;
+}
+
+.ws-ai-title-fold > .ws-ai-fold-head {
+  padding: 0;
+  font-weight: 600;
+}
+
+.ws-ai-title-fold > .ws-ai-fold-body {
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-weight: 400;
+}
+
+.ws-ai-title-fold:not([open]) > .ws-ai-fold-body {
+  display: none;
+}
+
+.ws-ai-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.ws-ai-find[hidden] {
+  display: none;
+}
+
+.ws-ai-find-input {
+  flex: 1 1 160px;
+  min-width: 0;
+  width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.ws-ai-find-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+::highlight(ws-ai-find-current) {
+  background-color: var(--warning);
+  color: var(--surface-solid);
 }
 
 .ws-ai-session-meta {
   min-width: 0;
   font-size: 12px;
   color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .ws-ai-session-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.ws-ai-session-body > * {
+  flex-shrink: 0;
+}
+
+.ws-ai-card.ws-ai-overview {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.ws-ai-overview > .ws-ai-fold {
+  margin: 0;
+}
+
+.ws-ai-overview > .ws-ai-fold > .ws-ai-fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(35vh, 280px);
+  overflow-y: auto;
+}
+
+.ws-ai-overview > .ws-ai-fold:not([open]) > .ws-ai-fold-body {
+  display: none;
+}
+
+.ws-ai-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .ws-ai-card {
@@ -3377,34 +3461,30 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 }
 
 .ws-ai-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 
 .ws-ai-meta-item {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
+  max-width: 100%;
 }
 
 .ws-ai-meta-label {
+  flex: none;
   color: var(--text-tertiary);
   font-size: 11px;
 }
 
 .ws-ai-meta-value {
-  overflow: hidden;
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .ws-ai-sub-title {
@@ -3418,12 +3498,12 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 .ws-ai-tools-grid {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
 .ws-ai-file-pill {
   max-width: 100%;
-  overflow: hidden;
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, var(--border-color));
   border-radius: var(--radius-sm);
@@ -3433,8 +3513,7 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   font-family: var(--font-mono);
   font-size: 11px;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .ws-ai-file-pill:hover {
@@ -3461,6 +3540,7 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 .ws-ai-tool-name {
   color: var(--text-secondary);
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .ws-ai-tool-count {
@@ -4564,9 +4644,11 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   min-width: 0;
 }
 
-/* 「接續」疊在標頭那一行的右邊，標題才吃得到整個寬度 */
+/* 操作鈕並排在標頭右邊，對話標題仍保留整行寬度。 */
 .ws-agent-row-wrap .ws-agent-head {
-  padding-right: 48px;
+  padding-right: 104px;
+  flex-wrap: wrap;
+  min-height: 24px;
 }
 
 .ws-agent-source {
@@ -4578,10 +4660,16 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   color: var(--text-tertiary);
 }
 
-.ws-agent-resume {
+.ws-agent-actions {
   position: absolute;
   top: 5px;
   right: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+.ws-agent-resume,
+.ws-agent-copy {
   padding: 2px 8px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -4591,7 +4679,8 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   cursor: pointer;
 }
 
-.ws-agent-resume:hover {
+.ws-agent-resume:hover,
+.ws-agent-copy:hover {
   color: var(--accent-primary);
   border-color: var(--accent-primary);
 }
@@ -4603,9 +4692,20 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 
 .ws-ai-fold-head {
   cursor: pointer;
-  font-size: 11px;
-  color: var(--text-tertiary);
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
   list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.ws-ai-fold-head:hover {
+  color: var(--text-primary);
+}
+
+.ws-ai-fold-head:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 
 .ws-ai-fold-head::-webkit-details-marker {
@@ -4633,15 +4733,14 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 .ws-ai-turns {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .ws-ai-turn {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
+  padding: 6px 8px;
   border-radius: var(--radius-sm);
 }
 
@@ -4650,7 +4749,7 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 }
 
 .ws-ai-turn-role {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-tertiary);
 }
@@ -4665,12 +4764,27 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 
 .ws-ai-turn-tool {
   display: flex;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-tertiary);
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ws-ai-turn-tool + .ws-ai-turn-tool {
+  border-top: 1px solid var(--border-light);
+}
+
+.ws-ai-tool-group {
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
 }
 
 .ws-ai-turn-tool-detail {
+  white-space: pre-wrap;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 

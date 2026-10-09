@@ -500,3 +500,58 @@
 - `AXONDECK_EXE=dist/terminal-paste-qa/AxonDeck.exe` 跑 e2e-terminal-cdp：真按鍵、repeat、再次貼同樣內容、真右鍵、文字／圖片／直接語音插入皆通過。完整首輪 64 passed／2 failed：nav 既有預期 10、實際 9；9000 字斷言誤抓舊畫面數字，補本測試畫面清理。
 - 最後以 Node Module 執行同支 CDP 的建立／貼上／9000 字區段，保留 finally 清理，33 passed／1 failed；唯一失敗是無關的 nav 數量。7 條新增真操作斷言與 9000 字皆通過。使用者同時複製文字曾干擾重跑，新增測試固定本實例 service.clipboardText，原生 paste 仍讀真正系統剪貼簿，收尾還原。
 - 測試自己的程序已收掉。未替換現行安裝版／正在執行的預覽版，未 commit／push／發版。
+# 2026-10-10 — 專案 AI 紀錄緊湊排版
+
+- [x] 確認分頁、工具片段與完整文字的資料流。
+- [x] 合併概況／工具統計／翻頁為置頂區塊，連續工具紀錄可展開。
+- [x] 驗證分組與即時更新、工作區回歸、打包版全文與置頂／展開操作。
+
+## Review（AI 紀錄排版）
+
+- 文字依原順序完整顯示；連續工具片段合併，保留換行與接續標記。同頁更新保留概況／工具區的展開狀態，工具內容變動會重畫；換頁重新收合。
+- `node scripts/test-ai-session-live.js` 通過；`node scripts/test-workspace-ui.js` 192/192；`node scripts/test-temp-hygiene.js` 通過。新增分組測試修改前先失敗。
+- `npm run electron:pack` 成功，275 支 src 的 asar 內容一致，更新 dist/win-unpacked。`node scripts/probe-workspace-agents-cdp.js`：五家全文 SHA-256 一致（Claude 8 頁、其餘各 5 頁），真滑鼠前後翻頁／滾輪置頂／展開、鍵盤收合、深淺主題 320–1000px 無橫向溢出、同頁追加保留展開、換頁重收合與專案隔離通過；expanded.png 已目視確認。
+- `node scripts/run-tests.js workspace` 8/10 支通過；既有 test-workspace-state 的檔案樹通知失敗，以及 test-workspace 的三項舊契約失敗（Codex 指令少算 --no-alt-screen、detail caller 預期 3 處而實際 4 處）。涉及的四份來源與 HEAD 一致，未擴大修改。
+- 未新增依賴、未修改安裝版／真實使用者資料，未 commit／push／發版。
+
+# 2026-10-10 — AI 紀錄完整單頁與合併工具列
+
+- [x] 自動接起全部紀錄，移除使用者翻頁；末段增量更新、保留捲動與展開。
+- [x] 標題／接續／複製路徑併入置頂概況；資訊靠左緊排。
+- [x] 驗證跨段全文／工具統計／更新／取消，隔離打包與真 UI 操作。
+
+## Review（完整單頁）
+
+- IPC 保留每段上限，renderer 自動逐批接完，不設全文段數上限；更新只取代末段。統計累計全文，檔案若後來改過，就從只讀清單移除。移除翻頁 UI／caller／舊讀取計畫；CONTEXT.md 同步說明。
+- 標題／接續／複製路徑搬入同一塊置頂區域，來源／時間放進概況；摘要直接顯示提問與工具總數，欄位／工具統計靠左緊排。換對話重收合，同對話更新保留展開與閱讀位置，停在末尾才跟著新內容。
+- `node scripts/test-ai-session-live.js` 通過：先紅再綠，含 45 段自動接完、末段不重複、取消、壞游標、全文統計與閱讀位置。`test-workspace-ui.js` 192/192、`test-temp-hygiene.js` 與語法／diff 檢查通過。
+- 使用既有 pack-preview 流程，僅在記憶體改預覽目的地為 dist/ai-session-preview，275 支 src 的 asar 內容一致。該 exe 的 `probe-workspace-agents-cdp.js` 五家單頁全文 SHA-256 一致（Claude 166 個片段、其餘各 18 個片段）；無上下頁、320–1000px／深淺主題、置頂／按鈕／展開／鍵盤／更新／隔離全部通過。overview-expanded.png、expanded.png 已目視確認。
+- 全工作區仍 8/10 支通過：既有 test-workspace-state 的檔案樹通知失敗、test-workspace 的兩項 Codex 接續指令舊預期失敗（289/2）；移除翻頁 caller 後，原 detail caller 數量檢查恢復通過。
+- 另開使用 axondeck-ai-session-preview 獨立資料的新版預覽（PID 23104），已顯示使用者截圖中的真 Codex 紀錄，19 個文字片段、載入完成／無錯誤／工具列合併均確認；原預覽與安裝版保留。未新增依賴、未 commit／push／發版。
+
+# 2026-10-10 — AI 紀錄長標題與搜尋
+
+- [x] 長標題使用短摘要，完整標題可展開；操作按鈕另排一列。
+- [x] Ctrl+F 搜尋目前紀錄，標示命中、前後跳轉、展開工具內容，保留即時更新。
+- [x] 驗證搜尋／長標題，打包版真鍵盤與滑鼠驗收，開啟新版預覽。
+
+## Review（長標題與搜尋）
+
+- 長標題以 40 字摘要呈現，原生 details 可展開完整文字；按鈕另排一列。同一份紀錄更新保留標題展開與搜尋焦點，切換紀錄清除搜尋並回到開頭。
+- 搜尋對話文字、工具名稱與工具全文；大小寫不敏感，符號照原文查找。Enter／F3 下一筆、Shift+Enter／Shift+F3 上一筆，循環跳轉、命中工具自動展開，Esc 關閉。使用 CSS Highlight 標示目前命中，不改動對話原文。
+- `test-ai-session-find.js` 先紅再綠；`test-ai-session-live.js`、`test-temp-hygiene.js`、語法／diff 檢查通過；`test-workspace-ui.js` 192/192。
+- 沿用 pack-preview 流程更新 dist/ai-session-find-preview，276 支 src 與 asar 一致。該 exe 的 `probe-workspace-agents-cdp.js` 通過五家全文 SHA-256、超過第一段的末尾搜尋、真鍵盤／滑鼠搜尋、跳轉／展開／焦點／更新／無結果／關閉、深淺主題 320–1000px 與長標題完整展開。新增換紀錄檢查先重現捲動位置沿用，再修復並完整通過。
+- search.png 已目視確認；獨立 profile axondeck-ai-session-find-preview，原預覽與安裝版保留。未修改正式安裝版，未新增依賴，未 commit／push／發版；本輪未重跑全工作區套件。
+
+# 2026-10-10 — 右側 AI 紀錄複製路徑
+
+- [x] 每筆紀錄在接續旁加入「複製」，沿用已驗證的紀錄路徑與剪貼簿 IPC。
+- [x] 驗證按鈕不開啟對話、五家路徑正確、窄側欄無重疊。
+- [x] 打包、更新隔離預覽，記錄結果。
+
+## Review（側欄複製）
+
+- 每筆紀錄的接續／複製並排，複製取 main 已確認專案歸屬的紀錄路徑，再走既有 clipboardWrite IPC；換專案後忽略晚到的讀取，不開啟對話。標頭預留按鈕位置，標題保留整行寬度。
+- `test-workspace-ui.js` 192/192、`test-temp-hygiene.js`、兩支語法與 diff 檢查通過。`npm run electron:pack` 完成，276 支 src 與 asar 一致，更新 dist/win-unpacked。
+- `probe-workspace-agents-cdp.js` 新檢查先在原打包版失敗（0/5 複製按鈕），修改後五家真格式／真滑鼠／真 IPC 的路徑、不開對話與 260／320px 無重疊全部通過；既有全文／搜尋／置頂／更新／隔離檢查亦通過。剪貼簿最末端使用攔截並還原的 service，保留使用者系統剪貼簿；sidebar-copy.png 已目視確認。
+- 使用既有 axondeck-ai-session-find-preview 隔離 profile 開啟新版；正式安裝版與使用者資料保留，未新增 IPC／依賴，未 commit／push／發版。本輪未重跑完整工作區套件。

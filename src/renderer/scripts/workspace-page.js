@@ -2828,6 +2828,9 @@ async function renderAgents(quiet = false) {
 
     const wrap = document.createElement('div')
     wrap.className = 'ws-agent-row-wrap'
+    wrap.dataset.id = `${row.agent}:${row.id}`
+    const actions = document.createElement('div')
+    actions.className = 'ws-agent-actions'
     const resume = document.createElement('button')
     resume.type = 'button'
     resume.className = 'ws-agent-resume'
@@ -2837,7 +2840,17 @@ async function renderAgents(quiet = false) {
       event.stopPropagation()
       void resumeSession(project, row)
     })
-    wrap.append(item, resume)
+    const copy = document.createElement('button')
+    copy.type = 'button'
+    copy.className = 'ws-agent-copy'
+    copy.textContent = '複製'
+    copy.title = '複製這段對話紀錄檔的完整路徑'
+    copy.addEventListener('click', (event) => {
+      event.stopPropagation()
+      void copySessionPath(project, row)
+    })
+    actions.append(resume, copy)
+    wrap.append(item, actions)
     el.agentList.appendChild(wrap)
   }
   el.agentList.scrollTop = scroll
@@ -2854,6 +2867,20 @@ function formatWhen(ms) {
   if (diff < 24 * hour) return `${Math.round(diff / hour)} 小時前`
   const days = Math.round(diff / (24 * hour))
   return days <= 30 ? `${days} 天前` : new Date(ms).toLocaleDateString('zh-TW')
+}
+
+/** 紀錄路徑由 main 確認歸屬，剪貼簿 IPC 不受視窗焦點影響。 */
+async function copySessionPath(project, row) {
+  try {
+    const data = await call(electronAPI.workspace.agentSessionDetail(project.id, row.agent, row.id), '讀不到紀錄檔路徑')
+    if (currentProject()?.id !== project.id) return
+    if (typeof data?.file !== 'string' || !data.file) {
+      showToast('找不到紀錄檔路徑', 'error')
+      return
+    }
+    await call(electronAPI.terminal.clipboardWrite(data.file), '複製不了路徑')
+    showToast('已複製路徑')
+  } catch { /* call 已顯示錯誤 */ }
 }
 
 /**

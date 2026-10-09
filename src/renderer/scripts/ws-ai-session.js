@@ -17,6 +17,8 @@
  * @param {string} [className]
  * @returns {HTMLElement}
  */
+import { refreshAiSessionFind, sessionTitleExcerpt } from './ws-ai-session-find.js'
+
 function note(text, className = 'ws-ai-note') {
   const el = document.createElement('p')
   el.className = className
@@ -64,30 +66,74 @@ function fileChips(list, onOpen) {
   return host
 }
 
+/** 只合併連續工具片段，文字仍在原本的位置，原始資料不動。 */
+export function groupSessionTurns(turns) {
+  const groups = []
+  for (const turn of turns) {
+    if (turn.text) groups.push({ ...turn, tools: undefined })
+    if (!Array.isArray(turn.tools) || !turn.tools.length) continue
+    const tools = turn.tools.map(tool => ({ ...tool, continued: turn.continued }))
+    const previous = groups.at(-1)
+    if (previous?.tools) previous.tools.push(...tools)
+    else groups.push({ tools })
+  }
+  return groups
+}
+
+function toolGroup(tools) {
+  const names = [...new Set(tools.map(tool => tool.name))].join('、')
+  const fold = foldable(`工具紀錄 ${tools.length} 段 · ${names}`, false)
+  fold.box.classList.add('ws-ai-tool-group')
+  for (const tool of tools) {
+    const line = document.createElement('div')
+    line.className = 'ws-ai-turn-tool'
+    const name = document.createElement('span')
+    name.className = 'ws-ai-tool-name'
+    name.textContent = `${tool.name}${tool.continued ? ' · 接續' : ''}`
+    const detail = document.createElement('div')
+    detail.className = 'ws-ai-turn-tool-detail'
+    detail.textContent = tool.detail || ''
+    line.append(name, detail)
+    fold.body.appendChild(line)
+  }
+  return fold.box
+}
+
 /**
  * 畫一個 AI 會話分頁。
  *
  * @param {object} opts
  * @param {any} opts.tab 分頁本身（帶 sessionData／sessionRow）
- * @param {{ title: HTMLElement | null, meta: HTMLElement | null, body: HTMLElement | null, resumeBtn: HTMLButtonElement | null, resumeIntoBtn: HTMLButtonElement | null, copyPathBtn: HTMLButtonElement | null }} opts.els
+ * @param {{ bar: HTMLElement | null, title: HTMLElement | null, meta: HTMLElement | null, body: HTMLElement | null, resumeBtn: HTMLButtonElement | null, resumeIntoBtn: HTMLButtonElement | null, copyPathBtn: HTMLButtonElement | null }} opts.els
  * @param {(rel: string) => void} opts.onOpenFile
  * @param {() => Array<{ id: string, title: string }>} opts.terminals 這個專案現在開著哪些終端機
  * @param {(terminalId: string) => void} opts.onResume 接續（空字串＝開一個新的）
  * @param {(file: string) => void} opts.onCopyPath 複製記錄檔的完整路徑
  */
-export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCopyPath, onLoadPage }) {
+export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCopyPath }) {
   const data = tab.sessionData
   const row = tab.sessionRow
+  const findFocused = els.body?.querySelector('.ws-ai-find-input') === document.activeElement
+  const view = `${tab.projectId || ''}:${data?.agent || ''}:${data?.sessionId || ''}`
   if (els.title) {
-    els.title.textContent = tab.title
-    els.title.title = tab.title
+    const full = row?.title ? `${row.agentLabel || data?.agentLabel || 'AI'} · ${row.title}` : tab.title
+    const excerpt = sessionTitleExcerpt(full)
+    const open = els.title.dataset.sessionView === view && els.title.querySelector('details')?.open
+    els.title.dataset.sessionView = view
+    els.title.replaceChildren()
+    if (excerpt.endsWith('…') && excerpt !== full) {
+      const titleFold = foldable(excerpt, Boolean(open))
+      titleFold.box.classList.add('ws-ai-title-fold')
+      titleFold.box.querySelector('summary').title = '展開完整標題'
+      titleFold.body.textContent = full
+      els.title.appendChild(titleFold.box)
+    } else els.title.textContent = excerpt
+    els.title.title = full
   }
   if (els.meta) {
     const bits = []
-    if (data?.source) bits.push(`來源：${data.source}`)
+    bits.push(`來源：${data?.source || '本機預設位置'}`)
     if (row?.mtime) bits.push(new Date(row.mtime).toLocaleString('zh-TW'))
-    bits.push(`第 ${(tab.sessionPage || 0) + 1} 頁`)
-    if (data?.hasMore) bits.push('還有後續內容')
     els.meta.textContent = bits.join(' · ')
     els.meta.title = els.meta.textContent
   }
@@ -121,20 +167,29 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   }
 
   if (!els.body) return
+  const folds = '.ws-ai-overview > .ws-ai-fold, .ws-ai-tool-group'
+  const sameView = els.body.dataset.sessionView === view
+  const expanded = sameView
+    ? [...els.body.querySelectorAll(folds)].map(fold => fold.open) : []
+  els.body.dataset.sessionView = view
+  const overview = document.createElement('div')
+  overview.className = 'ws-ai-card ws-ai-overview'
+  if (els.bar) overview.appendChild(els.bar)
   els.body.replaceChildren()
+  els.body.appendChild(overview)
 
   if (!data || data.error) {
     els.body.appendChild(note(data?.error ? `解析失敗：${data.error}` : '無法解析這份對話記錄', 'ws-ai-card'))
+    refreshAiSessionFind(els.body, overview, view, findFocused)
     return
   }
 
-  // ── 1. 概況 ──
-  const summary = document.createElement('div')
-  summary.className = 'ws-ai-card'
-  const summaryTitle = document.createElement('h3')
-  summaryTitle.className = 'ws-ai-card-title'
-  summaryTitle.textContent = '本頁概況'
-  summary.appendChild(summaryTitle)
+  // ── 1. 同一塊置頂工具列、概況與統計 ──
+  const overviewFold = foldable(`提問 ${data.prompts?.length || 0} 段 · 工具 ${data.toolCallsCount || 0} 次 · 概況與工具統計${data.hasMore ? ' · 載入完整對話中…' : ''}`, false)
+  const summary = overviewFold.body
+  overview.appendChild(overviewFold.box)
+  if (tab.sessionReadError) overview.appendChild(note(tab.sessionReadError))
+  if (els.meta) summary.appendChild(els.meta)
 
   const grid = document.createElement('div')
   grid.className = 'ws-ai-meta-grid'
@@ -150,11 +205,7 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
     item.append(l, v)
     grid.appendChild(item)
   }
-  addMeta('代理類型', row?.agentLabel || data.agent)
   addMeta('會話識別碼', data.sessionId)
-  addMeta('本頁提問片段', `${data.prompts?.length || 0} 段`)
-  addMeta('本頁工具呼叫', `${data.toolCallsCount || 0} 次`)
-  addMeta('記錄來源', data.source || '本機預設位置')
   summary.appendChild(grid)
   for (const limitation of data.limitations || []) summary.appendChild(note(limitation))
 
@@ -164,25 +215,24 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
   if (edited.length) {
     const title = document.createElement('div')
     title.className = 'ws-ai-sub-title'
-    title.textContent = `本頁改過的檔案（${edited.length}）：`
+    title.textContent = `改過的檔案（${edited.length}）：`
     summary.append(title, fileChips(edited, onOpenFile))
   }
   if (read.length) {
-    const fold = foldable(`本頁只是讀過的檔案（${read.length}）`, false)
+    const fold = foldable(`只是讀過的檔案（${read.length}）`, false)
     fold.body.appendChild(fileChips(read, onOpenFile))
     summary.appendChild(fold.box)
   }
   if (!edited.length && !read.length) {
-    summary.appendChild(note('這頁沒有對到這個專案裡的檔案。'))
+    summary.appendChild(note('沒有對到這個專案裡的檔案。'))
   }
-  els.body.appendChild(summary)
 
   // ── 3. 工具呼叫統計（收起來）──
   const breakdown = data.toolCallsBreakdown || {}
   if (Object.keys(breakdown).length) {
-    const card = document.createElement('div')
-    card.className = 'ws-ai-card'
-    const fold = foldable(`本頁工具呼叫統計（${Object.keys(breakdown).length} 種）`, false)
+    const title = document.createElement('div')
+    title.className = 'ws-ai-sub-title'
+    title.textContent = `工具呼叫統計（${Object.keys(breakdown).length} 種）`
     const tools = document.createElement('div')
     tools.className = 'ws-ai-tools-grid'
     for (const [name, count] of Object.entries(breakdown)) {
@@ -197,23 +247,26 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
       badge.append(label, document.createTextNode(' '), num)
       tools.appendChild(badge)
     }
-    fold.body.appendChild(tools)
-    card.appendChild(fold.box)
-    els.body.appendChild(card)
+    tools.prepend(title)
+    summary.appendChild(tools)
   }
 
-  // ── 4. 對話內容（工具細節各自收起來）──
+  // ── 4. 對話全文，連續工具紀錄合併收合 ──
   const turns = Array.isArray(data.turns) ? data.turns : []
   if (turns.length) {
     const card = document.createElement('div')
-    card.className = 'ws-ai-card'
+    card.className = 'ws-ai-conversation'
     const title = document.createElement('h3')
     title.className = 'ws-ai-card-title'
     title.textContent = '對話內容'
     card.appendChild(title)
     const list = document.createElement('div')
     list.className = 'ws-ai-turns'
-    for (const turn of turns) {
+    for (const turn of groupSessionTurns(turns)) {
+      if (turn.tools) {
+        list.appendChild(toolGroup(turn.tools))
+        continue
+      }
       const item = document.createElement('div')
       item.className = turn.role === 'user' ? 'ws-ai-turn is-user' : 'ws-ai-turn'
       const who = document.createElement('span')
@@ -223,81 +276,60 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
       text.className = 'ws-ai-turn-text'
       text.textContent = turn.text || ''
       item.append(who, text)
-      if (Array.isArray(turn.tools) && turn.tools.length) {
-        const fold = foldable(`工具 ${turn.tools.length} 次`, false)
-        for (const tool of turn.tools) {
-          const line = document.createElement('div')
-          line.className = 'ws-ai-turn-tool'
-          const name = document.createElement('span')
-          name.className = 'ws-ai-tool-name'
-          name.textContent = tool.name
-          const detail = document.createElement('span')
-          detail.className = 'ws-ai-turn-tool-detail'
-          detail.textContent = tool.detail || ''
-          line.append(name, detail)
-          fold.body.appendChild(line)
-        }
-        item.appendChild(fold.box)
-      }
       list.appendChild(item)
     }
     card.appendChild(list)
     els.body.appendChild(card)
   }
-  const navigation = document.createElement('div')
-  navigation.className = 'ws-ai-card'
-  const pageNote = note(`第 ${(tab.sessionPage || 0) + 1} 頁${data.hasMore ? '，還有後續內容。' : '，已讀到記錄末尾。'}`)
-  navigation.appendChild(pageNote)
-  for (const [direction, label, action, available] of [
-    [-1, '上一頁', 'previous-page', (tab.sessionPage || 0) > 0],
-    [1, '下一頁（繼續讀取）', 'next-page', Boolean(data.nextCursor)]
-  ]) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'btn btn-secondary btn-sm'
-    button.dataset.action = action
-    button.textContent = label
-    button.disabled = !available || Boolean(tab.sessionLoading)
-    button.onclick = () => onLoadPage?.(direction)
-    navigation.appendChild(button)
-  }
-  els.body.prepend(navigation)
+  // 同頁有新內容時，保留使用者正在看的展開區塊。
+  els.body.querySelectorAll(folds).forEach((fold, index) => { fold.open = Boolean(expanded[index]) })
+  refreshAiSessionFind(els.body, overview, view, sameView && findFocused)
+  if (!sameView) els.body.scrollTop = 0
 }
 
 const PAGE_BUDGET = 40
 let watchTimer = 0
 let watchToken = 0
-let readGeneration = 0
 
-/** 剛打開跟著最新頁；使用者翻回舊頁時 sessionFollow 為 false。 */
-export function sessionReadPlan(tab) {
-  const cursors = Array.isArray(tab?.sessionPageCursors) ? tab.sessionPageCursors : [null]
-  const page = tab?.sessionPage || 0
-  return { follow: tab?.sessionFollow !== false, page, cursor: cursors[page] ?? null, cursors }
-}
-
-/** 跟著最新內容時才往後翻；一輪最多走到 limit 頁，下一輪從這一頁繼續。 */
-export function advanceSessionRead(plan, data, limit) {
-  const page = plan.page || 0
-  const cursors = plan.cursors || [null]
-  if (plan.follow && data?.hasMore && data.nextCursor && page + 1 < limit) {
-    const next = cursors.slice()
-    next[page + 1] = data.nextCursor
-    return { follow: true, page: page + 1, cursor: data.nextCursor, cursors: next, walk: true }
+/** 小段 IPC 資料接成一份畫面資料；讀過／改過分開，統計涵蓋全部內容。 */
+export function mergeSessionPages(pages) {
+  const toolCallsBreakdown = {}
+  for (const page of pages) {
+    for (const [name, count] of Object.entries(page.toolCallsBreakdown || {})) {
+      toolCallsBreakdown[name] = (toolCallsBreakdown[name] || 0) + count
+    }
   }
-  return { follow: Boolean(plan.follow), page, cursor: plan.cursor ?? null, cursors, walk: false }
+  const turns = pages.flatMap(page => page.turns || [])
+  const editedFiles = [...new Set(pages.flatMap(page => page.editedFiles || []))]
+  const edited = new Set(editedFiles)
+  const readFiles = [...new Set(pages.flatMap(page => page.readFiles || []))].filter(file => !edited.has(file))
+  return { ...pages.at(-1), turns, editedFiles, readFiles, toolCallsBreakdown,
+    prompts: turns.filter(turn => turn.role === 'user' && !turn.continued).map(turn => ({ text: turn.text })),
+    toolCallsCount: Object.values(toolCallsBreakdown).reduce((sum, count) => sum + count, 0),
+    stats: { totalTurns: turns.length, toolUsage: toolCallsBreakdown, editedFiles, readFiles }
+  }
 }
 
-/** 頁碼、有沒有後續、每一句的角色與文字。沒變就不要整頁重畫。 */
-export function sessionContentKey(data, page) {
-  const turns = Array.isArray(data?.turns) ? data.turns : []
-  const body = turns.map((turn) => `${turn?.role || ''}\u0000${turn?.continued ? 1 : 0}\u0000${turn?.text || ''}`).join('\u0001')
-  return `${page}\u0000${data?.sessionId || ''}\u0000${data?.hasMore ? 1 : 0}\u0000${body}`
+/** 更新從末段重讀並取代舊末段，再自動接下去；單批上限不限制全文長度。 */
+export async function readSessionPages(pages, read, current, limit = PAGE_BUDGET) {
+  const result = pages.slice(0, -1)
+  let cursor = pages.at(-1)?.pageCursor || null
+  for (let i = 0; i < limit; i++) {
+    if (!current()) return null
+    const data = await read(cursor)
+    if (!current()) return null
+    if (!data || data.error) throw new Error('讀取對話內容失敗')
+    result.push(data)
+    if (!data.hasMore) break
+    if (!data.nextCursor || JSON.stringify(data.nextCursor) === JSON.stringify(cursor)) throw new Error('讀取對話游標未前進')
+    cursor = data.nextCursor
+  }
+  return result
 }
 
-export function invalidateAiSessionRead() {
-  readGeneration += 1
-  return readGeneration
+/** 只比末段與段數；較早的紀錄已讀取，不反覆複製完整長對話。 */
+export function sessionContentKey(data, count = 1) {
+  return `${count}\u0000${JSON.stringify(data)}`
 }
 
 export function stopAiSessionWatch() {
@@ -306,52 +338,43 @@ export function stopAiSessionWatch() {
   watchToken += 1
 }
 
-async function readFollowedPage(tab, hooks, token, generation) {
-  let plan = sessionReadPlan(tab)
-  const ceiling = plan.page + PAGE_BUDGET
-  let data = null
-  for (;;) {
-    if (token !== watchToken || generation !== readGeneration || !hooks.current(tab)) return null
-    data = await hooks.read(plan.cursor)
-    if (!data || token !== watchToken || generation !== readGeneration || !hooks.current(tab)) return null
-    const next = advanceSessionRead(plan, data, ceiling)
-    if (!next.walk) return { plan, data }
-    plan = next
-  }
-}
-
 async function reloadFollowedSession(tab, hooks, token) {
-  const generation = readGeneration
-  const before = tab.sessionPage || 0
-  const found = await readFollowedPage(tab, hooks, token, generation)
-  if (!found || token !== watchToken || generation !== readGeneration || !hooks.current(tab)) return
-  const key = sessionContentKey(found.data, found.plan.page)
-  if (key === tab.sessionKey) return
+  const current = () => token === watchToken && hooks.current(tab)
+  const pages = await readSessionPages(tab.sessionPages || [tab.sessionData], hooks.read, current)
+  if (!pages || !current()) return
+  const key = sessionContentKey(pages.at(-1), pages.length)
+  if (key === tab.sessionKey && !tab.sessionReadError) return
   const body = hooks.body()
   const gap = body ? body.scrollHeight - body.scrollTop - body.clientHeight : 0
   const top = body ? body.scrollTop : 0
-  const stick = !tab.sessionKey || found.plan.page !== before || gap < 80
-  tab.sessionData = found.data
-  tab.sessionPage = found.plan.page
-  tab.sessionPageCursors = found.plan.cursors
-  tab.sessionFollow = found.plan.follow
+  const stick = Boolean(tab.sessionKey) && gap < 80
+  tab.sessionPages = pages
+  tab.sessionData = mergeSessionPages(pages)
+  tab.sessionReadError = ''
   tab.sessionKey = key
   hooks.paint()
   const nextBody = hooks.body()
   if (!nextBody) return
-  if (found.plan.follow && stick) nextBody.scrollTop = nextBody.scrollHeight
+  if (stick) nextBody.scrollTop = nextBody.scrollHeight
   else nextBody.scrollTop = top
 }
 
-/** 這個分頁還開著時，約每 2 秒重讀目前這一段的尾頁。手動翻頁不會被蓋掉。 */
+/** 自動讀完全部段落；之後每 2 秒更新末段，不把閱讀中的使用者拉到最底。 */
 export function startAiSessionWatch(tab, hooks) {
   stopAiSessionWatch()
   const token = watchToken
   let reading = false
   const run = () => {
-    if (reading || token !== watchToken || hooks.hidden() || !hooks.current(tab)) return
+    if (reading || token !== watchToken || (!tab.sessionData?.hasMore && hooks.hidden()) || !hooks.current(tab)) return
     reading = true
-    void reloadFollowedSession(tab, hooks, token).catch(() => {}).finally(() => { reading = false })
+    void reloadFollowedSession(tab, hooks, token).catch(() => {
+      if (token !== watchToken || !hooks.current(tab)) return
+      tab.sessionReadError = '後續內容讀取失敗，稍後自動重試。'
+      hooks.paint()
+    }).finally(() => {
+      reading = false
+      if (tab.sessionData?.hasMore && !tab.sessionReadError && token === watchToken && hooks.current(tab)) setTimeout(run, 0)
+    })
   }
   run()
   watchTimer = setInterval(run, 2000)

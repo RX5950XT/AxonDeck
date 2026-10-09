@@ -79,7 +79,7 @@ native/
 ### 專案工作區與終端機
 - 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄檔案樹（含搜尋）／Git／AI 記錄／監聽埠，主區底部是額度條 `quota-bar.js`。
 - 檔案樹圖片與 MP4／WebM 直接開工作區分頁（`vi-media://`）；Markdown 圖片支援專案相對路徑；Git 面板有 GitHub 按鈕（`githubUrl`）。
-- 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI，長對話分頁讀取。
+- 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI；IPC 分段讀取，renderer 自動接成完整單頁，後續只重讀末段。標題／接續／複製路徑與概況／工具統計共用置頂區塊，長標題可展開；Ctrl+F 搜尋全文與工具內容，Enter／Shift+Enter／F3 前後跳轉，命中工具自動展開，Esc 關閉。
 - 終端機 PTY 在獨立宿主（`<userData>/terminal-host/`），App 重開／更新只斷線；五種 AI CLI 重開時接回原程序，程序已結束就用記住的對話 ID 接續（Claude 靠 hook，其他靠啟動前紀錄基準）。
 - Claude 狀態：hook（`<userData>/claude-hook/`）＋畫面判斷 → 分頁顯示運行中／等你回答／閒置。
 - 其他：WebGL renderer、搜尋、字級、最多 3 格並排、OSC 標題與 cwd、連結、Ctrl+G 用 App 內編輯分頁、剪貼簿截圖貼路徑、桌布與配色、管理員終端機。Codex 預設指令 `codex --no-daemon`（避免彈外部視窗）。

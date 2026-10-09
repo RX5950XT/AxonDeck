@@ -10,7 +10,8 @@ import {
   disposeModel, disposeModelsExcept, retargetModel, revealLine, cursorInfo, currentValue, pushValue, showDiff,
   selectionInfo, diffGoTo, diffChangeCount, diffCursor, releaseEditors, flushChange
 } from './ws-monaco.js'
-import { paintAiSession, startAiSessionWatch, stopAiSessionWatch, invalidateAiSessionRead, sessionContentKey } from './ws-ai-session.js'
+import { paintAiSession, startAiSessionWatch, stopAiSessionWatch } from './ws-ai-session.js'
+import { initAiSessionFind, closeAiSessionFind } from './ws-ai-session-find.js'
 import { nextZoom } from './ws-zoom.js'
 import { toolIcon } from './ws-tool-icons.js'
 import {
@@ -149,7 +150,10 @@ export function showSurface(kind) {
   if (el.browser) el.browser.hidden = kind !== 'browser'
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
-  if (kind !== 'ai-session') el.aiSessionBody?.replaceChildren()
+  if (kind !== 'ai-session') {
+    closeAiSessionFind(el.aiSessionBody)
+    el.aiSessionBody?.replaceChildren()
+  }
 }
 
 // ===== 持久化 (Hot Exit) =====
@@ -790,8 +794,8 @@ async function activate(id) {
     paintDiff(tab)
     showSurface('diff')
   } else if (tab.kind === 'ai-session') {
-    paintAiSessionTab(tab)
     showSurface('ai-session')
+    paintAiSessionTab(tab)
     startAiSessionWatch(tab, {
       hidden: () => document.hidden,
       current: () => activeId === tab.id && findTab(tab.id) === tab && !staleOpen(generation, tab.projectId || ''),
@@ -2771,6 +2775,7 @@ function paintAiSessionTab(tab) {
   paintAiSession({
     tab,
     els: {
+      bar: el.aiSessionBar,
       title: el.aiSessionTitle,
       meta: el.aiSessionMeta,
       body: el.aiSessionBody,
@@ -2789,57 +2794,16 @@ function paintAiSessionTab(tab) {
     terminals: () => tabs
       .filter((one) => one.kind === 'terminal')
       .map((one) => ({ id: one.id, title: one.title })),
-    onResume: (terminalId) => void resumeSession(tab, terminalId),
-    onLoadPage: (direction) => void loadAiSessionPage(tab, direction)
+    onResume: (terminalId) => void resumeSession(tab, terminalId)
   })
 }
 
-/** 每次只保留一頁內容；前一頁用游標重讀，不累積整份巨型 log。 */
+/** 每次 IPC 仍只讀一小段，畫面會自動接成完整對話。 */
 async function readAiSession(tab, cursor) {
   const row = tab.sessionRow
   if (!tab.projectId || !row) return null
   const result = await electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor)
   return result?.ok ? result.data : null
-}
-
-async function loadAiSessionPage(tab, direction) {
-  if (tab.sessionLoading || !tab.projectId || !tab.sessionRow) return
-  const page = tab.sessionPage || 0
-  const follow = tab.sessionFollow !== false
-  const cursors = (tab.sessionPageCursors || [null]).slice()
-  const nextPage = page + direction
-  if (nextPage < 0 || (direction > 0 && !tab.sessionData?.nextCursor)) return
-  const cursor = direction > 0 ? tab.sessionData.nextCursor : cursors[nextPage]
-  cursors[nextPage] = cursor
-  tab.sessionPageCursors = cursors
-  tab.sessionPage = nextPage
-  tab.sessionFollow = false
-  invalidateAiSessionRead()
-  const gen = projectSwitch
-  tab.sessionLoading = true
-  paintAiSessionTab(tab)
-  try {
-    const data = await call(electronAPI.workspace.agentSessionDetail(tab.projectId, tab.sessionRow.agent, tab.sessionRow.id, cursor), '讀取這頁對話失敗')
-    if (staleOpen(gen, tab.projectId) || findTab(tab.id) !== tab) {
-      tab.sessionPage = page
-      tab.sessionFollow = follow
-      return
-    }
-    tab.sessionData = data
-    tab.sessionPage = nextPage
-    tab.sessionFollow = direction > 0 && !data?.hasMore
-    tab.sessionKey = sessionContentKey(data, nextPage)
-  } catch {
-    tab.sessionPage = page
-    tab.sessionFollow = follow
-    // call 已顯示錯誤；保留現在這頁。
-  } finally {
-    tab.sessionLoading = false
-    if (activeId === tab.id && findTab(tab.id) === tab) {
-      paintAiSessionTab(tab)
-      if (el.aiSessionBody) el.aiSessionBody.scrollTop = tab.sessionFollow ? el.aiSessionBody.scrollHeight : 0
-    }
-  }
 }
 
 /**
@@ -3290,9 +3254,11 @@ export function initWsTabs() {
 
   // AI 會話元素
   el.aiSession = document.getElementById('wsAiSession')
+  el.aiSessionBar = document.getElementById('wsAiSessionBar')
   el.aiSessionTitle = document.getElementById('wsAiSessionTitle')
   el.aiSessionMeta = document.getElementById('wsAiSessionMeta')
   el.aiSessionBody = document.getElementById('wsAiSessionBody')
+  initAiSessionFind(el.aiSession, el.aiSessionBody)
   el.aiResumeBtn = document.getElementById('wsAiResumeBtn')
   el.aiResumeIntoBtn = document.getElementById('wsAiResumeIntoBtn')
   el.aiCopyPathBtn = document.getElementById('wsAiCopyPathBtn')

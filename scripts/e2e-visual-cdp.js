@@ -1,7 +1,6 @@
 const { spawn, execFileSync } = require('child_process')
 const fs = require('fs')
 const http = require('http')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
@@ -12,7 +11,7 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-
 const USER_DATA_DIR = tempDir('axondeck-e2e-visual-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 fs.writeFileSync(path.join(USER_DATA_DIR, 'explorer.json'), JSON.stringify({ uffsAuto: false }))
-const PAGES = ['chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
+const { NAV_PAGES: PAGES } = require('./lib/nav-pages')
 // 主視窗 minWidth 是 900，900 就是最窄的真實情況。不要再量更窄的：
 // 視窗 --hidden 時用 Emulation 縮寬，有 -webkit-app-region 的標題列元素不會重算樣式，
 // 量到的溢出是假的（視窗顯示中量就正常）。
@@ -28,8 +27,8 @@ const SIGNATURES = {
   ccswitch: ['.cc-panel'],
   // 卡片是收到第一輪取樣才建出來的，所以 signature 挑靜態就在 DOM 裡的兩個面板
   sysmon: ['.sysmon-table', '.sysmon-stress-card'],
-  agy: ['.agy-control', '.agy-stats', '.agy-models', '.agy-logs'],
-  stt: ['.drop-zone', '.result-panel'],
+  // 語音頁改版後玻璃在三欄外框，欄內的 drop-zone／結果卡刻意是平的
+  stt: ['.stt-column'],
   translate: ['.translate-pane', '.translate-banner'],
   settings: ['.settings-card', '.settings-nav', '.settings-save-bar']
   // telegram：整片 webview、沒有卡片，只驗不會水平溢出

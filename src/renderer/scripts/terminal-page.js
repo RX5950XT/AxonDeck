@@ -1402,32 +1402,6 @@ async function restorePreviousTerminals() {
 }
 
 /**
- * 開一個新工作階段並送出一行指令。
- *
- * 給 Claude Code 頁的「更新 CLI」用：整個 npm 安裝過程使用者看得到，出錯也自己看得懂，
- * 比 App 偷偷在背景裝全域套件好。指令字串由 main 的固定表組出來（`ccswitch:updateCommand`），
- * 這裡只負責轉交。
- *
- * @param {string} title 側欄顯示的名稱
- * @param {string} command 送出的那一行（不含換行）
- * @returns {Promise<string>} 新工作階段的 id
- */
-export async function runInNewTerminal(title, command) {
-  initTerminalPage()
-  const created = await call(electronAPI.terminal.create({
-    shell: shellSelect?.value || '',
-    preset: 'shell',
-    cwd: cwdInput?.value || '',
-    projectId: currentProjectId(),
-    title
-  }), '建立終端機失敗')
-  await reloadList()
-  await openSession(created.id)
-  await electronAPI.terminal.write(created.id, `${command}\r`)
-  return created.id
-}
-
-/**
  * 給 `ws-tabs.js` 用：切到（或開啟）某個工作階段。
  * @param {string} id
  */

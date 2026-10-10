@@ -13,7 +13,6 @@
 
 const { app } = require('electron')
 const http = require('http')
-const os = require('os')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
 const fs = require('fs')

@@ -185,7 +185,6 @@ async function main() {
   }
   {
     // 「看」佔兩欄，「 src/a.js」從第 3 欄開始。若用字元位移 % cols，底線會畫到「看」上面。
-    const rows = [{ text: '看 src/a.js' }]
     const line = {
       isWrapped: false,
       length: 12,

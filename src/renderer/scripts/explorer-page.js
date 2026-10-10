@@ -3988,7 +3988,6 @@ function undoMove(newPaths, oldPaths) {
     for (let i = 0; i < newPaths.length; i += 1) {
       const back = parentOf(oldPaths[i])
       if (!back) continue
-      // eslint-disable-next-line no-await-in-loop
       await call(electronAPI.explorer.dropEntries([newPaths[i]], back, 'move'), '復原失敗')
     }
   }

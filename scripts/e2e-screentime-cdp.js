@@ -8,7 +8,6 @@
 const { spawn } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 
@@ -229,10 +228,11 @@ async function main() {
       } catch { /* 視窗已關 */ }
     }
     cdp?.close()
-    try { child.kill() } catch { /* ignore */ }
+    // 先趁主程序還活著整棵殺（同步），再 kill；反過來樹就斷了，nvidia-smi 等子程序會變孤兒咬住 CDP 埠
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
+      try { require('child_process').spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
     }
+    try { child.kill() } catch { /* ignore */ }
     for (let i = 0; i < 5; i += 1) {
       try { removeTree(USER_DATA_DIR); break } catch { await sleep(600) }
     }

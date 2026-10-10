@@ -1267,7 +1267,6 @@ async function onTreeDrop(event, project, entry) {
   let moved = 0
   for (const rel of list) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       const to = await call(electronAPI.workspace.moveEntry(project.id, rel, toDir), '搬不過去')
       retargetTabs(project.id, rel, to.rel)
       moved += 1
@@ -1657,7 +1656,6 @@ async function removeMany(project, rels) {
   let done = 0
   for (const rel of rels) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       await call(electronAPI.workspace.removeEntry(project.id, rel), '刪不掉')
       done += 1
     } catch {

@@ -12,7 +12,6 @@ const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
 const fs = require('fs')
 
 const PORT = 9247
@@ -191,8 +190,8 @@ async function main() {
       termNewBtn: !!document.getElementById('termNewBtn')
     }))()`)
     // 終端機已併入聊天頁：nav 不再有 terminal 分頁，終端機在主區的分頁列上
-    ok('nav 九個分頁、聊天排第一、Telegram 與檔案在後、沒有 terminal 分頁',
-      nav.order.length === 9 && nav.order[0] === 'chat' && nav.order[1] === 'telegram' && nav.order[2] === 'explorer' &&
+    ok('nav 與 index.html 一致、沒有 terminal 分頁',
+      JSON.stringify(nav.order) === JSON.stringify(require('./lib/nav-pages').NAV_PAGES) &&
         !nav.order.includes('terminal'), JSON.stringify(nav.order))
     ok('分頁列有「＋」按鈕', nav.newBtn)
     ok('側欄沒有終端機清單，也沒有「＋ 終端機」', !nav.termList && !nav.termNewBtn, JSON.stringify(nav))

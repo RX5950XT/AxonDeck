@@ -715,7 +715,6 @@ async function splitTerminal(id) {
 async function closeMany(list) {
   // 由後往前關：closeTab 會改動陣列，從前面關會跳過東西
   for (const tab of [...list].reverse()) {
-    // eslint-disable-next-line no-await-in-loop
     await closeTab(tab.id)
   }
   // 未存檔與終端機分頁要各自按 × 確認，批次裡會被略過：講清楚，不然像按了沒反應

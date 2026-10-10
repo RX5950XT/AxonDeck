@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.44.0**（2026-10-10）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.44.0**（2026-10-10）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -28,6 +28,7 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 src/main/
   main.js            frameless 主窗、IPC 註冊、store allowlist、單一實例鎖、系統匣、網頁分區 setupSession
   ipc-invoke.js      模組 IPC 共用外殼；raw-fs.js（不鎖 asar）；safe-rm.js（不穿 junction）
+  anthropic-stream.js／local-proxy-http.js   CC Proxy 閘道與 AGY 共用：中性 delta→Anthropic SSE、本機代理 Host／金鑰／JSON
   updater.js / update-mirrors.js   electron-updater＋GitHub latest.yml；安裝檔走鏡像、差分下載關閉
   chat*.js           雲端聊天 SSE（每對話一條 inflight）、會話＋側欄資料夾、取樣參數、自動標題、圖片
   ai-web.js          網頁版 AI：網址把關、標題、Google 登入修正、登入小視窗、分區 UA
@@ -38,6 +39,7 @@ src/main/
   explorer/          paths.js、fs.js、recycle.js、drives.js、watch.js、uffs.js、zip*.js、mtp.js、details.js、size.js、shell*.js
   media-player.js    本機圖片／影音分流到原生彈窗 axondeck-media.exe
   hfmodels/          hub／gguf／fit／download.js（共用續傳＋分段下載）／presets／runtime（router）
+  pdf-translate/     index.js（工作／來源保護）／ipc.js／protocol.js／runtime.js（隔離 Python）／worker.py（逐頁 OCR 與 PDF 替換）
   ccswitch/          claude-settings.js、providers.js（routeFor）、models-scan.js、mcp.js、versions.js、gateway/
   codeusage/         scan.js（游標）、parsers.js（五家）、pricing.js（RULES_VERSION）
   usage/             七家額度、claude-auth.js（續期）、codex-reset.js（app-server 兌換）
@@ -45,7 +47,7 @@ src/main/
   sysmon/            sampler.js、metrics.js、gpu.js、sensors.js（提權 sidecar）、fans.js、oc.js、disktree.js、stress.js
   screentime/        Tai 相容 SQLite、前景觀測、8908 WebSocket
   dictation/         管線、hotkey.js、insert.js、text.js（字典／切段）、hud.js
-  asr-select.js／model-scope.js／local-asr／llama-asr／cloud-asr／file-transcribe／stt-archive／local-llm／edge-tts
+  asr-select.js／model-scope.js／llama-asr／cloud-asr／file-transcribe／stt-archive／local-llm／edge-tts
 src/renderer/scripts/
   app.js  chat-page.js  chat-sidebar.js  chat-menu.js  ai-web-page.js  telegram-page.js  markdown.js
   workspace-page.js  ws-tabs.js  ws-monaco.js  ws-review.js  ws-git-status.js  terminal-page.js  term-*.js
@@ -65,8 +67,10 @@ native/
 - 文字轉語音：`breeze-tts/{index,protocol,ipc}.js` → `speech-page.js`／`speech.css`；`breezetts2q8`（3,568,844,480 bytes）搭配固定 v0.1.0 `breezeruntime`，SHA-256 驗證後才安裝。不寫 llama preset；NVIDIA ≥8GB + Vulkan 自動用 GPU，其餘 CPU。首次生成或保存聲音才載模型；列表直接讀保存檔，不因切頁載模型。
 - Breeze 僅監聽 main 指定的 loopback 隨機埠，參考／來源 WAV 由 main 選檔、驗證再用 token 呼叫；voice name 只收 ASCII 英數／`-`／`_`。收藏在 `userData/breeze-tts/voices`；移除模型或 runtime 先 shutdown，收藏保留。生成可取消；三種語音模式串流播放，實驗性變聲整段完成後播放；PCM 最後包 24kHz mono WAV。選參考音後前 120 秒轉 16k 單聲道，用檔案轉錄同一顆 ASR 自動辨識逐字稿並轉台灣繁體後填入，可再改；失敗退回手動。進階「生成上限」預設 30000。模型與本機輸出限研究及非商用。
 - NVIDIA ≥8GB VRAM 才使用 GPU（8184 MiB 門檻容許顯卡回報誤差），其餘 CPU；模型庫與 1.7B ASR 使用同一篩選規則，沒有手動 `llmGpu` 開關。
-- ASR 0.6B／1.7B 均為 Q8_0 GGUF，經 `asr-select` 選模型、`llama-asr` 共用 Local SI router；兩顆皆自動 GPU／CPU。推薦名稱不帶 CPU／GPU，設定 key 不變；舊 0.6B ONNX 檔不再用於 App 的推論。
-- 本地翻譯經 `local-llm-router.js` 沿用 Local SI 的 llama-server router；推薦模型以絕對檔案路徑寫入 preset，不複製模型。避免 node-llama-cpp 在 Windows 釋放 GPU context 時當機；關 App 要連只由翻譯載入的 router 一起收掉。
+- ASR 0.6B／1.7B 均為 Q8_0 GGUF，經 `asr-select` 選模型、`llama-asr` 共用 Local SI router；兩顆皆自動 GPU／CPU。推薦名稱不帶 CPU／GPU，設定 key 不變。sherpa-onnx 與 node-llama-cpp 已整個移除（套件、`local-asr.js`、`llama-addon.js`）。
+- 本地翻譯經 `local-llm-router.js` 沿用 Local SI 的 llama-server router；推薦模型以絕對檔案路徑寫入 preset，不複製模型。關 App 要連只由翻譯載入的 router 一起收掉。
+- PDF 翻譯：`pdf-translate.js` 共用翻譯頁語言與模型；輸入框工具列「＋ 檔案」、拖入或貼上圖片（`pasteImage` 只收 `data:image` base64，檔頭定副檔名，暫存 userData；PDF／png／jpg／webp／bmp／tiff，驗副檔名＋檔頭），附件 chip＋×，「翻譯」一顆鈕依有無附件走檔案／文字；main 凍結模型設定、驗來源後複製到每工作暫存，逐頁 OCR／翻譯／替換／落盤；取消會中止翻譯請求及自己的 Python 程序，另存禁止覆蓋來源。`engine` 新增 `pdf` owner，切頁不卸載使用中的翻譯模型，工作期間禁止重啟／調參／移除共用環境。
+- PDF 模型：`paddleocrvl16` 官方 GGUF＋mmproj 共用 llama router；`ppdoclayoutv3` 固定 layout 權重，`pdfruntime` 固定 uv／Python 3.12.12／PaddlePaddle 3.3.1／PaddleOCR 3.7.0／PyMuPDF 1.28.2，全部留在 models，無系統 Python 前置條件。文字型 PDF 使用字元位置，掃描頁與圖軸使用 OCR Spotting；公式框不替換，向量線條不刪除。文字溢出／位置不可靠保留原文且回報，特殊背景與數學排版仍需核對；不承諾任意文件完全相同。保留 metadata、書籤、頁碼標籤與跨頁連結。
 - 推薦模型已裝 CUDA 或 Vulkan 任一環境就能使用；補裝依 `hfmodels.hardware()` 的 `{ ok, data }` 取建議環境。預設 ASR ctx 4096、翻譯 ctx 8192，KV q8_0 與 flash attention 同開；本地翻譯約 2000 字一段，LinguaForge 的清單標記送前剝掉、翻完貼回。
 - 進 Local SI 自動補建議執行環境；推薦下載補必要環境；探索下載完成後排隊 fit＋bench，最佳化期間不能換模型資料夾。暫存 userData 不自動下載。
 - HF README 的 HTML 表格先轉 Markdown，再以零 innerHTML 的既有 renderer 畫列欄。
@@ -131,7 +135,11 @@ native/
 
 ### 更新與安裝
 - 手動「重新啟動並安裝」顯示進度、裝完自己開回；結束 App 時靜默安裝；關機／登出不安裝。
-- `electron:build` 走 `pack-preview.js --release`：磁碟根完整 NSIS → 驗 asar／`app-update.yml`／latest.yml 雜湊 → 同步回 dist → 清理。
+- `electron:build` 走 `pack-preview.js --release`：先 `npm run lint` → 磁碟根完整 NSIS → 驗 asar／`app-update.yml`／latest.yml 雜湊 → 同步回 dist → 清理。
+
+### 驗證工具
+- `npm run lint`：ESLint（三類規則）＋`scripts/lint-ipc.js`（IPC 三條對齊）。取代各測試裡的原始碼字串守衛；打包前自動跑。
+- 單元測試 `node scripts/run-tests.js`（129 支，純邏輯與 vm 行為測試）；e2e／probe 需打包版或真上游，不在這裡跑。
 
 ## 資料落點（`%APPDATA%/axondeck/`）
 

@@ -250,20 +250,20 @@ async function main() {
     )
 
     console.log('\n[A2] 推薦與設定搬移')
-    await waitFor(() => cdp.eval("document.querySelectorAll('#hfRuntimeList [data-runtime]').length === 3"), 20_000, 'Local SI 模組初始化')
+    await waitFor(() => cdp.eval("document.querySelectorAll('#hfRuntimeList [data-runtime]').length === 4"), 20_000, 'Local SI 模組初始化')
     await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
     const recommend = await waitFor(() => cdp.eval(`(() => {
       const rows = [...document.querySelectorAll('#hf-recommend .model-item')]
-      if (rows.length !== 5 || !rows.every((r) => r.offsetHeight > 0)) return null
+      if (rows.length !== 7 || !rows.every((r) => r.offsetHeight > 0)) return null
       return { keys: rows.map((r) => r.dataset.key), groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((r) => r.textContent),
         labels: rows.map((r) => r.querySelector('.model-name')?.textContent),
         actions: rows.every((r) => r.querySelector('.model-actions button')?.offsetHeight > 0),
         legacySettings: !!document.getElementById('set-local') }
-    })()`), 15_000, '五顆推薦模型')
-    assert(JSON.stringify(recommend.keys) === JSON.stringify(['breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b']), '推薦正好語音生成一顆、ASR 兩顆、翻譯兩顆', JSON.stringify(recommend))
+    })()`), 15_000, '七顆推薦模型')
+    assert(JSON.stringify(recommend.keys) === JSON.stringify(['breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b', 'paddleocrvl16', 'ppdoclayoutv3']), '推薦列出語音生成、ASR、翻譯與兩顆 PDF 辨識模型', JSON.stringify(recommend))
     assert(recommend.labels.every((label) => label && !/[（(](?:CPU|GPU)[）)]/.test(label)), '推薦模型名稱沒有 CPU／GPU 標籤')
     assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
-    assert(JSON.stringify(recommend.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯']), '執行環境不混進推薦模型')
+    assert(JSON.stringify(recommend.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']), '執行環境不混進推薦模型')
     const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')
     assert(hardware.data?.autoRuntime === false, '隔離測試不會自動下載大型執行環境')
 
@@ -400,7 +400,7 @@ async function main() {
       '有列出推論後端',
       JSON.stringify(runtime.rows.map((r) => r.label))
     )
-    assert(runtime.runtimeItems === 3, '執行環境列出 llama Vulkan、CUDA 與 Breeze 三種', String(runtime.runtimeItems))
+    assert(runtime.runtimeItems === 4, '執行環境列出 llama Vulkan、CUDA、Breeze 與 PDF 四種', String(runtime.runtimeItems))
     const inference = await waitFor(() => cdp.eval(`(() => {
       const hint = document.getElementById('hfInferHint')
       return hint?.offsetHeight > 0 && /自動：/.test(hint.textContent) ? hint.textContent : null

@@ -4,7 +4,6 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('node:os')
 const files = require('../src/main/workspace/files')
 const store = require('../src/main/workspace/store')
 

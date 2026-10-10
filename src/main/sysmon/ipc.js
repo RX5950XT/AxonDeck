@@ -90,7 +90,6 @@ function registerSysmonIpc({ ipcMain, service, isMainSender }) {
   // 免 UAC 啟動的排程工作：路徑與工作名都是 main 的固定值，renderer 只能說「裝／查／移除」
   ipcMain.handle('sysmon:fanTaskStatus', (event) => invoke(event, () => service.fanTaskStatus()))
   ipcMain.handle('sysmon:fanTaskInstall', (event) => invoke(event, () => service.fanTaskInstall()))
-  ipcMain.handle('sysmon:fanTaskRemove', (event) => invoke(event, () => service.fanTaskRemove()))
 
   // 效能調整。renderer 只送數字；opcode、PCI 位址、裝置路徑都不准出現在這條路上。
   ipcMain.handle('sysmon:ocStatus', (event) => invoke(event, () => service.ocStatus()))

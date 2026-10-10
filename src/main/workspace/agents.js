@@ -517,7 +517,6 @@ async function findSessionFile(projectPath, agent, sessionId) {
       take(path.join(home, 'projects', encodeClaudeDir(projectPath), `${sessionId}.jsonl`), home)
     }
   } else if (agent === 'codex') {
-    const sinceMs = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000
     for (const home of codexHomes()) {
       /** @type {Array<{ file: string, mtime: number }>} */
       const matches = []

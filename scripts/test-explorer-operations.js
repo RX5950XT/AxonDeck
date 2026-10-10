@@ -7,7 +7,6 @@ const fsp = require('node:fs/promises')
 const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
-const files = require('../src/main/explorer/fs')
 const operations = require('../src/main/explorer/operations')
 const recycle = require('../src/main/explorer/recycle')
 

@@ -42,6 +42,11 @@ async function main() {
   const breeze = await run(reply, false, { key: 'breezetts2q8', requires: 'breezeruntime' })
   assert.deepEqual(breeze.downloaded, ['breezetts2q8'], 'Breeze 依賴由後端處理')
   assert.equal(breeze.scans, 0, 'Breeze 不用 llama 裝置清單')
+  const ocr = await run(reply, false, { key: 'paddleocrvl16', requires: 'llamaruntime' })
+  assert.deepEqual(ocr.downloaded, ['paddleocrvl16', 'llamaruntime'], 'OCR共用 llama；layout／PDF依賴由後端下載並保留取消鏈')
+  const layout = await run(reply, false, { key: 'ppdoclayoutv3', requires: 'pdfruntime' })
+  assert.deepEqual(layout.downloaded, ['ppdoclayoutv3'], 'PDF runtime 依賴由後端處理')
+  assert.equal(layout.scans, 0, '版面辨識不送 llama router')
   console.log('PASS 推薦下載：IPC 資料、CUDA／Vulkan 選擇、已安裝與偵測失敗')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

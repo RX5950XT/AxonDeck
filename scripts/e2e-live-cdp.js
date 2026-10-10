@@ -224,7 +224,7 @@ async function main() {
 
     const recognized = await waitFor(
       () => subtitleCdp.eval(`document.getElementById('subtitleHistory')?.textContent || ''`)
-        // 系統 loopback 會混入其他應用程式音訊；精準度另由 e2e-live-pipeline 的隔離音訊驗證。
+        // 系統 loopback 會混入其他應用程式音訊。
         .then(text => /天[氣气]|公[園园]|散步/.test(text) ? text : ''),
       30000,
       'loopback 字幕關鍵字'

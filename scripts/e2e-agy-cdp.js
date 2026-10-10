@@ -10,8 +10,6 @@
 const { spawn } = require('child_process')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
-const os = require('os')
-const fs = require('fs')
 const http = require('http')
 
 const PORT = 9243
@@ -23,7 +21,7 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
 const USER_DATA_DIR = tempDir('axondeck-cdp-')
 // AGY 反代是 CC Proxy 頁的子分頁，頂端導覽不再有它
-const EXPECTED_ORDER = ['chat', 'telegram', 'explorer', 'ccswitch', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
+const { NAV_PAGES: EXPECTED_ORDER } = require('./lib/nav-pages')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -606,10 +604,11 @@ async function main() {
       } catch {}
     }
     cdp?.close()
-    try { child.kill() } catch {}
+    // 先 taskkill /T 收整棵（含 nvidia-smi 等子程序），再 child.kill()；反過來父程序先死，樹就找不到了
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
+      try { require('child_process').spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
     }
+    try { child.kill() } catch {}
   }
 }
 

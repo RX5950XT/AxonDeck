@@ -10,7 +10,6 @@
 
 const { spawn, execFileSync } = require('child_process')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
@@ -155,7 +154,7 @@ async function main() {
       `--remote-debugging-port=${PORT}`,
       `--user-data-dir=${USER_DATA_DIR}`
     ], { cwd: path.join(__dirname, '..'), stdio: 'ignore' })
-    const version = await waitFor(async () => {
+    await waitFor(async () => {
       try {
         return await getJson(`http://127.0.0.1:${PORT}/json/version`)
       } catch {

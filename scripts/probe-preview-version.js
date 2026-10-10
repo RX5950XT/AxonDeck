@@ -13,7 +13,6 @@
 
 const { spawn, execFileSync } = require('child_process')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')

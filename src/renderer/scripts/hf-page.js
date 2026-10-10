@@ -903,12 +903,15 @@ async function refreshHardware() {
         install.dataset.runtime = item.key
         install.addEventListener('click', () => installRuntime(item, install))
         row.appendChild(install)
-      } else if (item.runtime === 'breeze') {
+      } else if (item.runtime === 'breeze' || item.runtime === 'pdf') {
         const remove = el('button', 'btn btn-secondary btn-sm', '移除')
         remove.type = 'button'
         remove.addEventListener('click', async () => {
           const { askConfirm } = await import('./app-dialog.js')
-          if (!await askConfirm('移除 Breeze 執行環境？語音生成會先停止，模型與聲音收藏會保留。')) return
+          const message = item.runtime === 'pdf'
+            ? '移除 PDF 執行環境？文件辨識模型會保留。'
+            : '移除 Breeze 執行環境？語音生成會先停止，模型與聲音收藏會保留。'
+          if (!await askConfirm(message)) return
           try {
             await electronAPI.models.delete(item.key)
             await refreshHardware()
@@ -955,16 +958,25 @@ async function installRuntime(item, button) {
   installingRuntime = item.key
   button.disabled = true
   button.textContent = '下載中…'
+  const cancel = el('button', 'btn btn-secondary btn-sm', '取消')
+  cancel.type = 'button'
+  cancel.addEventListener('click', () => {
+    cancel.disabled = true
+    cancel.textContent = '取消中…'
+    electronAPI.models.cancel(item.key)
+  })
+  button.after(cancel)
   try {
     await electronAPI.models.download(item.key)
     // 換了推論後端，每顆模型的參數（offload、裝置）要照新後端重算
-    if (item.runtime !== 'breeze') await call(electronAPI.hfmodels.applyPresets(), { quiet: true })
+    if (!item.runtime || item.runtime === 'llama') await call(electronAPI.hfmodels.applyPresets(), { quiet: true })
     showToast(`已安裝 ${item.label}`, 'success')
   } catch (error) {
     showError(cleanIpcError(error) || '執行環境下載失敗')
     button.disabled = false
     button.textContent = '安裝'
   } finally {
+    cancel.remove()
     installingRuntime = ''
   }
   await refreshHardware()

@@ -9,7 +9,6 @@
 const { spawn } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 
@@ -99,7 +98,6 @@ class Cdp {
   }
   async key(key, code, keyCode) {
     for (const type of ['rawKeyDown', 'keyUp']) {
-      // eslint-disable-next-line no-await-in-loop
       await this.send('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
     }
   }

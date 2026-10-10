@@ -14,19 +14,19 @@ let storeRef = null
 
 /**
  * owner 就是 scope（translate 例外：那是翻譯與 TTS 頁的全域設定）。
- * @param {'live'|'file'|'translate'} owner
+ * @param {'live'|'file'|'translate'|'pdf'} owner
  * @returns {string} 空字串＝用全域設定
  */
 function llmKeyFor(owner) {
-  if (owner === 'translate') return ''
+  if (owner === 'translate' || owner === 'pdf') return ''
   const llm = modelScope.readLlm(storeRef, owner)
   return llm.mode === 'local' ? llm.modelKey : ''
 }
 
-/** @type {{ live: boolean, file: boolean, translate: boolean }} */
-const users = { live: false, file: false, translate: false }
+/** @type {{ live: boolean, file: boolean, translate: boolean, pdf: boolean }} */
+const users = { live: false, file: false, translate: false, pdf: false }
 
-const OWNERS = new Set(['live', 'file', 'translate'])
+const OWNERS = new Set(['live', 'file', 'translate', 'pdf'])
 
 /** 生命週期 serial：acquire/release/unloadAll 不互踩 */
 let lifecycleChain = Promise.resolve()
@@ -53,7 +53,7 @@ function activeOwners() {
 
 /**
  * 佔用引擎並預熱需要的模型
- * @param {'live'|'file'|'translate'} owner
+ * @param {'live'|'file'|'translate'|'pdf'} owner
  * @param {{ asr?: boolean, llm?: boolean }} needs
  * @returns {Promise<{ ok: boolean, asrLoaded: boolean, llmLoaded: boolean, warnings: string[] }>}
  */
@@ -62,7 +62,7 @@ async function acquire(owner, needs = {}) {
     throw new Error(`未知 engine owner: ${owner}`)
   }
   // translate 預設不載 ASR；live/file 預設載 ASR（needs.asr !== false）
-  const wantAsr = owner === 'translate' ? !!needs.asr : needs.asr !== false
+  const wantAsr = owner === 'translate' || owner === 'pdf' ? !!needs.asr : needs.asr !== false
   const wantLlm = !!needs.llm
 
   return withLifecycle(async () => {
@@ -108,7 +108,7 @@ function asrScopesInUse(owner) {
 
 /**
  * 釋放 owner；無人使用時卸載模型
- * @param {'live'|'file'|'translate'} owner
+ * @param {'live'|'file'|'translate'|'pdf'} owner
  */
 async function release(owner) {
   if (!OWNERS.has(owner)) return { ok: true, warnings: [] }
@@ -140,6 +140,7 @@ async function unloadAll() {
     users.live = false
     users.file = false
     users.translate = false
+    users.pdf = false
     const warnings = []
     const llm = await localLlm.unload()
     const asr = await localAsr.unload()

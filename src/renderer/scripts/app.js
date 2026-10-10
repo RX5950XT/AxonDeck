@@ -181,7 +181,6 @@ export const electronAPI = window.electronAPI || {
   },
   subtitle: {
     show: async () => console.log('[Dev Mode] subtitle:show'),
-    hide: async () => console.log('[Dev Mode] subtitle:hide'),
     close: async () => console.log('[Dev Mode] subtitle:close'),
     update: async (text) => console.log('[Dev Mode] subtitle:update', text),
     onTextUpdate: () => {},
@@ -303,11 +302,7 @@ export const electronAPI = window.electronAPI || {
       backends: []
     }),
     installCudaEnv: async () => ({ ok: false, message: '僅 Electron 環境' }),
-    openCudaDownloadPage: async () => true,
     onCudaInstallProgress: () => () => {}
-  },
-  llm: {
-    loadInfo: async () => ({ loaded: false, key: null, gpu: false, backend: 'cpu' })
   },
   explorer: {
     bootstrap: async () => ({ lastPath: '', view: 'list', places: [], drives: [] }),
@@ -333,9 +328,6 @@ export const electronAPI = window.electronAPI || {
     }),
     uffsSearch: async () => ({ hits: [], truncated: false, warming: false }),
     uffsCancel: async () => true,
-    uffsInstall: async () => { throw new Error('僅 Electron 環境可用') },
-    uffsCancelInstall: async () => true,
-    uffsInstallBroker: async () => { throw new Error('僅 Electron 環境可用') },
     folderSize: async () => ({ bytes: 0, files: 0, dirs: 0, incomplete: false, cancelled: false }),
     folderSizeCancel: async () => true,
     onChanged: () => () => {},
@@ -1402,7 +1394,6 @@ function handleAddAsrCloud() {
 async function handleDeleteAsrCloud() {
   const cur = asrCloudsDraft.find((c) => c.id === asrCloudDraftId)
   if (!cur) return
-  const label = cur.name || '未命名設定'
   asrCloudsDraft = asrCloudsDraft.filter((c) => c.id !== asrCloudDraftId)
   asrCloudDraftId = asrCloudsDraft[0]?.id || ''
   renderAsrCloudSelect()

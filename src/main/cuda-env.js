@@ -3,7 +3,7 @@
  * node-llama-cpp 需要 cudart + cublas + cublasLt（11/12/13）。
  */
 
-const { app, shell } = require('electron')
+const { app } = require('electron')
 const { execFile, spawn } = require('child_process')
 const { promisify } = require('util')
 const path = require('path')
@@ -345,54 +345,9 @@ async function installCudaEnv(onProgress = () => {}) {
   }
 }
 
-/**
- * 開啟官方下載頁（後備）
- */
-async function openCudaDownloadPage() {
-  await shell.openExternal('https://developer.nvidia.com/cuda-downloads')
-  return true
-}
-
-/**
- * 將 CUDA bin 前置到 process.env.PATH（給 llama-addon 載入 cudart/cublas）
- * @returns {string[]} 新加入的目錄
- */
-function prependCudaBinToPath() {
-  const added = []
-  const roots = listCudaInstallRoots()
-  const dirs = []
-  for (const root of roots) {
-    dirs.push(path.join(root, 'bin', 'x64'))
-    dirs.push(path.join(root, 'bin'))
-  }
-  const current = (process.env.PATH || '').split(path.delimiter).filter(Boolean)
-  const lower = new Set(current.map((d) => d.toLowerCase()))
-  const prefix = []
-  for (const d of dirs) {
-    if (!fs.existsSync(d)) continue
-    if (lower.has(d.toLowerCase())) continue
-    prefix.push(d)
-    lower.add(d.toLowerCase())
-    added.push(d)
-  }
-  if (prefix.length) {
-    process.env.PATH = [...prefix, ...current].join(path.delimiter)
-  }
-  // 補 CUDA_PATH（部分工具會讀）
-  if (!process.env.CUDA_PATH && roots[0]) {
-    process.env.CUDA_PATH = roots[0]
-  }
-  return added
-}
-
 module.exports = {
-  WINGET_PACKAGE_ID,
   CUDA_INSTALLER,
   detectCudaRuntime,
   detectVulkan,
-  installCudaEnv,
-  openCudaDownloadPage,
-  hasWinget,
-  prependCudaBinToPath,
-  listCudaInstallRoots
+  installCudaEnv
 }

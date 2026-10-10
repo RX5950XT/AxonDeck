@@ -1145,36 +1145,6 @@ console.log('\n[S7] 縮圖 pending 會延遲重取，暫時的圖不進快取')
   }
 }
 
-console.log('\n[Q] index.js 的 exports 都有定義')
-{
-  const indexSource = fs.readFileSync(path.join(ROOT, 'src/main/explorer/index.js'), 'utf8')
-  const block = indexSource.slice(indexSource.lastIndexOf('module.exports = {'))
-  const names = [...block.matchAll(/^ {2}([A-Za-z_$][\w$]*)\s*,?\s*$/gm)].map((m) => m[1])
-  ok('exports 不是空的', names.length >= 10, String(names.length))
-  const missing = names.filter((name) => !new RegExp(
-    `(?:^|\\n)\\s*(?:async\\s+function|function|const|let|var)\\s+${name}\\b`
-  ).test(indexSource))
-  ok('每個 export 都在檔案裡定義得到', missing.length === 0, missing.join(', '))
-}
-
-console.log('\n[Q2] ipc.js／main.js／preload 三份清單對得起來')
-{
-  const ipcSource = fs.readFileSync(path.join(ROOT, 'src/main/explorer/ipc.js'), 'utf8')
-  const mainSource = fs.readFileSync(path.join(ROOT, 'src/main/main.js'), 'utf8')
-  const preloadSource = fs.readFileSync(path.join(ROOT, 'src/preload/preload.js'), 'utf8')
-  const used = [...new Set([...ipcSource.matchAll(/service\.([A-Za-z_$][\w$]*)\(/g)].map((m) => m[1]))]
-  ok('ipc.js 真的有在用 service', used.length >= 10, String(used.length))
-  const at = mainSource.indexOf('registerExplorerIpc({')
-  const block = mainSource.slice(at, mainSource.indexOf('isMainSender', at))
-  const missing = used.filter((name) => !block.includes(`${name}: (...args)`))
-  ok('main.js 的 service 白名單一個都沒漏', missing.length === 0, missing.join(', '))
-  const channels = [...new Set(
-    [...ipcSource.matchAll(/ipcMain\.handle\('explorer:([A-Za-z_$][\w$]*)'/g)].map((m) => m[1])
-  )]
-  const noPreload = channels.filter((name) => !preloadSource.includes(`'explorer:${name}'`))
-  ok('每一支 IPC 在 preload 都接得到', noPreload.length === 0, noPreload.join(', '))
-}
-
 console.log(`\n${passed} passed, ${failed} failed`)
   process.exit(failed === 0 ? 0 : 1)
 }

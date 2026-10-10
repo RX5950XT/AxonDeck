@@ -12,8 +12,6 @@ const { spawn } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
-const fs = require('fs')
 
 const PORT = 9247
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），

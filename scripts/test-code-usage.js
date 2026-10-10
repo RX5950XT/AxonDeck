@@ -13,7 +13,6 @@
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const fs = require('fs')
-const os = require('os')
 
 const ROOT = path.join(__dirname, '..')
 const pricing = require(path.join(ROOT, 'src/main/codeusage/pricing.js'))

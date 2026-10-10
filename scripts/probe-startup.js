@@ -2,11 +2,14 @@
  * 量打包版「點 exe → 主窗 CDP 可連、聊天頁可用」的時間。
  * 用法：node scripts/probe-startup.js
  */
-const { spawn } = require('child_process')
+const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const http = require('http')
+const { tempDir, removeTree } = require('./lib/test-temp')
 
 const PORT = 9247
+// 暫存 userData：用真 profile 時使用者開著 App 會被單一實例鎖擋掉，也會碰真資料
+const USER_DATA_DIR = tempDir('axondeck-startup-')
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
 // 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
@@ -42,7 +45,7 @@ async function waitTargets(timeoutMs) {
 
 async function main() {
   const t0 = Date.now()
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`], {
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`], {
     stdio: ['ignore', 'pipe', 'pipe']
   })
   let log = ''
@@ -112,7 +115,12 @@ async function main() {
     }, null, 2))
     ws.close()
   } finally {
+    // 先整棵殺（同步）再 kill，避免子程序變孤兒
+    if (child.pid) spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' })
     child.kill()
+    for (let i = 0; i < 5; i += 1) {
+      try { removeTree(USER_DATA_DIR); break } catch { await sleep(600) }
+    }
   }
 }
 

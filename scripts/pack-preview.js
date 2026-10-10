@@ -21,6 +21,7 @@ const asar = require('@electron/asar')
 
 const ROOT = path.join(__dirname, '..')
 const PREVIEW = path.join(ROOT, 'dist', 'win-unpacked')
+const PRODUCT = require('../package.json').build.productName
 const OUT = path.join(path.parse(ROOT).root, `vi-build-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`)
 
 // vite／electron-builder 自己的暫存也收進來：@electron/get 每次取 Electron 都在 %TEMP% 留一個空的
@@ -68,11 +69,22 @@ function overwriteInPlace(from, to) {
   }
 }
 
+/** 預覽開著時 exe 被咬住，robocopy 預設會每 30 秒重試一百萬次（看起來像卡死），打包前先擋 */
+function assertPreviewClosed() {
+  try {
+    fs.closeSync(fs.openSync(path.join(PREVIEW, `${PRODUCT}.exe`), 'r+'))
+  } catch (error) {
+    if (error.code === 'EBUSY') throw new Error(`dist/win-unpacked 的預覽版還開著（${PRODUCT}.exe 被咬住），先關掉再打包`)
+    if (error.code !== 'ENOENT') throw error
+  }
+}
+
 function syncPreview(built) {
   fs.mkdirSync(PREVIEW, { recursive: true })
   // robocopy：0–7 是成功（有沒有複製到東西），8 以上才是失敗
   // 預覽資料可能就在輸出底下，且 models 是 junction；MIR 不得清掉它或連結對面的真資料。
-  const copy = spawnSync('robocopy', [built, PREVIEW, '/MIR', '/XJ', '/XD', path.join(PREVIEW, 'user-data'), '/XF', 'app.asar', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit', windowsHide: true })
+  // /R /W 封頂：防毒掃新 exe 的短暫鎖等一分鐘夠了，不要無限重試
+  const copy = spawnSync('robocopy', [built, PREVIEW, '/MIR', '/XJ', '/XD', path.join(PREVIEW, 'user-data'), '/XF', 'app.asar', '/R:12', '/W:5', '/NFL', '/NDL', '/NJH', '/NJS', '/NP'], { stdio: 'inherit', windowsHide: true })
   if (copy.status === null || copy.status >= 8) throw new Error(`同步 dist/win-unpacked 失敗（robocopy exit ${copy.status}）；預覽版還開著的話先關掉`)
   const from = path.join(built, 'resources', 'app.asar')
   const to = path.join(PREVIEW, 'resources', 'app.asar')
@@ -108,6 +120,8 @@ function main() {
   let exitCode = 0
   try {
     if (release && extra.some((arg) => arg.startsWith('--prepackaged'))) throw new Error('正式建置不可使用 --prepackaged，會跳過更新設定的產生')
+    assertPreviewClosed()
+    run('npm', ['run', 'lint'])
     run('npx', ['vite', 'build'])
     run('npx', ['electron-builder', '--win', release ? 'nsis' : 'dir', '--publish', 'never', `--config.directories.output=${OUT}`, ...extra])
     const built = path.join(OUT, 'win-unpacked')

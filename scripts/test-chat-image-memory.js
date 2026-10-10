@@ -7,9 +7,8 @@ const source = fs.readFileSync('src/renderer/scripts/chat-page.js', 'utf8')
   // export { a as b } 不是宣告，只拿掉前面的 export 會留下語法錯誤
   .replace(/^export \{[^}]*\}\s*$/gm, '')
   .replace(/^export /gm, '')
-let pending
 const context = vm.createContext({
-  electronAPI: { chat: { image: async name => name === 'late' ? new Promise(resolve => { pending = resolve }) : 'data:image/png;base64,' + name + 'x'.repeat(2 * 1024 * 1024) } },
+  electronAPI: { chat: { image: async name => name === 'late' ? new Promise(() => {}) : 'data:image/png;base64,' + name + 'x'.repeat(2 * 1024 * 1024) } },
   console, setTimeout, clearTimeout, document: {}
 })
 vm.runInContext(source, context)

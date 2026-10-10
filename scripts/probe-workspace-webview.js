@@ -17,12 +17,9 @@
 
 const { app, BrowserWindow } = require('electron')
 const http = require('http')
-const path = require('path')
 const { tempFile } = require('./lib/test-temp')
 const fs = require('fs')
-const os = require('os')
 
-const PORT_PLACEHOLDER = '__PROBE_PORT__'
 
 /** 起一個只回一頁的本機 server（不打外網） */
 function startServer() {
@@ -69,7 +66,6 @@ async function main() {
     // 等 webview attach + 導航完成（OOPIF 起來要一會）
     let info = null
     for (let i = 0; i < 40; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
       info = await win.webContents.executeJavaScript(`(() => {
         const w = document.getElementById('w')
         if (!w || typeof w.getWebContentsId !== 'function') return null

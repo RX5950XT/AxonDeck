@@ -7,7 +7,6 @@
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 
@@ -432,12 +431,12 @@ async function main() {
     })()`)
     ok(
       'model list rendered without innerHTML',
-      modelItems?.count === 5 &&
+      modelItems?.count === 7 &&
         modelItems.withKey === modelItems.count &&
         modelItems.withRow === modelItems.count &&
         modelItems.withName === modelItems.count &&
         modelItems.noPerRowTag === true &&
-        JSON.stringify(modelItems.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯']) &&
+        JSON.stringify(modelItems.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']) &&
         modelItems.withSize === modelItems.count &&
         modelItems.withButton === modelItems.count &&
         modelItems.withProgress === modelItems.count &&
@@ -604,9 +603,9 @@ async function main() {
     // 翻譯分段器單元檢查（直接 import 打包內的 renderer 模組）
     const split = await cdp.eval(`(async () => {
       const m = await import('./scripts/translate-page.js')
-      const long = ('這是一個測試句子。' .repeat(200))
+      const long = ('這是一個測試句子。' .repeat(300))
       const c = m.splitForTranslate(long)
-      const noPunct = 'a'.repeat(1500)
+      const noPunct = 'a'.repeat(4500)
       return {
         multi: c.length > 1,
         maxLen: Math.max(...c.map(s => s.length)),
@@ -618,16 +617,16 @@ async function main() {
     })()`)
     ok(
       'splitForTranslate',
-      split?.multi && split.maxLen <= 600 && split.rejoin && split.hard === 3 && split.empty === 0,
+      split?.multi && split.maxLen <= 2000 && split.rejoin && split.hard === 3 && split.empty === 0,
       JSON.stringify(split)
     )
 
-    // 長文（>1500 字，舊上限）實際翻譯：分段依序跑完
+    // 長文（>2000 字才會分段）實際翻譯：分段依序跑完
     const longRun = await cdp.eval(`(async () => {
       document.querySelector('[data-page="translate"]')?.click()
       await new Promise(r => setTimeout(r, 300))
       const input = document.getElementById('translateInput')
-      input.value = 'The patient should take this medication twice a day. '.repeat(36)
+      input.value = 'The patient should take this medication twice a day. '.repeat(45)
       input.dispatchEvent(new Event('input'))
       return {
         len: input.value.length,
@@ -637,7 +636,7 @@ async function main() {
     })()`)
     ok(
       'long input accepted (no maxlength)',
-      longRun?.len > 1500 && longRun.maxlength === null && /段/.test(longRun.count || ''),
+      longRun?.len > 2000 && longRun.maxlength === null && /段/.test(longRun.count || ''),
       JSON.stringify(longRun)
     )
 

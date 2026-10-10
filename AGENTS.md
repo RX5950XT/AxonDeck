@@ -5,7 +5,7 @@
 
 ## 專案
 
-Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.4.1（內建 Node 24）、腳本用系統 Node 22。
+Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
 nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜CC Proxy｜語音轉文字｜翻譯｜系統監控｜Local SI（`hfmodels`）｜設定。額度是工作區底下那條；AGY 反代與用量統計是 CC Proxy 的子分頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
@@ -37,8 +37,8 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 1. 動手前讀 CONTEXT.md 找模組、讀本檔該模組地雷；追完整條資料流與所有 caller，修根因。
 2. 改動最小。非簡單任務先把可勾選計畫寫進 `tasks/todo.md`。
-3. 完成前附驗證指令與實際輸出；新回歸測試要先在修復前紅過一次。同一修法失敗兩次就換方法。
-4. mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。
+3. 完成前附驗證指令與實際輸出（至少 `npm run lint`）。同一修法失敗兩次就換方法。
+4. mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。能靜態擋的（未定義名字、死變數、IPC 對不上）進 `npm run lint`，不寫單元測試；不新增「讀原始碼字串比對」的測試（改了名字就壞、不跑程式碼）。
 5. 刪功能時一起掃「定義／exports／IPC 白名單／preload／renderer 呼叫點」。
 6. Commit：`<type>: <繁中描述>`（feat／fix／refactor／docs／test／chore／perf／ci）；**只在使用者要求時** commit／push。
 
@@ -64,7 +64,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 系統工具指名 `%SystemRoot%\System32`（PATH 上的 MSYS `whoami`／`icacls` 會被抓到）。改 PATH 要就地改原鍵名並把大小寫不同的同名鍵收成一個。
 
 ### 打包／建置
-- 保留 `asar.smartUnpack: false`；`asarUnpack` 含 sherpa-onnx*、`@node-llama-cpp/win-x64`、`@reflink`、`.ps1`、`uiohook-napi`、`@lydell/node-pty*`。新增產物資料夾要排除（漏排 `native/` 曾讓打包失敗）。
+- 保留 `asar.smartUnpack: false`；`asarUnpack` 含 `.ps1`、`uiohook-napi`、`@lydell/node-pty*`。新增產物資料夾要排除（漏排 `native/` 曾讓打包失敗）。
 - asar 被別的程式抓著（Orca 連 `%TEMP%` 都監看）或打包中動到被打包的檔案（含把 log 導進專案）→ asar 安靜錯位、exit 0。`electron:pack` 已處理（打到磁碟根、逐檔比對）；不要手動 `--config.directories.output`。
 - `electron:pack` 中途失敗會留下壞 `dist/win-unpacked`：整個刪掉重打。worktree 打包要實體 `node_modules`（junction 會漏 node-pty 原生檔）。
 - NSIS warning 會被當錯誤（`installer.nsh` 安裝／解除安裝各編譯一次，只在 `customInstall` 用的 `Var` 會報 6001）；別把 `tail` 的 exit code 當建置成功。
@@ -87,7 +87,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。
 
 ### 專案工作區
-- 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload；`module.exports` 列未定義名字＝載入期 ReferenceError 而單元測試全綠。回歸 `test-workspace.js` [Q]（explorer／AGY／sysmon／usage 同一條）。
+- 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload。`npm run lint` 的 `scripts/lint-ipc.js` 擋這三條（全模組，不只工作區）；`module.exports` 列未定義名字由 ESLint `no-undef` 擋（＝載入期 ReferenceError，單元測試抓不到）。
 - 存檔帶開檔 mtime（`STALE` 提示條，草稿不動）；同檔寫入排隊；草稿上限 4MB、讀寫上限 50MB；存檔後重讀現在內容。
 - 開分頁每次 await 後核對 `projectSwitch` 並重新 `findTab`；改名／搬檔要 `retargetTabs`；切專案要 `disposeModelsExcept`。
 - 大檔：Monaco 停手 300ms 才 `getValue()`、`stash()` 先 `flushChange()`；`showTab` 用 `modelText` 比對不 `getValue()`。Monaco 只能走 AMD `min/vs`。
@@ -174,12 +174,14 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 在這個 App 裡開發這個 App 一律 `npm run dev:sandbox`（寫沙箱前先 `rm` 目的地，免得跟著連結寫回真資料）。
 - 暫存一律 `scripts/lib/test-temp.js`；CDP 用暫存 `--user-data-dir`，只 `taskkill /PID /T` 自己 spawn 的 pid（先 taskkill 再 `child.kill()`），**禁止 `/IM AxonDeck.exe`**。
 - 只用 `[data-id]` 指涉自己建的東西；同時只跑一支 CDP；主視窗用 `/index\.html/` 挑；開頭關 `sysmonSensors`。
+- nav 頁面清單／數量不准手抄，一律 `scripts/lib/nav-pages.js`（讀 index.html；手抄的清單在加 `speech`、拆 AGY 時各壞過一次）。
 - 用 node `spawn({ detached: true })` 開測試實例（PowerShell `Start-Process` 會被連帶收掉）；`npx electron <script>` 要補 `app.setPath('userData', ...)`；UI 斷言等「量得到尺寸」不睡固定時間；批次 sed 改識別字後逐條看 `git diff`。
 
 ## 驗證方式
 
+靜態檢查（先跑，秒級）：`npm run lint`＝ESLint（`eslint.config.mjs`：`no-undef`、`no-unused-vars`、`import/no-unresolved`，只這三類）＋`node scripts/lint-ipc.js`（preload channel 有 main 註冊、`electronAPI.<ns>.<fn>` 有定義、`service.X` 有轉發）。`electron:pack` 打包前會先跑，失敗就不打包。ESLint 版本鎖定，升級前先查發佈日。
 純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `AXONDECK_EXE`）。
-全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。
+全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。單元測試只留要守的純邏輯與 vm 執行 renderer 的行為測試；刪 `test-` 時先確認它不是唯一守住某條行為的測試。
 
 | 範圍 | 主要腳本 |
 |---|---|

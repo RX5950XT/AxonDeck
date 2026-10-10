@@ -26,7 +26,6 @@
  */
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
-const os = require('node:os')
 const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
@@ -255,7 +254,6 @@ async function main() {
   /** @type {Array<object>} */
   const results = []
   for (const useWebgl of [false, true]) {
-    // eslint-disable-next-line no-await-in-loop
     results.push(await win.webContents.executeJavaScript(
       `window.measure(${useWebgl}, ${STREAM_MS}, ${FRAME_MS})`
     ))
@@ -297,7 +295,6 @@ async function main() {
   console.log('\n串流中一邊打字（每 3 幀多打一個字），逐幀截輸入行那一列\n')
   const typing = []
   for (const useWebgl of [false, true]) {
-    // eslint-disable-next-line no-await-in-loop
     const geo = await win.webContents.executeJavaScript(`window.startTyping(${useWebgl}, ${FRAME_MS})`)
     const rect = {
       x: geo.x,
@@ -308,7 +305,6 @@ async function main() {
     const inks = []
     const until = Date.now() + STREAM_MS
     while (Date.now() < until) {
-      // eslint-disable-next-line no-await-in-loop
       const shot = await win.capturePage(rect)
       const bmp = shot.toBitmap()
       let ink = 0
@@ -318,7 +314,6 @@ async function main() {
       }
       inks.push(ink)
     }
-    // eslint-disable-next-line no-await-in-loop
     await win.webContents.executeJavaScript('window.stopTyping()')
     const peak = Math.max(...inks, 1)
     const blank = inks.filter((n) => n < peak * 0.25).length
@@ -347,7 +342,6 @@ async function main() {
   console.log('\n串流中打注音（12 個組字鍵），量候選字視窗的錨點跳到幾個位置\n')
   const composing = []
   for (const useWebgl of [false, true]) {
-    // eslint-disable-next-line no-await-in-loop
     composing.push(await win.webContents.executeJavaScript(
       `window.measureComposing(${useWebgl}, ${FRAME_MS}, 12)`
     ))

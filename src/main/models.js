@@ -26,6 +26,47 @@ const BREEZE_DIR = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
  * check: 有值時以「這些檔案都在」判定已安裝（archive 解壓後檔名跟下載名不同）
  */
 const MODELS = {
+  paddleocrvl16: {
+    label: 'PaddleOCR-VL-1.6 · 文件辨識',
+    kind: 'ocr',
+    runtime: 'llama',
+    requires: 'llamaruntime',
+    description: '辨識文字、公式、表格與圖表，和翻譯模型共用 llama.cpp。',
+    totalBytes: 1817539616,
+    base: 'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/',
+    files: ['PaddleOCR-VL-1.6-GGUF.gguf', 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf'],
+    gguf: 'PaddleOCR-VL-1.6-GGUF.gguf',
+    mmproj: 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf',
+    fileBytes: { 'PaddleOCR-VL-1.6-GGUF.gguf': 935769056, 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': 881770560 },
+    sha256: {
+      'PaddleOCR-VL-1.6-GGUF.gguf': 'f3ae46ec885050acf4b3d31944431e1fd90d50664fb09126af4a3c050ba14ee8',
+      'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': '204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a'
+    }
+  },
+  ppdoclayoutv3: {
+    label: 'PP-DocLayoutV3 · 版面辨識',
+    kind: 'ocr',
+    runtime: 'pdf',
+    requires: 'pdfruntime',
+    description: '找出段落、公式、表格與圖表的位置。',
+    totalBytes: 132004944,
+    base: 'https://huggingface.co/PaddlePaddle/PP-DocLayoutV3/resolve/main/',
+    files: ['inference.json', 'inference.pdiparams', 'inference.yml'],
+    fileBytes: { 'inference.json': 1196890, 'inference.pdiparams': 130806572, 'inference.yml': 1482 },
+    sha256: {
+      'inference.json': '2b68367c5b312a03de5a6e1642c597c8f95165a7e40cd59c6700cf4a5042f4fd',
+      'inference.pdiparams': '70bd316b0582769ec968829fd1feb1a6a58b7c941b938327e551b6b12b45c137',
+      'inference.yml': '506fcfac13b3b546ae40d7886b44126420f392adb694e3f8bb6a6286a1f90fdc'
+    }
+  },
+  pdfruntime: {
+    label: 'PDF 文件執行環境（PaddleOCR / PyMuPDF）',
+    kind: 'runtime',
+    runtime: 'pdf',
+    description: '自帶 Python；版面辨識走 CPU，文字辨識共用 llama.cpp。',
+    totalBytes: 800000000,
+    files: []
+  },
   breezetts2q8: {
     label: 'Breeze-TTS-2 · Q8_0',
     kind: 'tts',
@@ -141,6 +182,9 @@ const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 /** 本地 ASR 模型 key 白名單（順序：推薦在前） */
 const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
 
+/** 只有 GGUF OCR 送進 router；版面模型由 PDF 執行環境載入。 */
+const OCR_MODEL_KEYS = ['paddleocrvl16']
+
 /**
  * @param {unknown} key
  * @returns {boolean}
@@ -218,10 +262,18 @@ function modelDir(key) {
 function isDownloaded(key) {
   const def = MODELS[key]
   if (!def) return false
+  if (def.runtime === 'pdf' && def.kind === 'runtime') {
+    return !activeDownloads.has(key) && require('./pdf-translate/runtime').isReady(modelDir(key))
+  }
+  if (def.kind === 'ocr' && activeDownloads.has(key)) return false
   if (def.kind === 'tts' && activeDownloads.has(key)) return false
   const want = def.check || def.files
   return want.every(f => {
     const target = path.join(modelDir(key), f)
+    if (def.fileBytes?.[f]) {
+      try { return fs.statSync(target).isFile() && fs.statSync(target).size === def.fileBytes[f] }
+      catch { return false }
+    }
     if (def.runtime !== 'breeze') return fs.existsSync(target)
     try {
       const stat = fs.statSync(target)
@@ -311,14 +363,26 @@ async function download(key, onProgress) {
   }
 
   try {
-    if (def.runtime === 'breeze' && def.requires && !isDownloaded(def.requires)) {
-      const cancelDependency = () => cancelDownload(def.requires)
+    if (def.runtime === 'pdf' && def.kind === 'runtime') {
+      await require('./pdf-translate/runtime').install({ dir: modelDir(key), signal: controller.signal,
+        onProgress: progress => onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
+          ...progress, cancellable: true }) })
+      activeDownloads.delete(key)
+      return status()
+    }
+    const dependency = key === 'paddleocrvl16' ? 'ppdoclayoutv3'
+      : (def.runtime === 'breeze' || (def.runtime === 'pdf' && def.kind === 'ocr')) ? def.requires : null
+    if (dependency && (!isDownloaded(dependency)
+      || (key === 'paddleocrvl16' && !isDownloaded('pdfruntime')))) {
+      const cancelDependency = () => cancelDownload(dependency)
       controller.signal.addEventListener('abort', cancelDependency, { once: true })
       try {
-        await download(def.requires, progress => {
+        await download(dependency, progress => {
           onProgress(progress)
           onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
-            stage: '準備語音執行環境…', cancellable: !progress.stage })
+            stage: key === 'paddleocrvl16' ? '準備 PDF 辨識模型與執行環境…'
+              : def.runtime === 'pdf' ? '準備 PDF 執行環境…' : '準備語音執行環境…',
+            cancellable: progress.cancellable ?? !progress.stage })
         })
       }
       finally { controller.signal.removeEventListener('abort', cancelDependency) }
@@ -338,7 +402,7 @@ async function download(key, onProgress) {
       const result = await downloadFile({
         url: def.base + file,
         dest,
-        expectedBytes: def.sha256?.[file] ? def.totalBytes : undefined,
+        expectedBytes: def.fileBytes?.[file] || (def.sha256?.[file] && def.files.length === 1 ? def.totalBytes : undefined),
         sha256: def.sha256?.[file],
         signal: controller.signal,
         onProgress: (info) => {
@@ -425,6 +489,7 @@ module.exports = {
   MODELS,
   LLM_MODEL_KEYS,
   ASR_MODEL_KEYS,
+  OCR_MODEL_KEYS,
   LLAMA_BUILD,
   isLlmKey,
   isAsrKey,

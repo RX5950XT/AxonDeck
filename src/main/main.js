@@ -50,6 +50,7 @@ protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerBreezeIpc } = require('./breeze-tts/ipc')
+const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
 const { registerCodeUsageIpc } = require('./codeusage/ipc')
 const { registerDictationIpc } = require('./dictation/ipc')
@@ -100,6 +101,16 @@ let terminalMod = null
 let workspaceMod = null
 let explorerMod = null
 let breezeMod = null
+let pdfTranslateMod = null
+
+async function loadPdfTranslate() {
+  if (!store) await initStore()
+  if (!pdfTranslateMod) pdfTranslateMod = require('./pdf-translate')
+  pdfTranslateMod.init({ store, send: (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+  } })
+  return pdfTranslateMod
+}
 
 function loadBreeze() {
   if (!breezeMod) {
@@ -1482,12 +1493,6 @@ ipcMain.handle('system:installCudaEnv', async (event) => {
   }
 })
 
-ipcMain.handle('system:openCudaDownloadPage', async () => {
-  return loadCudaEnv().openCudaDownloadPage()
-})
-
-ipcMain.handle('llm:loadInfo', () => loadLocalLlm().getLoadInfo())
-
 // 語音輸入的桌面指示器。
 // 狀態只信主視窗（錄音在那一側）；指示器自己只送得出 ✕／✓ 兩個動作，而且要證明
 // 那則訊息真的來自指示器那扇視窗——否則任何 renderer 都能偽造「使用者按了送出」。
@@ -1511,13 +1516,6 @@ ipcMain.handle('subtitle:show', () => {
     createSubtitleWindow()
   } else {
     subtitleWindow.show()
-  }
-  return true
-})
-
-ipcMain.handle('subtitle:hide', () => {
-  if (subtitleWindow) {
-    subtitleWindow.hide()
   }
   return true
 })
@@ -1565,6 +1563,8 @@ ipcMain.handle('models:download', async (event, key) => {
 ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 
 ipcMain.handle('models:delete', async (event, key) => {
+  if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'llamaruntime', 'llamaruntimecuda',
+    ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
   return models.remove(key)
 })
@@ -1608,7 +1608,7 @@ ipcMain.handle('translate', async (event, text, targetLang, opts) => {
     throw new Error(`不支援的目標語言: ${lang}`)
   }
   // scope 是白名單：renderer 只能說「我是哪一頁」，模型與金鑰仍由 main 從 store 取
-  return loadLocalLlm().translate(store, trimmed, lang, { ...(opts || {}), scope })
+  return loadLocalLlm().translate(store, trimmed, lang, { ...(opts || {}), scope, signal: undefined })
 })
 
 // ===== Edge TTS =====
@@ -1870,7 +1870,6 @@ registerWorkspaceIpc({
     saveTabsState: (...args) => loadWorkspace().saveTabsState(...args),
     getTabsState: (...args) => loadWorkspace().getTabsState(...args),
     getFileMtime: (...args) => loadWorkspace().getFileMtime(...args),
-    projectPath: (...args) => loadWorkspace().projectPath(...args),
     listDir: (...args) => loadWorkspace().listDir(...args),
     readFile: (...args) => loadWorkspace().readFile(...args),
     writeFile: (...args) => loadWorkspace().writeFile(...args),
@@ -1890,7 +1889,6 @@ registerWorkspaceIpc({
     gitStage: (...args) => loadWorkspace().gitStage(...args),
     gitUnstage: (...args) => loadWorkspace().gitUnstage(...args),
     gitStageAll: (...args) => loadWorkspace().gitStageAll(...args),
-    gitUnstageAll: (...args) => loadWorkspace().gitUnstageAll(...args),
     gitDiscard: (...args) => loadWorkspace().gitDiscard(...args),
     gitCommit: (...args) => loadWorkspace().gitCommit(...args),
     gitPush: (...args) => loadWorkspace().gitPush(...args),
@@ -1972,9 +1970,6 @@ registerExplorerIpc({
     uffsStatus: (...args) => loadExplorer().uffsStatus(...args),
     uffsSearch: (...args) => loadExplorer().uffsSearch(...args),
     uffsCancel: (...args) => loadExplorer().uffsCancel(...args),
-    uffsInstall: (...args) => loadExplorer().uffsInstall(...args),
-    uffsCancelInstall: (...args) => loadExplorer().uffsCancelInstall(...args),
-    uffsInstallBroker: (...args) => loadExplorer().uffsInstallBroker(...args),
     uffsEnsure: (...args) => loadExplorer().uffsEnsure(...args),
     folderSize: (...args) => loadExplorer().folderSize(...args),
     folderSizeCancel: (...args) => loadExplorer().folderSizeCancel(...args)
@@ -1992,19 +1987,18 @@ registerHfModelsIpc({
     inspect: (...args) => loadHfModels().inspect(...args),
     preview: (...args) => loadHfModels().preview(...args),
     detail: (...args) => loadHfModels().detail(...args),
-    install: (...args) => loadHfModels().install(...args),
+    install: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().install(...args) },
     cancelInstall: (...args) => loadHfModels().cancelInstall(...args),
     listLocal: (...args) => loadHfModels().listLocal(...args),
-    removeLocal: (...args) => loadHfModels().removeLocal(...args),
+    removeLocal: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().removeLocal(...args) },
     pickAndImport: (...args) => loadHfModels().pickAndImport(...args),
     openModelsDir: (...args) => loadHfModels().openModelsDir(...args),
     rescan: (...args) => loadHfModels().rescan(...args),
-    updateModelSettings: (...args) => loadHfModels().updateModelSettings(...args),
-    refreshFit: (...args) => loadHfModels().refreshFit(...args),
-    tune: (...args) => loadHfModels().tune(...args),
-    autoTune: (...args) => loadHfModels().autoTune(...args),
-    cancelTune: (...args) => loadHfModels().cancelTune(...args),
-    chooseModelsDir: (...args) => loadHfModels().chooseModelsDir(...args),
+    updateModelSettings: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().updateModelSettings(...args) },
+    refreshFit: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().refreshFit(...args) },
+    tune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().tune(...args) },
+    autoTune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().autoTune(...args) },
+    chooseModelsDir: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().chooseModelsDir(...args) },
     setToken: (...args) => loadHfModels().setToken(...args),
     tokenStatus: (...args) => loadHfModels().tokenStatus(...args),
     hardwareInfo: (...args) => loadHfModels().hardwareInfo(...args),
@@ -2017,14 +2011,15 @@ registerHfModelsIpc({
       return status
     },
     stopRuntime: (...args) => {
+      pdfTranslateMod?.assertIdle()
       const status = loadHfModels().stopRuntime(...args)
       hfLocalModelIds = []
       return status
     },
     currentDevice: (...args) => loadHfModels().currentDevice(...args),
-    applyPresets: (...args) => loadHfModels().applyPresets(...args),
+    applyPresets: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().applyPresets(...args) },
     loadModel: (...args) => loadHfModels().loadModel(...args),
-    unloadModel: (...args) => loadHfModels().unloadModel(...args),
+    unloadModel: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().unloadModel(...args) },
     refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
   },
@@ -2042,6 +2037,20 @@ registerBreezeIpc({
     saveVoice: (options) => loadBreeze().saveVoice(options),
     removeVoice: (options) => loadBreeze().removeVoice(options),
     saveAudio: (options) => loadBreeze().saveAudio(options)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+registerPdfTranslateIpc({
+  ipcMain,
+  service: {
+    pick: async () => (await loadPdfTranslate()).pick(),
+    inspect: async (filename) => (await loadPdfTranslate()).inspect(filename),
+    pasteImage: async (payload) => (await loadPdfTranslate()).pasteImage(payload),
+    start: async (options) => (await loadPdfTranslate()).start(options),
+    cancel: async (jobId) => (await loadPdfTranslate()).cancel(jobId),
+    status: async () => (await loadPdfTranslate()).status(),
+    save: async (jobId) => (await loadPdfTranslate()).save(jobId)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2077,7 +2086,6 @@ registerSysmonIpc({
     fanResetAll: (...args) => loadSysmon().fanResetAll(...args),
     fanTaskStatus: (...args) => loadSysmon().fanTaskStatus(...args),
     fanTaskInstall: (...args) => loadSysmon().fanTaskInstall(...args),
-    fanTaskRemove: (...args) => loadSysmon().fanTaskRemove(...args),
     ocStatus: (...args) => loadSysmon().ocStatus(...args),
     ocSetDraft: (...args) => loadSysmon().ocSetDraft(...args),
     ocApply: (...args) => loadSysmon().ocApply(...args),
@@ -2446,6 +2454,7 @@ app.on('before-quit', (e) => {
     ? ccSwitchMod.stopGateway().catch((err) => console.error('[ccswitch] gateway stop failed:', err))
     : Promise.resolve()
   const stopAgy = Promise.all([
+    pdfTranslateMod ? pdfTranslateMod.shutdown() : Promise.resolve(),
     breezeMod ? breezeMod.shutdown() : Promise.resolve(),
     stopTerminal,
     stopExplorer,

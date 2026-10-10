@@ -14,15 +14,13 @@
  */
 
 const http = require('http')
-const { timingSafeEqual } = require('crypto')
+const { safeEqual, hostAllowed, presentedKey, sendJson } = require('../../local-proxy-http')
 const convert = require('./convert')
 const credential = require('./credential')
 const clientHeaders = require('./client-headers')
 
 const HOST = '127.0.0.1'
 const MAX_BODY_BYTES = 32 * 1024 * 1024
-/** 只接受指向本機的 Host */
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 /** cli-chat-proxy 只驗「有沒有帶、夠不夠新」，不比對本機真的裝了哪一版 */
 const GROK_CLI_VERSION = '1.0.13'
 /** 首個 token 的等待上限；之後改看閒置 */
@@ -98,55 +96,6 @@ function configure(options = {}) {
 }
 
 // ===== 共用小工具 =====
-
-/**
- * @param {string} a
- * @param {string} b
- * @returns {boolean}
- */
-function safeEqual(a, b) {
-  const left = Buffer.from(String(a))
-  const right = Buffer.from(String(b))
-  if (left.length !== right.length) return false
-  return timingSafeEqual(left, right)
-}
-
-/**
- * @param {import('http').IncomingMessage} req
- * @returns {boolean}
- */
-function hostAllowed(req) {
-  const host = String(req.headers.host || '')
-  const name = host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.split(':')[0]
-  return ALLOWED_HOSTS.has(name)
-}
-
-/**
- * Claude Code 送 `x-api-key`；有些客戶端送 Bearer。
- * @param {import('http').IncomingMessage} req
- * @returns {string}
- */
-function presentedKey(req) {
-  const header = String(req.headers.authorization || '')
-  if (header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
-  const apiKey = req.headers['x-api-key']
-  return typeof apiKey === 'string' ? apiKey.trim() : ''
-}
-
-/**
- * @param {import('http').ServerResponse} res
- * @param {number} status
- * @param {object} payload
- */
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store'
-  })
-  res.end(body)
-}
 
 /**
  * 錯誤要長成 Anthropic 的形狀，否則 Claude Code 解析不了。

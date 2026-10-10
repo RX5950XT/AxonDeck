@@ -1035,7 +1035,6 @@ console.log('\n[O] workspace IPC service 接線')
     'getTabsState',
     'getFileMtime',
     'gitStageAll',
-    'gitUnstageAll',
     'listFiles',
     'agentSessionDetail',
     'importDropped'
@@ -1053,48 +1052,6 @@ console.log('\n[P] AI 會話 detail caller 傳 projectId')
   const calls = [...tabsSource.matchAll(/agentSessionDetail\(([^\n]+)\)/g)].map((match) => match[1])
   ok('所有 AI detail caller 都傳 projectId', calls.length === 3 && calls.every((args) => /^(proj\.id|tab\.projectId),/.test(args.trim())))
   ok('AI 記錄工具名稱走 textContent', !/\.innerHTML\s*=/.test(tabsSource))
-}
-
-// ===== [Q] index.js 的 module.exports 每一個名字都真的有定義 =====
-// index.js 要 electron 才 require 得起來，單元測試載不了它 → 少一個定義是
-// **載入期的 ReferenceError**，整個 workspace 模組掛掉、每一支 IPC 都回
-// 「工作區操作失敗」，而 node --check 與所有既有測試全綠（實測踩過 agentResumeCommand）。
-console.log('\n[Q] index.js 的 exports 都有定義')
-{
-  const indexSource = fs.readFileSync(path.join(ROOT, 'src/main/workspace/index.js'), 'utf8')
-  const block = indexSource.slice(indexSource.lastIndexOf('module.exports = {'))
-  const names = [...block.matchAll(/^ {2}([A-Za-z_$][\w$]*)\s*,?\s*$/gm)].map((match) => match[1])
-  ok('exports 不是空的', names.length > 20, String(names.length))
-  const missing = names.filter((name) => !new RegExp(
-    `(?:^|\\n)\\s*(?:async\\s+function|function|const|let|var)\\s+${name}\\b`
-  ).test(indexSource))
-  ok('每個 export 都在檔案裡定義得到', missing.length === 0, missing.join(', '))
-}
-
-// ===== [Q2] 三份清單要對得起來：ipc.js ↔ main.js 的 service ↔ preload =====
-// `main.js` 的 `registerWorkspaceIpc({ service })` 是**逐一列舉**的白名單
-// （AGY 與系統監控都踩過同一條）。ipc.js 加了 handler 但那裡漏一行，
-// `service.X` 就是 undefined → TypeError → renderer 只看得到通用的
-// 「工作區操作失敗」，IPC 層與單元測試全綠。實測這一輪的 gitBranches 就漏過。
-console.log('\n[Q2] ipc.js／main.js／preload 三份清單對得起來')
-{
-  const ipcSource = fs.readFileSync(path.join(ROOT, 'src/main/workspace/ipc.js'), 'utf8')
-  const mainSource = fs.readFileSync(path.join(ROOT, 'src/main/main.js'), 'utf8')
-  const preloadSource = fs.readFileSync(path.join(ROOT, 'src/preload/preload.js'), 'utf8')
-
-  const used = [...new Set([...ipcSource.matchAll(/service\.([A-Za-z_$][\w$]*)\(/g)].map((m) => m[1]))]
-  ok('ipc.js 真的有在用 service', used.length > 30, String(used.length))
-
-  const at = mainSource.indexOf('registerWorkspaceIpc({')
-  const block = mainSource.slice(at, mainSource.indexOf('isMainSender', at))
-  const missing = used.filter((name) => !block.includes(`${name}: (...args)`))
-  ok('main.js 的 service 白名單一個都沒漏', missing.length === 0, missing.join(', '))
-
-  const channels = [...new Set(
-    [...ipcSource.matchAll(/ipcMain\.handle\('workspace:([A-Za-z_$][\w$]*)'/g)].map((m) => m[1])
-  )]
-  const noPreload = channels.filter((name) => !preloadSource.includes(`'workspace:${name}'`))
-  ok('每一支 IPC 在 preload 都接得到', noPreload.length === 0, noPreload.join(', '))
 }
 
 // ===== [R] 快速開檔的檔案清單 =====

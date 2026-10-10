@@ -1467,7 +1467,6 @@ function handleAddProvider() {
 async function handleDeleteProvider() {
   const provider = providerDraft.find((p) => p.id === draftId)
   if (!provider) return
-  const label = provider.name || '未命名供應商'
   providerDraft = providerDraft.filter((p) => p.id !== draftId)
   draftId = providerDraft[0]?.id || ''
   renderProviderSelect()

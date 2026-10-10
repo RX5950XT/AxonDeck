@@ -1,7 +1,7 @@
 /**
  * AxonDeck — Local SI 的「推薦」子分頁＋「執行環境」的推論方式
  *
- * 推薦：語音辨識與翻譯用的固定模型（`models.js` 的 registry；執行環境另在「執行環境」分頁裝）。
+ * 推薦：語音、翻譯與文件辨識的固定模型（`models.js` 的 registry；執行環境另在「執行環境」分頁裝）。
  * 推論方式：不給選，main 自動偵測（NVIDIA 且 VRAM ≥ 8GB 走 GPU，其餘 CPU），這裡只顯示結果
  * 與 CUDA 環境的安裝按鈕。原本都在設定頁的「本地模型」。
  */
@@ -13,7 +13,8 @@ import { hasLlamaRuntime } from './model-picker.js'
 const MODEL_GROUPS = [
   ['tts', '語音生成'],
   ['asr', '語音辨識'],
-  ['llm', '翻譯']
+  ['llm', '翻譯'],
+  ['ocr', 'PDF 文件辨識']
 ]
 
 let bound = false

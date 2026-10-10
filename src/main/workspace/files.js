@@ -361,7 +361,6 @@ function checkName(raw) {
   const name = typeof raw === 'string' ? raw.trim() : ''
   if (!name || name.length > 255) throw fail('BAD_NAME', '名稱不合法')
   if (name === '.' || name === '..') throw fail('BAD_NAME', '名稱不合法')
-  // eslint-disable-next-line no-control-regex
   if (/[\\/:*?"<>|\u0000-\u001f]/.test(name)) {
     throw fail('BAD_NAME', '名稱不能含 \\ / : * ? " < > | 這些字元')
   }

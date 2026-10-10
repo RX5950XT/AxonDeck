@@ -420,7 +420,6 @@ function createSensorBridge(deps = {}) {
 
     taskStatus: () => task.status(exePathFn()),
     taskInstall: () => task.install(exePathFn()),
-    taskRemove: () => task.remove(),
     /** 這次的 sidecar 是不是免 UAC 起來的（UI 要據此說明還會不會彈視窗） */
     launchedByTask: () => launchedByTask
   }

@@ -102,9 +102,7 @@ async function main() {
 
   let probe = null
   for (let i = 0; i < 60 && !probe; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
     probe = await win.webContents.executeJavaScript('window.__probe || null')
-    // eslint-disable-next-line no-await-in-loop
     if (!probe) await new Promise((r) => setTimeout(r, 250))
   }
 

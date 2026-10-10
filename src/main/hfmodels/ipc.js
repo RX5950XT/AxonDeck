@@ -73,7 +73,6 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('hfmodels:refreshFit', (event, id) => invoke(event, () => service.refreshFit(str(id))))
   ipcMain.handle('hfmodels:tune', (event, id) => invoke(event, () => service.tune(str(id))))
   ipcMain.handle('hfmodels:autoTune', (event, id) => invoke(event, () => service.autoTune(str(id))))
-  ipcMain.handle('hfmodels:cancelTune', (event) => invoke(event, () => service.cancelTune()))
 
   // ---- 執行環境 ----
   ipcMain.handle('hfmodels:runtimeReady', (event) => invoke(event, () => service.runtimeReady()))

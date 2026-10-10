@@ -4,6 +4,20 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
  * 安全地將 API 暴露給 Renderer Process
  */
 contextBridge.exposeInMainWorld('electronAPI', {
+  pdfTranslate: {
+    pick: () => ipcRenderer.invoke('pdfTranslate:pick'),
+    inspect: (filename) => ipcRenderer.invoke('pdfTranslate:inspect', filename),
+    pasteImage: (payload) => ipcRenderer.invoke('pdfTranslate:pasteImage', payload),
+    start: (options) => ipcRenderer.invoke('pdfTranslate:start', options),
+    cancel: (jobId) => ipcRenderer.invoke('pdfTranslate:cancel', jobId),
+    status: () => ipcRenderer.invoke('pdfTranslate:status'),
+    save: (jobId) => ipcRenderer.invoke('pdfTranslate:save', jobId),
+    onProgress: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('pdfTranslate:progress', handler)
+      return () => ipcRenderer.removeListener('pdfTranslate:progress', handler)
+    }
+  },
   breeze: {
     status: () => ipcRenderer.invoke('breeze:status'),
     generate: (options) => ipcRenderer.invoke('breeze:generate', options),
@@ -50,7 +64,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ===== 字幕視窗控制 =====
   subtitle: {
     show: () => ipcRenderer.invoke('subtitle:show'),
-    hide: () => ipcRenderer.invoke('subtitle:hide'),
     close: () => ipcRenderer.invoke('subtitle:close'),
     /** @param {string | { id?: string, source?: string, translation?: string, action?: string, text?: string }} payload */
     update: (payload) => ipcRenderer.invoke('subtitle:update', payload),
@@ -154,15 +167,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     gpuCapability: () => ipcRenderer.invoke('system:gpuCapability'),
     refreshGpuCapability: () => ipcRenderer.invoke('system:refreshGpuCapability'),
     installCudaEnv: () => ipcRenderer.invoke('system:installCudaEnv'),
-    openCudaDownloadPage: () => ipcRenderer.invoke('system:openCudaDownloadPage'),
     onCudaInstallProgress: (callback) => {
       const handler = (_event, progress) => callback(progress)
       ipcRenderer.on('system:cudaInstallProgress', handler)
       return () => ipcRenderer.removeListener('system:cudaInstallProgress', handler)
     }
-  },
-  llm: {
-    loadInfo: () => ipcRenderer.invoke('llm:loadInfo')
   },
 
   // ===== 應用程式內更新 =====
@@ -328,7 +337,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveTabsState: (id, tabsState) => ipcRenderer.invoke('workspace:saveTabsState', id, tabsState),
     getTabsState: (id) => ipcRenderer.invoke('workspace:getTabsState', id),
     getFileMtime: (id, relPath) => ipcRenderer.invoke('workspace:getFileMtime', id, relPath),
-    projectPath: (id) => ipcRenderer.invoke('workspace:projectPath', id),
     /** @param {string} relPath 專案內的相對路徑，一律用 `/` */
     listDir: (id, relPath) => ipcRenderer.invoke('workspace:listDir', id, relPath),
     readFile: (id, relPath) => ipcRenderer.invoke('workspace:readFile', id, relPath),
@@ -382,7 +390,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     gitStage: (id, relPath) => ipcRenderer.invoke('workspace:gitStage', id, relPath),
     gitUnstage: (id, relPath) => ipcRenderer.invoke('workspace:gitUnstage', id, relPath),
     gitStageAll: (id) => ipcRenderer.invoke('workspace:gitStageAll', id),
-    gitUnstageAll: (id) => ipcRenderer.invoke('workspace:gitUnstageAll', id),
     gitDiscard: (id, relPath) => ipcRenderer.invoke('workspace:gitDiscard', id, relPath),
     gitCommit: (id, message, stageAll) => (
       ipcRenderer.invoke('workspace:gitCommit', id, message, stageAll)
@@ -547,7 +554,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     fanResetAll: () => ipcRenderer.invoke('sysmon:fanResetAll'),
     fanTaskStatus: () => ipcRenderer.invoke('sysmon:fanTaskStatus'),
     fanTaskInstall: () => ipcRenderer.invoke('sysmon:fanTaskInstall'),
-    fanTaskRemove: () => ipcRenderer.invoke('sysmon:fanTaskRemove'),
     ocStatus: () => ipcRenderer.invoke('sysmon:ocStatus'),
     ocSetDraft: (patch) => ipcRenderer.invoke('sysmon:ocSetDraft', patch || {}),
     ocApply: () => ipcRenderer.invoke('sysmon:ocApply'),
@@ -604,7 +610,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     tune: (id) => ipcRenderer.invoke('hfmodels:tune', id),
     /** 一鍵自動調參：fit 量記憶體 → bench 實測挑最快 */
     autoTune: (id) => ipcRenderer.invoke('hfmodels:autoTune', id),
-    cancelTune: () => ipcRenderer.invoke('hfmodels:cancelTune'),
     /** 執行環境＋裝置＋CPU＋資料夾＋有沒有 token 一次給 */
     hardware: () => ipcRenderer.invoke('hfmodels:hardware'),
     /** 走系統對話框換模型資料夾（沒有路徑參數） */
@@ -812,9 +817,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} pattern @param {object} [filters] 類型／日期／大小／位置篩選，由 main 驗證 */
     uffsSearch: (pattern, filters) => ipcRenderer.invoke('explorer:uffsSearch', pattern, filters || {}),
     uffsCancel: () => ipcRenderer.invoke('explorer:uffsCancel'),
-    uffsInstall: () => ipcRenderer.invoke('explorer:uffsInstall'),
-    uffsCancelInstall: () => ipcRenderer.invoke('explorer:uffsCancelInstall'),
-    uffsInstallBroker: () => ipcRenderer.invoke('explorer:uffsInstallBroker'),
     uffsEnsure: (opts) => ipcRenderer.invoke('explorer:uffsEnsure', opts),
     folderSize: (dirPath, token) => ipcRenderer.invoke('explorer:folderSize', dirPath, token),
     folderSizeCancel: (token) => ipcRenderer.invoke('explorer:folderSizeCancel', token),

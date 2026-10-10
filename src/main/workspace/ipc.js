@@ -45,9 +45,6 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:reorderProjects', (event, ids) => (
     invoke(event, () => service.reorderProjects(ids))
   ))
-  ipcMain.handle('workspace:projectPath', (event, id) => (
-    invoke(event, () => service.projectPath(id))
-  ))
 
   // ── 檔案 ──
   ipcMain.handle('workspace:listDir', (event, id, relPath) => (
@@ -120,9 +117,6 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ))
   ipcMain.handle('workspace:gitStageAll', (event, id) => (
     invoke(event, () => service.gitStageAll(id))
-  ))
-  ipcMain.handle('workspace:gitUnstageAll', (event, id) => (
-    invoke(event, () => service.gitUnstageAll(id))
   ))
   ipcMain.handle('workspace:gitDiscard', (event, id, relPath) => (
     invoke(event, () => service.gitDiscard(id, relPath))

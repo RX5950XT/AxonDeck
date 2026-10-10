@@ -3,7 +3,6 @@
 // 打包版背景真流量：只複製翻譯設定，不修改使用者資料；不輸出金鑰或文章內容。
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
-const os = require('node:os')
 const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const { spawn, execFileSync } = require('node:child_process')

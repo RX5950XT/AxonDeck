@@ -14,7 +14,6 @@
 
 const path = require('path')
 const crypto = require('crypto')
-const { shell } = require('electron')
 const fsp = require('../raw-fs').promises
 const drives = require('./drives')
 const paths = require('./paths')

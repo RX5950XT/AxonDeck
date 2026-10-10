@@ -189,6 +189,10 @@ async function main() {
     console.log('mainLog tail', mainLog.slice(-1500))
     cdp.close()
   } finally {
+    // 先整棵殺（同步）再 kill，避免子程序變孤兒
+    if (child.pid) {
+      try { require('child_process').spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* */ }
+    }
     try { child.kill() } catch { /* */ }
   }
 }

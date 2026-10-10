@@ -972,10 +972,6 @@ async function loadModels() {
 
 // ===== MCP（四家） =====
 
-function mcpHomeLabel(id) {
-  return mcpHomeList.find((row) => row.id === id)?.label || id
-}
-
 function renderMcpHomes() {
   const box = document.getElementById('ccMcpHomes')
   if (!box) return

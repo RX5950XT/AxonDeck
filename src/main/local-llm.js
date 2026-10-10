@@ -26,7 +26,6 @@ const LANGUAGE_NAMES = {
 }
 
 /** 舊程式／e2e 相容別名（通用模型） */
-const TRANSLATE_MODEL_KEY = 'indextranslate2b'
 const FALLBACK_LLM_KEY = 'indextranslate2b'
 /** Index-Translate 官方格式：單輪 user、簡中指令（README 的 Translation prompt format） */
 const INDEX_KEY = 'indextranslate2b'
@@ -78,28 +77,6 @@ const LINGUAFORGE_DECODE = Object.freeze({
   en: { tgtKey: 'en', repetitionPenalty: 1.1, noRepeatNgramSize: 4, s2twp: false },
   ja: { tgtKey: 'ja', repetitionPenalty: 1.1, noRepeatNgramSize: 4, s2twp: false }
 })
-
-/**
- * Qwen3.5 chat_template 在 enable_thinking 未開時，`<|im_start|>assistant\n` 之後
- * **固定補空 think 區塊** `<think>\n\n</think>\n\n`（token 248068,271,248069,271）；
- * 模型從頭到尾帶著它訓練與評測。node-llama-cpp 預設解析出的 Qwen wrapper 不補這 4 個 token，
- * 掉出分布 → 憑空標籤前綴（說明：／問：）、拉丁專名整個消失、年份幻覺。
- * `budgets.thoughtTokens:0` 只是「不生成 thinking」，補不了前綴，兩件事都要做。
- *
- * 實測（scripts/probe-prompt-path.js）：`thoughts:'discourage'` 產出的字串與
- * transformers `apply_chat_template(..., add_generation_prompt=True)` 逐字元相同，
- * 尾端 token 正是 248068,271,248069,271 → 不需自訂 subclass。
- */
-const THINK_PREFIX = '<think>\n\n</think>\n\n'
-const THINK_PREFIX_TOKEN_IDS = Object.freeze([248068, 271, 248069, 271])
-
-/**
- * @param {new (opts?: object) => object} QwenChatWrapper
- * @returns {object}
- */
-function newQwen35ChatWrapper(QwenChatWrapper) {
-  return new QwenChatWrapper({ thoughts: 'discourage' })
-}
 
 /** @type {import('electron-store').default | null} */
 let storeRef = null
@@ -605,8 +582,6 @@ function logLinguaforgeDecode(decode, meta) {
     JSON.stringify({
       runtime: 'gguf/llama-server-router',
       chat_wrapper: 'llama.cpp/jinja（關思考）',
-      think_prefix: JSON.stringify(THINK_PREFIX),
-      think_prefix_token_ids: [...THINK_PREFIX_TOKEN_IDS],
       eos_token_id: [...decode.eosTokenIds],
       num_beams: `${decode.numBeams} (N/A on GGUF; greedy)`,
       length_penalty: `${decode.lengthPenalty} (N/A on GGUF)`,
@@ -684,6 +659,7 @@ function buildContextPair(context = {}) {
  * @param {{ chunkIndex?: number, chunkCount?: number }} [chunkMeta]
  */
 async function translateLocalOnce(text, targetLang, context, options, key, chunkMeta = {}) {
+  options.signal?.throwIfAborted()
   // 一定要把 key 傳下去：各頁可能選不同顆，拿全域那顆的 session 會用錯模型
   const session = await getSession(key)
   const system = buildSystemPrompt(key, targetLang, options.mode)
@@ -700,7 +676,7 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
 
   if (isLinguaforge(key)) {
     const decode = resolveLinguaforgeDecode(targetLang)
-    const promptOpts = buildLinguaforgePromptOptions(decode, text, options.mode)
+    const promptOpts = { ...buildLinguaforgePromptOptions(decode, text, options.mode), signal: options.signal }
 
     /** 單次推論（重試前必須還原 history，否則第二輪會帶著上一輪 → 複誦） */
     const runOnce = async (opts) => {
@@ -756,6 +732,7 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
   }
 
   const out = await session.prompt(userMsg, {
+    signal: options.signal,
     maxTokens: resolveMaxTokens(text, options.mode, false),
     temperature: 0,
     repeatPenalty: false,
@@ -816,7 +793,7 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
         reasoning: { exclude: true },
         messages
       }),
-      signal: AbortSignal.timeout(timeoutMs)
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
     })
     // timeout 也可能在收到 headers 後讀 body 時發生。
     rawBody = await readResponseText(res, 4 * 1024 * 1024)
@@ -894,6 +871,7 @@ function hasLinguisticContent(text) {
 }
 
 async function translate(store, text, targetLang, opts = {}) {
+  opts.signal?.throwIfAborted()
   // scope 有給（檔案轉錄／即時字幕）就用那一頁自己的選擇；沒給＝翻譯與 TTS 頁，
   // 沿用全域的 `translator`／`localTranslateModel`／`translateProviderId`。
   const scope = opts.scope
@@ -907,11 +885,12 @@ async function translate(store, text, targetLang, opts = {}) {
   if (!hasLinguisticContent(text)) return text
 
   const run = async () => {
+    opts.signal?.throwIfAborted()
     const context = {
       previousSource: opts.previousSource || '',
       previousTranslation: opts.previousTranslation || ''
     }
-    const options = { mode: opts.mode || 'file', modelKey: localKey }
+    const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal }
 
     let result
     if (translator === 'local') {
@@ -967,10 +946,6 @@ module.exports = {
   LINGUAFORGE_CHUNK_CHARS,
   LINGUAFORGE_EOS_TOKEN_IDS,
   LINGUAFORGE_DECODE,
-  THINK_PREFIX,
-  THINK_PREFIX_TOKEN_IDS,
-  newQwen35ChatWrapper,
-  TRANSLATE_MODEL_KEY,
   DEFAULT_LLM_KEY,
   FALLBACK_LLM_KEY,
   LLM_MODEL_KEYS

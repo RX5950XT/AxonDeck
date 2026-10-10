@@ -197,7 +197,7 @@ async function hardwareInfo() {
     hasToken: hub.hasToken(),
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
     autoRuntime: !tempUserData,
-    installable: [...RUNTIME_KEYS, 'breezeruntime'].map((key) => ({
+    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime'].map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,
@@ -304,7 +304,7 @@ async function writePresets() {
   }
 
   // 推薦的翻譯模型也交給同一台 router，檔案仍放原本 models/，不用複製進模型庫。
-  for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS]) {
+  for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS, ...models.OCR_MODEL_KEYS]) {
     if (!models.isDownloaded(key)) continue
     const device = hardware.pickDevice(devices)?.id || 'none'
     entries.push({ id: key, args: {
@@ -313,8 +313,10 @@ async function writePresets() {
       'ctx-size': models.isAsrKey(key) ? '4096' : '8192', device,
       // V 用 q8_0 必須開 flash attention，否則載入失敗
       'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on',
-      ...(models.isAsrKey(key) ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
+      ...(models.MODELS[key].mmproj ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
       reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
+      // Spotting 的座標是特殊 token；只靠 API 的 skip_special_tokens 無法讓 llama 保留它們。
+      ...(key === 'paddleocrvl16' ? { special: 'on' } : {}),
       ...(device === 'none' ? { 'gpu-layers': '0' } : {})
     } })
   }
@@ -822,10 +824,6 @@ function benchExePath() {
   return path.join(path.dirname(runtimeExe()), 'llama-bench.exe')
 }
 
-function cancelTune() {
-  return bench.cancel()
-}
-
 /**
  * 關 App 時要收掉（router 一走，它底下跑模型的子程序也會一起走）
  */
@@ -897,7 +895,6 @@ module.exports = {
   rescan,
   tune,
   autoTune,
-  cancelTune,
   writePresets,
   applyPresets,
   startRuntime,

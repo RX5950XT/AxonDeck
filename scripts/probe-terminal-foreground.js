@@ -16,7 +16,6 @@ const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const { tempFile } = require('./lib/test-temp')
 const fs = require('fs')
-const os = require('os')
 
 // `AXONDECK_FG` 是給「修復前先跑一次確認會紅」用的：指到 git 取出來的舊版檔案
 const foreground = require(process.env.AXONDECK_FG || '../src/main/terminal/foreground')

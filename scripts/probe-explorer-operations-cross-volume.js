@@ -8,7 +8,6 @@ const path = require('node:path')
 
 const { removeTree } = require('./lib/test-temp')
 const operations = require('../src/main/explorer/operations')
-const files = require('../src/main/explorer/fs')
 const rawFs = require('../src/main/raw-fs')
 
 const C_ROOT = 'C:\\'

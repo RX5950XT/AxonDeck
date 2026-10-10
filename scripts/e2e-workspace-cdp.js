@@ -38,7 +38,6 @@ const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
 const fs = require('fs')
 
 const PORT = 9274
@@ -939,7 +938,6 @@ async function main() {
     })
     for (let step = 1; step <= 6; step += 1) {
       const x = dragXY.x0 + ((dragXY.x1 - dragXY.x0) * step) / 6
-      // eslint-disable-next-line no-await-in-loop
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y: dragXY.y, button: 'left', buttons: 1 })
     }
     await cdp.send('Input.dispatchMouseEvent', {

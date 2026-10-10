@@ -26,8 +26,6 @@ const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
 const ROOT = path.join(__dirname, '..')
-const DAY_MS = 86_400_000
-const RANGE_DAYS = 30
 
 let failed = 0
 function ok(name, cond, detail = '') {

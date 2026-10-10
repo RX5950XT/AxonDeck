@@ -566,20 +566,6 @@ async function stageAll(projectId) {
 }
 
 /**
- * 全部取消暫存
- * @param {string} projectId
- * @returns {Promise<{ unstagedAll: true }>}
- */
-async function unstageAll(projectId) {
-  const cwd = await rootOf(projectId)
-  const res = await hasHead(cwd)
-    ? await run(cwd, ['reset', '-q', 'HEAD'])
-    : await run(cwd, ['rm', '-q', '-r', '--cached', '--ignore-unmatch', '--', '.'])
-  if (res.code !== 0) throw fail('STAGE_FAILED', '全部取消暫存失敗')
-  return { unstagedAll: true }
-}
-
-/**
  * 捨棄一個檔案的變更：已追蹤退回 HEAD 版本、未追蹤直接刪掉。**救不回來**，
  * renderer 那層要做二次確認。
  * @param {string} projectId
@@ -916,7 +902,6 @@ module.exports = {
   stage,
   unstage,
   stageAll,
-  unstageAll,
   discard,
   commit,
   push,

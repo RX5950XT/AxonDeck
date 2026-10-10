@@ -333,9 +333,6 @@ const uffsCancel = () => {
   uffs.cancelSearch()
   return true
 }
-const uffsInstall = () => uffs.download((info) => emit('explorer:uffsProgress', info))
-const uffsCancelInstall = () => uffs.cancelDownload()
-const uffsInstallBroker = () => uffs.installBroker()
 
 /**
  * 進檔案頁自動把搜尋引擎拉起來。暫存 userData／uffsAuto=false 不跳 UAC。
@@ -828,9 +825,6 @@ module.exports = {
   uffsStatus,
   uffsSearch,
   uffsCancel,
-  uffsInstall,
-  uffsCancelInstall,
-  uffsInstallBroker,
   uffsEnsure,
   folderSize,
   folderSizeCancel

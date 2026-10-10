@@ -14,7 +14,6 @@
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const fs = require('fs')
-const os = require('os')
 const { createHash } = require('crypto')
 
 const ROOT = path.join(__dirname, '..')
@@ -600,7 +599,6 @@ async function runBuiltin() {
 console.log('\n[H0] 模型掃描')
 {
   const modelsScan = require(path.join(ROOT, 'src/main/ccswitch/models-scan.js'))
-  const chatModels = require(path.join(ROOT, 'src/main/chat-models.js'))
 
   const codexTarget = modelsScan.resolveScanTarget({ presetId: 'codex' })
   ok('codex 的掃描端點帶 client_version', Boolean(codexTarget?.url.includes('client_version=')))

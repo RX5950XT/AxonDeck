@@ -17,7 +17,6 @@ const { spawn } = require('child_process')
 const path = require('path')
 const { tempFile } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
 const fs = require('fs')
 
 const PORT = 9248
@@ -246,10 +245,11 @@ async function main() {
       console.log(`（已還原設定：${JSON.stringify(original)}）`)
     }
     cdp?.close()
-    try { child.kill() } catch { /* ignore */ }
+    // 先整棵殺（同步）再 kill，避免子程序變孤兒
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
+      try { require('child_process').spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* ignore */ }
     }
+    try { child.kill() } catch { /* ignore */ }
     try { fs.rmSync(wav, { force: true }) } catch { /* ignore */ }
   }
   process.exitCode = exitCode

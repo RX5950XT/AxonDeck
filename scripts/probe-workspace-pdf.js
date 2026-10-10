@@ -16,7 +16,6 @@ const { app, BrowserWindow } = require('electron')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
 const fs = require('fs')
-const os = require('os')
 
 /** 最小可用的單頁 PDF（自己拼，不抓外部檔案） */
 function tinyPdf() {
@@ -121,7 +120,6 @@ app.whenReady().then(async () => {
     { plugins: false, mode: 'file', tag: 'off-file' }
   ]
   for (const row of matrix) {
-    // eslint-disable-next-line no-await-in-loop
     const r = await attempt({ ...row, base64, pdfPath })
     console.log(`\nplugins=${row.plugins} src=${row.mode}`)
     console.log(`  內建 PDF 檢視器：${r.viewer ? '有' : '沒有'}   高度：${Math.round(r.height)}`)

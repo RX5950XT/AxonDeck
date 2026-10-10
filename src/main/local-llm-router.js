@@ -19,7 +19,7 @@ async function complete(key, history, input, options) {
   const response = await fetch(`${endpoint.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-    signal: AbortSignal.timeout(120000),
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
     body: JSON.stringify({
       model: key, messages: messagesOf(history, input), stream: false,
       temperature: options.temperature ?? 0, max_tokens: options.maxTokens,
@@ -41,7 +41,13 @@ async function complete(key, history, input, options) {
   try { data = JSON.parse(text) } catch { throw new Error('本地翻譯回應格式錯誤') }
   const choice = data?.choices?.[0]
   if (typeof choice?.message?.content !== 'string') throw new Error('本地翻譯回應格式錯誤')
-  return { responseText: choice.message.content, stopReason: choice.finish_reason === 'length' ? 'maxTokens' : 'eogToken' }
+  // 模型偶發吐無效 UTF-8，llama-server 轉成 \udcXX；成對的不動，只換孤立替代字。
+  let responseText = ''
+  for (const unit of choice.message.content) {
+    const point = unit.codePointAt(0)
+    responseText += point >= 0xD800 && point <= 0xDFFF ? '�' : unit
+  }
+  return { responseText, stopReason: choice.finish_reason === 'length' ? 'maxTokens' : 'eogToken' }
 }
 
 async function createSession(key, store) {

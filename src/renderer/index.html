@@ -2150,7 +2150,7 @@
             </div>
 
             <div class="translate-panes">
-              <div class="translate-pane">
+              <div class="translate-pane" id="translateInputPane">
                 <div class="pane-header">
                   <span class="pane-title">輸入</span>
                   <span id="translateInputCount" class="pane-meta">0 字</span>
@@ -2162,9 +2162,25 @@
                   placeholder="輸入或貼上要翻譯的文字…"
                 ></textarea>
                 <div class="pane-toolbar">
+                  <button type="button" id="pdfTranslatePick" class="btn btn-secondary btn-sm">＋ 檔案</button>
                   <button type="button" id="translateCopyInputBtn" class="btn btn-secondary btn-sm">📋 複製</button>
                   <button type="button" id="translateSpeakInputBtn" class="btn btn-secondary btn-sm" aria-pressed="false">🔊 朗讀</button>
                   <button type="button" id="translateClearInputBtn" class="btn btn-secondary btn-sm">清空</button>
+                </div>
+                <div id="pdfTranslateRoot" class="file-attach" aria-live="polite">
+                  <div id="pdfTranslateChip" class="file-chip" hidden>
+                    <span id="pdfTranslateFile" class="file-chip-name"></span>
+                    <button type="button" id="pdfTranslateRemove" class="file-chip-remove" aria-label="移除附件">×</button>
+                  </div>
+                  <div id="pdfTranslateSetup" class="file-setup" hidden>
+                    <p id="pdfTranslateSetupText"></p>
+                    <button type="button" id="pdfTranslateModels" class="btn btn-secondary btn-sm">前往 Local SI</button>
+                  </div>
+                  <progress id="pdfTranslateProgress" class="pdf-translate-progress" aria-label="檔案翻譯進度" hidden></progress>
+                  <p id="pdfTranslateStatus" class="file-status" role="status" hidden></p>
+                  <ul id="pdfTranslateWarnings" class="pdf-translate-warnings" aria-label="需要核對的內容" hidden></ul>
+                  <button type="button" id="pdfTranslateSave" class="btn btn-secondary btn-sm" hidden>另存翻譯 PDF</button>
+                  <p id="pdfTranslateError" class="live-error" role="alert" hidden></p>
                 </div>
               </div>
               <div class="translate-pane">
@@ -2190,7 +2206,7 @@
               <button type="button" id="translateRunBtn" class="btn btn-primary">
                 翻譯
               </button>
-              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段。</p>
+              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段；PDF 或圖片可＋檔案、拖入或貼上，譯文輸出成 PDF。</p>
             </div>
             <p id="translateStatus" class="translate-status">翻譯：檢查中…</p>
             <p id="translateError" class="live-error hidden" role="alert"></p>

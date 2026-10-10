@@ -52,13 +52,6 @@ const renameProject = (id, name) => store.rename(id, name)
 const removeProject = (id) => store.remove(id)
 const reorderProjects = (ids) => store.reorder(ids)
 
-/**
- * 終端機要用的工作目錄。renderer 拿它去 `terminal:create` 的 `cwd`——
- * 那一端自己還會再 `statSync().isDirectory()` 驗一次。
- * @param {unknown} projectId
- */
-const projectPath = (projectId) => rootOf(projectId)
-
 // ===== 檔案 =====
 
 async function listDir(projectId, relPath) {
@@ -250,7 +243,6 @@ async function getFileMtime(projectId, relPath) {
 }
 
 const gitStageAll = (projectId) => git.stageAll(projectId)
-const gitUnstageAll = (projectId) => git.unstageAll(projectId)
 
 /**
  * 接續：**先確認這段對話真的屬於這個專案**再組指令。只驗 id 格式的話，
@@ -276,7 +268,6 @@ module.exports = {
   renameProject,
   removeProject,
   reorderProjects,
-  projectPath,
   saveTabsState,
   getTabsState,
   listDir,
@@ -299,7 +290,6 @@ module.exports = {
   gitStage,
   gitUnstage,
   gitStageAll,
-  gitUnstageAll,
   gitDiscard,
   gitCommit,
   gitPush,

@@ -2,7 +2,6 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
-const os = require('os')
 const http = require('http')
 
 const PORT = 9241
@@ -12,7 +11,7 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
 const USER_DATA_DIR = tempDir('axondeck-cdp-')
-const EXPECTED_ORDER = ['chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
+const { NAV_PAGES: EXPECTED_ORDER } = require('./lib/nav-pages')
 /** 條上每一家把東西全打開（含未連線的那幾家），結構斷言才有固定的七顆 */
 const BAR_ALL = { kinds: ['rolling-5h', 'weekly', 'monthly'], showReset: true, showPlan: true, compact: false, hideDisconnected: false, showLastSync: true }
 // 額度條長在工作區主區裡：種一個專案讓主區切得過去；感測器關掉免得跳 UAC
@@ -604,10 +603,11 @@ async function main() {
       } catch {}
     }
     cdp?.close()
-    try { child.kill() } catch {}
+    // 先 taskkill /T 收整棵（含 nvidia-smi 等子程序），再 child.kill()；反過來父程序先死，樹就找不到了
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
+      try { require('child_process').spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
     }
+    try { child.kill() } catch {}
   }
 }
 

@@ -20,6 +20,7 @@ import {
   warnNotReady,
   resolveCloudTranslate
 } from './model-picker.js'
+import { initPdfTranslate, refreshPdfTranslate, getPdfFile, isPdfRunning, isPdfReady, startPdfJob, cancelPdfJob, detachPdfFile } from './pdf-translate.js'
 
 /** @type {{ value: string, label: string, ready: boolean }[]} */
 let modelOpts = []
@@ -180,7 +181,9 @@ export function initTranslatePage() {
   el.copyInputBtn?.addEventListener('click', () => copyText(el.input.value, '已複製輸入'))
   el.copyOutputBtn?.addEventListener('click', () => copyText(el.output.value, '已複製譯文'))
   el.clearInputBtn?.addEventListener('click', () => {
+    if (isPdfRunning()) return
     el.input.value = ''
+    detachPdfFile()
     onInputChange()
   })
   el.speakInputBtn?.addEventListener('click', () => toggleSpeak('input'))
@@ -203,12 +206,15 @@ export function initTranslatePage() {
   updateCharCount()
   setOutputState('idle')
   refreshUiState()
+  initPdfTranslate({ getLanguages: () => ({ sourceLang: el.sourceLang.value, targetLang: el.targetLang.value }),
+    onStateChange: () => { refreshUiState().catch(() => {}) } })
 }
 
 /**
  * 進入翻譯分頁
  */
 export async function prewarmTranslatePage() {
+  await refreshPdfTranslate()
   settings = await getSettings()
   await refreshModelBar()
   await refreshUiState()
@@ -334,11 +340,12 @@ async function refreshUiState() {
   }
   if (el.status) el.status.textContent = statusLabel
   if (el.runBtn) {
-    if (isTranslating) {
+    if (isTranslating || isPdfRunning()) {
       el.runBtn.disabled = false
       el.runBtn.textContent = '停止'
     } else {
-      el.runBtn.disabled = !canTranslate
+      el.runBtn.textContent = '翻譯'
+      el.runBtn.disabled = !canTranslate || (!!getPdfFile() && !isPdfReady())
     }
   }
   updateSpeakOutputEnabled()
@@ -437,15 +444,22 @@ function resolveInputSpeakLang() {
 }
 
 async function runTranslate() {
-  // 翻譯中再按＝停止（長文分段可能跑很久）
-  if (isTranslating) {
+  // 翻譯中再按＝停止（長文分段可能跑很久；檔案亦同）
+  if (isTranslating || isPdfRunning()) {
     el._translateRequestId = 0
+    await cancelPdfJob()
     return
   }
   settings = await getSettings()
   await refreshUiState()
   if (el.runBtn?.disabled) {
     showToast(el.bannerText?.textContent || '翻譯尚未就緒，請到設定檢查', 'error')
+    return
+  }
+  // 有附件時走檔案（語言共用上方選擇），否則走文字
+  if (getPdfFile()) {
+    await startPdfJob()
+    await refreshUiState()
     return
   }
 

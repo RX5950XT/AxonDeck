@@ -205,6 +205,10 @@ AxonDeck 的提示。
 
 雙欄輸入／譯文版面，輸入**不限字數**（自動分段、可中途停止），⇄ 一鍵交換語言，Ctrl+Enter 送出。譯文可用 Edge TTS 朗讀。語音與語速在頁首的 **EdgeTTS**，跟模型按鈕同一排、按鈕寬度貼文字，預設收合；展開的面板浮在內容上，改了立刻生效。語音是繁中、簡中、英文、日文，每個旁邊有**試聽**鈕。
 
+**檔案翻譯**：在輸入框按「＋ 檔案」、直接拖入或貼上（Ctrl+V 截圖）一份 PDF 或圖片（png／jpg／webp／bmp／tiff），沿用翻譯頁的模型與語言；「翻譯」一顆按鈕依有無附件走檔案或文字。PDF 逐頁辨識、翻譯並另存 PDF；圖片輸出原圖墊底、譯文蓋位的單頁 PDF。原檔保留。支援文字型與掃描文件、長篇分頁處理、表格文字與圖表軸標籤，盡量保留原本版面、公式與圖形。可查看頁數進度及停止；文字放不下或位置不可靠時保留原文並列出提示，任意複雜文件仍需核對輸出。
+
+Local SI「推薦」提供 **PaddleOCR-VL-1.6** 與 **PP-DocLayoutV3**；「執行環境」提供 PDF 辨識環境。OCR 與本地翻譯共用 llama.cpp，版面辨識與 PDF 處理使用獨立 Python 環境。模型、Python 與套件都放在 App 的模型資料夾；選本地翻譯模型時，文件處理全程在本機，選雲端翻譯時只將辨識出的文字送到所選供應商。
+
 ### 文字轉語音
 
 使用 **Breeze-TTS-2 Q8_0** 在本機生成中文與英文語音。Local SI「推薦」可下載模型（約 3.32 GiB），會一起安裝專用執行環境。
@@ -258,7 +262,7 @@ AxonDeck 的提示。
 - 設定 → 本地模型一鍵下載（含進度、取消、刪除），存放於 `%APPDATA%/axondeck/models/`，可點擊直達資料夾
 - NVIDIA 顯卡且 VRAM ≥6GB 可開 GPU 翻譯（cuda → vulkan → CPU 自動 fallback）
 - 中文輸出自動轉繁體（台灣用語），兩顆語音模型都一樣
-- **語音辨識不必設定 CPU/GPU**：0.6B 那顆只有 CPU（sherpa-onnx 的 Windows 套件是 CPU-only 編譯，執行緒自動決定），1.7B 那顆走 GPU；選了模型就決定了推論方式
+- **語音辨識不必設定 CPU/GPU**：兩顆都是 GGUF，共用 llama-server，有合適的顯卡就自動走 GPU，否則 CPU
 
 ---
 
@@ -288,10 +292,9 @@ Aurora glass 視覺：深色為深灰綠底搭配冷藍／暖金光暈，淺色�
 
 ## 技術棧
 
-- **Core**：Electron 43.4.1、Node.js 22
+- **Core**：Electron 43.7.5、Node.js 22
 - **前端**：Vite、Vanilla JS、HTML/CSS（無框架、無狀態管理、無動畫套件）
-- **本地 ASR**：sherpa-onnx（ONNX Runtime，CPU int8）
-- **翻譯**：node-llama-cpp（GGUF）／OpenAI 相容 chat completions
+- **本地 ASR／翻譯**：llama-server router（GGUF，自動 GPU／CPU）／OpenAI 相容 chat completions
 - **聊天**：OpenAI 相容 chat completions（SSE 串流）
 - **額度**：Main-only provider adapters，七家全走官方端點（bounded HTTPS）
 - **反代**：Node 內建 `node:http`（無 server 框架）；日誌與統計走 `node:sqlite`

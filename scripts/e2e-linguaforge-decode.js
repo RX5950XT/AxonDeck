@@ -14,7 +14,6 @@ const { app } = require('electron')
 app.setPath('userData', path.join(app.getPath('appData'), 'voiceink'))
 
 /** 簡體專用字（opencc 前粗檢；與訓練 evaluate 同精神） */
-const SIMPLIFIED_CHARS = /[国国体发后会学时对们来过还这说开 Spec门见关车东风长马书儿气]/
 
 function hasLoop(text) {
   const t = String(text || '')

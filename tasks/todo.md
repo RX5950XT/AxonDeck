@@ -1,5 +1,17 @@
 # tasks/todo.md — 進行中與待辦
 
+# 2026-10-10 — 發行 v1.44.0
+
+- [x] 全套回歸、版號與 README、commit＋tag＋push。
+- [x] 正式 NSIS 建置、拆安裝檔確認 app-update.yml、GitHub release＋三件套。
+- [x] 交接文件（CONTEXT 版本與版本表）。
+
+## Review（v1.44.0 發行）
+
+- `node scripts/run-tests.js` 131/131。版號 1.43.0→1.44.0＋README 版本行，commit `f09b0bc`＋tag 已推。
+- `npm run electron:build` 通過：asar 284 支一致、app-update.yml／latest.yml 驗證通過並同步 dist。拆安裝檔內層 app-64.7z 確認含 `resources/app-update.yml`。GitHub Release v1.44.0 已公開，三件套（安裝檔 453MiB、blockmap、latest.yml）大小與本機相同。
+- 發版前關掉自己開的打包預覽（PID 13364 整棵）；正式安裝版 PID 27356 未動。未重開預覽。
+
 # 2026-10-10 — 補驗並推送剩餘修改
 
 - [x] 盤點全部剩餘修改與相互引用，保留使用者的 App、模型和終端機。

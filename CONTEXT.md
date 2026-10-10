@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.43.0**（2026-10-10）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.44.0**（2026-10-10）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -165,6 +165,7 @@ native/
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| v1.44.0 | 10-10 | 文字轉語音（Breeze-TTS-2 Q8 四模式、串流試聽、WAV 匯出、逐字稿自動辨識）；EdgeTTS 收進翻譯頁 |
 | v1.42.0 | 10-07 | CC Proxy：MCP 管四家 CLI、Skills 開關＋全域記憶、CLI 版本搬設定頁；Local SI 子分頁執行環境擺第一 |
 | v1.39.3 | 10-05 | Grok 改借 Edge 過 Cloudflare 驗證；刪對話等可還原操作不再跳確認框 |
 | v1.39.2 | 10-04 | 全專案讀碼修掉五十多個 bug |

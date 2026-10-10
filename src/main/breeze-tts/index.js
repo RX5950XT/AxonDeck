@@ -8,9 +8,10 @@ const { app, dialog, BrowserWindow } = require('electron')
 const fs = require('../raw-fs').promises
 const models = require('../models')
 const { detectGpuCapability } = require('../gpu-capability')
-const { fail, text, voiceId, validate, wavInfo, wavHeader, savedVoice, MAX_AUDIO_BYTES } = require('./protocol')
+const { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, savedVoice, MAX_AUDIO_BYTES } = require('./protocol')
 
 const MAX_RESULT_BYTES = 128 * 1024 * 1024
+const TRANSCRIBE_TIMEOUT_MS = 180000
 const START_TIMEOUT_MS = 180000
 const GENERATE_TIMEOUT_MS = 30 * 60 * 1000
 let send = () => {}
@@ -304,7 +305,32 @@ async function pickAudio(options = {}) {
   const audioId = randomUUID()
   const name = path.basename(selected.filePaths[0])
   inputs.set(audioId, { bytes, kind: options.kind })
-  return { audioId, name, bytes: bytes.length, ...meta }
+  const transcript = options.kind === 'reference' ? await describeReference(bytes) : ''
+  return { audioId, name, bytes: bytes.length, ...meta, transcript }
+}
+
+/**
+ * 參考音的逐字稿用檔案轉錄同一顆 ASR 自動辨識，省掉手打。
+ * 模型沒下載、辨識失敗或逾時都回空字串，由前端退回手動填寫。
+ */
+async function describeReference(bytes) {
+  let samples
+  try { samples = wavToMono16k(bytes) } catch { return '' }
+  if (!samples.length) return ''
+  let timer
+  let value
+  try {
+    const { transcribe } = require('../asr-select')
+    value = await Promise.race([transcribe('file', { samples, sampleRate: 16000 }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('TRANSCRIBE_TIMEOUT')), TRANSCRIBE_TIMEOUT_MS); timer.unref?.() })])
+  } catch { return '' }
+  finally { clearTimeout(timer) }
+  if (typeof value !== 'string') return ''
+  try {
+    const { s2twp, shouldS2twpSource } = require('../opencc')
+    if (shouldS2twpSource(value, 'zh-TW')) value = s2twp(value)
+  } catch { /* 轉換失敗用原文，不退回空字串 */ }
+  return value.trim().slice(0, 10000)
 }
 
 function publicVoice(value) {

@@ -12047,10 +12047,6 @@ h6.md-h { font-size: 14px; }
   flex: 1 1 auto;
 }
 
-#hf-runtime .hf-token-row .input {
-  width: min(200px, 100%);
-}
-
 /* 推論：左推論方式、右執行環境＋Token，窄螢幕疊回一欄（見 900px 那段） */
 .hf-infer-grid {
   display: grid;
@@ -12462,7 +12458,30 @@ h6.md-h { font-size: 14px; }
 .hf-runtime-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+}
+
+#hfRuntimeList .hf-setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 64px;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+#hfRuntimeList .hf-chip {
+  justify-self: center;
+}
+
+#hfRuntimeList .btn,
+.hf-token-row .btn {
+  min-width: 64px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#hfRuntimeList .hf-setting-label,
+#hfRuntimeList .setting-hint {
+  overflow-wrap: anywhere;
 }
 
 .hf-gpu-meters {
@@ -12618,11 +12637,20 @@ h6.md-h { font-size: 14px; }
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .hf-token-row .input {
-  width: 240px;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.hf-token-setting {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-top: 16px;
 }
 
 /* ----- 參數彈窗 ----- */
@@ -12713,9 +12741,6 @@ h6.md-h { font-size: 14px; }
     grid-template-columns: 1fr;
   }
 
-  .hf-token-row .input {
-    width: 160px;
-  }
 }
 
 @media (max-width: 640px) {
@@ -12743,6 +12768,18 @@ h6.md-h { font-size: 14px; }
   .hf-setting-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  #hfRuntimeList .hf-setting-row {
+    grid-template-columns: minmax(0, 1fr) 64px;
+  }
+
+  #hfRuntimeList .hf-setting-text {
+    grid-column: 1 / -1;
+  }
+
+  #hfRuntimeList .hf-chip {
+    justify-self: start;
   }
 
   #hf-runtime .hf-token-row .input,

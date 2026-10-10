@@ -14,6 +14,8 @@ const wav = Buffer.concat([protocol.wavHeader(48000, 24000), Buffer.alloc(48000)
 const input = path.join(root, 'input.wav'), output = path.join(root, 'saved.wav')
 fs.writeFileSync(input, wav)
 let selected = input, spawnCount = 0, killed = 0, bodyMode = 'normal', posted, healthBad = false
+let asrTranscript = '自動辨識你好', asrThrows = false
+const asrCalls = []
 const events = []
 const sourcePath = path.resolve('src/main/breeze-tts/index.js')
 const realRequire = createRequire(sourcePath)
@@ -26,6 +28,12 @@ const box = vm.createContext({ module: { exports: {} }, Buffer, Blob, FormData, 
     if (id === '../models') return { filePath: (key) => key === 'breezetts2q8' ? model : binary,
       MODELS: { breezetts2q8: { totalBytes: 4 }, breezeruntime: { archive: true, check: ['server.exe'] } }, modelDir: () => root }
     if (id === '../gpu-capability') return { detectGpuCapability: async () => ({ ok: false }) }
+    if (id === '../asr-select') return { transcribe: async (scope, req) => {
+      asrCalls.push({ scope, sampleRate: req?.sampleRate,
+        tag: Object.prototype.toString.call(req?.samples), length: req?.samples?.length })
+      if (asrThrows) throw new Error('no asr model')
+      return asrTranscript
+    } }
     if (id === 'child_process') return { spawn(executable, args, options) {
       spawnCount++; assert.equal(executable, binary); assert(args.includes('--cpu')); assert(args.includes('-1'))
       assert.equal(options.windowsHide, true); assert.equal(options.shell, false)
@@ -95,10 +103,25 @@ async function run() {
   fs.writeFileSync(binary, 'test')
   assert.equal((await service.voices()).length, 0)
   assert.equal(spawnCount, 0, '開頁查詢不得載入模型')
-  const reference = await service.pickAudio({ kind: 'reference' })
+  let reference = await service.pickAudio({ kind: 'reference' })
   const source = await service.pickAudio({ kind: 'source' })
   assert.equal(reference.duration, 1); assert.equal(reference.name, 'input.wav')
   assert(!('path' in reference))
+  assert.equal(reference.transcript, '自動辨識你好', '選參考音自動帶入逐字稿')
+  assert.equal(source.transcript, '', '變聲原錄音不辨識')
+  assert.equal(asrCalls.length, 1); assert.equal(asrCalls[0].scope, 'file')
+  assert.equal(asrCalls[0].sampleRate, 16000); assert.equal(asrCalls[0].tag, '[object Float32Array]')
+  assert.equal(asrCalls[0].length, 16000, '24k 1 秒轉成 16k 16000 點')
+  asrThrows = true
+  assert.equal((await service.pickAudio({ kind: 'reference' })).transcript, '', '辨識失敗退回手動填寫')
+  asrThrows = false
+  asrTranscript = '欢迎使用文字转语音'
+  reference = await service.pickAudio({ kind: 'reference' })
+  assert.equal(reference.transcript, '歡迎使用文字轉語音', '簡體逐字稿自動轉台灣繁體')
+  const mono16 = protocol.wavToMono16k(wav)
+  assert.equal(mono16.length, 16000)
+  assert.throws(() => protocol.wavToMono16k(wav.subarray(0, 43)), /WAV/)
+  assert.throws(() => protocol.validate({ ...base, mode: 'clone', refAudioId: reference.audioId, refText: '' }), /自動辨識/)
   const result = await service.generate(base)
   assert.equal(spawnCount, 1)
   assert.equal(protocol.wavInfo(Buffer.from(result.audioBase64, 'base64')).duration, 4 / 48000)

@@ -1,6 +1,8 @@
 'use strict'
 
 const MAX_AUDIO_BYTES = 64 * 1024 * 1024
+const ASR_SAMPLE_RATE = 16000
+const ASR_MAX_SECONDS = 120
 const LIMITS = {
   cfgScale: ['cfg_scale', 0, 10], seed: ['seed', -2147483648, 2147483647, true],
   temperature: ['temperature', 0, 2], topK: ['top_k', 0, 1024, true],
@@ -39,7 +41,11 @@ function validate(options) {
     if (options.voiceId) fields.voice_id = voiceId(options.voiceId)
     else {
       if (typeof options.refAudioId !== 'string') throw fail('INVALID_INPUT', '請選擇參考錄音或已保存的聲音')
-      fields.ref_text = text(options.refText, '參考錄音逐字稿', 10000, true)
+      try {
+        fields.ref_text = text(options.refText, '參考錄音逐字稿', 10000, true)
+      } catch {
+        throw fail('INVALID_INPUT', '參考錄音還沒有逐字稿：選檔後會自動辨識，辨識不出來再手動填寫')
+      }
     }
   }
   if (mode === 'convert' && typeof options.sourceAudioId !== 'string') throw fail('INVALID_INPUT', '請選擇要轉換的錄音')
@@ -78,6 +84,58 @@ function wavInfo(bytes) {
   return { sampleRate: format.sampleRate, duration: dataBytes / format.byteRate }
 }
 
+/**
+ * WAV → 本地 ASR 吃的 16kHz 單聲道 Float32。只取前 120 秒（跟 ASR 上限對齊），
+ * 太長的參考音本來就不適合拿來克隆。丟進來的格式不支援就拋錯，由呼叫端退回手動填寫。
+ */
+function wavToMono16k(bytes, maxSeconds = ASR_MAX_SECONDS) {
+  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes)
+  if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') {
+    throw fail('INVALID_AUDIO', '請選擇完整的 WAV 錄音')
+  }
+  let encoding = 0, channels = 0, sampleRate = 0, bits = 0
+  const parts = []
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const name = bytes.toString('ascii', offset, offset + 4)
+    const length = bytes.readUInt32LE(offset + 4)
+    const start = offset + 8
+    if (start + length > bytes.length) throw fail('INVALID_AUDIO', 'WAV 錄音資料不完整')
+    if (name === 'fmt ' && length >= 16 && !encoding) {
+      encoding = bytes.readUInt16LE(start); channels = bytes.readUInt16LE(start + 2)
+      sampleRate = bytes.readUInt32LE(start + 4); bits = bytes.readUInt16LE(start + 14)
+    } else if (name === 'data') {
+      parts.push(bytes.subarray(start, start + length))
+    }
+    offset = start + length + (length % 2)
+  }
+  if (!channels || !sampleRate || ![16, 32].includes(bits) || ![1, 3, 65534].includes(encoding) || !parts.length) {
+    throw fail('INVALID_AUDIO', '參考音訊須是 16-bit 或 32-bit WAV')
+  }
+  const data = Buffer.concat(parts)
+  const stride = (bits / 8) * channels
+  const frames = Math.floor(data.length / stride)
+  const take = Math.min(frames, Math.floor(sampleRate * maxSeconds))
+  const mono = new Float32Array(take)
+  for (let i = 0; i < take; i++) {
+    let sum = 0
+    for (let ch = 0; ch < channels; ch++) {
+      const at = (i * channels + ch) * (bits / 8)
+      const value = bits === 16 ? data.readInt16LE(at) / 32768 : data.readFloatLE(at)
+      sum += Math.max(-1, Math.min(1, value))
+    }
+    mono[i] = sum / channels
+  }
+  if (sampleRate === ASR_SAMPLE_RATE) return mono
+  const outLength = Math.floor((take * ASR_SAMPLE_RATE) / sampleRate)
+  const out = new Float32Array(outLength)
+  for (let i = 0; i < outLength; i++) {
+    const pos = (i * sampleRate) / ASR_SAMPLE_RATE
+    const lo = Math.floor(pos), hi = Math.min(lo + 1, take - 1)
+    out[i] = mono[lo] + (mono[hi] - mono[lo]) * (pos - lo)
+  }
+  return out
+}
+
 function wavHeader(byteLength, sampleRate) {
   const header = Buffer.alloc(44)
   header.write('RIFF'); header.writeUInt32LE(byteLength + 36, 4); header.write('WAVEfmt ', 8)
@@ -101,4 +159,4 @@ function savedVoice(bytes, id) {
     refText: text(bytes.toString('utf8', 24, 24 + length), '逐字稿', 10000) }
 }
 
-module.exports = { fail, text, voiceId, validate, wavInfo, wavHeader, savedVoice, MAX_AUDIO_BYTES }
+module.exports = { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, savedVoice, MAX_AUDIO_BYTES }

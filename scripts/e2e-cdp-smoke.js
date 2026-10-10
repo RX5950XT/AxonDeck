@@ -400,11 +400,11 @@ async function main() {
     await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
     for (let i = 0; i < 50; i++) {
       await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
-      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 5')) break
       await sleep(200)
     }
     for (let i = 0; i < 50; i++) {
-      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 5')) break
       await sleep(200)
     }
     const modelItems = await cdp.eval(`(() => {
@@ -432,12 +432,12 @@ async function main() {
     })()`)
     ok(
       'model list rendered without innerHTML',
-      modelItems?.count > 0 &&
+      modelItems?.count === 5 &&
         modelItems.withKey === modelItems.count &&
         modelItems.withRow === modelItems.count &&
         modelItems.withName === modelItems.count &&
         modelItems.noPerRowTag === true &&
-        JSON.stringify(modelItems.groups) === JSON.stringify(['語音辨識', '翻譯']) &&
+        JSON.stringify(modelItems.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯']) &&
         modelItems.withSize === modelItems.count &&
         modelItems.withButton === modelItems.count &&
         modelItems.withProgress === modelItems.count &&

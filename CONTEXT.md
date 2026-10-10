@@ -60,9 +60,10 @@ native/
 ## 各模組現況
 
 ### 本地推論（Local SI）
+- 本機預覽使用既有 `%APPDATA%/axondeck-dev`（`dev-sandbox.js --packed --with-chats`），複製正式設定／專案／聊天，models／hf-models 連到 `%APPDATA%/voiceink`；Breeze 實體也在正式 models，舊 D 槽 Breeze QA profile 已清除。預覽設定與正式設定分開，模型共用。
 - 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
 - 文字轉語音：`breeze-tts/{index,protocol,ipc}.js` → `speech-page.js`／`speech.css`；`breezetts2q8`（3,568,844,480 bytes）搭配固定 v0.1.0 `breezeruntime`，SHA-256 驗證後才安裝。不寫 llama preset；NVIDIA ≥8GB + Vulkan 自動用 GPU，其餘 CPU。首次生成或保存聲音才載模型；列表直接讀保存檔，不因切頁載模型。
-- Breeze 僅監聽 main 指定的 loopback 隨機埠，參考／來源 WAV 由 main 選檔、驗證再用 token 呼叫；voice name 只收 ASCII 英數／`-`／`_`。收藏在 `userData/breeze-tts/voices`；移除模型或 runtime 先 shutdown，收藏保留。生成可取消、串流 PCM 最後包 24kHz mono WAV；模型與本機輸出限研究及非商用。
+- Breeze 僅監聽 main 指定的 loopback 隨機埠，參考／來源 WAV 由 main 選檔、驗證再用 token 呼叫；voice name 只收 ASCII 英數／`-`／`_`。收藏在 `userData/breeze-tts/voices`；移除模型或 runtime 先 shutdown，收藏保留。生成可取消；三種語音模式串流播放，實驗性變聲整段完成後播放；PCM 最後包 24kHz mono WAV。選參考音後前 120 秒轉 16k 單聲道，用檔案轉錄同一顆 ASR 自動辨識逐字稿並轉台灣繁體後填入，可再改；失敗退回手動。進階「生成上限」預設 30000。模型與本機輸出限研究及非商用。
 - NVIDIA ≥8GB VRAM 才使用 GPU（8184 MiB 門檻容許顯卡回報誤差），其餘 CPU；模型庫與 1.7B ASR 使用同一篩選規則，沒有手動 `llmGpu` 開關。
 - ASR 0.6B／1.7B 均為 Q8_0 GGUF，經 `asr-select` 選模型、`llama-asr` 共用 Local SI router；兩顆皆自動 GPU／CPU。推薦名稱不帶 CPU／GPU，設定 key 不變；舊 0.6B ONNX 檔不再用於 App 的推論。
 - 本地翻譯經 `local-llm-router.js` 沿用 Local SI 的 llama-server router；推薦模型以絕對檔案路徑寫入 preset，不複製模型。避免 node-llama-cpp 在 Windows 釋放 GPU context 時當機；關 App 要連只由翻譯載入的 router 一起收掉。

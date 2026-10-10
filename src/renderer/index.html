@@ -985,7 +985,7 @@
                       </div>
                       <div>
                         <div id="hfRuntimeList" class="hf-runtime-list"></div>
-                        <div class="hf-setting-row">
+                        <div class="hf-setting-row hf-token-setting">
                           <div class="hf-setting-text">
                             <span class="hf-setting-label">Hugging Face Token</span>
                             <span class="setting-hint">只有 gated repo 需要。</span>
@@ -2011,25 +2011,35 @@
               </header>
               <div id="speechInstallNotice" class="speech-notice" hidden><span>先下載語音模型，就能在這台電腦生成聲音。</span><button id="speechModelsBtn" class="btn btn-secondary btn-sm">前往 Local SI 推薦</button></div>
               <div class="speech-modes" role="tablist" aria-label="語音生成模式">
-                <button class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechEditor">聲音設計</button>
-                <button class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechEditor" tabindex="-1">語音克隆</button>
-                <button class="speech-mode" type="button" role="tab" data-mode="direction" aria-selected="false" aria-controls="speechEditor" tabindex="-1">語氣指導</button>
-                <button class="speech-mode" type="button" role="tab" data-mode="convert" aria-selected="false" aria-controls="speechEditor" tabindex="-1">變聲 <small>實驗性</small></button>
+                <button id="speechModeDesign" class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechForm"><span class="speech-mode-title">聲音設計</span><span class="speech-mode-description">文字描述聲音</span></button>
+                <button id="speechModeClone" class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語音克隆</span><span class="speech-mode-description">用原聲讀新台詞</span></button>
+                <button id="speechModeDirection" class="speech-mode" type="button" role="tab" data-mode="direction" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語氣指導</span><span class="speech-mode-description">原聲加上新語氣</span></button>
+                <button id="speechModeConvert" class="speech-mode" type="button" role="tab" data-mode="convert" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">變聲<small>實驗性</small></span><span class="speech-mode-description">替錄音換個聲音</span></button>
               </div>
-              <form id="speechForm" class="speech-form">
-                <div id="speechEditor" class="speech-editor" role="tabpanel">
+              <form id="speechForm" class="speech-form" role="tabpanel" aria-labelledby="speechModeDesign" data-mode="design">
+                <div id="speechEditor" class="speech-editor">
+                  <div id="speechSource" class="speech-source" hidden><label for="speechPickSource">原錄音</label><button id="speechPickSource" type="button" class="btn btn-secondary">選擇原錄音 WAV</button><span id="speechSourceName">尚未選擇</span></div>
                   <div class="speech-editor-label"><label for="speechText" id="speechTextLabel">想說的話</label><span id="speechCount">0 / 100000</span></div>
                   <textarea id="speechText" maxlength="100000" placeholder="你好，今天想用什麼聲音說故事？" aria-describedby="speechTextHint"></textarea>
-                  <div id="speechEvents" class="speech-events"><span>加入表情</span><button type="button" data-event="[笑]">笑</button><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="[咳嗽]">咳嗽</button><button type="button" data-event="[清嗓子]">清嗓子</button><button type="button" data-event="(laugh)">English · laugh</button><button type="button" data-event="(sigh)">sigh</button></div>
-                  <p id="speechTextHint" class="speech-hint">支援中文與英文。情緒標記也能直接寫進台詞。</p>
-                  <div id="speechSource" class="speech-source" hidden><label>要變聲的錄音</label><button id="speechPickSource" type="button" class="btn btn-secondary">選擇 WAV 音訊</button><span id="speechSourceName">尚未選擇</span><p class="speech-hint">保留原錄音的內容與節奏，換成另一個人的聲音。結果可能改變音高。</p></div>
+                  <div id="speechEvents" class="speech-events" role="group" aria-label="插入語音標記">
+                    <div class="speech-event-group" role="group" aria-label="笑聲"><button type="button" data-event="[笑]">笑</button><button type="button" data-event="(laugh)">laugh</button></div>
+                    <div class="speech-event-group" role="group" aria-label="嘆氣"><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="(sigh)">sigh</button></div>
+                    <div class="speech-event-group" role="group" aria-label="咳嗽"><button type="button" data-event="[咳嗽]">咳嗽</button><button type="button" data-event="(cough)">cough</button></div>
+                    <div class="speech-event-group" role="group" aria-label="清喉嚨"><button type="button" data-event="[清嗓子]">清喉嚨</button><button type="button" data-event="(clears throat)">clears throat</button></div>
+                    <div class="speech-event-group" role="group" aria-label="低語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[低语]">低語</button><button type="button" data-event="(whispering)">whispering</button></div>
+                    <div class="speech-event-group" role="group" aria-label="倒抽氣" title="描述型標記，效果依台詞而異"><button type="button" data-event="[倒抽气]">倒抽氣</button><button type="button" data-event="(gasp)">gasp</button></div>
+                    <div class="speech-event-group" role="group" aria-label="緊張輕笑" title="描述型標記，效果依台詞而異"><button type="button" data-event="[紧张地轻笑]">緊張輕笑</button><button type="button" data-event="(nervous chuckle)">nervous chuckle</button></div>
+                    <div class="speech-event-group" role="group" aria-label="哈欠" title="描述型標記，效果依台詞而異"><button type="button" data-event="[打哈欠]">哈欠</button><button type="button" data-event="(yawn)">yawn</button></div>
+                    <div class="speech-event-group" role="group" aria-label="耳語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[耳语]">耳語</button><button type="button" data-event="(whispers)">whispers</button></div>
+                  </div>
+                  <p id="speechTextHint" class="speech-hint" hidden>支援中文與英文。點選標記插入游標位置，也能直接在台詞寫 [中文描述] 或 (English description)。</p>
                 </div>
                 <aside class="speech-settings" aria-label="聲音設定">
-                  <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
                   <div id="speechReference" hidden>
-                    <label for="speechVoice">使用聲音</label><div class="speech-voice-row"><select id="speechVoice" class="input"><option value="">新的參考音訊</option></select><button id="speechDeleteVoice" type="button" class="btn btn-secondary btn-sm" disabled>刪除</button></div>
-                    <div id="speechNewReference"><button id="speechPickReference" type="button" class="btn btn-secondary">選擇參考 WAV</button><p id="speechReferenceName" class="speech-file-name">尚未選擇</p><label for="speechRefText">參考音訊的完整逐字稿</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="逐字寫下參考音訊裡說的話，包括重複的句子。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">用乾淨、少雜音的錄音；保存後不用每次重新上傳。</p></div>
+                    <label for="speechVoice" id="speechVoiceLabel">參考聲音</label><div class="speech-voice-row"><select id="speechVoice" class="input"><option value="">新的參考音訊</option></select><button id="speechDeleteVoice" type="button" class="btn btn-secondary btn-sm" disabled>刪除</button></div>
+                    <div id="speechNewReference"><button id="speechPickReference" type="button" class="btn btn-secondary">選擇參考 WAV</button><p id="speechReferenceName" class="speech-file-name">尚未選擇</p><label for="speechRefText">參考音訊的逐字稿（選檔自動辨識）</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="選檔後自動辨識，可再手動修改；要和錄音裡說的一字不差。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">用乾淨、少雜音的錄音；保存後不用每次重新上傳。</p></div>
                   </div>
+                  <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
                   <details class="speech-advanced"><summary>進階設定</summary><div class="speech-params">
                     <label>指令強度（CFG）<input id="speechCfg" class="input" type="number" min="0" max="10" step="0.1" value="1" /></label>
                     <label>隨機種子<input id="speechSeed" class="input" type="number" min="-2147483648" max="2147483647" value="42" /></label>
@@ -2038,7 +2048,7 @@
                     <label>Top P<input id="speechTopP" class="input" type="number" min="0" max="1" step="0.01" value="1" /></label>
                     <label>重複懲罰<input id="speechRepetition" class="input" type="number" min="0" max="3" step="0.01" value="1.05" /></label>
                     <label>每段字數<input id="speechSplit" class="input" type="number" min="0" max="10000" value="200" /></label>
-                    <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="2048" /></label>
+                    <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="30000" /></label>
                     <label id="speechAcousticGroup" hidden>保留旋律<input id="speechAcoustic" class="input" type="number" min="0" max="15" value="0" /></label>
                   </div><p class="speech-hint">CFG 越高越遵循指令，也可能讓聲音變粗糙。笑聲等表情可試 2～3；變聲的保留旋律只建議用於歌聲，超過 2 可能失真。</p></details>
                 </aside>

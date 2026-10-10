@@ -45,11 +45,16 @@ function setMode(next) {
     button.classList.toggle('active', selected)
     button.setAttribute('aria-selected', String(selected))
     button.tabIndex = selected ? 0 : -1
+    if (selected) $('speechForm').setAttribute('aria-labelledby', button.id)
   })
   const convert = mode === 'convert'
+  $('speechForm').dataset.mode = mode
+  $('speechVoiceLabel').textContent = convert ? '換成誰的聲音' : '參考聲音'
+  $('speechGenerate').textContent = convert ? '開始變聲' : '生成語音'
   $('speechReference').hidden = mode === 'design'
   $('speechSource').hidden = !convert
   $('speechEvents').hidden = convert
+  $('speechTextHint').hidden = !convert
   $('speechStreamLabel').hidden = convert
   $('speechInstructionGroup').hidden = mode === 'clone' || convert
   $('speechAcousticGroup').hidden = !convert
@@ -59,10 +64,13 @@ function setMode(next) {
   $('speechInstructionLabel').textContent = mode === 'direction' ? '希望怎麼說' : '描述你想要的聲音'
   $('speechInstruction').placeholder = mode === 'direction' ? '慢慢說，語氣平靜而認真，最後一句帶一點笑意。' : '溫暖清晰的年輕女性聲音，像在和朋友聊天。'
   $('speechInstruction').required = mode === 'design' || mode === 'direction'
-  $('speechTextHint').textContent = convert ? '變聲需要原錄音和目標聲音，整段完成後才能試聽。逐字稿可選填；歌曲可展開進階設定調整旋律。' : '支援中文與英文。情緒標記也能直接寫進台詞。'
+  $('speechTextHint').textContent = convert ? '變聲需要原錄音和目標聲音，整段完成後才能試聽。逐字稿可選填；歌曲可展開進階設定調整旋律。' : '支援中文與英文。點選標記插入游標位置，也能直接在台詞寫 [中文描述] 或 (English description)。'
   $('speechTemperature').value = convert ? '0.3' : '0.9'
   $('speechTopK').value = convert ? '1' : '50'
-  for (const id of ['speechTopP', 'speechRepetition', 'speechSplit', 'speechMaxTokens']) $(id).disabled = convert
+  for (const id of ['speechTopP', 'speechRepetition', 'speechSplit', 'speechMaxTokens']) {
+    $(id).disabled = convert
+    $(id).closest('label').hidden = convert
+  }
 }
 
 function updateVoice() {
@@ -87,12 +95,18 @@ async function refreshVoices() {
 }
 
 async function pickAudio(kind) {
+  const auto = kind === 'reference'
+  if (auto) $('speechProgress').textContent = '正在辨識參考音內容…'
   const audio = await call('pickAudio', { kind })
-  if (!audio || audio.canceled) return
+  if (!audio || audio.canceled) { if (auto) $('speechProgress').textContent = ''; return }
   const label = `${audio.name} · ${Number(audio.duration).toFixed(1)} 秒`
-  if (kind === 'reference') {
+  if (auto) {
     reference = audio
     $('speechReferenceName').textContent = label
+    if (audio.transcript) {
+      $('speechRefText').value = audio.transcript
+      $('speechProgress').textContent = '已自動填入逐字稿，檢查一下再生成。'
+    } else $('speechProgress').textContent = ''
   } else {
     source = audio
     $('speechSourceName').textContent = label

@@ -664,4 +664,105 @@
 - [x] Local SI 推薦與專用執行環境：下載、校驗、依賴與移除。
 - [x] 新增文字轉語音頁，接聲音設計、克隆、指導、保存聲音與實驗性變聲。
 - [x] 後端輸入驗證、取消、串流、播放及 WAV 匯出。
-- [ ] 真 Q8 推論、受影響測試與隔離打包版 CDP 驗收，更新交接文件。
+- [x] 真 Q8 推論、受影響測試與隔離打包版 CDP 驗收，更新交接文件。
+
+## Review（文字轉語音）
+
+- 上方新增文字轉語音頁；四種模式：聲音設計、語音克隆、語氣指導、實驗性變聲。支援中英文字、發聲標記、所有對應取樣參數、收藏／移除聲音、取消與 WAV 匯出。前三種邊生成邊播，變聲等整段完成再播放。
+- Local SI 推薦 Q8_0 模型，下載自動處理獨立 v0.1.0 runtime，兩者校驗固定 SHA-256；不混入 llama router／ASR／翻譯選單。自動 NVIDIA ≥8GB + Vulkan，否則 CPU。模型首次生成才載入，移除模型先停止自己的 server，聲音收藏保留。
+- `test-breeze-models.js` 新檢查先紅再綠；`test-breeze-tts.js`、`test-hf-recommend-download.js`、`test-hfmodels-download-errors.js`、`test-hfmodels-install.js` 通過；`test-hfmodels.js` 178/0、`test-error-hygiene.js` 85/0、`test-ipc-invoke.js` 11/0、`test-settings-consistency.js` 15/0、`test-temp-hygiene.js` 與語法／diff 檢查通過。
+- `npx electron scripts/probe-breeze-tts.js` 真 Q8 四種模式、聲音收藏重啟後重用、取消後再生成全部通過；輸出為 24kHz 非靜音 WAV。`npm run electron:pack` 通過，284 支 src 與 asar 完全一致，更新 dist/win-unpacked。
+- `BREEZE_QA_CACHE=D:\axondeck-breeze-qa-cache node scripts/e2e-speech-cdp.js` 43/43，含真正打包版設計／收藏聲音克隆、播放排程、匯出；Vulkan 設計 5.02 秒生成 3.7 秒音訊，克隆 1.42 秒生成 2.2 秒音訊。1440／1000／760px 深淺主題皆無溢出，截圖已目視確認；只使用隔離 userData，未修改安裝版或使用者資料，自己的 server 已結束。
+- `node scripts/e2e-hf-cdp.js` 51/51；修正測試過早點擊尚未載入的頁面。`node scripts/e2e-cdp-smoke.js` 19/22：新導航及五顆推薦模型通過；既有三項翻譯預期仍按 600 字分段／1908 字必須多段，實作既有上限為 2000 字且翻譯成功。此輪 translate-page.js 僅檔頭註解改名，未擴大修改既有失敗。
+- Grok 中途將 29 檔推到 master `e5e1900`；本輪保留該提交，補齊本機驗收腳本與紀錄，未再次 commit／push／發版。未做人工聽感或克隆相似度評分，未跑真 CPU 推論；變聲是上游實驗功能，官方模型與本機輸出限研究及非商用。
+
+# 2026-10-10 — 清理舊打包與測試資料
+
+- [x] 核對刪除範圍、使用中程序與連結；保護正式資料及唯一模型。
+- [x] 清除舊打包、下載包、測試快取與重複 runtime；保留紀錄與目前預覽。
+- [x] 比對清理前後占用、保護檔案及預覽狀態，記錄結果。
+
+## Review（清理）
+
+- 使用者明確要求清理後，以 `scripts/lib/test-temp.js` 的 `removeTree` 清除 435 個已核對目標，無失敗；扣除硬連結後檔案量減少 45,889,321,144 bytes（42.74 GiB）。`dist` 從 41.81 降至 2.17 GiB，18 份打包副本剩目前 `win-unpacked` 一份；保留 v1.43.0 安裝檔、blockmap、latest.yml、尚未確認可丟棄的來源 patch，以及各舊 profile 的設定／紀錄。
+- Breeze QA 目錄刪除根層模型硬連結、重複 runtime、ZIP、音訊輸出及截圖，只留目前 preview-user-data（3.67 GiB）。正式／預覽 llama CUDA 全部 55 檔 SHA-256 一致後，將預覽副本改為 junction 到正式模型，無再次下載。
+- 正式六個 GGUF、唯一 Breeze Q8、目前預覽 exe／asar 共九檔清理前後 SHA-256 一致。正式 App PID 27356、目前預覽 PID 36308 與三個仍運行的舊終端機 host／子程序均保留；舊 profile 中的聊天、錄音、收藏聲音與終端機資料不視為快取。
+- `node scripts/test-safe-rm.js` 6/6；清理後真預覽 preload／IPC 確認 Breeze 模型、Breeze runtime 與共用 llama CUDA 已安裝，頁面 ready。未重跑語音推論，未 commit／push／發版。
+
+# 2026-10-10 — 預覽接回正式資料
+
+- [x] 將唯一 Breeze 模型及 runtime 校驗後移入正式模型資料夾。
+- [x] 沿用既有 dev-sandbox，複製正式設定／專案／聊天並共用正式模型，重開打包預覽。
+- [x] 驗證五顆推薦模型、設定隔離、視窗顯示；清除本輪舊 QA profile。
+
+## Review（預覽資料來源）
+
+- Breeze Q8 與 runtime 共 35 檔從 D 槽 QA profile 移入 `%APPDATA%/voiceink/models`，逐檔 SHA-256 比對後才移除來源；Q8 雜湊同固定 registry，無重新下載、無模型副本。
+- `node scripts/dev-sandbox.js --packed --with-chats --no-launch` 沿用既有 `%APPDATA%/axondeck-dev`，複製正式設定／專案／聊天，models／hf-models junction 共用 `%APPDATA%/voiceink`；關掉會影響正式 App 的 AGY、語音輸入、感測器及 UFFS。正式 PID 27356 保留。
+- 打包預覽 PID 9808 顯示在主螢幕前景，真 main／preload／UI 確認模型根目錄 realpath 指回正式資料，五顆推薦模型均顯示已下載，Breeze runtime 與 llama CUDA 完整。設定選擇沿用正式值，設定檔 realpath 不指向正式檔。
+- 本輪 D:/axondeck-breeze-qa-cache 已清除；目前只有正式模型實體與既有沙箱連結。未重跑語音推論，未修改 production 程式碼，未 commit／push／發版。
+
+# 2026-10-10 — Local SI 執行環境排版
+
+- [x] 平行檢查版面與 layout detector，量打包版狀態散落／按鈕折行。
+- [x] 固定執行環境狀態／操作欄，調整 Token 與窄畫面排列。
+- [x] 打包、量深淺主題與不同寬度，重開沿用正式資料的預覽。
+
+## Review（執行環境排版）
+
+- 執行環境改成文字／狀態／操作三欄，狀態與按鈕固定對齊；Token 另列並讓輸入框隨剩餘空間伸縮，儲存／移除保持單行。640px 以下文字與操作分列。
+- 平行版面審查與 layout detector 通過（無命中）；`git diff --check` 通過。`npm run electron:pack` 成功，asar 284 支來源檔逐一比對通過。
+- 真打包版 CDP 檢查深／淺主題各 1200、1000、900、640px，共 8 組通過：狀態對齊、按鈕不折行、列無溢出、Token 可輸入；已檢視截圖並清除截圖檔。
+- 新預覽 PID 30084 已顯示並聚焦，沿用 axondeck-dev；模型 realpath 為正式 voiceink/models，未新增模型副本。本次只調整排版，未重跑模型推論，未 commit／push。
+
+# 2026-10-10 — 語音標記完整分組
+
+- [x] 查官方與量化版標記文件，平行檢查版面與 detector。
+- [x] 補齊文件列出的標記，同類中英文相鄰，延伸語氣獨立一列。
+- [x] 驗證標記插入、模式收合、深淺主題及窄畫面，打包重開正確預覽。
+
+## Review（語音標記分組）
+
+- 官方四類中英共八個標記，加上 HoppouAI 文件列出的 whispering／gasp／nervous chuckle，共 11 個；每類中英相鄰，延伸語氣獨立並註明效果依台詞而異。模型接受開放描述，提示可直接輸入其他標記。
+- 版面審查與 detector 以兩個隔離子代理平行執行；只修標記區間距與層級。標題及類別清楚分層，類別 16/24px、按鈕 8px 間距，44px 點擊高度；自動轉單欄，沒有新增卡片或依賴。
+- 新回歸先在舊打包版確認缺標記失敗；切換模式覆蓋提示也先紅後修。`node scripts/e2e-speech-cdp.js` 最終 63/63：11 種插入／取代選取與字數、模式收合與提示、既有 IPC 流程、四種宽度深淺主題皆通過。UI fixture 不代表語音效果實測。
+- `npm run electron:pack` 成功，asar 284 支來源檔比對通過；`git diff --check` 與最終 layout detector 通過（[]）。已檢視真打包版截圖並清除檔案。
+- 預覽 PID 32924 已顯示並聚焦文字轉語音頁，沿用 axondeck-dev，模型 realpath 指向正式 voiceink/models。未新增模型副本、未重跑模型推論、未 commit／push。
+
+# 2026-10-10 — 語音標記中英配對與緊湊排列
+
+- [x] 查量化版 webui，確認另外列出 yawn／whispers，釐清開放描述詞彙。
+- [x] 九類全部中英配對，刪除重複標題、語言前綴與額外提示，緊湊成對換行。
+- [x] 驗證插入、窄畫面与深淺主題，打包並重開預覽。
+
+## Review（紧湊中英配對）
+
+- 量化版 webui/index.html 的 footer 另列 (yawn)／(whispers)，加上原有七類共九組；延伸類補中文描述，18 個按鈕皆有獨立 data-event。中文延伸描述屬開放詞彙，並非官方固定清單或已保證的聲音效果。
+- ui-craft → impeccable quieter：刪掉畫面標題、分類名、語言前綴與重複提示，保留 aria-label 與延伸標記 tooltip；flex-wrap 只換整組，8/12px 間距，每組中英以 1px 分隔。真預覽 1200px 約兩列、99px 高。
+- 新中英配對回歸先在舊版失敗；`node scripts/e2e-speech-cdp.js` 最終 78/78，含18種插入／選取替換、四種寬度深淺主題、不溢出與配對不拆行、模式與既有 IPC 流程。未逐一推論中文延伸聲音。
+- `npm run electron:pack` 成功，asar 284 支來源檔比對通過；layout detector []、git diff --check 通過。已檢視截圖並清除檔案。
+- 預覽 PID 38044 已顯示聚焦文字轉語音，沿用 axondeck-dev 並共用正式 voiceink/models；未新增模型副本，未 commit／push。
+
+# 2026-10-10 — 四種語音模式操作排版
+
+- [x] 清楚呈現四模式用途、選取狀態與鍵盤切換。
+- [x] 調整錄音／聲音／語氣的輸入順序，變聲只顯示適用設定。
+- [x] 打包驗證四模式及深淺主題、窄視窗，重開正確資料預覽。
+- [x] 模式列改窄（內距／字級／間距收緊）。
+- [x] 生成上限預設改 30000。
+- [x] 參考音逐字稿自動辨識填入，失敗退回手動。
+
+## Review（四種語音模式操作排版）
+
+- 四顆模式改四欄卡片（標題＋一句用途），選中底色區分；鍵盤 Home／End／方向鍵切換只留一格 Tab 停駐，`aria-selected`、`aria-labelledby` 與生成按鈕文字（變聲顯示「開始變聲」）同步。變聲把原錄音選取放最前、逐字稿標選填，參考聲音標籤改「換成誰的聲音」；不適用的取樣欄位整列收合。
+- `node scripts/e2e-speech-cdp.js` 117/117：沿用上一輪打包版（產品碼 pack 後未再動，只改測試檔），新斷言（順序、鍵盤同步、進階欄位收合、四模式×五寬度×深淺主題）全過即證明 dist 與原始碼同步。UI fixture，不代表語音效果實測。
+- `node scripts/run-tests.js breeze` 2/2、`hfmodels` 3/3；`node scripts/e2e-hf-cdp.js` 51/51；`node scripts/e2e-cdp-smoke.js` 19/22，三項 FAIL 皆為既有翻譯分段預期（600 字分段／1908 字多段），本輪未動翻譯邏輯，不擴大修改。`git diff --check` 通過。未 commit／push。
+
+# 2026-10-10 — 模式列改窄＋上限預設＋逐字稿自動辨識
+
+## Review（改窄與自動辨識）
+
+- 模式列收窄：卡片內距 12/16→8/12px、間距 5→2px、標題 15→14px、列下距 24→16px；窄版內距同步收緊。e2e 原有高度下限（≥44px）仍通過。
+- 生成上限預設 2048→30000（上限本來就是 30000，只改預設值一行）。
+- 選參考音後，前 120 秒轉 16k 單聲道，用檔案轉錄同一顆 ASR 自動辨識逐字稿並填入，可再改；模型沒下載、格式不支援、失敗或逾時（180 秒）都退回手動填寫，後端缺稿錯誤訊息同步改白話。上游 server 有參考音就一定要逐字稿，所以不是拿掉欄位，而是自動補上。
+- `test-breeze-tts.js` 先紅（多選一次清掉舊暫存，後面用舊 id 全滅）後綠：補 asr-select 替身，斷言逐字稿帶入、變聲原錄音不辨識、16k 轉換、簡轉繁、失敗退回、缺稿訊息。`node scripts/e2e-speech-cdp.js` 118/118（含新增自動填入斷言）。`npm run electron:pack` asar 284 支一致並同步 dist；`git diff --check` 通過。未 commit／push。新增 `probe-breeze-transcript.js`：真 Q8 生成 6.8 秒出 3.7 秒音訊，真 ASR 3.5 秒辨出逐字稿並轉繁體，PASS；只讀正式模型、暫存 userData、隨機埠，不影響使用中的 App。預覽已重開（PID 13364，dist 打包版＋axondeck-dev）。

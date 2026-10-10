@@ -250,6 +250,7 @@ async function main() {
     )
 
     console.log('\n[A2] 推薦與設定搬移')
+    await waitFor(() => cdp.eval("document.querySelectorAll('#hfRuntimeList [data-runtime]').length === 3"), 20_000, 'Local SI 模組初始化')
     await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
     const recommend = await waitFor(() => cdp.eval(`(() => {
       const rows = [...document.querySelectorAll('#hf-recommend .model-item')]

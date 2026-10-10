@@ -95,18 +95,6 @@ function renderModelItem(model) {
   const info = document.createElement('div')
   info.className = 'model-info'
   info.append(name, size)
-  if (model.description) {
-    const description = document.createElement('p')
-    description.className = 'setting-hint'
-    description.textContent = model.description
-    info.appendChild(description)
-  }
-  if (model.licenseUrl) {
-    const license = actionBtn('研究與非商用授權', 'btn-secondary', () => {
-      void electronAPI.workspace.openExternal(model.licenseUrl).catch(error => showToast(cleanIpcError(error), 'error'))
-    })
-    info.appendChild(license)
-  }
 
   const actions = document.createElement('div')
   actions.className = 'model-actions'

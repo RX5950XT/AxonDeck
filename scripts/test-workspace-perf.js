@@ -234,7 +234,12 @@ this.api = { toolIcon, stateIconName }`, context)
   const tabsSource = fs.readFileSync(path.join(__dirname, '../src/renderer/scripts/ws-tabs.js'), 'utf8')
   const block = tabsSource.slice(tabsSource.indexOf('const NEW_ITEMS'), tabsSource.indexOf('const NEW_ITEMS') + 600)
   const presets = [...block.matchAll(/preset: '([a-z]+)'/g)].map((m) => m[1])
-  assert.ok(presets.length >= 6, `NEW_ITEMS 抓不到（抓到 ${presets.length} 項）`)
+  assert.deepEqual(
+    presets,
+    ['shell', 'claude', 'codex', 'grok', 'agy', 'opencode'],
+    '「＋」順序：終端機、Claude Code、Codex、Grok Build、Antigravity、OpenCode'
+  )
+  assert.match(block, /preset: 'grok', label: 'Grok Build'/)
   for (const preset of [...presets, 'custom', 'browser']) {
     const svg = context.api.toolIcon(preset)
     assert.ok(svg, `${preset} 沒有對應的圖示`)

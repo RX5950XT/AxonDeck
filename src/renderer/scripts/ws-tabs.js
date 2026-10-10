@@ -14,6 +14,7 @@ import { paintAiSession, startAiSessionWatch, stopAiSessionWatch } from './ws-ai
 import { initAiSessionFind, closeAiSessionFind } from './ws-ai-session-find.js'
 import { nextZoom } from './ws-zoom.js'
 import { toolIcon } from './ws-tool-icons.js'
+import { terminalLabel, terminalTabTitle } from './term-title.js'
 import {
   addComment, listComments, removeComment, clearComments, countComments,
   formatComments, sendToChat
@@ -376,7 +377,7 @@ function renderTabs() {
     }
     const label = document.createElement('span')
     label.className = 'ws-tab-label'
-    label.textContent = shortTitle(tab.title)
+    label.textContent = tab.kind === 'terminal' ? terminalLabel(tab.title, MAX_TAB_TITLE) : shortTitle(tab.title)
     open.appendChild(label)
     if (tab.kind === 'terminal') {
       const status = document.createElement('span')
@@ -992,7 +993,7 @@ export function ensureLiveTerminalTabs(sessions) {
     tabs.push({
       id: item.id,
       kind: 'terminal',
-      title: item.osTitle || item.title || '終端機'
+      title: terminalTabTitle(item) || '終端機'
     })
     added = true
   }
@@ -1031,7 +1032,7 @@ export function paintTerminalTab(id, meta) {
       status.classList.toggle('is-waiting', tab.state === 'waiting')
     }
     const label = open.querySelector('.ws-tab-label')
-    if (label && renamingId !== id) label.textContent = shortTitle(tab.title)
+    if (label && renamingId !== id) label.textContent = terminalLabel(tab.title, MAX_TAB_TITLE)
     open.querySelector('.ws-tab-unread')?.remove()
     if (tab.unread) {
       const dot = document.createElement('span')
@@ -2849,9 +2850,9 @@ const NEW_ITEMS = [
   { preset: 'shell', label: '終端機' },
   { preset: 'claude', label: 'Claude Code' },
   { preset: 'codex', label: 'Codex' },
-  { preset: 'opencode', label: 'OpenCode' },
+  { preset: 'grok', label: 'Grok Build' },
   { preset: 'agy', label: 'Antigravity' },
-  { preset: 'grok', label: 'Grok' }
+  { preset: 'opencode', label: 'OpenCode' }
 ]
 
 /**

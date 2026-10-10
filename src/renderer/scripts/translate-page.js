@@ -46,12 +46,10 @@ async function refreshModelBar() {
 }
 
 /**
- * 單次送模型的字數上限：本地 context 2048 tokens（prompt + 輸出）共用。
- * 通用預設 600；LinguaForge 對齊出貨用 280（main 亦會再切 ≤280）。
- * 雲端整篇送出；本地超過上限才自動分段依序翻譯。
+ * 單次送模型的字數上限。本地 ctx 8192：原文約 2000 字，譯文另留空間。
+ * 雲端整篇送出；本地超過上限才依句尾分段。
  */
-const CHUNK_CHARS_GENERIC = 600
-const CHUNK_CHARS_LINGUAFORGE = 280
+const LOCAL_CHUNK_CHARS = 2000
 
 /**
  * 依句尾／換行切成單位再貪婪合併到 max（保留原始尾端空白供接回）
@@ -59,7 +57,7 @@ const CHUNK_CHARS_LINGUAFORGE = 280
  * @param {number} [max]
  * @returns {string[]}
  */
-export function splitForTranslate(text, max = CHUNK_CHARS_GENERIC) {
+export function splitForTranslate(text, max = LOCAL_CHUNK_CHARS) {
   const units = String(text || '').split(/(?<=[。．.！!？?…；;\n])/)
   const chunks = []
   let buf = ''
@@ -346,16 +344,10 @@ async function refreshUiState() {
   updateSpeakOutputEnabled()
 }
 
-/**
- * 依當前本地翻譯模型選分段上限（LinguaForge 對齊出貨 250–300）
- */
+/** 雲端整篇送；本地兩顆同一段長 */
 function resolveChunkChars() {
   if (settings?.translator === 'cloud') return Infinity
-  const key = settings?.localTranslateModel
-  // 兩個量化（Q8／Q4）是同一顆模型，切段長度相同
-  return String(key || '').startsWith('linguaforge08')
-    ? CHUNK_CHARS_LINGUAFORGE
-    : CHUNK_CHARS_GENERIC
+  return LOCAL_CHUNK_CHARS
 }
 
 function updateCharCount() {

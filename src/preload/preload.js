@@ -250,11 +250,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('terminal:agent', wrapped)
       return () => ipcRenderer.removeListener('terminal:agent', wrapped)
     },
-    /** 同一個終端機改綁到另一段對話。面板關著也要重讀。 @param {(payload: { id: string, sessionId: string }) => void} handler */
+    /** 同一個終端機改綁到另一段對話。面板關著也要重讀。 @param {(payload: { id: string, sessionId: string, title?: string }) => void} handler */
     onSession: (handler) => {
       const wrapped = (_event, payload) => handler(payload)
       ipcRenderer.on('terminal:session', wrapped)
       return () => ipcRenderer.removeListener('terminal:session', wrapped)
+    },
+    /** Grok 對話標題更新。 @param {(payload: { id: string, title: string }) => void} handler */
+    onTitle: (handler) => {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('terminal:title', wrapped)
+      return () => ipcRenderer.removeListener('terminal:title', wrapped)
     }
   },
 

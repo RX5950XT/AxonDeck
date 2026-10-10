@@ -590,12 +590,14 @@ async function main() {
       `document.querySelector('.ws-tab.is-active .ws-tab-state')?.classList.contains('ws-tab-state-running') === true`,
       6000
     ), await cdp.eval(`document.querySelector('.ws-tab.is-active .ws-tab-open')?.title || '(無)'`))
-    ok('分頁顯示運行文字，側欄那顆晶片轉圈圈（側欄只放圖示，名稱在 title 裡）', await cdp.eval(`(() => {
+    ok('分頁顯示運行文字，側欄那顆晶片轉圈圈（側欄只放圖示，名稱在 title 裡）', await cdp.eval(`(async () => {
       const tab = document.querySelector('.ws-tab.is-active .ws-tab-status-label')
       const row = document.querySelector('#projList .proj-session-status[data-id="${createdId}"]')
+      const result = await window.electronAPI.terminal.list()
+      const item = result.data?.find(item => item.id === ${JSON.stringify(createdId)})
       return tab?.textContent === '運行中' && row?.dataset.state === 'running'
         && !!row.querySelector('.ws-status-icon.state-running.is-spin')
-        && row.textContent === '' && row.title.includes(${JSON.stringify(created.title)})
+        && row.textContent === '' && !!item && row.title.includes(item.osTitle || item.title)
     })()`))
     if (process.env.AXONDECK_STATUS_SCREENSHOT) {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })

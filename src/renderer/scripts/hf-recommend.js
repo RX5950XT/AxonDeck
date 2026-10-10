@@ -7,6 +7,7 @@
  */
 
 import { electronAPI, showToast, cleanIpcError, openInFilesPage } from './app.js'
+import { hasLlamaRuntime } from './model-picker.js'
 
 /** registry 的 kind → 顯示分組（執行環境在「執行環境」分頁，這裡不列） */
 const MODEL_GROUPS = [
@@ -70,16 +71,15 @@ function renderModelItem(model) {
   item.className = 'model-item'
   item.dataset.key = model.key
 
-  const needsRuntime = model.requires && !latestModels[model.requires]?.downloaded
-  const runtimeLabel = latestModels[model.requires]?.label || model.requires
+  const needsRuntime = model.requires && !hasLlamaRuntime(latestModels)
   const stateText = model.downloaded
     ? needsRuntime
-      ? `${formatBytes(model.totalBytes)} · 已下載，還缺「${runtimeLabel}」（到執行環境安裝）`
+      ? `${formatBytes(model.totalBytes)} · 已下載，還缺執行環境`
       : `${formatBytes(model.totalBytes)} · 已下載`
     : model.downloading
       ? '下載中…'
       : needsRuntime
-        ? `${formatBytes(model.totalBytes)} · 需搭配「${runtimeLabel}」`
+        ? `${formatBytes(model.totalBytes)} · 需搭配執行環境`
         : formatBytes(model.totalBytes)
 
   const name = document.createElement('p')
@@ -164,9 +164,14 @@ async function startDownload(model) {
   promise.catch(() => {}) // 先標記已處理，避免 refresh 期間出現 unhandled rejection
   await refreshRecommend() // 立刻顯示「下載中」狀態
   try {
-    if (model.requires && !latestModels[model.requires]?.downloaded) {
-      showToast('自動安裝這顆模型需要的執行環境')
-      await electronAPI.models.download(model.requires)
+    if (model.requires && !hasLlamaRuntime(latestModels)) {
+      showToast('自動安裝建議的執行環境')
+      const hw = await electronAPI.hfmodels.hardware()
+      if (!hw?.ok) throw new Error(hw?.error?.message || '無法偵測執行環境')
+      const list = Array.isArray(hw.data?.installable) ? hw.data.installable : []
+      const best = list.find((item) => item.recommended && !item.downloaded)
+        || list.find((item) => !item.downloaded)
+      if (best) await electronAPI.models.download(best.key)
     }
     await promise
   } catch (error) {

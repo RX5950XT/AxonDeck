@@ -10,15 +10,52 @@ const background = require('./background')
 const claudeHooks = require('./claude-hooks')
 const agents = require('../workspace/agents')
 const { HostClient } = require('./host-client')
+const { createActivity, shellCommandOpen } = require('./agent-activity')
 
 /** 複製上限：scrollback 5000 列 × 寬螢幕也到不了這麼多，擋的是 renderer 亂送 */
 const CLIPBOARD_MAX_CHARS = 8 * 1024 * 1024
 
 let client
 let emit = () => {}
+const activity = createActivity((event, payload) => emit(event, payload))
 const agentResume = require('./agent-resume').createTracker(store, agents, Date.now, () => getClient().request('list'),
   (states, terminals) => require('./agent-processes').identifySessions(states, terminals, agents.claudeHomes()),
-  (id, sessionId) => emit('terminal:session', { id, sessionId }))
+  (id, sessionId) => { void publishSession(id, sessionId) },
+  async (terminals, live) => {
+    if (!Array.isArray(live)) return
+    const known = new Map(live.filter(item => item && item.id).map(item => [item.id, item]))
+    if (!known.size) return
+    const fresh = await store.list()
+    const byId = new Map(fresh.map(item => [item.id, item]))
+    for (const meta of terminals) {
+      const state = known.get(meta.id)
+      if (!state) continue
+      const current = byId.get(meta.id) || meta
+      if (shellCommandOpen(state)) void activity.follow(current)
+      else activity.drop(meta.id)
+    }
+  })
+
+/** 改綁時先讀對話標題再通知，分頁才不會先閃工作階段名稱。 */
+async function publishSession(id, sessionId) {
+  let title = ''
+  let bound = null
+  try {
+    const meta = await store.get(id)
+    bound = meta ? { ...meta, agentSessionId: sessionId } : null
+    if (bound) title = await activity.titleOf(bound)
+  } catch {
+    title = ''
+    bound = null
+  }
+  emit('terminal:session', { id, sessionId, title })
+  if (bound) void activity.follow(bound)
+}
+
+/** 指令真的結束才放開 Grok 狀態。安靜逾時的 idle 仍可能是同一支 CLI。 */
+function releaseFinished(payload) {
+  if (payload?.id && !shellCommandOpen(payload)) activity.drop(payload.id)
+}
 
 function getClient() {
   if (!client) client = new HostClient(require('electron').app.getPath('userData'), forward)
@@ -42,6 +79,7 @@ function forward(event, payload) {
   // shell 提示字元回來（exitCode 從 null 變數字）或 pty 結束：Claude 已經不在了，含當掉沒送 SessionEnd。
   claudeHooks.noteStatus(payload)
   emit(event, { ...rest, osTitle: title || '', liveCwd: cwd || '' })
+  releaseFinished(payload)
 }
 
 /**
@@ -61,10 +99,14 @@ async function listSessions() {
   const items = await store.list()
   const states = await getClient().request('list') || []
   const byId = new Map(states.map(item => [item.id, item]))
+  const follows = []
   for (const item of items) {
     if (byId.has(item.id)) await agentResume.begin(item, true)
+    if (shellCommandOpen(byId.get(item.id))) follows.push(activity.follow(item))
+    else activity.drop(item.id)
   }
-  return items.map(item => {
+  await Promise.all(follows)
+  return Promise.all(items.map(async item => {
     const state = byId.get(item.id)
     if (state?.cwd) links.noteCwd(item.id, state.cwd)
     return {
@@ -73,9 +115,10 @@ async function listSessions() {
       exitCode: state?.exitCode ?? null,
       osTitle: state?.title || '',
       liveCwd: state?.cwd || '',
-      agent: claudeHooks.agentOf(item.id)
+      agent: claudeHooks.agentOf(item.id) || activity.stateOf(item.id),
+      agentTitle: await activity.titleOf(item)
     }
-  })
+  }))
 }
 
 async function openSession(id, cols, rows) {
@@ -95,6 +138,7 @@ async function openSession(id, cols, rows) {
   if (!safe.agentSessionId) safe = await claudeHooks.prepareResume(safe)
   const states = await getClient().request('list') || []
   await agentResume.begin(safe, states.some(item => item.id === safe.id))
+  void activity.follow(safe)
   const snapshot = await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
   if (snapshot?.cwd) links.noteCwd(meta.id, snapshot.cwd)
   return snapshot
@@ -130,10 +174,12 @@ async function restartHost() {
 }
 
 async function deleteSession(id) {
-  agentResume.forget(String(id || ''))
-  await getClient().request('forget', { sessionId: String(id || '') })
-  links.noteCwd(String(id || ''), '')
-  return store.remove(String(id || ''))
+  const key = String(id || '')
+  agentResume.forget(key)
+  activity.drop(key)
+  await getClient().request('forget', { sessionId: key })
+  links.noteCwd(key, '')
+  return store.remove(key)
 }
 
 async function writeSession(id, data) {
@@ -243,6 +289,7 @@ module.exports = {
   async disconnect() {
     try { await agentResume.capture() } catch { console.error('[terminal] AI_SESSION_SCAN_FAILED') }
     agentResume.stop()
+    activity.stop()
     foreground.stop()
     editorBridge.stop()
     client?.disconnect()

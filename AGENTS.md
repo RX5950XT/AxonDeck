@@ -128,7 +128,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 ### HF模型／本地 LLM／翻譯
 - 推論一律 llama-server router 模式；關思考明寫 `reasoning = off`；`/metrics` 要 `--metrics` 且帶 `?model=`。
 - 記憶體配置交給 `llama-fit-params`（主動寫死 `gpu-layers` 等於關掉它）；KV 用 GGUF 的 `key_length／value_length`；`safeValue` 不准清中括號；`readConfig` 不在清單的 modelId 回空字串不退回第一顆。關思考用 `reasoning: { exclude: true }`。
-- LinguaForge 單輪逐行 ≤280 字、zhtw `repeatPenalty: false`、重試前還原 history；不要用 regex 剝前綴當修復。
+- LinguaForge 一段約 2000 字（ctx 8192）；清單標記仍逐行剝掉再貼回。zhtw `repeatPenalty: false`、重試前還原 history；不要用 regex 剝前綴當修復。
 
 ### ASR／語音輸入／錄音
 - `asr-select.js` 是本地 ASR 唯一選擇點；`model-scope.js` 是三子分頁模型唯一解析點。本地 GPU ASR 只能走 llama-server 且要帶 `--device`；三支 ASR 都套 `s2twp`。

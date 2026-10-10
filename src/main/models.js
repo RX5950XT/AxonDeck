@@ -37,7 +37,7 @@ const MODELS = {
     mmproj: 'mmproj-Qwen3-ASR-0.6B-Q8_0.gguf',
     requires: 'llamaruntime'
   },
-  /** 大顆的那個：走 llama-server（Vulkan GPU），需要 llamaruntime 一起裝 */
+  /** 大顆的那個：跟 0.6B 共用同一顆 llama-server（CUDA 或 Vulkan 擇一） */
   qwen3asrgpu: {
     label: 'Qwen3-ASR 1.7B · Q8_0',
     kind: 'asr',

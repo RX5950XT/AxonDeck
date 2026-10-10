@@ -306,7 +306,11 @@ async function writePresets() {
     if (!models.isDownloaded(key)) continue
     const device = hardware.pickDevice(devices)?.id || 'none'
     entries.push({ id: key, args: {
-      model: models.filePath(key, 'gguf'), 'ctx-size': models.isAsrKey(key) ? '8192' : '2048', device,
+      model: models.filePath(key, 'gguf'),
+      // ASR 音訊約 13 token／秒，最長 2 分鐘加轉寫，4096 夠。翻譯要裝原文與譯文，用 8192。
+      'ctx-size': models.isAsrKey(key) ? '4096' : '8192', device,
+      // V 用 q8_0 必須開 flash attention，否則載入失敗
+      'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on',
       ...(models.isAsrKey(key) ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
       reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
       ...(device === 'none' ? { 'gpu-layers': '0' } : {})

@@ -45,7 +45,8 @@ function isLinguaforge(key) {
 
 // live 段落原文上限 120 字（MAX_BATCH_CHARS），256 tokens 足以容納中譯而不截斷半句
 const MAX_TOKENS_LIVE = 256
-const MAX_TOKENS_FILE = 1024
+/** 檔案模式輸出上限：8192 ctx 要同時裝下原文 */
+const MAX_TOKENS_FILE = 4096
 const CLOUD_TIMEOUT_MS = 20000
 const CLOUD_ARTICLE_TIMEOUT_MS = 600000
 
@@ -57,8 +58,8 @@ const CLOUD_ARTICLE_TIMEOUT_MS = 600000
 const LINGUAFORGE_EOS_TOKEN_IDS = Object.freeze([248046, 248044])
 const LINGUAFORGE_NUM_BEAMS = 4
 const LINGUAFORGE_LENGTH_PENALTY = 1.2
-/** 長文單段建議上限（CJK 字元級）；超出在 main 再切 */
-const LINGUAFORGE_CHUNK_CHARS = 280
+/** 長文單段上限（CJK 字元級）。8192 ctx 裝得下這段原文加譯文 */
+const LINGUAFORGE_CHUNK_CHARS = 2000
 /** 與訓練一致的指令（僅三語；勿發明 general-chat system） */
 const LINGUAFORGE_INSTR = Object.freeze({
   'zh-TW': '翻譯成繁體中文：',
@@ -434,10 +435,10 @@ function linguaforgeInstr(targetLang) {
  */
 function resolveMaxTokens(text, mode, isLinguaforge = false) {
   if (mode === 'live') return MAX_TOKENS_LIVE
-  if (!isLinguaforge) return MAX_TOKENS_FILE
   const n = String(text || '').length
-  // CJK 約 1 token／字；輸出給 2× 空間，上限 768 防灌水
-  return Math.min(768, Math.max(64, Math.ceil(n * 2)))
+  // CJK 約 1 token／字；輸出給 2×，上限停在 ctx 的一半，避免把原文擠出去
+  const floor = isLinguaforge ? 64 : 256
+  return Math.min(MAX_TOKENS_FILE, Math.max(floor, Math.ceil(n * 2)))
 }
 
 /**
@@ -509,11 +510,8 @@ function splitForLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
 const LIST_MARKER = /^[ 	]*(?:[-*•·‧+>]|\d{1,2}[.)、]|[（(]\d{1,2}[)）])[ 	]*/u
 
 /**
- * 長文切段：**逐行**，行首清單標記剝除後才送模型。
- * - 多段文字混進同一個 prompt，0.8B 會整段退化成重複迴圈並吃掉內容
- * - 孤立的 bullet 區塊整塊送同樣會被「總結」掉
- * - 連 `· ` 一起送，模型會把符號翻成標籤（實測「選擇器：」）
- * 逐行送純句子最穩，一行翻壞也不會拖垮整段；空行保留以還原段落結構。
+ * 拆行並剝清單標記。標記不送模型（實測 `· ` 會被翻成「選擇器：」）。
+ * 純文字再由 `packLinguaforge` 合併到段長上限，不逐行各送一次。
  * @param {string} text
  * @param {number} [max]
  * @returns {{ prefix: string, parts: string[] }[]} 每行一組；parts 為空＝原樣輸出 prefix
@@ -530,6 +528,71 @@ function splitLinesForLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
       const prefix = marker.trim() ? `${marker.trim()} ` : ''
       return { prefix, parts: splitForLinguaforge(body, max) }
     })
+}
+
+/**
+ * 把剝完標記的行併成不超過 max 的幾段。有清單標記的行維持單獨一段，方便翻完把標記貼回。
+ * 整段就是一句、沒有標記時回 null，呼叫端直接送原文。
+ * @param {string} text
+ * @param {number} [max]
+ * @returns {{ prefix: string, text: string }[] | null}
+ */
+function packLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
+  const jobs = []
+  let buf = ''
+  const flush = () => {
+    if (!buf) return
+    jobs.push({ prefix: '', text: buf })
+    buf = ''
+  }
+  for (const line of splitLinesForLinguaforge(text, max)) {
+    if (!line.parts.length) {
+      if (!line.prefix) {
+        if (buf) buf += '\n'
+        continue
+      }
+      flush()
+      jobs.push({ prefix: line.prefix, text: '' })
+      continue
+    }
+    if (line.prefix) {
+      flush()
+      for (const part of line.parts) jobs.push({ prefix: line.prefix, text: part })
+      continue
+    }
+    for (const part of line.parts) {
+      if (buf && buf.length + 1 + part.length > max) flush()
+      buf = buf ? `${buf}\n${part}` : part
+    }
+  }
+  flush()
+  if (jobs.length === 1 && !jobs[0].prefix) return null
+  return jobs.length ? jobs : null
+}
+
+/**
+ * @param {{ prefix: string, text: string }[]} jobs
+ * @param {string} targetLang
+ * @param {object} options
+ * @param {string} key
+ */
+async function translatePacked(jobs, targetLang, options, key) {
+  const out = []
+  let done = 0
+  const total = jobs.filter((job) => job.text).length
+  for (const job of jobs) {
+    if (!job.text) {
+      out.push(job.prefix)
+      continue
+    }
+    const translated = await translateLocalOnce(job.text, targetLang, {}, options, key, {
+      chunkIndex: done,
+      chunkCount: total
+    })
+    done += 1
+    out.push(job.prefix ? job.prefix + translated : translated)
+  }
+  return out.join('\n').replace(/\s+$/, '')
 }
 
 /**
@@ -708,32 +771,10 @@ async function translateLocal(text, targetLang, context = {}, options = {}) {
     throw new Error(`本地翻譯模型尚未下載（${label}），請先到 Local SI → 推薦下載`)
   }
 
-  // LinguaForge：file 模式逐行翻譯（清單標記不送模型），再還原行／段落結構
+  // LinguaForge：超過段長或帶清單標記才拆。標記剝掉再送，翻完貼回。
   if (isLinguaforge(key) && options.mode !== 'live') {
-    const lines = splitLinesForLinguaforge(text)
-    const total = lines.reduce((n, l) => n + l.parts.length, 0)
-    // 只有一行但帶清單標記（`· 選擇器`）也要走這條：標記要剝掉才送，否則模型會把符號翻成標籤
-    if (total > 1 || lines.some((line) => line.parts.length && line.prefix.trim())) {
-      const outLines = []
-      let done = 0
-      for (const line of lines) {
-        if (!line.parts.length) {
-          outLines.push(line.prefix)
-          continue
-        }
-        const translated = []
-        for (const part of line.parts) {
-          translated.push(
-            await translateLocalOnce(part, targetLang, {}, options, key, {
-              chunkIndex: done++,
-              chunkCount: total
-            })
-          )
-        }
-        outLines.push(line.prefix + translated.join(''))
-      }
-      return outLines.join('\n').replace(/\s+$/, '')
-    }
+    const jobs = packLinguaforge(text)
+    if (jobs) return translatePacked(jobs, targetLang, options, key)
   }
 
   return translateLocalOnce(text, targetLang, context, options, key)

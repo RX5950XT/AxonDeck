@@ -245,7 +245,8 @@ const THEME_VALUES = new Set(['dark', 'light'])
 const TERM_THEME_VALUES = new Set(['black', 'app', 'dracula', 'solarized'])
 
 const TRANSLATE_TARGET_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko'])
-const MAX_TRANSLATE_CHARS = 1500
+/** 本地一次送進 8192 ctx 的上限：約 2000 字原文，輸出另留空間 */
+const MAX_TRANSLATE_CHARS = 2000
 const MAX_CLOUD_TRANSLATE_CHARS = 200000
 const DEFAULT_LLM_KEY = 'linguaforge08q4'
 const DEFAULT_ASR_MODEL_KEY = 'qwen3asr'

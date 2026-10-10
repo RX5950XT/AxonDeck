@@ -13,6 +13,7 @@ const http = require('http')
 const { tempDir } = require('./lib/test-temp')
 
 const PORT = 9247
+const MAIN_PORT = PORT + 1
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const USER_DATA_DIR = tempDir('axondeck-rec-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false, dictationEnabled: false }))
@@ -140,6 +141,7 @@ async function main() {
     // 不秀視窗、不搶焦點（跟 e2e-app-dialog-cdp 同一套）；要截圖才秀
     ...(SHOT_DIR ? [] : ['--hidden']),
     `--remote-debugging-port=${PORT}`,
+    `--inspect=${MAIN_PORT}`,
     `--user-data-dir=${USER_DATA_DIR}`,
     '--use-fake-device-for-media-stream',
     '--use-fake-ui-for-media-stream',
@@ -148,6 +150,7 @@ async function main() {
   ], { detached: true, stdio: 'ignore' })
 
   let cdp = null
+  let mainCdp = null
   let passed = 0
   let failed = 0
   const ok = (name, cond, extra = '') => {
@@ -167,6 +170,9 @@ async function main() {
     })()
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
+    const mainTargets = await getJson(`http://127.0.0.1:${MAIN_PORT}/json/list`)
+    mainCdp = new Cdp(mainTargets[0].webSocketDebuggerUrl)
+    await mainCdp.connect()
     await cdp.send('Page.enable')
     await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
     await waitFor(() => cdp.eval(`document.readyState === 'complete' && !!window.electronAPI?.sttArchive`), 15000, 'preload')
@@ -215,6 +221,13 @@ async function main() {
     // 16kHz s16 mono ＝ 32000 bytes/秒；錄了約 2.6 秒，至少要有 1.5 秒
     ok('ffmpeg 解得開：opus 且約兩秒以上的聲音', probe.opus && probe.pcmBytes > 48000, JSON.stringify(probe))
     await cdp.shot('rec-list.png')
+
+    const downloaded = path.join(USER_DATA_DIR, 'downloaded.webm')
+    // 只讓本測試實例把下載存到自己的 profile，避免寫進使用者的 Downloads。
+    await mainCdp.eval(`process.mainModule.require('electron').session.defaultSession.once('will-download', (_event, item) => item.setSavePath(${JSON.stringify(downloaded)})); 'ready'`)
+    await cdp.eval(`document.querySelector('#recList .rec-item [data-act="download"]').click()`)
+    await waitFor(() => fs.existsSync(downloaded) && fs.statSync(downloaded).size === fs.statSync(recFile).size, 10000, '錄音下載完成')
+    ok('錄音下載的位元組與原檔完全一致', fs.readFileSync(downloaded).equals(fs.readFileSync(recFile)))
 
     await cdp.eval(`document.querySelector('#recList .rec-item [data-act="play"]').click(), 'ok'`)
     await waitFor(() => cdp.eval(`!!document.querySelector('#recList audio')?.src`), 8000, '播放器')
@@ -406,6 +419,7 @@ async function main() {
     }
   } finally {
     cdp?.close()
+    mainCdp?.close()
     // 只殺自己 spawn 的那一顆
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
     await new Promise((resolve) => asrServer.close(resolve))

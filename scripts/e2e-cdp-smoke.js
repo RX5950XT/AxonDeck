@@ -660,7 +660,7 @@ async function main() {
       // 不要繼續等到 300 秒逾時才發現（等到逾時只會看到同一個字串，但多花五分鐘）。
       if (/完成|失敗|已停止/.test(translated?.state || '')) break
     }
-    // 期望段數取自 UI 的「N 字（M 段）」：段長依模型不同（通用 600／LinguaForge 280），不可寫死
+    // 期望段數取自 UI 的「N 字（M 段）」：本地段長 2000 字，不可寫死
     const expectSegs = Number((longRun?.count || '').match(/（(\d+) 段）/)?.[1] || 0)
     ok(
       // 輸入是同句重複 → 每段譯文相同，故驗「段數」而非總長

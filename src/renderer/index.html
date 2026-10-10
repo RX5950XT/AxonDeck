@@ -1256,31 +1256,34 @@
                 </section>
               </div>
 
-              <!-- Skills 與記憶：全域記憶檔在上、skills 開關在下 -->
+              <!-- Skills 與記憶：同一張卡。五家切換在最上，下面接全域記憶、再接 skills -->
               <div class="subtab-panel" id="cc-skills" data-subtab="skills" role="tabpanel">
-                <section class="cc-panel" id="ccMemoryPanel" aria-labelledby="ccMemoryTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶</h2>
-                    <span class="cc-head-actions">
-                      <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
-                      <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
-                    </span>
-                  </div>
-                  <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔"></div>
-                  <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
-                            aria-label="記憶檔內容"></textarea>
-                  <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
-                </section>
-
-                <section class="cc-panel" aria-labelledby="ccSkillTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
-                    <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
-                  </div>
+                <section class="cc-panel" aria-label="Skills 與記憶">
                   <div id="ccSkillHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
-                  <p id="ccSkillPath" class="cc-panel-desc"></p>
-                  <div id="ccSkillList" class="cc-list" role="list"></div>
-                  <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
+
+                  <div id="ccMemoryPanel">
+                    <div class="cc-panel-head">
+                      <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶</h2>
+                      <span class="cc-head-actions">
+                        <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                        <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
+                      </span>
+                    </div>
+                    <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔"></div>
+                    <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
+                              aria-label="記憶檔內容"></textarea>
+                    <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
+                  </div>
+
+                  <div class="cc-skill-body">
+                    <div class="cc-panel-head">
+                      <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
+                      <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                    </div>
+                    <p id="ccSkillPath" class="cc-panel-desc"></p>
+                    <div id="ccSkillList" class="cc-list" role="list"></div>
+                    <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
+                  </div>
                 </section>
               </div>
 

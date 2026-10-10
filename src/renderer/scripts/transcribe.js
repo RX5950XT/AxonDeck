@@ -6,7 +6,7 @@
  */
 
 import { showToast, getSettings, electronAPI, cleanIpcError, ASR_MODEL_KEY, resolveTranslateModelKey } from './app.js'
-import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
+import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions, hasLlamaRuntime } from './model-picker.js'
 
 // ===== DOM 元素 =====
 let dropZone
@@ -374,10 +374,8 @@ async function startTranscription() {
       if (!asrDef?.downloaded) {
         throw new Error(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到 Local SI → 推薦下載`)
       }
-      // GPU 那顆要搭 llama.cpp 執行環境，缺了會在 warm 才失敗，這裡先講清楚
-      if (asrDef.requires && !status.models?.[asrDef.requires]?.downloaded) {
-        const runtimeLabel = status.models?.[asrDef.requires]?.label || asrDef.requires
-        throw new Error(`還缺「${runtimeLabel}」，請到 Local SI → 執行環境安裝`)
+      if (asrDef.requires && !hasLlamaRuntime(status.models)) {
+        throw new Error('還缺執行環境，請到 Local SI → 執行環境安裝')
       }
     }
     if (useCloudAsr && !asrOptions(status.models, settings).find((o) => o.value === scope.asr)?.ready) {
@@ -482,13 +480,13 @@ async function startTranscription() {
 }
 
 /**
- * 長文翻譯：按行分組（每組 ≤1200 字）逐組翻譯
+ * 長文翻譯：按行分組（每組 ≤2000 字，對齊 8192 ctx）逐組翻譯
  */
 async function translateLong(text, targetLang) {
   const groups = []
   let current = ''
   for (const line of text.split('\n')) {
-    if (current && current.length + line.length > 1200) {
+    if (current && current.length + line.length > 2000) {
       groups.push(current)
       current = ''
     }

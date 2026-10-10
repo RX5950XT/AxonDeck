@@ -267,7 +267,7 @@ function renderItem(r) {
 
   const actions = document.createElement('div')
   actions.className = 'rec-item-actions'
-  for (const [act, text] of [['play', '▶ 播放'], ['transcribe', '轉錄'], ['delete', '刪除']]) {
+  for (const [act, text] of [['play', '播放'], ['download', '下載'], ['transcribe', '轉錄'], ['delete', '刪除']]) {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'btn btn-secondary btn-sm'
@@ -288,6 +288,7 @@ async function onListClick(e) {
   if (!btn || !row || !rec) return
   try {
     if (btn.dataset.act === 'play') await play(row, rec)
+    if (btn.dataset.act === 'download') await downloadRec(rec)
     if (btn.dataset.act === 'transcribe') transcribe(rec)
     if (btn.dataset.act === 'delete') await remove(rec)
   } catch (error) {
@@ -311,6 +312,19 @@ async function play(row, rec) {
   audio.src = playingUrl
   row.append(audio)
   await audio.play().catch(() => {})
+}
+
+/** @param {typeof items[number]} rec */
+async function downloadRec(rec) {
+  const bytes = await call(electronAPI.sttArchive.readRecording(rec.name))
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/webm' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = rec.name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1500)
 }
 
 /** @param {typeof items[number]} rec */

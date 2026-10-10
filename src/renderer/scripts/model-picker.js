@@ -17,6 +17,17 @@
 
 import { electronAPI, showToast } from './app.js'
 
+/** 兩包 llama.cpp 擇一即可；裝了 CUDA 就不必再裝 Vulkan */
+const LLAMA_RUNTIME_KEYS = ['llamaruntimecuda', 'llamaruntime']
+
+/**
+ * @param {Record<string, { downloaded?: boolean }> | null | undefined} modelsMap
+ * @returns {boolean}
+ */
+export function hasLlamaRuntime(modelsMap) {
+  return LLAMA_RUNTIME_KEYS.some((key) => modelsMap?.[key]?.downloaded)
+}
+
 /** 選項值編碼：本地 `local:<模型 key>`；ASR 雲端 `cloud`；LLM 雲端 `cloud:<供應商 id>:<模型 id>` */
 const CLOUD_VALUE = 'cloud'
 
@@ -43,7 +54,7 @@ function buildOptions(modelsMap, keys, cloudLabel) {
     .filter((key) => modelsMap?.[key])
     .map((key) => {
       const def = modelsMap[key]
-      const needsRuntime = def.requires && !modelsMap?.[def.requires]?.downloaded
+      const needsRuntime = def.requires && !hasLlamaRuntime(modelsMap)
       const ready = !!def.downloaded && !needsRuntime
       return {
         value: `local:${key}`,

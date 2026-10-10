@@ -1,5 +1,19 @@
 # tasks/todo.md — 進行中與待辦
 
+# 2026-10-10 — 補驗並推送剩餘修改
+
+- [x] 盤點全部剩餘修改與相互引用，保留使用者的 App、模型和終端機。
+- [x] 全部單元測試與受影響的打包版功能驗證通過，補驗錄音下載與翻譯長文。
+- [x] 提交剩餘已驗證修改、推送並確認遠端一致與工作區狀態。
+
+## Review（剩餘修改）
+
+- 納入全部剩餘終端機標題／狀態／翻頁鍵、2000 字翻譯與 router 設定、CUDA／Vulkan 環境判斷、Skills／記憶合卡、錄音下載，以及相關測試與文件。先前限定只推最後一項，已依使用者修正擴回全部剩餘修改。
+- `node scripts/run-tests.js` 128/128；新增 `test-hf-recommend-download.js` 先紅（只下載模型、漏掉 runtime）、修正 `hf-recommend.js` 讀 `{ ok, data }` 並處理失敗後全綠；`test-download-callers.js`、`test-temp-hygiene.js`、新增長文分組與輸出上限斷言皆通過。
+- 打包版 `e2e-ccswitch-cdp.js` 149/0、`e2e-terminal-cdp.js` 68/0、`e2e-recorder-cdp.js` 41/0（下載與原檔逐位元組相同）。所有測試用獨立 profile，只收自己的程序；使用者的預覽與終端機宿主／shell 保留。
+- `npx electron scripts/e2e-local-translate-settings.js` GPU 7 案、`--cpu` 5 案通過：兩顆真實模型 file/live；GPU 額外翻譯 1634 字／8 段並驗所有段落標記。未以這項檢查宣稱語意逐句正確；未重新下載大型 runtime。
+- 沿用 `pack-preview.js --config.npmRebuild=false`，僅在記憶體改 PREVIEW 目的地為 `dist/remaining-push-qa`，結束碼 0、279 支 src 一致。修正後打包版 `AXONDECK_EXE=... node scripts/e2e-hf-cdp.js` 51/0。未重開使用者預覽、未發行安裝檔；推送前驗暫存區與遠端 HEAD。
+
 # 2026-10-10 — 錄音字幕對齊與兩邊混音
 
 - [x] 統一兩個按鈕大小，對齊按鈕、狀態與音源列。
@@ -61,6 +75,19 @@
 - 隔離版 restart/update 探針通過：App 完全結束、替換自己的安裝副本、重開後原 shell PID 與持續輸出都保留；明確刪除才結束 shell。探針暫存改走 `test-temp`，只收自己的 App／host／shell。
 - 安裝版 App PID 27356、宿主 PID 35608、Codex shell PID 11180 均保留；唯讀連線與畫面有文字。原本「突然全空白」尚未重現，不能認定已找到完整根因。未 commit／push、未替換安裝版。
 - 兩次打包被 asar 比對擋住（AGY 檔未改）；改用已建好的相依套件、跳過重建後通過。清掉臨時探針後 `npm run electron:pack -- --config.npmRebuild=false` 結束碼 0，278 支 src 逐檔相同，已同步 `dist/win-unpacked`。
+
+# 2026-10-10 — 終端機分頁標題與側欄即時狀態
+
+- [x] 回歸先紅：Grok 事件尾端歸成 working／waiting／idle；通用 OSC `grok` 讓給對話標題。
+- [x] 分頁顯示 `generated_title`（沒有就 `session_summary`）；使用者改過的名字、有意義的 OSC 標題仍優先。
+- [x] 側欄與分頁狀態跟 `events.jsonl` 的回合與權限，不跟整支程序一直轉。
+- [x] 相關測試通過。不重開終端機宿主，不 commit。
+
+## Review（分頁標題與側欄狀態）
+
+- 分頁原先用 OSC 標題。Grok 全程報 `grok`，所以蓋掉 `summary.json` 的對話標題。現在通用名稱讓路，使用者改過的名字與有意義的 OSC 標題仍優先。
+- 側欄轉圈是宿主把整支 CLI 當成一條還沒結束的指令。現在看該對話 `events.jsonl` 的回合與權限，經既有的 `terminal:agent` 就地改圖示。`updates.jsonl` 不讀。
+- `node scripts/test-terminal-activity.js` 先因找不到模組失敗，補上後全數 PASS。`node scripts/run-tests.js terminal` 14/14。`npm run electron:pack` 結束碼 0，asar 278 支 src 與原始碼相同。安裝版仍開著，沒重開終端機宿主，畫面還沒在那扇窗上量過。未 commit。
 
 # 2026-10-10 — Claude 切對話即時改綁
 

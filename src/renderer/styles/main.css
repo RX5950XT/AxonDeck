@@ -10211,6 +10211,15 @@ h6.md-h { font-size: 14px; }
   font-weight: 600;
 }
 
+/* Skills 與記憶同一張卡：記憶還在時，Skills 跟記憶隔開一點 */
+#ccMemoryPanel:not(.hidden) + .cc-skill-body {
+  margin-top: 20px;
+}
+
+#ccMemoryPanel .cc-panel-desc:last-child {
+  margin-bottom: 0;
+}
+
 .cc-memory-edit {
   width: 100%;
   min-height: 240px;

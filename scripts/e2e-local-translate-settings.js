@@ -42,6 +42,24 @@ app.whenReady().then(async () => {
       console.log(`PASS ${key} ${mode} → ${out}`)
       checks++
     }
+    if (!process.argv.includes('--cpu')) {
+      const paragraphs = [
+        'The village library opens at nine every morning. Students visit after school to read about science and history. Volunteers repaired the windows last summer and planted flowers outside the building.',
+        'A farmer checks the soil before planting vegetables. Rainwater is collected in large tanks, and the workers use it during dry weeks. Fresh produce is sold at the market every Saturday morning.',
+        'The old bridge crosses a narrow river near the station. Engineers inspected its supports in spring and replaced damaged boards. Walkers can now cross safely, while vehicles take the newer road.',
+        'At the hospital, nurses prepare medicine before breakfast. Each patient receives a written schedule and can ask questions about treatment. Visitors must wash their hands before entering the rooms.',
+        'The city bus arrives every twenty minutes during the day. Passengers can pay with a travel card or buy a ticket from the driver. The last bus leaves the central station at eleven in the evening.',
+        'In the science classroom, children measure the temperature of water. Their teacher explains how to record observations and compare results. After the experiment, every group cleans its equipment.',
+        'A family is planning a trip to the coast. They booked a small hotel near the beach and checked the weather forecast. Their children want to visit the museum, collect shells, and watch fishing boats.',
+        'The community garden welcomes new members each month. People share tools and teach beginners how to grow herbs. At the end of autumn, everyone gathers to cook a meal using vegetables from the garden.'
+      ]
+      const article = paragraphs.map((text, i) => `${text} REF${String(i + 1).padStart(3, '0')}`).join('\n\n')
+      const out = await llm.translate(store, article, 'zh-TW', { mode: 'file' })
+      assert.ok(out?.trim() && out.trim() !== article.trim() && /[\u3400-\u9fff]/.test(out), '約 2000 字的本地翻譯應回傳中文')
+      for (let i = 1; i <= paragraphs.length; i++) assert.ok(out.includes(`REF${String(i).padStart(3, '0')}`), `${key} 不得漏掉第 ${i} 段`)
+      console.log(`PASS ${key} 長文 ${article.length} 字 → ${out.length} 字`)
+      checks++
+    }
   }
   if (available.includes('indextranslate2b')) {
     data.localTranslateModel = 'qwen354b'

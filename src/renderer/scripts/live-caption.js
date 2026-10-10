@@ -17,7 +17,7 @@ import {
   ASR_MODEL_KEY,
   resolveTranslateModelKey
 } from './app.js'
-import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
+import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions, hasLlamaRuntime } from './model-picker.js'
 import { syncCustomSelects } from './custom-select.js'
 import { newTranscriptId, logTranscript, refreshLiveHistory } from './live-history.js'
 import { openRecordingAudio } from './recording-audio.js'
@@ -295,9 +295,8 @@ async function startCapture() {
         showToast(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到 Local SI → 推薦下載`, 'error')
         return
       }
-      if (asrDef.requires && !status.models[asrDef.requires]?.downloaded) {
-        const runtimeLabel = status.models[asrDef.requires]?.label || asrDef.requires
-        showToast(`還缺「${runtimeLabel}」，請到 Local SI → 執行環境安裝`, 'error')
+      if (asrDef.requires && !hasLlamaRuntime(status.models)) {
+        showToast('還缺執行環境，請到 Local SI → 執行環境安裝', 'error')
         return
       }
     }

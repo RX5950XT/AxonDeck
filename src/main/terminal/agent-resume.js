@@ -76,7 +76,7 @@ function commandForShell(shell, info) {
 }
 
 /** 對話檔只能在 CLI 建立後辨認；啟動前的 ID 是基準，不能拿「最新一筆」亂接。 */
-function createTracker(store, agents, now = Date.now, states = async () => [], identify = async () => new Map(), onChange = () => {}) {
+function createTracker(store, agents, now = Date.now, states = async () => [], identify = async () => new Map(), onChange = () => {}, onScan = () => {}) {
   let timer = null
   let inflight = null
   let queued = null
@@ -143,6 +143,7 @@ function createTracker(store, agents, now = Date.now, states = async () => [], i
       const row = candidates[0]
       await remember(meta, row.agent, row.id, claimed)
     }
+    await onScan(terminals.filter(item => active.has(item.id)), live)
   }
 
   // 後到的查詢要等下一輪：這一輪可能在標題換掉之前就讀過了。

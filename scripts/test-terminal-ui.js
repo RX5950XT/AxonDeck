@@ -54,9 +54,12 @@ async function main() {
     const handler = page.slice(page.indexOf('  term.attachCustomKeyEventHandler('), page.indexOf('  // 輸入法的候選字視窗'))
     const pasted = []
     let onKey
+    const scrolled = []
     vm.runInNewContext(handler, {
       term: { attachCustomKeyEventHandler: (fn) => { onKey = fn } },
       id: 'paste-test', handleCopyKey: () => false, cliMouse: () => false, nativeMouse: false,
+      items: [{ id: 'paste-test', preset: 'claude' }],
+      scrollAiViewport: (term, event, preset) => { scrolled.push(preset); return event.key === 'PageUp' },
       pasteFromClipboard: () => { pasted.push('paste') }
     })
     for (const modifiers of [{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }, { altKey: true }]) {
@@ -73,7 +76,62 @@ async function main() {
       onKey({ ...event, defaultPrevented: false })
       assert.equal(pasted.length, 2, '再次按下仍可貼同樣內容')
     }
+    scrolled.length = 0
+    const pageUp = { type: 'keydown', key: 'PageUp', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, preventDefault() {} }
+    assert.equal(onKey(pageUp), false, '五家 AI 的翻頁鍵要吞掉，不能再送進 CLI')
+    assert.deepEqual(scrolled, ['claude'])
     ok('三種貼上鍵取消原生貼上、忽略長按，仍可連續貼上')
+  }
+
+  // 五家 AI：PageUp／PageDown 翻頁，End 回最底。全螢幕與純 shell 不收。
+  {
+    const context = {}
+    vm.createContext(context)
+    vm.runInContext(`${readPlain('term-scrollbar.js')}\nthis.api = { scrollAiViewport }`, context)
+    const { scrollAiViewport } = context.api
+    /** @param {string} key @param {string} [preset] @param {Record<string, unknown>} [extra] */
+    function press(key, preset = 'claude', extra = {}) {
+      const calls = []
+      const event = {
+        type: 'keydown', key, repeat: false,
+        ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, isComposing: false,
+        preventDefault() { this.defaultPrevented = true },
+        ...extra
+      }
+      const term = {
+        buffer: { active: { type: extra.bufferType || 'normal', viewportY: extra.viewportY ?? 10, baseY: extra.baseY ?? 40 } },
+        scrollPages(n) { calls.push(['pages', n]) },
+        scrollToBottom() { calls.push(['bottom']) }
+      }
+      const consumed = scrollAiViewport(term, event, preset)
+      return { consumed, calls, prevented: event.defaultPrevented === true }
+    }
+    for (const preset of ['claude', 'codex', 'opencode', 'agy', 'grok']) {
+      const up = press('PageUp', preset)
+      assert.equal(up.consumed, true, preset)
+      assert.deepEqual(up.calls, [['pages', -1]])
+      assert.equal(up.prevented, true)
+      const down = press('PageDown', preset)
+      assert.deepEqual(down.calls, [['pages', 1]])
+    }
+    const ended = press('End')
+    assert.equal(ended.consumed, true)
+    assert.deepEqual(ended.calls, [['bottom']])
+    const stay = press('End', 'claude', { viewportY: 40, baseY: 40 })
+    assert.equal(stay.consumed, false, '已經在最底的 End 要交給 CLI，游標才移得到行尾')
+    assert.deepEqual(stay.calls, [])
+    const held = press('End', 'claude', { viewportY: 40, baseY: 40, repeat: true })
+    assert.equal(held.consumed, true, '按住 End 跳底之後不可以連送行尾')
+    assert.deepEqual(held.calls, [])
+    const keyup = press('PageUp', 'claude', { type: 'keyup' })
+    assert.equal(keyup.consumed, true)
+    assert.deepEqual(keyup.calls, [], 'keyup 不再翻一頁')
+    assert.equal(press('PageUp', 'shell').consumed, false)
+    assert.equal(press('End', 'shell', { viewportY: 0, baseY: 20 }).consumed, false)
+    assert.equal(press('PageUp', 'opencode', { bufferType: 'alternate' }).consumed, false, '全螢幕仍交給 CLI')
+    assert.equal(press('PageDown', 'claude', { shiftKey: true }).consumed, false)
+    assert.equal(press('End', 'agy', { ctrlKey: true, viewportY: 0, baseY: 20 }).consumed, false)
+    ok('五家 AI 的 PageUp／PageDown 翻頁、End 回最底；全螢幕、純 shell 與修飾鍵不收')
   }
   // ── 排隊的輸出要接成一段再寫 ──
   {

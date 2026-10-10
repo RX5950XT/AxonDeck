@@ -987,14 +987,21 @@ async function main() {
       await cdp.eval("document.getElementById('ccMemoryEdit') !== null"),
       '記憶檔編輯框在'
     )
-    // 全域記憶在上、Skills 在下
+    // 五家切換在同一張卡的最上面，全域記憶接著、Skills 在記憶下面
     assert(
       await cdp.eval(`(() => {
         const panel = document.getElementById('cc-skills')
-        const pos = document.getElementById('ccMemoryPanel').compareDocumentPosition(document.querySelector('#cc-skills .cc-panel:last-child'))
-        return (pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 && panel.children[0].id === 'ccMemoryPanel'
+        const card = panel.querySelector(':scope > .cc-panel')
+        const homes = document.getElementById('ccSkillHomes')
+        const memory = document.getElementById('ccMemoryPanel')
+        const skills = panel.querySelector('.cc-skill-body')
+        if (!card || panel.querySelectorAll(':scope > .cc-panel').length !== 1) return false
+        if (!card.contains(homes) || !card.contains(memory) || !card.contains(skills)) return false
+        const after = Node.DOCUMENT_POSITION_FOLLOWING
+        return (homes.compareDocumentPosition(memory) & after) !== 0
+          && (memory.compareDocumentPosition(skills) & after) !== 0
       })()`),
-      '全域記憶在上、Skills 在下'
+      '五家切換在上，記憶與 Skills 同一塊'
     )
     // 兩顆「開資料夾」都在
     assert(

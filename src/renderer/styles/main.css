@@ -303,7 +303,7 @@ body.is-maximized .win-btn#winMax {
   }
 }
 
-/* ===== 翻譯與 TTS 頁 ===== */
+/* ===== 翻譯頁 ===== */
 
 .translate-banner {
   display: flex;
@@ -450,6 +450,95 @@ body.is-maximized .win-btn#winMax {
   margin-bottom: 4px;
 }
 
+.translate-voice {
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+}
+
+.translate-voice > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 4px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.translate-voice > summary:hover {
+  border-color: var(--glass-border-strong);
+  background-color: var(--surface-hover);
+}
+
+.translate-voice > summary::-webkit-details-marker,
+.translate-voice > summary::marker {
+  display: none;
+  content: '';
+}
+
+.translate-voice > summary::before {
+  content: '';
+  order: 1;
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: -2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.translate-voice[open] > summary::before {
+  margin-top: 2px;
+  transform: rotate(225deg);
+}
+
+.translate-voice > summary:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.translate-voice .settings-card {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(640px, 100%);
+  max-width: none;
+  box-shadow: var(--shadow-card);
+}
+
+.translate-voice .settings-section-desc {
+  margin-bottom: 16px;
+}
+
+.translate-voice .tts-voices-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin-top: 20px;
+}
+
+.translate-voice .tts-voices-fields .setting-group {
+  margin-top: 0;
+}
+
+@media (max-width: 800px) {
+  .translate-voice .tts-voices-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 .tts-voices-fields {
   display: flex;
   flex-direction: column;
@@ -494,8 +583,8 @@ body.is-maximized .win-btn#winMax {
 
 /* ===== 使用現場的模型選單（語音轉文字頁／翻譯頁） ===== */
 
-/* 模型選單貼在頁面標題旁：它是「這次用哪一顆」的快速切換，
-   不值得為它多佔一整條橫排 */
+/* 模型選單是「這次用哪一顆」的快速切換，不值得為它多佔一整條橫排。
+   翻譯頁沒有標題，這條靠左上。 */
 .model-chips {
   display: flex;
   flex-wrap: wrap;
@@ -676,6 +765,24 @@ body.is-maximized .win-btn#winMax {
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 20px;
+}
+
+#page-translate .page-header {
+  position: relative;
+  z-index: 20;
+}
+
+#page-translate .page-header-row {
+  justify-content: flex-start;
+}
+
+/* 模型按鈕與 EdgeTTS 並排。EdgeTTS 寬度貼文字；展開的面板脫離文件流。 */
+#page-translate .translate-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
 }
 
 .page-header-text {
@@ -965,7 +1072,7 @@ body.is-maximized .win-btn#winMax {
   min-height: 0;
 }
 
-/* 左側分類 rail：六區一次只顯示一區，取代原本 640px 單欄長捲 */
+/* 左側分類 rail：一次只顯示一區，取代原本 640px 單欄長捲 */
 .settings-nav {
   display: flex;
   flex-direction: column;

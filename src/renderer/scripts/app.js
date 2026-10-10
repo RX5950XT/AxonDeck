@@ -946,7 +946,7 @@ export function setChatPaneMode(mode) {
  * 切換主分頁
  * @param {string} pageName
  */
-export function switchPage(pageName) {
+export function switchPage(pageName, subtab = '') {
   navItems.forEach(item => {
     const on = item.dataset.page === pageName
     item.classList.toggle('active', on)
@@ -970,7 +970,13 @@ export function switchPage(pageName) {
   if (pageName === 'telegram') import('./telegram-page.js').then((m) => m.refreshTelegramPage())
   if (pageName === 'ccswitch') loadCcSwitchPage().then((m) => m.refreshCcSwitchPage())
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
-  if (pageName === 'hfmodels') loadHfPage().then((m) => m.start())
+  if (pageName === 'hfmodels') loadHfPage().then((m) => {
+    m.start()
+    if (subtab === 'recommend') document.querySelector('#hfSubtabs [data-subtab="recommend"]')?.click()
+  })
+  if (pageName === 'speech') {
+    import('./speech-page.js').then((m) => m.refreshSpeechPage())
+  }
   if (pageName === 'sysmon') loadSysmonPage().then((m) => m.refreshSysmonPage())
   if (pageName === 'stt') {
     loadSttPage().then((m) => {
@@ -978,7 +984,10 @@ export function switchPage(pageName) {
       activateSttSubtab(m.currentSubtab())
     })
   }
-  if (pageName === 'translate') loadTranslatePage().then((m) => m.prewarmTranslatePage())
+  if (pageName === 'translate') {
+    loadTranslatePage().then((m) => m.prewarmTranslatePage())
+    void loadTtsForm()
+  }
   if (pageName === 'settings') {
     // 有沒存的修改就不重灌草稿（切頁回來、再點一次「設定」都不能把剛打的字洗掉）
     loadSettingsForm({ keepDraft: settingsDirty })
@@ -998,7 +1007,7 @@ export function switchPage(pageName) {
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'cloud'|'voice'|'basic'|'cli'} [section]
+ * @param {'cloud'|'basic'|'cli'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
   switchPage('settings')
@@ -1023,7 +1032,7 @@ function activateSettingsSection(target) {
 }
 
 /**
- * 設定頁左側分類：六區一次只顯示一區（原本全部堆在同一欄捲到底）
+ * 設定頁左側分類：一次只顯示一區（原本全部堆在同一欄捲到底）
  */
 function initSettingsNav() {
   const nav = document.getElementById('settingsNav')
@@ -1055,12 +1064,21 @@ function bindSettingsControls() {
     ttsRateInput.addEventListener('input', () => {
       updateTtsRateLabel(Number(ttsRateInput.value))
     })
+    // 拖曳中只改標籤；放開才寫入。朗讀讀的是 store。
+    ttsRateInput.addEventListener('change', () => {
+      void electronAPI.store.set('ttsRate', normalizeTtsRate(Number(ttsRateInput.value)))
+    })
   }
 
   document.getElementById('saveSettingsBtn')?.addEventListener('click', saveSettings)
 
   document.querySelectorAll('.tts-preview-btn').forEach((btn) => {
     btn.addEventListener('click', () => previewVoice(/** @type {HTMLButtonElement} */ (btn)))
+  })
+  document.querySelectorAll('select[data-tts-lang]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      void electronAPI.store.set('ttsVoices', readTtsVoicesFromForm())
+    })
   })
 
 }
@@ -1121,6 +1139,30 @@ function readTtsVoicesFromForm() {
     if (sel.value) out[lang] = sel.value
   })
   return out
+}
+
+/** 後進的載入蓋掉先發的，避免連點翻譯頁時舊值寫回畫面 */
+let ttsLoadGen = 0
+
+/** 進入翻譯頁時把語音與語速灌進表單。改值由控制項自己寫入 store。 */
+async function loadTtsForm() {
+  const gen = ++ttsLoadGen
+  if (!ttsVoiceCatalog?.voicesByLang || !Object.keys(ttsVoiceCatalog.voicesByLang).length) {
+    await populateTtsVoiceSelects()
+  }
+  if (gen !== ttsLoadGen) return
+  const [voices, rateRaw] = await Promise.all([
+    electronAPI.store.get('ttsVoices', { ...DEFAULT_TTS_VOICES }),
+    electronAPI.store.get('ttsRate', 0)
+  ])
+  if (gen !== ttsLoadGen) return
+  const rate = normalizeTtsRate(rateRaw)
+  if (ttsRateInput) {
+    ttsRateInput.value = String(rate)
+    updateTtsRateLabel(rate)
+  }
+  applyTtsVoicesToForm(voices || DEFAULT_TTS_VOICES)
+  syncCustomSelects()
 }
 
 // ===== 語音試聽 =====
@@ -1403,8 +1445,6 @@ function markSettingsDirty(event) {
  * 從 store 重灌設定表單
  */
 async function loadSettingsForm({ keepDraft = false } = {}) {
-  const settings = await getSettings()
-
   if (!keepDraft) await loadAsrCloudSettings()
 
   const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
@@ -1426,16 +1466,6 @@ async function loadSettingsForm({ keepDraft = false } = {}) {
     setSegmentValue('themeSegment', theme)
   }
 
-  if (!ttsVoiceCatalog?.voicesByLang || !Object.keys(ttsVoiceCatalog.voicesByLang).length) {
-    await populateTtsVoiceSelects()
-  }
-  if (!keepDraft) {
-    if (ttsRateInput) {
-      ttsRateInput.value = String(settings.ttsRate)
-      updateTtsRateLabel(settings.ttsRate)
-    }
-    applyTtsVoicesToForm(settings.ttsVoices || DEFAULT_TTS_VOICES)
-  }
   syncCustomSelects()
   await loadStartupSettings()
   await loadTermAppearanceSettings()
@@ -1487,14 +1517,11 @@ async function saveSettings() {
   const notes = []
   if (chatValidation.dropped > 0) notes.push(`略過 ${chatValidation.dropped} 個空白或重複的模型`)
 
-  const ttsRate = normalizeTtsRate(ttsRateInput ? Number(ttsRateInput.value) : 0)
-
   await Promise.all([
     // 舊的 asrApiUrl／asrApiKey／asrModelId 不再寫入；空清單代表刪除，不再使用舊 Key
+    // 語音朗讀在翻譯頁，改了就寫入，不走這裡
     electronAPI.store.set('asrClouds', asrCloudsDraft),
     electronAPI.store.set('asrCloudId', asrCloudDraftId),
-    electronAPI.store.set('ttsVoices', readTtsVoicesFromForm()),
-    electronAPI.store.set('ttsRate', ttsRate),
     saveChatSettings(chatValidation)
   ])
 

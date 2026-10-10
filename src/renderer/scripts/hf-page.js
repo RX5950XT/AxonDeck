@@ -892,7 +892,7 @@ async function refreshHardware() {
       const textWrap = el('div', 'hf-setting-text')
       textWrap.appendChild(el('span', 'hf-setting-label', item.label))
       textWrap.appendChild(el('span', 'setting-hint',
-        `${formatBytes(item.totalBytes)}${item.recommended ? '　· 這台建議用這個' : ''}`))
+        `${formatBytes(item.totalBytes)}${item.recommended ? '　· 這台建議用這個' : ''}${item.description ? `　· ${item.description}` : ''}`))
       row.appendChild(textWrap)
       const state = el('span', `hf-chip ${item.downloaded ? 'is-good' : ''}`,
         item.downloaded ? '已安裝' : '未安裝')
@@ -903,6 +903,19 @@ async function refreshHardware() {
         install.dataset.runtime = item.key
         install.addEventListener('click', () => installRuntime(item, install))
         row.appendChild(install)
+      } else if (item.runtime === 'breeze') {
+        const remove = el('button', 'btn btn-secondary btn-sm', '移除')
+        remove.type = 'button'
+        remove.addEventListener('click', async () => {
+          const { askConfirm } = await import('./app-dialog.js')
+          if (!await askConfirm('移除 Breeze 執行環境？語音生成會先停止，模型與聲音收藏會保留。')) return
+          try {
+            await electronAPI.models.delete(item.key)
+            await refreshHardware()
+            await refreshRecommend()
+          } catch (error) { showError(cleanIpcError(error)) }
+        })
+        row.appendChild(remove)
       }
       return row
     }))
@@ -945,7 +958,7 @@ async function installRuntime(item, button) {
   try {
     await electronAPI.models.download(item.key)
     // 換了推論後端，每顆模型的參數（offload、裝置）要照新後端重算
-    await call(electronAPI.hfmodels.applyPresets(), { quiet: true })
+    if (item.runtime !== 'breeze') await call(electronAPI.hfmodels.applyPresets(), { quiet: true })
     showToast(`已安裝 ${item.label}`, 'success')
   } catch (error) {
     showError(cleanIpcError(error) || '執行環境下載失敗')

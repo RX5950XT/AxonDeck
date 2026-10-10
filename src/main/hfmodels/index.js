@@ -197,13 +197,15 @@ async function hardwareInfo() {
     hasToken: hub.hasToken(),
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
     autoRuntime: !tempUserData,
-    installable: RUNTIME_KEYS.map((key) => ({
+    installable: [...RUNTIME_KEYS, 'breezeruntime'].map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,
       downloaded: models.isDownloaded(key),
+      runtime: models.MODELS[key]?.runtime || 'llama',
+      description: models.MODELS[key]?.description || '',
       // CUDA 版只在驅動夠新時才建議：驅動太舊裝了也起不來，而錯誤訊息是 DLL 層級的
-      recommended: key === 'llamaruntimecuda' ? preferCuda : !preferCuda
+      recommended: key === 'llamaruntimecuda' ? preferCuda : key === 'llamaruntime' && !preferCuda
     }))
   }
 }

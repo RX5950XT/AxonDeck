@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="./styles/themes.css" />
     <link rel="stylesheet" href="./styles/main.css" />
     <link rel="stylesheet" href="./styles/explorer-operations.css" />
+    <link rel="stylesheet" href="./styles/speech.css" />
   </head>
   <body>
     <div id="app" class="app-container">
@@ -44,9 +45,13 @@
             <span class="nav-icon" data-icon="mic"></span>
             <span class="nav-text">語音轉文字</span>
           </button>
-          <button class="nav-tab" data-page="translate" title="翻譯與 TTS" aria-label="翻譯與 TTS">
+          <button class="nav-tab" data-page="translate" title="翻譯" aria-label="翻譯">
             <span class="nav-icon" data-icon="languages"></span>
-            <span class="nav-text">翻譯與 TTS</span>
+            <span class="nav-text">翻譯</span>
+          </button>
+          <button class="nav-tab" data-page="speech" title="文字轉語音" aria-label="文字轉語音">
+            <span class="nav-icon" data-icon="speaker"></span>
+            <span class="nav-text">文字轉語音</span>
           </button>
           <button class="nav-tab" data-page="sysmon" title="系統監控" aria-label="系統監控">
             <span class="nav-icon" data-icon="activity"></span>
@@ -1997,19 +2002,111 @@
             </div>
           </section>
 
-          <!-- 翻譯與 TTS -->
-          <section id="page-translate" class="page">
+          <!-- 翻譯 -->
+          <section id="page-speech" class="page" aria-label="文字轉語音">
+            <div class="speech-workbench">
+              <header class="speech-head">
+                <div><h1>文字轉語音</h1><p>寫下台詞，讓聲音有自己的表情。</p></div>
+                <div class="speech-model"><strong>Breeze-TTS-2 · Q8_0</strong><span id="speechModelStatus" role="status">正在確認模型…</span></div>
+              </header>
+              <div id="speechInstallNotice" class="speech-notice" hidden><span>先下載語音模型，就能在這台電腦生成聲音。</span><button id="speechModelsBtn" class="btn btn-secondary btn-sm">前往 Local SI 推薦</button></div>
+              <div class="speech-modes" role="tablist" aria-label="語音生成模式">
+                <button class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechEditor">聲音設計</button>
+                <button class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechEditor" tabindex="-1">語音克隆</button>
+                <button class="speech-mode" type="button" role="tab" data-mode="direction" aria-selected="false" aria-controls="speechEditor" tabindex="-1">語氣指導</button>
+                <button class="speech-mode" type="button" role="tab" data-mode="convert" aria-selected="false" aria-controls="speechEditor" tabindex="-1">變聲 <small>實驗性</small></button>
+              </div>
+              <form id="speechForm" class="speech-form">
+                <div id="speechEditor" class="speech-editor" role="tabpanel">
+                  <div class="speech-editor-label"><label for="speechText" id="speechTextLabel">想說的話</label><span id="speechCount">0 / 100000</span></div>
+                  <textarea id="speechText" maxlength="100000" placeholder="你好，今天想用什麼聲音說故事？" aria-describedby="speechTextHint"></textarea>
+                  <div id="speechEvents" class="speech-events"><span>加入表情</span><button type="button" data-event="[笑]">笑</button><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="[咳嗽]">咳嗽</button><button type="button" data-event="[清嗓子]">清嗓子</button><button type="button" data-event="(laugh)">English · laugh</button><button type="button" data-event="(sigh)">sigh</button></div>
+                  <p id="speechTextHint" class="speech-hint">支援中文與英文。情緒標記也能直接寫進台詞。</p>
+                  <div id="speechSource" class="speech-source" hidden><label>要變聲的錄音</label><button id="speechPickSource" type="button" class="btn btn-secondary">選擇 WAV 音訊</button><span id="speechSourceName">尚未選擇</span><p class="speech-hint">保留原錄音的內容與節奏，換成另一個人的聲音。結果可能改變音高。</p></div>
+                </div>
+                <aside class="speech-settings" aria-label="聲音設定">
+                  <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
+                  <div id="speechReference" hidden>
+                    <label for="speechVoice">使用聲音</label><div class="speech-voice-row"><select id="speechVoice" class="input"><option value="">新的參考音訊</option></select><button id="speechDeleteVoice" type="button" class="btn btn-secondary btn-sm" disabled>刪除</button></div>
+                    <div id="speechNewReference"><button id="speechPickReference" type="button" class="btn btn-secondary">選擇參考 WAV</button><p id="speechReferenceName" class="speech-file-name">尚未選擇</p><label for="speechRefText">參考音訊的完整逐字稿</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="逐字寫下參考音訊裡說的話，包括重複的句子。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">用乾淨、少雜音的錄音；保存後不用每次重新上傳。</p></div>
+                  </div>
+                  <details class="speech-advanced"><summary>進階設定</summary><div class="speech-params">
+                    <label>指令強度（CFG）<input id="speechCfg" class="input" type="number" min="0" max="10" step="0.1" value="1" /></label>
+                    <label>隨機種子<input id="speechSeed" class="input" type="number" min="-2147483648" max="2147483647" value="42" /></label>
+                    <label>Temperature<input id="speechTemperature" class="input" type="number" min="0" max="2" step="0.05" value="0.9" /></label>
+                    <label>Top K<input id="speechTopK" class="input" type="number" min="0" max="1024" value="50" /></label>
+                    <label>Top P<input id="speechTopP" class="input" type="number" min="0" max="1" step="0.01" value="1" /></label>
+                    <label>重複懲罰<input id="speechRepetition" class="input" type="number" min="0" max="3" step="0.01" value="1.05" /></label>
+                    <label>每段字數<input id="speechSplit" class="input" type="number" min="0" max="10000" value="200" /></label>
+                    <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="2048" /></label>
+                    <label id="speechAcousticGroup" hidden>保留旋律<input id="speechAcoustic" class="input" type="number" min="0" max="15" value="0" /></label>
+                  </div><p class="speech-hint">CFG 越高越遵循指令，也可能讓聲音變粗糙。笑聲等表情可試 2～3；變聲的保留旋律只建議用於歌聲，超過 2 可能失真。</p></details>
+                </aside>
+                <footer class="speech-actions"><label id="speechStreamLabel" class="speech-stream"><input id="speechStream" type="checkbox" checked />邊生成邊播放</label><div><button id="speechCancel" class="btn btn-secondary" type="button" hidden>取消生成</button><button id="speechGenerate" class="btn btn-primary" type="submit" disabled>生成語音</button></div></footer>
+              </form>
+              <div class="speech-result"><div class="speech-result-heading"><strong id="speechResultTitle">你的聲音會出現在這裡</strong><span id="speechProgress" role="status" aria-live="polite">選好聲音、寫下台詞，就能開始。</span></div><div class="speech-player-row"><audio id="speechPlayer" controls hidden aria-label="生成語音試聽"></audio><button id="speechExport" class="btn btn-secondary" disabled>匯出 WAV</button></div><p id="speechError" role="alert" hidden></p></div>
+              <p class="speech-license">本機音訊不會上傳到雲端。Breeze 模型及本機生成內容限研究與非商業用途；克隆前請取得聲音使用權。<a href="https://huggingface.co/BreezeBlue/Breeze-TTS-2" target="_blank" rel="noreferrer">模型授權</a></p>
+            </div>
+          </section>
+          <section id="page-translate" class="page" aria-label="翻譯">
             <!-- 模型選單與語音轉文字頁共用同一份設定，改哪邊都一樣 -->
             <div class="page-header page-header-row">
-              <div class="page-header-text">
-                <h1>翻譯與 TTS</h1>
-                <p class="page-desc">文字翻譯與 Edge TTS 語音朗讀</p>
-              </div>
-              <div class="model-chips" id="translateModelBar">
-                <label class="model-chip">
-                  <span class="model-chip-label">翻譯</span>
-                  <select id="translatePageModel" class="model-chip-select" aria-label="翻譯模型"></select>
-                </label>
+              <div class="translate-topbar">
+                <div class="model-chips" id="translateModelBar">
+                  <label class="model-chip">
+                    <span class="model-chip-label">翻譯</span>
+                    <select id="translatePageModel" class="model-chip-select" aria-label="翻譯模型"></select>
+                  </label>
+                </div>
+                <details class="translate-voice">
+                  <summary id="translateVoiceTitle">EdgeTTS</summary>
+                  <div class="settings-card">
+                    <p class="settings-section-desc">需要連網。改了立刻生效。</p>
+                    <div class="setting-group">
+                      <label for="ttsRateInput">語速 <span id="ttsRateLabel" class="setting-value-label">1.0×</span></label>
+                      <input
+                        type="range"
+                        id="ttsRateInput"
+                        class="range-input"
+                        min="-50"
+                        max="100"
+                        step="5"
+                        value="0"
+                      />
+                      <p class="setting-hint">0.5×（慢）— 1.0×（預設）— 2.0×（快）</p>
+                    </div>
+                    <div id="ttsVoicesFields" class="tts-voices-fields">
+                      <div class="setting-group">
+                        <label for="ttsVoiceZhTw">繁體中文</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceZhTw" class="select select-full" data-tts-lang="zh-TW"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-TW" aria-label="預覽繁體中文語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                      <div class="setting-group">
+                        <label for="ttsVoiceZhCn">簡體中文</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceZhCn" class="select select-full" data-tts-lang="zh-CN"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-CN" aria-label="預覽簡體中文語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                      <div class="setting-group">
+                        <label for="ttsVoiceEn">English</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceEn" class="select select-full" data-tts-lang="en"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="en" aria-label="預覽 English 語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                      <div class="setting-group">
+                        <label for="ttsVoiceJa">日本語</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceJa" class="select select-full" data-tts-lang="ja"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="ja" aria-label="預覽日本語語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -2083,7 +2180,7 @@
               <button type="button" id="translateRunBtn" class="btn btn-primary">
                 翻譯
               </button>
-              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段；朗讀走 Edge TTS。</p>
+              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段。</p>
             </div>
             <p id="translateStatus" class="translate-status">翻譯：檢查中…</p>
             <p id="translateError" class="live-error hidden" role="alert"></p>
@@ -2095,9 +2192,6 @@
               <nav class="settings-nav" id="settingsNav" aria-label="設定分類">
                 <button type="button" class="settings-nav-item active" data-section="cloud">
                   <span class="settings-nav-icon" aria-hidden="true">☁️</span>雲端模型
-                </button>
-                <button type="button" class="settings-nav-item" data-section="voice">
-                  <span class="settings-nav-icon" aria-hidden="true">🔊</span>語音朗讀
                 </button>
                 <button type="button" class="settings-nav-item" data-section="basic">
                   <span class="settings-nav-icon" aria-hidden="true">🎨</span>基本
@@ -2281,67 +2375,6 @@
                         />
                         <p class="setting-hint">數字越大圖越清楚，越小越接近配色的底色；文字不受影響。不要圖請按「移除背景圖」。</p>
                       </div>
-                    </div>
-                  </section>
-
-                  <!-- 語音朗讀 -->
-                  <section class="settings-section" id="set-voice" data-section="voice">
-                    <header class="settings-section-head">
-                      <h2 class="settings-section-title">語音朗讀</h2>
-                      <p class="settings-section-desc">翻譯頁的朗讀使用 Edge TTS，需要連網。</p>
-                    </header>
-                    <div class="settings-card">
-                      <div class="setting-group">
-                        <label for="ttsRateInput">語速 <span id="ttsRateLabel" class="setting-value-label">1.0×</span></label>
-                        <input
-                          type="range"
-                          id="ttsRateInput"
-                          class="range-input"
-                          min="-50"
-                          max="100"
-                          step="5"
-                          value="0"
-                        />
-                        <p class="setting-hint">0.5×（慢）— 1.0×（預設）— 2.0×（快）</p>
-                      </div>
-                      <div id="ttsVoicesFields" class="tts-voices-fields">
-                        <div class="setting-group">
-                          <label for="ttsVoiceZhTw">繁體中文</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceZhTw" class="select select-full" data-tts-lang="zh-TW"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-TW" aria-label="預覽繁體中文語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceZhCn">簡體中文</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceZhCn" class="select select-full" data-tts-lang="zh-CN"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-CN" aria-label="預覽簡體中文語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceEn">English</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceEn" class="select select-full" data-tts-lang="en"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="en" aria-label="預覽 English 語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceJa">日本語</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceJa" class="select select-full" data-tts-lang="ja"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="ja" aria-label="預覽日本語語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceKo">한국어</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceKo" class="select select-full" data-tts-lang="ko"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="ko" aria-label="預覽한국어 語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                      </div>
-                      <p class="setting-hint">試聽用的是<strong>目前選到的語音與語速</strong>，不必先按儲存；需要連網。</p>
                     </div>
                   </section>
 

@@ -1,5 +1,5 @@
 /**
- * 打包版 CDP：語音轉文字合併頁 ＋ 設定頁四分區 ＋ 語音試聽
+ * 打包版 CDP：語音轉文字合併頁 ＋ 設定頁三分區 ＋ 翻譯頁語音試聽
  * 用法：node scripts/e2e-stt-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 這支會改到三個子分頁各自的模型選擇（`fileAsr`／`fileLlm`／`liveAsr`／`liveLlm`／
@@ -362,7 +362,7 @@ async function main() {
       await sleep(200)
     }
     await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length === 4'), 15000, '推薦模型清單')
-    // ---- 設定頁四分區 ----
+    // ---- 設定頁三分區（語音朗讀在翻譯頁）----
     await cdp.eval(`document.querySelector('[data-page="settings"]').click(), 'ok'`)
     await sleep(900)
     const settings = await cdp.eval(`(() => {
@@ -389,9 +389,9 @@ async function main() {
       }
     })()`)
     ok(
-      '設定頁四個分區且順序正確',
-      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'voice', 'basic', 'cli']) &&
-        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('語音朗讀') && settings.titles[2].includes('基本') && settings.titles[3].includes('CLI'),
+      '設定頁三個分區且順序正確',
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'cli']) &&
+        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('基本') && settings.titles[2].includes('CLI'),
       JSON.stringify(settings?.titles)
     )
     ok('設定頁沒有手動 GPU 開關，模型清單已搬進推薦',
@@ -406,23 +406,75 @@ async function main() {
     ok('共用供應商與語音轉文字端點都在「雲端模型」',
       settings?.cloudChat && settings.cloudAsr, JSON.stringify(settings))
 
-    // ---- 語音試聽 ----
-    await cdp.eval(`document.querySelector('#settingsNav [data-section="voice"]').click(), 'ok'`)
-    await sleep(500)
+    // ---- 語音試聽（翻譯頁）----
+    await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)
+    await sleep(700)
     const previewUi = await cdp.eval(`(() => {
-      const btns = [...document.querySelectorAll('.tts-preview-btn')]
+      const page = document.getElementById('page-translate')
+      const btns = [...page.querySelectorAll('.tts-preview-btn')]
       return {
         count: btns.length,
         langs: btns.map((b) => b.dataset.ttsPreview),
         // 每顆鈕都要跟同一列的下拉在一起
         pairedWithSelect: btns.every((b) => !!b.closest('.tts-voice-row')?.querySelector('select[data-tts-lang]')),
-        hasApi: typeof window.electronAPI.tts.preview === 'function'
+        hasApi: typeof window.electronAPI.tts.preview === 'function',
+        notInSettings: !document.querySelector('#page-settings .tts-preview-btn'),
+        noKo: !page.querySelector('#ttsVoiceKo, [data-tts-preview="ko"], [data-tts-lang="ko"]'),
+        noPreviewHint: !page.textContent.includes('試聽用的是'),
+        nav: document.querySelector('[data-page="translate"] .nav-text')?.textContent.trim(),
+        noPageTitle: !page.querySelector('h1, .page-desc'),
+        modelLeft: (() => {
+          const bar = document.getElementById('translateModelBar')
+          const pageRect = page.getBoundingClientRect()
+          const rect = bar?.getBoundingClientRect()
+          return !!bar && bar.parentElement?.firstElementChild === bar && !!rect && rect.left - pageRect.left < 80
+        })(),
+        summary: page.querySelector('.translate-voice > summary')?.textContent.trim(),
+        // 收合時內容不進版面；裡層 offsetHeight 在 Chromium 仍可能有值，只量外框
+        collapsed: page.querySelector('.translate-voice')?.open === false
+          && (page.querySelector('.translate-voice')?.offsetHeight || 99) < 56,
+        paired: (() => {
+          const chip = document.querySelector('#translateModelBar .model-chip')
+          const summary = document.querySelector('.translate-voice > summary')
+          const lang = document.querySelector('.translate-lang-bar')
+          if (!chip || !summary || !lang) return null
+          const a = chip.getBoundingClientRect()
+          const b = summary.getBoundingClientRect()
+          const before = lang.getBoundingClientRect().top
+          const range = document.createRange()
+          range.selectNodeContents(summary)
+          const textW = range.getBoundingClientRect().width
+          const cs = getComputedStyle(summary)
+          const expected = textW
+            + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+            + (parseFloat(cs.columnGap || cs.gap) || 0)
+            + 6 + 2
+          summary.click()
+          const card = document.querySelector('.translate-voice .settings-card')
+          const floated = getComputedStyle(card).position === 'absolute'
+          const still = Math.abs(lang.getBoundingClientRect().top - before) < 1
+          summary.click()
+          return {
+            sameTop: Math.abs(a.top - b.top) < 2,
+            fitsLabel: Math.abs(b.width - expected) < 8,
+            chipWider: a.width > b.width + 24,
+            floated,
+            still
+          }
+        })()
       }
     })()`)
     ok(
-      '五種語言都有試聽鈕且接得到 IPC',
-      previewUi?.count === 5 && previewUi.pairedWithSelect && previewUi.hasApi &&
-        JSON.stringify(previewUi.langs) === JSON.stringify(['zh-TW', 'zh-CN', 'en', 'ja', 'ko']),
+      '翻譯頁 EdgeTTS 預設收合，設定頁不再有語音朗讀',
+      previewUi?.count === 4 && previewUi.pairedWithSelect && previewUi.hasApi &&
+        previewUi.notInSettings && previewUi.nav === '翻譯' && previewUi.noPageTitle === true &&
+        previewUi.modelLeft === true &&
+        previewUi.summary === 'EdgeTTS' && previewUi.collapsed === true &&
+        previewUi.noKo === true && previewUi.noPreviewHint === true &&
+        previewUi.paired?.sameTop === true && previewUi.paired?.fitsLabel === true &&
+        previewUi.paired?.chipWider === true &&
+        previewUi.paired?.floated === true && previewUi.paired?.still === true &&
+        JSON.stringify(previewUi.langs) === JSON.stringify(['zh-TW', 'zh-CN', 'en', 'ja']),
       JSON.stringify(previewUi)
     )
 

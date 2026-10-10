@@ -5,7 +5,7 @@
 ## 概況
 
 AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.4.1。目前版本 **v1.43.0**（2026-10-10）。
-nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
+nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -14,10 +14,11 @@ nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
 | CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP（Claude／Codex／Grok／OpenCode 四家）／Skills 與記憶／用量統計；CLI 版本搬去設定頁 |
 | 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
-| 翻譯與 TTS | `translate` | local（LinguaForge）／cloud 翻譯；Edge TTS |
+| 翻譯 | `translate` | local（LinguaForge）／cloud 翻譯；EdgeTTS 與模型按鈕同一排、按鈕寬度貼文字，展開浮在內容上。語音是繁中、簡中、英文、日文 |
+| 文字轉語音 | `speech` | Breeze-TTS-2 Q8：聲音設計、語音克隆、語氣指導、保存聲音、實驗性變聲、串流試聽與 WAV 匯出 |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
-| 設定 | `settings` | 雲端端點、語音朗讀、終端機配色與桌布；本地模型與推論方式在 Local SI |
+| 設定 | `settings` | 雲端端點、終端機配色與桌布；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
 
 滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
 
@@ -59,7 +60,9 @@ native/
 ## 各模組現況
 
 ### 本地推論（Local SI）
-- 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦只有 ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
+- 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
+- 文字轉語音：`breeze-tts/{index,protocol,ipc}.js` → `speech-page.js`／`speech.css`；`breezetts2q8`（3,568,844,480 bytes）搭配固定 v0.1.0 `breezeruntime`，SHA-256 驗證後才安裝。不寫 llama preset；NVIDIA ≥8GB + Vulkan 自動用 GPU，其餘 CPU。首次生成或保存聲音才載模型；列表直接讀保存檔，不因切頁載模型。
+- Breeze 僅監聽 main 指定的 loopback 隨機埠，參考／來源 WAV 由 main 選檔、驗證再用 token 呼叫；voice name 只收 ASCII 英數／`-`／`_`。收藏在 `userData/breeze-tts/voices`；移除模型或 runtime 先 shutdown，收藏保留。生成可取消、串流 PCM 最後包 24kHz mono WAV；模型與本機輸出限研究及非商用。
 - NVIDIA ≥8GB VRAM 才使用 GPU（8184 MiB 門檻容許顯卡回報誤差），其餘 CPU；模型庫與 1.7B ASR 使用同一篩選規則，沒有手動 `llmGpu` 開關。
 - ASR 0.6B／1.7B 均為 Q8_0 GGUF，經 `asr-select` 選模型、`llama-asr` 共用 Local SI router；兩顆皆自動 GPU／CPU。推薦名稱不帶 CPU／GPU，設定 key 不變；舊 0.6B ONNX 檔不再用於 App 的推論。
 - 本地翻譯經 `local-llm-router.js` 沿用 Local SI 的 llama-server router；推薦模型以絕對檔案路徑寫入 preset，不複製模型。避免 node-llama-cpp 在 Windows 釋放 GPU context 時當機；關 App 要連只由翻譯載入的 router 一起收掉。

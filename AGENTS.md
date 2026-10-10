@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.4.1（內建 Node 24）、腳本用系統 Node 22。
-nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜CC Proxy｜語音轉文字｜翻譯與 TTS｜系統監控｜Local SI（`hfmodels`）｜設定。額度是工作區底下那條；AGY 反代與用量統計是 CC Proxy 的子分頁。
+nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜CC Proxy｜語音轉文字｜翻譯｜系統監控｜Local SI（`hfmodels`）｜設定。額度是工作區底下那條；AGY 反代與用量統計是 CC Proxy 的子分頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
 
@@ -126,6 +126,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 桌布：store 只存檔名、renderer 轉 `blob:`（CSS 塞 data URI 超過約 2M 字元會安靜失效）；強度下限 10；管理員終端機用 `Start-Process -Verb RunAs` 開 host；host 模式 userData 指到暫存。
 
 ### HF模型／本地 LLM／翻譯
+- Breeze-TTS-2 Q8 走獨立 `breeze-server`，不可送進 llama router／preset。模型下載連帶安裝 `breezeruntime`，兩者以固定 SHA-256 校驗；移除任一者前先停 Breeze。參考音訊由 main 對話框選取，renderer 只持 token；聲音收藏在 `userData/breeze-tts/voices`，不隨模型移除。
 - 推論一律 llama-server router 模式；關思考明寫 `reasoning = off`；`/metrics` 要 `--metrics` 且帶 `?model=`。
 - 記憶體配置交給 `llama-fit-params`（主動寫死 `gpu-layers` 等於關掉它）；KV 用 GGUF 的 `key_length／value_length`；`safeValue` 不准清中括號；`readConfig` 不在清單的 modelId 回空字串不退回第一顆。關思考用 `reasoning: { exclude: true }`。
 - LinguaForge 一段約 2000 字（ctx 8192）；清單標記仍逐行剝掉再貼回。zhtw `repeatPenalty: false`、重試前還原 history；不要用 regex 剝前綴當修復。

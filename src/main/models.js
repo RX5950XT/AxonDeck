@@ -16,6 +16,8 @@ const { removeTreeSync } = require('./safe-rm')
  * 不需要 CUDA／cuDNN。CUDA 版另外要 239MB＋373MB cudart，先不做第二套。
  */
 const LLAMA_BUILD = 'b10666'
+const BREEZE_BUILD = 'v0.1.0'
+const BREEZE_DIR = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
 
 /**
  * 模型 registry
@@ -24,6 +26,32 @@ const LLAMA_BUILD = 'b10666'
  * check: 有值時以「這些檔案都在」判定已安裝（archive 解壓後檔名跟下載名不同）
  */
 const MODELS = {
+  breezetts2q8: {
+    label: 'Breeze-TTS-2 · Q8_0',
+    kind: 'tts',
+    runtime: 'breeze',
+    requires: 'breezeruntime',
+    description: '中英文語音生成、聲音設計、語音克隆、語氣指導、聲音收藏、串流與實驗性語音轉換。',
+    licenseUrl: 'https://huggingface.co/BreezeBlue/Breeze-TTS-2/blob/main/LICENSE',
+    totalBytes: 3568844480,
+    base: 'https://huggingface.co/HoppouAI/Breeze-TTS-2.cpp/resolve/main/',
+    files: ['breeze-tts-2-q8_0.gguf'],
+    gguf: 'breeze-tts-2-q8_0.gguf',
+    sha256: { 'breeze-tts-2-q8_0.gguf': 'a02bcc4b69b0601032727f8040c4942149b1b73aa0f69022fe5aaa6a8f0ef879' }
+  },
+  breezeruntime: {
+    label: `Breeze-TTS-2 執行環境（${BREEZE_BUILD}）`,
+    kind: 'runtime',
+    runtime: 'breeze',
+    description: '語音生成專用；Vulkan 與 CPU，和 llama.cpp 分開。',
+    totalBytes: 73809893,
+    base: `https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/${BREEZE_BUILD}/`,
+    files: [`${BREEZE_DIR}.zip`],
+    archive: true,
+    check: ['breeze-server.exe', 'breeze-cli.exe', 'libbreeze.dll'].map(name => `${BREEZE_DIR}/${name}`),
+    binary: `${BREEZE_DIR}/breeze-server.exe`,
+    sha256: { [`${BREEZE_DIR}.zip`]: '1c5178577a9fb90e84b43269880d17acafd466030abf615c6df4ccc163eac0d8' }
+  },
   qwen3asr: {
     label: 'Qwen3-ASR 0.6B · Q8_0',
     kind: 'asr',
@@ -190,8 +218,16 @@ function modelDir(key) {
 function isDownloaded(key) {
   const def = MODELS[key]
   if (!def) return false
+  if (def.kind === 'tts' && activeDownloads.has(key)) return false
   const want = def.check || def.files
-  return want.every(f => fs.existsSync(path.join(modelDir(key), f)))
+  return want.every(f => {
+    const target = path.join(modelDir(key), f)
+    if (def.runtime !== 'breeze') return fs.existsSync(target)
+    try {
+      const stat = fs.statSync(target)
+      return stat.isFile() && stat.size > 0 && (def.archive || stat.size === def.totalBytes)
+    } catch { return false }
+  })
 }
 
 /**
@@ -206,6 +242,8 @@ function status() {
       kind: def.kind,
       totalBytes: def.totalBytes,
       requires: def.requires || null,
+      description: def.description || '',
+      licenseUrl: def.licenseUrl || '',
       downloaded: isDownloaded(key),
       downloading: activeDownloads.has(key)
     }
@@ -273,11 +311,24 @@ async function download(key, onProgress) {
   }
 
   try {
+    if (def.runtime === 'breeze' && def.requires && !isDownloaded(def.requires)) {
+      const cancelDependency = () => cancelDownload(def.requires)
+      controller.signal.addEventListener('abort', cancelDependency, { once: true })
+      try {
+        await download(def.requires, progress => {
+          onProgress(progress)
+          onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
+            stage: '準備語音執行環境…', cancellable: !progress.stage })
+        })
+      }
+      finally { controller.signal.removeEventListener('abort', cancelDependency) }
+      if (controller.signal.aborted) throw new Error('下載已取消')
+    }
     for (const file of def.files) {
       const dest = path.join(modelDir(key), file)
       await fsp.mkdir(path.dirname(dest), { recursive: true })
 
-      if (fs.existsSync(dest)) {
+      if (!def.sha256?.[file] && fs.existsSync(dest)) {
         received += (await fsp.stat(dest)).size
         emit(true)
         continue
@@ -287,6 +338,8 @@ async function download(key, onProgress) {
       const result = await downloadFile({
         url: def.base + file,
         dest,
+        expectedBytes: def.sha256?.[file] ? def.totalBytes : undefined,
+        sha256: def.sha256?.[file],
         signal: controller.signal,
         onProgress: (info) => {
           received = completed + info.received

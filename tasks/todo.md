@@ -657,3 +657,11 @@
 - 版本 1.43.0，master 與 origin 同在 `0ca83b9`，tag 仍停在 v1.42.0。終端機換頁／換專案保留捲動位置，舊測試改成這個預期；不把捲軸拉回最底，對話跳轉才留得住。
 - `node scripts/run-tests.js` 126/126。`npm run electron:pack` asar 276 支 src 與原始碼相同。`node scripts/e2e-terminal-cdp.js` 67/67。
 - `npm run electron:build` 通過：安裝檔、blockmap、latest.yml 與 app-update.yml 一致。GitHub Release v1.43.0 已公開，三件套大小與本機相同。
+
+# 文字轉語音 / Breeze-TTS-2 Q8（2026-10-10）
+
+- [x] 確認官方與 Q8 執行環境能力、API 與授權。
+- [x] Local SI 推薦與專用執行環境：下載、校驗、依賴與移除。
+- [x] 新增文字轉語音頁，接聲音設計、克隆、指導、保存聲音與實驗性變聲。
+- [x] 後端輸入驗證、取消、串流、播放及 WAV 匯出。
+- [ ] 真 Q8 推論、受影響測試與隔離打包版 CDP 驗收，更新交接文件。

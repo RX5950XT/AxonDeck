@@ -49,6 +49,7 @@ const workspaceMedia = require('./workspace/media')
 protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
+const { registerBreezeIpc } = require('./breeze-tts/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
 const { registerCodeUsageIpc } = require('./codeusage/ipc')
 const { registerDictationIpc } = require('./dictation/ipc')
@@ -98,6 +99,17 @@ let dictationMod = null
 let terminalMod = null
 let workspaceMod = null
 let explorerMod = null
+let breezeMod = null
+
+function loadBreeze() {
+  if (!breezeMod) {
+    breezeMod = require('./breeze-tts')
+    breezeMod.init({ send: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+    } })
+  }
+  return breezeMod
+}
 let sysmonMod = null
 let screentimeMod = null
 let ccSwitchMod = null
@@ -1552,7 +1564,10 @@ ipcMain.handle('models:download', async (event, key) => {
 
 ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 
-ipcMain.handle('models:delete', (event, key) => models.remove(key))
+ipcMain.handle('models:delete', async (event, key) => {
+  if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
+  return models.remove(key)
+})
 
 ipcMain.handle('models:openFolder', (event, key) => models.openFolder(key))
 
@@ -1623,9 +1638,9 @@ ipcMain.handle('tts:synthesize', async (event, req) => {
 })
 
 /**
- * 設定頁的語音試聽：唸固定的一句範例，用「使用者當下選到但還沒儲存」的語音。
- * `voice` 是新增的參數，但它一樣是 main 的固定表白名單（`tts-voices.js`），
- * 不是自由字串；語速仍讀 store（滑桿未儲存時前端會一併送 rate）。
+ * 翻譯頁的語音試聽：唸固定的一句範例。
+ * `voice` 一樣是 main 的固定表白名單（`tts-voices.js`），不是自由字串。
+ * 語速用前端送來的 rate（滑桿當下的值）；正式朗讀則讀 store。
  */
 ipcMain.handle('tts:preview', async (event, req) => {
   if (!store) await initStore()
@@ -2012,6 +2027,21 @@ registerHfModelsIpc({
     unloadModel: (...args) => loadHfModels().unloadModel(...args),
     refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+registerBreezeIpc({
+  ipcMain,
+  service: {
+    status: () => loadBreeze().status(),
+    generate: (options) => loadBreeze().generate(options),
+    cancel: (options) => loadBreeze().cancel(options),
+    pickAudio: (options) => loadBreeze().pickAudio(options),
+    voices: () => loadBreeze().voices(),
+    saveVoice: (options) => loadBreeze().saveVoice(options),
+    removeVoice: (options) => loadBreeze().removeVoice(options),
+    saveAudio: (options) => loadBreeze().saveAudio(options)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2416,6 +2446,7 @@ app.on('before-quit', (e) => {
     ? ccSwitchMod.stopGateway().catch((err) => console.error('[ccswitch] gateway stop failed:', err))
     : Promise.resolve()
   const stopAgy = Promise.all([
+    breezeMod ? breezeMod.shutdown() : Promise.resolve(),
     stopTerminal,
     stopExplorer,
     stopSysmon,

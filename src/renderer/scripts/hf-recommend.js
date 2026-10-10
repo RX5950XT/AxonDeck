@@ -11,6 +11,7 @@ import { hasLlamaRuntime } from './model-picker.js'
 
 /** registry 的 kind → 顯示分組（執行環境在「執行環境」分頁，這裡不列） */
 const MODEL_GROUPS = [
+  ['tts', '語音生成'],
   ['asr', '語音辨識'],
   ['llm', '翻譯']
 ]
@@ -71,7 +72,8 @@ function renderModelItem(model) {
   item.className = 'model-item'
   item.dataset.key = model.key
 
-  const needsRuntime = model.requires && !hasLlamaRuntime(latestModels)
+  const needsRuntime = model.requires && !(model.requires === 'llamaruntime'
+    ? hasLlamaRuntime(latestModels) : latestModels[model.requires]?.downloaded)
   const stateText = model.downloaded
     ? needsRuntime
       ? `${formatBytes(model.totalBytes)} · 已下載，還缺執行環境`
@@ -93,6 +95,18 @@ function renderModelItem(model) {
   const info = document.createElement('div')
   info.className = 'model-info'
   info.append(name, size)
+  if (model.description) {
+    const description = document.createElement('p')
+    description.className = 'setting-hint'
+    description.textContent = model.description
+    info.appendChild(description)
+  }
+  if (model.licenseUrl) {
+    const license = actionBtn('研究與非商用授權', 'btn-secondary', () => {
+      void electronAPI.workspace.openExternal(model.licenseUrl).catch(error => showToast(cleanIpcError(error), 'error'))
+    })
+    info.appendChild(license)
+  }
 
   const actions = document.createElement('div')
   actions.className = 'model-actions'
@@ -164,13 +178,14 @@ async function startDownload(model) {
   promise.catch(() => {}) // 先標記已處理，避免 refresh 期間出現 unhandled rejection
   await refreshRecommend() // 立刻顯示「下載中」狀態
   try {
-    if (model.requires && !hasLlamaRuntime(latestModels)) {
+    if (model.requires === 'llamaruntime' && !hasLlamaRuntime(latestModels)) {
       showToast('自動安裝建議的執行環境')
       const hw = await electronAPI.hfmodels.hardware()
       if (!hw?.ok) throw new Error(hw?.error?.message || '無法偵測執行環境')
       const list = Array.isArray(hw.data?.installable) ? hw.data.installable : []
-      const best = list.find((item) => item.recommended && !item.downloaded)
-        || list.find((item) => !item.downloaded)
+      const llama = list.filter((item) => item.key === 'llamaruntime' || item.key === 'llamaruntimecuda')
+      const best = llama.find((item) => item.recommended && !item.downloaded)
+        || llama.find((item) => !item.downloaded)
       if (best) await electronAPI.models.download(best.key)
     }
     await promise
@@ -182,7 +197,7 @@ async function startDownload(model) {
   await refreshRecommend()
 }
 
-function onModelProgress({ key, receivedBytes, totalBytes, stage }) {
+function onModelProgress({ key, receivedBytes, totalBytes, stage, cancellable }) {
   const percent = totalBytes > 0 ? Math.min(100, (receivedBytes / totalBytes) * 100) : 0
   // 解壓階段（main 送 stage）已經取消不了，文字照實講、取消鈕停用
   const text = stage || `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)} (${percent.toFixed(0)}%)`
@@ -193,7 +208,7 @@ function onModelProgress({ key, receivedBytes, totalBytes, stage }) {
   progress.querySelector('.model-progress-fill').style.width = percent + '%'
   item.querySelector('.model-size').textContent = text
   const cancelBtn = /** @type {HTMLButtonElement|null} */ (item.querySelector('.model-actions .btn'))
-  if (cancelBtn && stage) cancelBtn.disabled = true
+  if (cancelBtn) cancelBtn.disabled = !!stage && !cancellable
 }
 
 // ===== 推論方式（自動）=====

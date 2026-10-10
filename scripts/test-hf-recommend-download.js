@@ -6,7 +6,7 @@ const vm = require('node:vm')
 const source = fs.readFileSync(path.join(__dirname, '../src/renderer/scripts/hf-recommend.js'), 'utf8')
 const fn = source.match(/async function startDownload\(model\) \{[\s\S]*?\n\}/)[0]
 
-async function run(reply, installed = false) {
+async function run(reply, installed = false, model = { key: 'qwen3asr', requires: 'llamaruntime' }) {
   const downloaded = [], notices = []
   let scans = 0
   const context = {
@@ -19,7 +19,7 @@ async function run(reply, installed = false) {
     cleanIpcError: error => error.message
   }
   vm.runInNewContext(fn + '\nthis.start = startDownload', context)
-  await context.start({ key: 'qwen3asr', requires: 'llamaruntime' })
+  await context.start(model)
   return { downloaded, notices, scans }
 }
 
@@ -37,6 +37,11 @@ async function main() {
   assert.deepEqual((await run(reply)).downloaded, ['qwen3asr', 'llamaruntime'])
   const failed = await run({ ok: false, error: { message: '硬體偵測失敗' } })
   assert.ok(failed.notices.some(([message, kind]) => kind === 'error' && message.includes('硬體偵測失敗')))
+  reply.data.installable.unshift({ key: 'breezeruntime', recommended: false, downloaded: false })
+  assert.deepEqual((await run(reply)).downloaded, ['qwen3asr', 'llamaruntime'], '語音生成 runtime 不能被當成 llama 的依賴')
+  const breeze = await run(reply, false, { key: 'breezetts2q8', requires: 'breezeruntime' })
+  assert.deepEqual(breeze.downloaded, ['breezetts2q8'], 'Breeze 依賴由後端處理')
+  assert.equal(breeze.scans, 0, 'Breeze 不用 llama 裝置清單')
   console.log('PASS 推薦下載：IPC 資料、CUDA／Vulkan 選擇、已安裝與偵測失敗')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

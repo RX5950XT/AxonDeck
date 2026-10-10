@@ -199,9 +199,9 @@ async function main() {
       }
     })()`)
     ok(
-      'nine-tab order + quota bar under the terminal + stats under CC',
+      'ten-tab order + quota bar under the terminal + stats under CC',
       JSON.stringify(usageUi?.order) === JSON.stringify([
-        'chat', 'telegram', 'explorer', 'ccswitch', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings'
+        'chat', 'telegram', 'explorer', 'ccswitch', 'stt', 'translate', 'speech', 'sysmon', 'hfmodels', 'settings'
       ]) &&
         usageUi.hasApi &&
         usageUi.noUsagePage &&
@@ -361,8 +361,11 @@ async function main() {
           noSeparateTranslate: !document.getElementById('apiUrlInput'),
           hasCloudAsr: !!document.getElementById('asrApiUrlInput'),
           hasCloudChat: !!document.getElementById('chatApiUrlInput'),
-          hasTtsRate: !!document.getElementById('ttsRateInput'),
-          hasTtsPreview: document.querySelectorAll('.tts-preview-btn').length === 5,
+          hasTtsRate: !!document.querySelector('#page-translate #ttsRateInput'),
+          hasTtsPreview: document.querySelectorAll('#page-translate .tts-preview-btn').length === 4,
+          noTtsInSettings: !document.querySelector('#page-settings #ttsRateInput')
+            && !document.querySelector('#settingsNav [data-section="voice"]'),
+          translateNav: document.querySelector('[data-page="translate"] .nav-text')?.textContent.trim(),
           hasModelList: !!document.getElementById('modelList'),
           navSections: [...document.querySelectorAll('#settingsNav .settings-nav-item')]
             .map((b) => b.dataset.section),
@@ -382,9 +385,11 @@ async function main() {
         settingsUi?.hasCloudChat &&
         settingsUi?.hasTtsRate &&
         settingsUi?.hasTtsPreview &&
+        settingsUi?.noTtsInSettings &&
+        settingsUi?.translateNav === '翻譯' &&
         settingsUi?.hasModelList &&
         JSON.stringify(settingsUi?.navSections) ===
-          JSON.stringify(['cloud', 'voice', 'basic']) &&
+          JSON.stringify(['cloud', 'basic', 'cli']) &&
         settingsUi?.activeSections === 1 &&
         settingsUi?.hasFooterSave,
       JSON.stringify(settingsUi)

@@ -10,13 +10,13 @@
  *      HF 的 tree 端點給得出每個檔案的真實大小，收完比一次。
  *   3. **取消要真的停**：`AbortController` 一路傳到 fetch，`.part` 留著給下次續傳。
  *
- * ponytail: 只比大小不驗雜湊。HF 的 `lfs.oid` 就是內容的 sha256，真的遇到「大小對但內容壞」
- * 再把它接上（成本是整顆檔案再讀一遍）。
+ * 有固定 SHA-256 的下載另驗整檔；探索頁仍以 HF 回傳的大小檢查。
  */
 
 const fs = require('fs')
 const path = require('path')
 const { pipeline } = require('node:stream/promises')
+const { createHash } = require('node:crypto')
 
 const TIMEOUT_MS = 60_000
 /** 進度回報節流：多 GB 的下載每個 chunk 都送一次等於在洗 IPC */
@@ -122,7 +122,7 @@ function sizeOf(filePath) {
  *   url: string, dest: string, expectedBytes?: number,
  *   headers?: Record<string, string>, signal?: AbortSignal,
  *   onProgress?: (info: { received: number, total: number }) => void,
- *   fetchImpl?: typeof fetch, maxBytes?: number, parallel?: boolean
+ *   fetchImpl?: typeof fetch, maxBytes?: number, parallel?: boolean, sha256?: string
  * }} options
  * @returns {Promise<{ bytes: number, resumed: boolean }>}
  */
@@ -245,12 +245,11 @@ async function downloadSingle(options) {
 }
 
 /** 只有官方 GitHub 提供 SHA-256 才使用公開鏡像；下載後仍驗完整檔案。 */
-async function downloadFile(options) {
+async function downloadMirrored(options) {
   const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases\/(?:download\/([^/]+)|latest\/download)\/([^/?]+)$/.exec(options.url)
   if (!match || options.fetchImpl || Object.keys(options.headers || {}).some(key => /^(authorization|cookie|x-api-key)$/i.test(key))) {
     return downloadSingle(options)
   }
-  const { createHash } = require('node:crypto')
   const { MIRRORS, rankDownloadUrls } = require('../update-mirrors')
   let asset
   try {
@@ -275,15 +274,7 @@ async function downloadFile(options) {
     try {
       const result = await downloadSingle({ ...options, url: String(url), expectedBytes: asset.size })
       verifying = true
-      const hash = createHash('sha256')
-      for await (const chunk of fs.createReadStream(options.dest)) {
-        if (options.signal?.aborted) throw new Error('下載已取消')
-        hash.update(chunk)
-      }
-      if (`sha256:${hash.digest('hex')}` !== asset.digest) {
-        fs.rmSync(options.dest, { force: true })
-        throw new Error('下載檔案驗證失敗')
-      }
+      await verifySha256(options.dest, asset.digest.slice(7), options.signal)
       return result
     } catch (error) {
       lastError = error
@@ -294,6 +285,33 @@ async function downloadFile(options) {
     }
   }
   throw lastError
+}
+
+async function verifySha256(dest, expected, signal) {
+  const hash = createHash('sha256')
+  for await (const chunk of fs.createReadStream(dest)) {
+    if (signal?.aborted) throw new Error('下載已取消')
+    hash.update(chunk)
+  }
+  if (hash.digest('hex') !== expected) {
+    fs.rmSync(dest, { force: true })
+    throw new Error('下載檔案驗證失敗')
+  }
+}
+
+async function downloadFile(options) {
+  if (options.sha256 !== undefined && !/^[a-f0-9]{64}$/.test(options.sha256)) {
+    throw new Error('下載檔案驗證碼不正確')
+  }
+  const result = await downloadMirrored(options)
+  if (options.sha256) {
+    try { await verifySha256(options.dest, options.sha256, options.signal) }
+    catch (error) {
+      if (options.signal?.aborted && fs.existsSync(options.dest)) fs.renameSync(options.dest, `${options.dest}.part`)
+      throw error
+    }
+  }
+  return result
 }
 
 /**

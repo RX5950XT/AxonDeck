@@ -4,6 +4,31 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
  * 安全地將 API 暴露給 Renderer Process
  */
 contextBridge.exposeInMainWorld('electronAPI', {
+  breeze: {
+    status: () => ipcRenderer.invoke('breeze:status'),
+    generate: (options) => ipcRenderer.invoke('breeze:generate', options),
+    cancel: (options) => ipcRenderer.invoke('breeze:cancel', options),
+    pickAudio: (options) => ipcRenderer.invoke('breeze:pickAudio', options),
+    voices: () => ipcRenderer.invoke('breeze:voices'),
+    saveVoice: (options) => ipcRenderer.invoke('breeze:saveVoice', options),
+    removeVoice: (options) => ipcRenderer.invoke('breeze:removeVoice', options),
+    saveAudio: (options) => ipcRenderer.invoke('breeze:saveAudio', options),
+    onChunk: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('breeze:chunk', handler)
+      return () => ipcRenderer.removeListener('breeze:chunk', handler)
+    },
+    onStatus: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('breeze:status', handler)
+      return () => ipcRenderer.removeListener('breeze:status', handler)
+    },
+    onProgress: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('breeze:progress', handler)
+      return () => ipcRenderer.removeListener('breeze:progress', handler)
+    }
+  },
   /**
    * 取得本機檔案絕對路徑（Electron 32+ 取代 File.path）
    * @param {File} file

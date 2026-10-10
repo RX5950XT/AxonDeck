@@ -1,0 +1,23 @@
+PDF 翻譯的選用執行環境與模型
+
+這些第三方檔案由 Local SI 下載到使用者的 models 目錄，不包在 AxonDeck 安裝檔內。
+各套件原有的 LICENSE 與授權條款仍適用；本專案 MIT 授權不取代它們。
+
+PaddleOCR、PaddlePaddle、PaddleOCR-VL-1.6、PP-DocLayoutV3：Apache-2.0
+https://github.com/PaddlePaddle/PaddleOCR
+https://github.com/PaddlePaddle/Paddle
+https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF
+https://huggingface.co/PaddlePaddle/PP-DocLayoutV3
+
+PyMuPDF / MuPDF：AGPL-3.0 或 Artifex 商業授權
+https://pymupdf.readthedocs.io/en/latest/about.html#license-and-copyright
+https://github.com/pymupdf/PyMuPDF
+
+uv：Apache-2.0 / MIT
+https://github.com/astral-sh/uv
+
+Python：PSF License；python-build-standalone 保留其第三方授權資料
+https://docs.python.org/3/license.html
+https://github.com/astral-sh/python-build-standalone
+
+其餘 Python 相依套件的授權在該套件的 dist-info / licenses 目錄。

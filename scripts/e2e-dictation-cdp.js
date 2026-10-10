@@ -135,27 +135,25 @@ async function main() {
     // ---- 進頁 ----
     await cdp.eval(`document.querySelector('[data-page="stt"]').click(), 'ok'`)
     await sleep(600)
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="dictation"]').click(), 'ok'`)
     await waitFor(
       () => cdp.eval(`!!document.getElementById('dictationLlmSelect')?.options.length`),
       10000, '整理模型選單填好'
     )
 
     const layout = await cdp.eval(`(() => {
-      const panel = document.getElementById('stt-dictation')
+      const visible = (id) => (document.getElementById(id)?.offsetHeight || 0) > 0
       return {
-        active: panel?.classList.contains('active'),
-        activeCount: document.querySelectorAll('#page-stt .subtab-panel.active').length,
-        hasSwitch: !!document.getElementById('dictationEnabledInput'),
-        hasLlm: !!document.getElementById('dictationLlmSelect'),
-        hasLang: !!document.getElementById('dictationLangSelect'),
+        hasSwitch: visible('dictationEnabledInput'),
+        hasLlm: visible('dictationLlmSelect'),
+        hasLang: visible('dictationLangSelect'),
         hasRecords: !!document.getElementById('dictationRecords'),
-        hasTerms: !!document.getElementById('dictationTerms')
+        hasTerms: !!document.getElementById('dictationTerms'),
+        fileStillThere: visible('dropZone')
       }
     })()`)
-    ok('語音輸入子分頁是唯一顯示的面板',
-      layout?.active && layout.activeCount === 1 && layout.hasSwitch && layout.hasLlm &&
-        layout.hasLang && layout.hasRecords && layout.hasTerms,
+    ok('語音輸入跟轉錄在同一頁',
+      layout?.hasSwitch && layout.hasLlm && layout.hasLang &&
+        layout.hasRecords && layout.hasTerms && layout.fileStillThere,
       JSON.stringify(layout))
 
     const glass = await cdp.eval(`(() => {

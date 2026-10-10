@@ -1,8 +1,8 @@
 /**
  * AxonDeck - 每一頁自己的模型選擇（Main Process）
  *
- * 「語音轉文字」底下三個子分頁各做各的事，共用一組模型會互相打架
- * （即時字幕想用 GPU 那顆、語音輸入想用 CPU 那顆），所以每一頁各存一份選擇。
+ * 轉錄與即時字幕共用同一組選擇（`fileAsr`／`fileLlm` 為準，`alignSharedStt`
+ * 抄到 `liveAsr`／`liveLlm`）。語音輸入仍各自存，免得跟即時字幕搶同一顆模型。
  *
  * 值的字串格式沿用語音輸入原本的 `dictationLlm`，三個 scope 共用同一組解析：
  *   ASR → `local:<模型 key>` ／ `cloud:<雲端設定 id>:<模型 id>` ／ `cloud`（舊值＝用預設那組）
@@ -199,6 +199,7 @@ function reconcileAll(store) {
     const asrValue = store.get(asrKey, '')
     if (asrValue) store.set(asrKey, sanitizeAsr(asrValue, clouds))
   }
+  alignSharedStt(store)
 }
 
 /**
@@ -233,6 +234,29 @@ function seedFromLegacy(store) {
       store.set(llmKey, sanitizeLlm(legacyLlm, providers, false))
     }
   }
+  alignSharedStt(store)
+}
+
+/**
+ * 檔案轉錄與即時字幕收成同一份。兩邊都有而且不一樣時，留檔案轉錄那份。
+ * 語音輸入不動。
+ * @param {{ get: (k: string, d?: unknown) => unknown, set: (k: string, v: unknown) => void }} store
+ */
+function alignSharedStt(store) {
+  const fileAsr = String(store.get('fileAsr', '') || '')
+  const liveAsr = String(store.get('liveAsr', '') || '')
+  const asr = fileAsr || liveAsr
+  if (asr) {
+    if (fileAsr !== asr) store.set('fileAsr', asr)
+    if (liveAsr !== asr) store.set('liveAsr', asr)
+  }
+  const fileLlm = String(store.get('fileLlm', '') || '')
+  const liveLlm = String(store.get('liveLlm', '') || '')
+  const llm = fileLlm || liveLlm
+  if (llm) {
+    if (fileLlm !== llm) store.set('fileLlm', llm)
+    if (liveLlm !== llm) store.set('liveLlm', llm)
+  }
 }
 
 module.exports = {
@@ -249,5 +273,6 @@ module.exports = {
   readAsr,
   readLlm,
   reconcileAll,
-  seedFromLegacy
+  seedFromLegacy,
+  alignSharedStt
 }

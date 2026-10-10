@@ -20,6 +20,7 @@ import {
 import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
 import { syncCustomSelects } from './custom-select.js'
 import { newTranscriptId, logTranscript, refreshLiveHistory } from './live-history.js'
+import { openRecordingAudio } from './recording-audio.js'
 
 // ===== DOM 元素 =====
 let liveLanguage
@@ -30,13 +31,13 @@ let statusText
 let liveEngine
 let levelFill
 let liveError
-let liveTranslatorHint
 /** @type {HTMLSelectElement | null} */
 let liveAudioSource
 
 // ===== 狀態 =====
 let isCapturing = false
-let mediaStream = null
+let liveCapture = null
+let isStopping = false
 let settings = null
 /** 這次擷取用的 ASR 是本地還是雲端（狀態列顯示用；來源是 `liveAsr`） */
 let liveAsrEngine = 'local'
@@ -76,7 +77,7 @@ const MAX_TRANSLATE_QUEUE = 5
 let targetLanguage = 'zh-TW'
 /** 這一場字幕寫進紀錄用的 id；沒在擷取時是空字串（晚到的結果不寫） */
 let transcriptId = ''
-/** 音源：system＝既有的系統 loopback；mic＝麥克風。同一時間只開一條 */
+/** 音源：system＝系統 loopback；mic＝麥克風；both＝合併成一條音訊軌 */
 let liveSource = 'system'
 /** @type {Promise<void>} */
 let liveSourceReady = Promise.resolve()
@@ -110,29 +111,27 @@ export function initLiveCaption() {
   liveEngine = document.getElementById('liveEngine')
   levelFill = document.getElementById('levelFill')
   liveError = document.getElementById('liveError')
-  liveTranslatorHint = document.getElementById('liveTranslatorHint')
   liveAudioSource = /** @type {HTMLSelectElement | null} */ (document.getElementById('liveAudioSource'))
 
   startLiveBtn.addEventListener('click', startCapture)
   stopLiveBtn.addEventListener('click', () => stopCapture())
   liveAudioSource?.addEventListener('change', onLiveSourceChange)
+  liveLanguage?.addEventListener('change', onSharedLanguageChange)
   liveSourceReady = loadLiveSource()
+  loadSharedLanguage()
 
   electronAPI.subtitle.onClosed(() => {
     if (isCapturing) stopCapture({ closeWindow: false })
   })
 
-  refreshLiveTranslatorHint()
   document.addEventListener('settings-changed', async () => {
     // 擷取中改設定也要刷新快照，否則 renderer 判斷與 main 即時讀取的 store 脫鉤
     settings = await getSettings()
-    refreshLiveTranslatorHint()
     // 未擷取且已預熱：重載以套用這一頁的 liveAsr / liveLlm
     if (isCapturing || isStarting || !electronAPI.engine) return
-    // 要「頁在前景」而且「停在即時字幕這個子分頁」才重新預熱
+    // 語音轉文字頁在前景才重新預熱（開始字幕跟語音輸入在同一頁）
     const page = document.getElementById('page-stt')
-    const livePanel = document.getElementById('stt-live')
-    if (!page?.classList.contains('active') || !livePanel?.classList.contains('active')) return
+    if (!page?.classList.contains('active')) return
     if (prewarmed || prewarmInFlight) {
       await cooldownEngine()
     }
@@ -146,7 +145,7 @@ export function initLiveCaption() {
  * acquire 成功後才設 prewarmed，並以 prewarmGen 作廢過期的 in-flight 結果（防洩漏）。
  */
 export async function prewarmEngine() {
-  if (isCapturing || isStarting || prewarmed || prewarmInFlight || !electronAPI.engine) return
+  if (isCapturing || isStarting || isStopping || prewarmed || prewarmInFlight || !electronAPI.engine) return
   const gen = ++prewarmGen
   prewarmInFlight = true
   if (statusText && !isCapturing) statusText.textContent = '準備模型…'
@@ -193,16 +192,24 @@ export async function cooldownEngine() {
   }
 }
 
-/**
- * 更新翻譯／ASR 後端提示
- */
-async function refreshLiveTranslatorHint() {
-  const scope = await readScope('live')
-  const translator = parseLlmValue(scope.llm).mode === 'cloud' ? '雲端 LLM' : '本地 LLM'
-  const asr = parseAsrValue(scope.asr).engine === 'cloud' ? '雲端 ASR' : '本地 ASR'
-  if (liveTranslatorHint) {
-    liveTranslatorHint.textContent = `語音轉文字：${asr}　翻譯：${translator}（目標語言選「自動偵測」則不翻譯）`
+const STT_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko', 'auto'])
+
+/** 目標語言跟檔案轉錄共用，記在 sttLanguage */
+async function loadSharedLanguage() {
+  try {
+    const saved = await electronAPI.store.get('sttLanguage', 'zh-TW')
+    if (!liveLanguage || isCapturing || isStarting || !STT_LANGS.has(saved)) return
+    liveLanguage.value = saved
+    syncCustomSelects()
+  } catch {
+    // 沒存過就用選單預設
   }
+}
+
+function onSharedLanguageChange() {
+  if (!liveLanguage || isCapturing || isStarting) return
+  const value = STT_LANGS.has(liveLanguage.value) ? liveLanguage.value : 'zh-TW'
+  electronAPI.store.set('sttLanguage', value).catch(() => {})
 }
 
 /**
@@ -211,11 +218,11 @@ async function refreshLiveTranslatorHint() {
 async function loadLiveSource() {
   try {
     const saved = await electronAPI.store.get('liveAudioSource', 'system')
-    liveSource = saved === 'mic' ? 'mic' : 'system'
+    liveSource = ['mic', 'both'].includes(saved) ? saved : 'system'
   } catch {
     liveSource = 'system'
   }
-  if (liveAudioSource && !isCapturing && !isStarting) {
+  if (liveAudioSource && !isCapturing && !isStarting && !isStopping) {
     liveAudioSource.value = liveSource
     syncCustomSelects()
   }
@@ -225,57 +232,45 @@ async function loadLiveSource() {
 /** 字幕進行中不讓換音源：換的話要先停掉舊的那條，否則麥克風會開兩條關不掉 */
 function onLiveSourceChange() {
   if (!liveAudioSource) return
-  if (isCapturing || isStarting) {
+  if (isCapturing || isStarting || isStopping) {
     liveAudioSource.value = liveSource
     syncCustomSelects()
     return
   }
-  liveSource = liveAudioSource.value === 'mic' ? 'mic' : 'system'
+  liveSource = ['mic', 'both'].includes(liveAudioSource.value) ? liveAudioSource.value : 'system'
   updateMeterTitle()
   electronAPI.store.set('liveAudioSource', liveSource).catch(() => {})
 }
 
 function updateMeterTitle() {
   const meter = liveStatus?.querySelector('.level-meter')
-  if (meter) meter.title = liveSource === 'mic' ? '麥克風音量' : '系統音訊音量'
+  if (meter) meter.title = liveSource === 'both' ? '系統＋麥克風音量' : liveSource === 'mic' ? '麥克風音量' : '系統音訊音量'
 }
 
 /**
- * 只開一條。系統聲音維持原本的 getDisplayMedia（main 強制 loopback）；
- * 麥克風走 getUserMedia。呼叫前不得已有另一條 mediaStream。
- * @param {'system'|'mic'} source
- * @returns {Promise<MediaStream>}
+ * 共用錄音的擷取與混音；字幕麥克風保留原本的降噪條件。
+ * @param {'system'|'mic'|'both'} source
  */
 async function openCaptureStream(source) {
-  if (source === 'mic') {
-    return navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    })
-  }
-  const display = await navigator.mediaDevices.getDisplayMedia({
-    audio: true,
-    video: { width: 1, height: 1, frameRate: 1 }
+  return openRecordingAudio(source, {
+    channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true
   })
-  const audioTracks = display.getAudioTracks()
-  if (audioTracks.length === 0) {
-    display.getTracks().forEach((track) => track.stop())
-    throw new Error('無法取得系統音訊')
-  }
-  display.getVideoTracks().forEach((track) => track.stop())
-  return display
+}
+
+async function closeCaptureStream() {
+  const capture = liveCapture
+  liveCapture = null
+  if (!capture) return
+  try { await capture.close() }
+  catch (error) { console.warn('關閉字幕音源失敗:', error) }
 }
 
 /**
- * 開始擷取目前選的音源（系統聲音或麥克風）
+ * 開始擷取目前選的音源
  */
 async function startCapture() {
   // 重入防護：按鈕 disabled 遲至音源到手後才設，雙擊會起兩條錄音管線
-  if (isCapturing || isStarting) return
+  if (isCapturing || isStarting || isStopping) return
   isStarting = true
   updateUI()
   try {
@@ -285,7 +280,7 @@ async function startCapture() {
     targetLanguage = liveLanguage.value
     const needsTranslationBackend = targetLanguage !== 'auto'
 
-    // 這一頁自己的模型選擇（檔案轉錄與語音輸入各有各的）
+    // 跟檔案轉錄共用同一份選擇（store 的 live 鍵已跟 file 對齊）
     const scope = await readScope('live')
     const asrChoice = parseAsrValue(scope.asr)
     const llmChoice = parseLlmValue(scope.llm)
@@ -323,19 +318,16 @@ async function startCapture() {
     }
 
     try {
-      // 1) 先要音源（取消則不載模型）。上一條一定先停掉，避免系統聲音與麥克風同時開著
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((track) => track.stop())
-        mediaStream = null
-      }
-      mediaStream = await openCaptureStream(source)
-      const audioTracks = mediaStream.getAudioTracks()
+      // 1) 先要音源（取消則不載模型），上一組一定先釋放。
+      await closeCaptureStream()
+      liveCapture = await openCaptureStream(source)
+      const audioTracks = liveCapture.stream.getAudioTracks()
       if (audioTracks.length === 0) {
         throw new Error(source === 'mic' ? '無法取得麥克風' : '無法取得系統音訊')
       }
       const audioStream = new MediaStream(audioTracks)
       // 音訊來源被系統收回（切換輸出裝置、藍牙斷線、麥克風被拔）時主動停止
-      audioTracks.forEach(t => t.addEventListener('ended', () => {
+      liveCapture.tracks.forEach(t => t.addEventListener('ended', () => {
         if (isCapturing) stopCapture()
       }))
 
@@ -370,10 +362,7 @@ async function startCapture() {
         await electronAPI.engine.release('live').catch(() => {})
         engineAcquired = false
       }
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(t => t.stop())
-        mediaStream = null
-      }
+      await closeCaptureStream()
       if (error.name === 'NotAllowedError') {
         showToast(source === 'mic' ? '沒有麥克風權限' : '使用者取消了權限請求', 'error')
       } else if (error.name === 'NotFoundError' && source === 'mic') {
@@ -701,16 +690,16 @@ function needsTranslation(text, targetLang) {
  * @param {{closeWindow?: boolean}} options
  */
 async function stopCapture({ closeWindow = true } = {}) {
+  if (isStopping) return
+  isStopping = true
   isCapturing = false
+  updateUI()
   transcriptId = ''
   resetTranslateState()
   pendingUtterances = []
   await stopPcmCapture()
 
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop())
-    mediaStream = null
-  }
+  await closeCaptureStream()
 
   // 等 in-flight ASR 結束再 release，配合 main 側 loadEnabled 避免幽靈重載
   const waitStart = Date.now()
@@ -728,20 +717,22 @@ async function stopCapture({ closeWindow = true } = {}) {
   }
   prewarmed = false // 擷取結束後引擎已卸；重新進分頁才再預熱
 
-  if (closeWindow) {
-    await electronAPI.subtitle.close()
+  try {
+    if (closeWindow) await electronAPI.subtitle.close()
+  } finally {
+    isStopping = false
+    updateUI()
+    refreshLiveHistory()
   }
-  updateUI()
-  refreshLiveHistory()
 }
 
 function updateUI() {
   startLiveBtn.classList.toggle('hidden', isCapturing)
-  startLiveBtn.disabled = isStarting
+  startLiveBtn.disabled = isStarting || isStopping
   stopLiveBtn.classList.toggle('hidden', !isCapturing)
-  liveLanguage.disabled = isStarting || isCapturing
+  liveLanguage.disabled = isStarting || isCapturing || isStopping
   // 錄到一半換音源會再 getUserMedia 一條，舊的不一定關得掉。先停字幕再換。
-  if (liveAudioSource) liveAudioSource.disabled = isStarting || isCapturing
+  if (liveAudioSource) liveAudioSource.disabled = isStarting || isCapturing || isStopping
   updateMeterTitle()
   liveStatus.classList.toggle('active', isCapturing)
   statusText.textContent = isCapturing ? '擷取中' : isStarting ? '準備中…' : '未啟動'

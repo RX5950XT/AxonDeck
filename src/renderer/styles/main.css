@@ -564,8 +564,7 @@ body.is-maximized .win-btn#winMax {
   color: var(--warning);
 }
 
-/* 「語音轉文字」底下三個子分頁各做各的事，模型選擇也各存一份 → 選單就放在
-   自己那一頁的內容最上面，而不是擠在共用的頁面標題旁邊（那會讓人以為三頁共用）。 */
+/* 轉錄／字幕共用一份模型；語音輸入的辨識、整理、輸出語言另存。 */
 .scope-models {
   display: flex;
   align-items: flex-end;
@@ -6320,6 +6319,8 @@ h6.md-h { font-size: 14px; }
 .agy-panel,
 .cc-panel,
 .drop-zone,
+.stt-card,
+.stt-column,
 .file-info,
 .options-panel,
 .progress-panel,
@@ -6327,8 +6328,6 @@ h6.md-h { font-size: 14px; }
 .live-content,
 .live-status,
 .dict-hero,
-.dict-options,
-.dict-result,
 .dict-panel,
 .scope-models,
 .translate-banner,
@@ -10961,8 +10960,6 @@ h6.md-h { font-size: 14px; }
 }
 
 .dict-hero,
-.dict-options,
-.dict-result,
 .dict-panel,
 .scope-models {
   padding: 16px 18px;
@@ -10976,15 +10973,125 @@ h6.md-h { font-size: 14px; }
   flex-wrap: wrap;
 }
 
+/* 語音輸入把啟用列和模型列收在同一張卡；錄音機的 .dict-hero 仍是左右兩欄 */
+#stt-dictation .dict-hero {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.dict-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
 .dict-hero-main {
   flex: 1 1 320px;
   min-width: 0;
 }
 
 .dict-switch {
-  margin-bottom: 8px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
   font-size: 15px;
   font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.dict-switch input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dict-switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: background-color 180ms var(--ease-out), border-color 180ms var(--ease-out);
+}
+
+.dict-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f4f1e8;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  transition: transform 220ms var(--motion-standard), width 160ms var(--ease-out);
+}
+
+.dict-switch input:checked + .dict-switch-track {
+  background: var(--accent-primary);
+  border-color: var(--accent-active);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.dict-switch input:checked + .dict-switch-track::after {
+  transform: translateX(18px);
+}
+
+.dict-switch:hover input:not(:checked) + .dict-switch-track {
+  border-color: var(--text-tertiary);
+}
+
+.dict-switch:hover input:checked + .dict-switch-track {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.dict-switch:active .dict-switch-track::after {
+  width: 24px;
+}
+
+.dict-switch:active input:checked + .dict-switch-track::after {
+  transform: translateX(14px);
+}
+
+.dict-switch input:focus-visible + .dict-switch-track {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 3px;
+}
+
+[data-theme="light"] .dict-switch input:not(:checked) + .dict-switch-track {
+  background: rgba(30, 37, 40, 0.1);
+  box-shadow: inset 0 1px 2px rgba(30, 37, 40, 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dict-switch-track,
+  .dict-switch-track::after {
+    transition: none;
+  }
+}
+
+.dict-switch-label {
+  line-height: 1.3;
+}
+
+#stt-dictation .dict-hero-main .setting-hint {
+  margin: 6px 0 0 56px;
 }
 
 .dict-hero kbd {
@@ -11027,6 +11134,9 @@ h6.md-h { font-size: 14px; }
   align-items: flex-end;
   gap: 16px;
   flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--glass-border);
 }
 
 .dict-options .option-group {
@@ -11039,7 +11149,6 @@ h6.md-h { font-size: 14px; }
   margin: 0;
 }
 
-.dict-result-head,
 .dict-panel-head {
   display: flex;
   align-items: center;
@@ -11048,7 +11157,6 @@ h6.md-h { font-size: 14px; }
   margin-bottom: 10px;
 }
 
-.dict-result-head h3,
 .dict-panel-head h3 {
   font-size: 14px;
   font-weight: 600;
@@ -11060,14 +11168,6 @@ h6.md-h { font-size: 14px; }
   text-align: right;
 }
 
-.dict-result-text {
-  font-size: 14px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.dict-result-raw,
 .dict-record-raw {
   margin-top: 6px;
   font-size: 12px;
@@ -11260,7 +11360,271 @@ h6.md-h { font-size: 14px; }
   cursor: pointer;
 }
 
-/* 檔案轉入（左）＋錄音機（右）。窄視窗改上下堆，欄本身不准撐出橫向捲軸 */
+/* 依操作往下排；紀錄區留閱讀空間，整頁由 .content 上下捲動。 */
+.stt-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas:
+    "models models models"
+    "file   recorder live"
+    "file   recorder live"
+    "dict   dict   dict";
+  gap: 24px 12px;
+  align-items: stretch;
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  min-width: 0;
+}
+
+.stt-models { grid-area: models; }
+.stt-column-file { grid-area: file; }
+.stt-column-recorder { grid-area: recorder; }
+.stt-column-live { grid-area: live; }
+.stt-dict { grid-area: dict; }
+
+.stt-column {
+  display: grid;
+  grid-template-rows: subgrid;
+  row-gap: 0;
+  min-width: 0;
+  border-radius: var(--radius-lg);
+}
+
+.stt-column > .stt-card {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.stt-column > :last-child { border-top: 1px solid var(--border-color); }
+.stt-drop { min-width: 0; padding: 16px 18px; }
+
+.stt-card {
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.stt-board .drop-zone {
+  min-height: 220px;
+  height: auto;
+  margin: 0;
+  padding: 20px 16px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.stt-board .drop-icon {
+  font-size: 40px;
+  margin-bottom: 8px;
+}
+
+.stt-board .drop-zone:is(:hover, .dragover) {
+  background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-glass));
+}
+
+.stt-board .drop-text { font-size: 16px; }
+
+.stt-board .file-info,
+.stt-board .options-panel {
+  margin-top: 10px;
+}
+
+.stt-board .options-panel {
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.stt-models {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin: 0;
+}
+
+.stt-models .option-group {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.stt-models .scope-models-hint { min-width: 0; overflow-wrap: anywhere; }
+
+.stt-rec-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.stt-rec-source { margin-top: 16px; }
+
+.stt-models .custom-select,
+.stt-rec-source .custom-select,
+.stt-live-source .custom-select,
+.stt-dict .custom-select {
+  display: flex;
+  width: 100%;
+}
+
+.stt-models .custom-select-trigger,
+.stt-rec-source .custom-select-trigger,
+.stt-live-source .custom-select-trigger,
+.stt-dict .custom-select-trigger {
+  display: block;
+  min-width: 0;
+  line-height: 38px;
+}
+
+.stt-rec-hero .live-controls,
+.stt-live-card .live-controls {
+  margin: 0 0 12px;
+}
+
+.stt-rec-hero .live-controls .btn-large,
+.stt-live-card .live-controls .btn-large {
+  flex: 1;
+  justify-content: center;
+  height: 64px;
+  padding: 12px 16px;
+}
+
+.stt-txlog,
+.stt-recs,
+.stt-column > .live-history {
+  display: flex;
+  flex-direction: column;
+  min-height: 440px;
+}
+
+.stt-txlog .progress-panel,
+.stt-txlog .result-panel {
+  margin-top: 0;
+  padding: 0;
+  min-height: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.stt-txlog .result-header { margin-bottom: 8px; }
+
+.stt-txlog .dict-records,
+.stt-recs .dict-records,
+.stt-column > .live-history .dict-records {
+  min-height: 360px;
+  max-height: 640px;
+}
+
+.stt-txlog .result-text { min-height: 360px; max-height: 640px; }
+
+.stt-live-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 220px;
+}
+
+.stt-live-start {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.stt-live-main { width: 100%; min-width: 0; }
+
+.stt-live-source { width: 100%; min-width: 0; }
+
+.stt-dict {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.stt-dict .dict-options {
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.stt-dict .dict-options .option-group {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.stt-dict .dict-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.stt-dict .dict-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 560px;
+}
+
+.stt-dict .dict-panel-head { align-items: flex-start; }
+
+.stt-dict .dict-panel-note {
+  flex: 1 1 140px;
+  text-align: left;
+}
+
+.stt-dict .dict-records,
+.stt-dict .dict-terms {
+  flex: 1 1 auto;
+  min-height: 400px;
+  max-height: 640px;
+}
+
+.stt-dict .dict-term-form { flex-wrap: wrap; }
+
+.stt-dict .dict-term-form .input { flex: 1 1 96px; }
+
+.stt-column > .live-history {
+  max-width: none;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .stt-board {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "models"
+      "file"
+      "file"
+      "recorder"
+      "recorder"
+      "live"
+      "live"
+      "dict";
+    max-width: 720px;
+  }
+
+  .stt-dict { height: auto; }
+
+  .stt-dict .dict-records,
+  .stt-dict .dict-terms {
+    flex: none;
+    max-height: 640px;
+  }
+
+  .stt-dict .dict-columns { grid-template-columns: minmax(0, 1fr); }
+
+}
+
 .stt-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
@@ -11387,10 +11751,6 @@ h6.md-h { font-size: 14px; }
   background: none;
   box-shadow: none;
   backdrop-filter: none;
-}
-
-#stt-live #liveCaptionDisplayGroup .setting-hint {
-  margin: 0;
 }
 
 #stt-live .live-controls {

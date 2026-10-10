@@ -217,13 +217,16 @@ const STORE_ALLOWLIST = new Set([
   'hfModelsDir',
   'hfModelsMax',
   'hfAutoStart',
-  // 三個子分頁各自的模型選擇（值的格式見 model-scope.js）
+  // 轉錄與即時字幕共用 file*／live*（寫任何一邊都會抄到另一邊）。語音輸入各自存
   'fileAsr',
   'fileLlm',
   'liveAsr',
   'liveLlm',
-  // 即時字幕音源：system（系統 loopback）／mic（麥克風）。別的值讀寫都收成 system
+  // 轉錄與即時字幕共用的目標語言。auto＝不翻譯
+  'sttLanguage',
+  // 字幕音源：system／mic／both，非法值維持原本預設 system。
   'liveAudioSource',
+  'recAudioSource',
   'dictationAsr',
   'dictationLlm',
   // 終端機外觀：配色 key、桌布檔名（**檔名不是路徑**，圖片本體在 <userData>/terminal-bg/）、
@@ -251,6 +254,8 @@ const RETIRED_MODEL_KEYS = models.RETIRED_MODEL_KEYS
 
 /** 語音輸入的整理語言（跟翻譯的目標語言同一組） */
 const DICTATION_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko'])
+/** 轉錄與即時字幕共用。auto＝辨識完不翻譯 */
+const STT_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko', 'auto'])
 
 /**
  * 某一頁的 LLM 選擇：''（不使用）／`local:<llm key>`／`cloud:<供應商 id>:<模型 id>`。
@@ -1109,7 +1114,9 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   if (key === 'chatParams') return chatParams.sanitize(val)
   if (key === 'dictationEnabled') return val === true
   if (key === 'dictationLang') return DICTATION_LANGS.has(val) ? val : 'zh-TW'
-  if (key === 'liveAudioSource') return val === 'mic' ? 'mic' : 'system'
+  if (key === 'liveAudioSource') return ['mic', 'both'].includes(val) ? val : 'system'
+  if (key === 'recAudioSource') return ['system', 'both'].includes(val) ? val : 'mic'
+  if (key === 'sttLanguage') return STT_LANGS.has(val) ? val : 'zh-TW'
   if (key === 'fileAsr' || key === 'liveAsr' || key === 'dictationAsr') {
     // 帶著雲端 ASR 設定清單去驗：不帶的話 `cloud:<設定>:<模型>` 會被當成不認得而降級
     return modelScope.sanitizeAsr(val, modelScope.cloudsOf(store))
@@ -1281,16 +1288,33 @@ ipcMain.handle('store:set', async (event, key, value) => {
     return true
   }
   if (key === 'liveAudioSource') {
-    store.set(key, value === 'mic' ? 'mic' : 'system')
+    store.set(key, ['mic', 'both'].includes(value) ? value : 'system')
+    return true
+  }
+  if (key === 'recAudioSource') {
+    store.set(key, ['system', 'both'].includes(value) ? value : 'mic')
+    return true
+  }
+  if (key === 'sttLanguage') {
+    store.set(key, STT_LANGS.has(value) ? value : 'zh-TW')
     return true
   }
   if (key === 'fileAsr' || key === 'liveAsr' || key === 'dictationAsr') {
-    store.set(key, modelScope.sanitizeAsr(value, modelScope.cloudsOf(store)))
+    const clean = modelScope.sanitizeAsr(value, modelScope.cloudsOf(store))
+    if (key === 'dictationAsr') store.set(key, clean)
+    else {
+      store.set('fileAsr', clean)
+      store.set('liveAsr', clean)
+    }
     return true
   }
   if (key === 'fileLlm' || key === 'liveLlm' || key === 'dictationLlm') {
-    const scope = key.slice(0, -3)
-    store.set(key, sanitizeScopedLlm(scope, value))
+    if (key === 'dictationLlm') store.set(key, sanitizeScopedLlm('dictation', value))
+    else {
+      const clean = sanitizeScopedLlm('file', value)
+      store.set('fileLlm', clean)
+      store.set('liveLlm', clean)
+    }
     return true
   }
   if (key === 'closeToTray') {

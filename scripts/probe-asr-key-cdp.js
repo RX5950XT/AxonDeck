@@ -129,7 +129,7 @@ async function main() {
     })
     await cdp.eval(`document.querySelector('[data-page="stt"]').click()`)
     await waitFor(() => cdp.eval(`!!document.getElementById('fileAsrModel')?.options.length`), '轉錄初始化')
-    await cdp.eval(`document.getElementById('outputLanguage').value = 'auto'`)
+    await cdp.eval(`document.getElementById('liveLanguage').value = 'auto'`)
     const { root } = await cdp.send('DOM.getDocument')
     const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#fileInput' })
     await cdp.send('DOM.setFileInputFiles', { nodeId, files: [audio] })
@@ -142,8 +142,7 @@ async function main() {
       assert.equal(await cdp.eval(`document.getElementById('resultText').textContent`), '金鑰回歸通過')
       assert.deepEqual(requests, [{ url: '/v1/audio/transcriptions', key: 'Bearer selected-test-key', model: 'test-model:extended' }])
     })
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="live"]').click()`)
-    await waitFor(() => cdp.eval(`document.getElementById('liveTranslatorHint').textContent.includes('雲端 ASR')`), '字幕初始化')
+    await waitFor(() => cdp.eval(`document.getElementById('fileAsrModel').value.startsWith('cloud:')`), '字幕初始化')
     await cdp.eval(`document.getElementById('liveLanguage').value = 'auto';
       navigator.mediaDevices.getDisplayMedia = async () => {
         window.__captureReached = true;
@@ -160,7 +159,6 @@ async function main() {
       await window.electronAPI.store.set('asrClouds', ${JSON.stringify(clouds.map((c) => c.id === 'selected' ? { ...c, apiKey: '' } : c))});
     })()`)
     await check('選用設定真的缺 Key 時，字幕不拿舊 Key 或其他組代替', async () => assert.equal(await capture(), false))
-    await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="file"]').click()`)
     await check('選用設定真的缺 Key 時，轉錄在送出前擋住', async () => {
       const count = requests.length
       await transcribe()
@@ -189,11 +187,9 @@ async function main() {
         document.querySelector('[data-page="stt"]').click();
       })()`)
       await waitFor(() => cdp.eval(`document.getElementById('fileAsrModel').textContent.includes('缺網址測試')`), '缺 URL 的轉錄選單')
-      await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="dictation"]').click()`)
       await waitFor(() => cdp.eval(`document.getElementById('dictationLlmSelect').textContent.includes('缺網址測試')`), '整理選單')
-      await cdp.eval(`document.querySelector('#sttSubtabs [data-subtab="live"]').click()`)
-      await waitFor(() => cdp.eval(`document.getElementById('liveLlmModel').textContent.includes('缺網址測試')`), '翻譯選單')
-      for (const id of ['fileAsrModel', 'liveLlmModel', 'dictationLlmSelect']) {
+      await waitFor(() => cdp.eval(`document.getElementById('fileLlmModel').textContent.includes('缺網址測試')`), '翻譯選單')
+      for (const id of ['fileAsrModel', 'fileLlmModel', 'dictationLlmSelect']) {
         const labels = await cdp.eval(`Array.from(document.getElementById('${id}').options).filter(o => o.textContent.includes('缺網址測試')).map(o => o.textContent)`)
         assert.ok(labels.length, id)
         for (const label of labels) { assert.match(label, /缺 API URL/); assert.ok(!label.includes('API Key'), label) }

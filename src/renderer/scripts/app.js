@@ -140,25 +140,17 @@ async function loadHfPage() {
 }
 
 /**
- * 進「語音轉文字」頁：檔案轉入與錄音機在同一個子分頁，模組先載好（切子分頁不該再等一次 import），
- * 但引擎只給目前這個子分頁用——即時字幕 prewarm 很貴，停在檔案與錄音時不該先付。
- * @param {'file'|'live'|'dictation'} subtab
+ * 進「語音轉文字」頁。轉錄、錄音、即時字幕、語音輸入都在這一頁，
+ * 所以進來就預熱字幕，並把語音輸入的選單填好。離開這一頁才卸載。
  */
-async function activateSttSubtab(subtab) {
+async function activateSttSubtab() {
   await loadTranscribePage()
-  if (subtab === 'file') import('./recorder.js').then((m) => m.refreshRecorderPage())
-  if (subtab === 'live') {
-    const live = await loadLiveCaption()
-    live.prewarmEngine()
-    import('./live-history.js').then((m) => m.refreshLiveHistory())
-  } else {
-    liveCaption?.cooldownEngine()
-  }
-  // 語音輸入不 acquire 引擎：它的模型是按下右 Alt 才用，預熱等於整天佔著記憶體
-  if (subtab === 'dictation') {
-    const page = await import('./dictation-page.js')
-    await page.refreshDictationPage()
-  }
+  import('./recorder.js').then((m) => m.refreshRecorderPage())
+  const live = await loadLiveCaption()
+  live.prewarmEngine()
+  import('./live-history.js').then((m) => m.refreshLiveHistory())
+  const dict = await import('./dictation-page.js')
+  await dict.refreshDictationPage()
 }
 
 /** 預設 TTS 語音（與 main tts-voices.js 對齊） */
@@ -517,9 +509,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initNavHistory()
   // 終端機跟聊天共用這一頁：側欄的終端機清單啟動時就要接上（動態 import，不卡啟動）
   loadTerminalPage().then((m) => m.refreshTerminalPage())
-  // 子分頁切換要跟著換引擎擁有者：停在檔案轉錄時不該預熱即時字幕
-  document.addEventListener('stt-subtab-changed', (e) => {
-    activateSttSubtab(/** @type {CustomEvent} */ (e).detail?.subtab)
+  document.addEventListener('stt-subtab-changed', () => {
+    activateSttSubtab()
   })
   // 語音輸入的熱鍵是全域的，停在哪一頁都要收得到 → 啟動就掛，不等使用者切過去
   import('./dictation.js')

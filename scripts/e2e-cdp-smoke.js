@@ -299,46 +299,44 @@ async function main() {
       JSON.stringify(md)
     )
 
-    // 切到語音轉文字分頁（檔案轉錄與即時字幕已合併成子分頁）
+    // 語音轉文字是同一頁：轉錄、錄音、字幕、語音輸入，沒有子分頁
     await cdp.eval(`document.querySelector('[data-page="stt"]')?.click()`)
     await sleep(500)
     const sttPage = await cdp.eval(`(() => {
       const page = document.getElementById('page-stt')
+      const visible = (id) => (document.getElementById(id)?.offsetHeight || 0) > 0
       return {
         active: page?.classList.contains('active') === true,
-        subtabs: document.querySelectorAll('#sttSubtabs .subtab').length,
-        activePanels: document.querySelectorAll('#page-stt .subtab-panel.active').length,
-        defaultPanel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
+        noSubtabs: document.querySelectorAll('#sttSubtabs .subtab').length === 0,
+        noHeader: !document.querySelector('#page-stt .page-header'),
         hasAsrSelect: !!document.getElementById('fileAsrModel'),
         hasLlmSelect: !!document.getElementById('fileLlmModel'),
-        // 三個子分頁各自的 ASR 選單都要在
-        perTabAsr: ['fileAsrModel', 'liveAsrModel', 'dictationAsrModel']
-          .every((id) => !!document.getElementById(id)),
+        hasLive: visible('startLiveBtn'),
+        hasDictation: visible('dictationEnabledInput'),
+        perTabAsr: ['fileAsrModel', 'dictationAsrModel'].every((id) => !!document.getElementById(id)),
         noOldPages: !document.getElementById('page-transcribe') && !document.getElementById('page-live')
       }
     })()`)
     ok(
-      'stt page merges file+recorder, live, dictation into subtabs',
-      sttPage?.active && sttPage.subtabs === 3 && sttPage.activePanels === 1 &&
-        sttPage.defaultPanel === 'stt-file' && sttPage.hasAsrSelect && sttPage.hasLlmSelect &&
-        sttPage.perTabAsr &&
+      'stt page merges transcribe, recorder, captions and dictation',
+      sttPage?.active && sttPage.noSubtabs && sttPage.noHeader &&
+        sttPage.hasAsrSelect && sttPage.hasLlmSelect &&
+        sttPage.hasLive && sttPage.hasDictation && sttPage.perTabAsr &&
         sttPage.noOldPages,
       JSON.stringify(sttPage)
     )
 
-    // 切到即時字幕子分頁：只有它是 active
+    // 字幕跟轉錄在同一頁，這頁不該再有顯示模式 segmented
     const liveSub = await cdp.eval(`(() => {
-      document.querySelector('#sttSubtabs [data-subtab="live"]')?.click()
       return {
-        panel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
-        count: document.querySelectorAll('#page-stt .subtab-panel.active').length,
-        // 顯示模式 segmented 已搬到字幕窗，這頁不該再有
-        noSeg: !document.querySelector('#stt-live .segmented, #captionDisplayMode, #displayModeSegment')
+        noSeg: !document.querySelector('#captionDisplayMode, #displayModeSegment'),
+        source: !!document.querySelector('#stt-file #liveAudioSource'),
+        sourceVisible: (document.getElementById('liveAudioSource')?.offsetHeight || 0) > 0
       }
     })()`)
     ok(
-      'live subtab switches and has no display-mode segment',
-      liveSub?.panel === 'stt-live' && liveSub.count === 1 && liveSub.noSeg === true,
+      'captions sit on the transcribe page without a display-mode segment',
+      liveSub?.noSeg === true && liveSub.source === true && liveSub.sourceVisible === true,
       JSON.stringify(liveSub)
     )
 

@@ -143,31 +143,30 @@ async function main() {
     await waitFor(() => cdp.eval(`!!document.getElementById('fileAsrModel')?.options.length`), 10000, '模型選單填好')
 
     const layout = await cdp.eval(`(() => ({
-      subtabs: [...document.querySelectorAll('#sttSubtabs .subtab')].map((b) => b.dataset.subtab),
-      activePanel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
-      activeCount: document.querySelectorAll('#page-stt .subtab-panel.active').length,
+      noSubtabs: document.querySelectorAll('#sttSubtabs .subtab').length === 0,
+      noHeader: !document.querySelector('#page-stt .page-header'),
       hasDropZone: !!document.querySelector('#stt-file #dropZone'),
       hasRecorder: !!document.querySelector('#stt-file #recList'),
       noRecordingPick: !document.getElementById('recordingPickGroup'),
       liveSources: [...(document.getElementById('liveAudioSource')?.options || [])].map((o) => o.value),
-      hasLiveBtn: !!document.querySelector('#stt-live #startLiveBtn'),
+      hasLiveBtn: !!document.querySelector('#stt-file #startLiveBtn'),
       hasDictation: !!document.querySelector('#stt-dictation #dictationEnabledInput'),
-      // 舊的兩個 nav 分頁與 section 都不該還在
+      dictVisible: (document.getElementById('dictationEnabledInput')?.offsetHeight || 0) > 0,
+      dropVisible: (document.getElementById('dropZone')?.offsetHeight || 0) > 0,
       noOldNav: !document.querySelector('[data-page="transcribe"], [data-page="live"]'),
       noOldSections: !document.getElementById('page-transcribe') && !document.getElementById('page-live')
     }))()`)
     ok(
-      '檔案與錄音／即時字幕／語音輸入合併成一頁的子分頁',
-      JSON.stringify(layout?.subtabs) === JSON.stringify(['file', 'live', 'dictation']) &&
-        layout.activePanel === 'stt-file' && layout.activeCount === 1 &&
+      '轉錄、字幕、語音輸入在同一頁，沒有標題列和子分頁',
+      layout?.noSubtabs && layout.noHeader &&
         layout.hasDropZone && layout.hasRecorder && layout.noRecordingPick &&
-        JSON.stringify(layout.liveSources) === JSON.stringify(['system', 'mic']) &&
-        layout.hasLiveBtn && layout.hasDictation &&
+        JSON.stringify(layout.liveSources) === JSON.stringify(['system', 'mic', 'both']) &&
+        layout.hasLiveBtn && layout.hasDictation && layout.dictVisible && layout.dropVisible &&
         layout.noOldNav && layout.noOldSections,
       JSON.stringify(layout)
     )
 
-    // 三個子分頁各自有自己的模型選單，而且都在自己的面板裡（不在共用的標題列）
+    // 共用模型在轉錄這側，語音輸入的模型在自己那一區（不在頁面標題列）
     const bars = await cdp.eval(`(() => {
       const inPanel = (panelId, selectId) => {
         const panel = document.getElementById(panelId)
@@ -177,8 +176,8 @@ async function main() {
       return {
         fileAsr: inPanel('stt-file', 'fileAsrModel'),
         fileLlm: inPanel('stt-file', 'fileLlmModel'),
-        liveAsr: inPanel('stt-live', 'liveAsrModel'),
-        liveLlm: inPanel('stt-live', 'liveLlmModel'),
+        lang: inPanel('stt-file', 'liveLanguage'),
+        source: inPanel('stt-file', 'liveAudioSource'),
         dictAsr: inPanel('stt-dictation', 'dictationAsrModel'),
         dictLlm: inPanel('stt-dictation', 'dictationLlmSelect'),
         noSharedBar: !document.getElementById('sttModelBar') && !document.getElementById('sttModelHint'),
@@ -186,22 +185,85 @@ async function main() {
         translateInsideHeader: !!document.querySelector('#page-translate .page-header #translateModelBar')
       }
     })()`)
-    ok('三個子分頁各自有 ASR 與 LLM 選單、都在自己的面板裡',
-      bars?.fileAsr && bars.fileLlm && bars.liveAsr && bars.liveLlm && bars.dictAsr && bars.dictLlm,
+    ok('轉錄頁有共用的辨識、翻譯、目標語言，語音輸入另有自己的',
+      bars?.fileAsr && bars.fileLlm && bars.lang && bars.source && bars.dictAsr && bars.dictLlm,
       JSON.stringify(bars))
     ok('標題旁不再有共用的模型選單',
       bars?.noSharedBar && bars.headerHasNoSelect && bars.translateInsideHeader, JSON.stringify(bars))
 
-    const switched = await cdp.eval(`(async () => {
-      document.querySelector('#sttSubtabs [data-subtab="live"]').click()
-      await new Promise((r) => setTimeout(r, 400))
-      const live = document.querySelector('#page-stt .subtab-panel.active')?.id
-      document.querySelector('#sttSubtabs [data-subtab="file"]').click()
-      await new Promise((r) => setTimeout(r, 400))
-      return { live, back: document.querySelector('#page-stt .subtab-panel.active')?.id }
-    })()`)
-    ok('子分頁可以來回切', switched?.live === 'stt-live' && switched?.back === 'stt-file',
-      JSON.stringify(switched))
+    ok('拖入音訊時仍有目標回饋', await cdp.eval(`(() => {
+      const zone = document.getElementById('dropZone')
+      const transition = zone.style.transition
+      zone.style.transition = 'none'
+      const before = getComputedStyle(zone).backgroundColor
+      zone.classList.add('dragover')
+      const after = getComputedStyle(zone).backgroundColor
+      zone.classList.remove('dragover')
+      zone.style.transition = transition
+      return before !== after
+    })()`))
+
+    for (const width of [1440, 1000, 760, 560]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false })
+      const size = await cdp.eval(`(() => {
+        const content = document.querySelector('.content')
+        content.scrollTop = 0
+        const board = document.querySelector('.stt-board')
+        return {
+          height: board.offsetHeight, overflow: content.scrollWidth > content.clientWidth + 1,
+          columns: getComputedStyle(board).gridTemplateColumns.split(' ').length,
+          actions: ['.stt-drop', '.stt-rec-hero', '.stt-live-card'].map((s) => {
+            const r = document.querySelector(s).getBoundingClientRect()
+            return { width: r.width, top: r.top }
+          }),
+          records: ['.stt-txlog', '.stt-recs', '.stt-column > .live-history'].map((s) => {
+            const r = document.querySelector(s).getBoundingClientRect()
+            return { width: r.width, top: r.top, height: r.height }
+          }),
+          dict: [...document.querySelectorAll('.stt-dict .dict-panel')].map((e) => e.offsetHeight),
+          dictTitle: document.querySelector('.stt-dict .dict-panel h3').textContent,
+          noLiveHints: !document.getElementById('liveCaptionDisplayGroup') && !document.getElementById('liveTranslatorHint'),
+          controls: ['recStartBtn', 'startLiveBtn', 'recStatus', 'liveStatus', 'recAudioSource', 'liveAudioSource'].map((id) => {
+            const element = document.getElementById(id)
+            const visible = element.tagName === 'SELECT' ? element.closest('.custom-select').querySelector('.custom-select-trigger') : element
+            const r = visible.getBoundingClientRect()
+            return { width: r.width, height: r.height, top: r.top }
+          }),
+          groups: document.querySelectorAll('.stt-board > .stt-column').length,
+          gap: parseFloat(getComputedStyle(board).columnGap),
+          grouped: [['dropZone', 'resultText'], ['recStartBtn', 'recList'], ['startLiveBtn', 'liveHistoryList']].every(([top, bottom]) =>
+            document.getElementById(top).closest('.stt-column') === document.getElementById(bottom).closest('.stt-column')),
+          rect: { x: content.getBoundingClientRect().x + 20, y: 400 }
+        }
+      })()`)
+      ok(`${width}px 語音頁留足閱讀高度、沒有橫向溢出`,
+        size.height > 1000 && size.records.every((r) => r.height >= 440) && !size.overflow &&
+        size.columns === (width > 900 ? 3 : 1) && size.dict.every((h) => h >= 560) &&
+        size.dictTitle === '語音輸入紀錄' && size.noLiveHints && size.groups === 3 &&
+        size.gap === 12 && size.grouped, JSON.stringify(size))
+      if (width > 900) {
+        const equalRow = (items) => items.every((r) =>
+          Math.abs(r.width - items[0].width) < 1 && Math.abs(r.top - items[0].top) < 1)
+        ok(`${width}px 開始區與紀錄區各自等寬並排`, equalRow(size.actions) && equalRow(size.records), JSON.stringify(size))
+        const [rec, live, recStatus, liveStatus, recSource, liveSource] = size.controls
+        ok(`${width}px 錄音與字幕按鈕等大，狀態與音源對齊`,
+          equalRow([rec, live]) && Math.abs(rec.height - live.height) < 1 &&
+          Math.abs(recStatus.top - liveStatus.top) < 1 && Math.abs(recSource.top - liveSource.top) < 1,
+          JSON.stringify(size.controls))
+      }
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseWheel', x: size.rect.x, y: size.rect.y, deltaX: 0, deltaY: 10000
+      })
+      await waitFor(() => cdp.eval('document.querySelector(".content").scrollTop > 0'), 5000, '語音頁滾輪')
+      ok(`${width}px 真滾輪可到最下方的個人字典`, await cdp.eval(`(() => {
+        const content = document.querySelector('.content')
+        const panel = document.getElementById('dictationTerms').getBoundingClientRect()
+        const bottom = content.getBoundingClientRect().bottom
+        return content.scrollTop > 0 && panel.bottom <= bottom + 1 && panel.bottom > 0
+      })()`))
+    }
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+    await cdp.eval('document.querySelector(".content").scrollTop = 0')
 
     // ---- 模型選單：選了要寫回自己那一個 store key ----
     const asrValues = await cdp.eval(
@@ -224,9 +286,9 @@ async function main() {
       await new Promise((r) => setTimeout(r, 500))
       return await window.electronAPI.store.get('fileAsr', null)
     })()`)
-    ok('選 GPU 模型會寫回 fileAsr', wroteGpu === 'local:qwen3asrgpu', String(wroteGpu))
+    ok('選 GPU 模型會同時寫回 fileAsr 與 liveAsr', wroteGpu === 'local:qwen3asrgpu', String(wroteGpu))
 
-    // 這是這次改動的核心：三頁各存各的，改一頁不可以動到另外兩頁
+    // 轉錄與即時字幕共用一份；語音輸入仍分開
     const isolated = await cdp.eval(`(async () => {
       const set = async (id, value) => {
         const sel = document.getElementById(id)
@@ -234,28 +296,22 @@ async function main() {
         sel.dispatchEvent(new Event('change'))
         await new Promise((r) => setTimeout(r, 400))
       }
-      // 雲端選項現在是「哪一組設定的哪一顆模型」（cloud:設定id:模型id），
-      // 寫死 'cloud' 會設不進去（沒有這個 option）→ 取選單裡真的存在的第一個雲端項
-      const cloudValue = [...document.getElementById('liveAsrModel').options]
-        .map((o) => o.value).find((v) => v.startsWith('cloud'))
-      await set('liveAsrModel', cloudValue)
       await set('dictationAsrModel', 'local:qwen3asr')
       await set('fileLlmModel', 'local:linguaforge08q4')
-      await set('liveLlmModel', 'local:indextranslate2b')
       const keys = ['fileAsr', 'liveAsr', 'dictationAsr', 'fileLlm', 'liveLlm']
-      const out = { cloudValue }
+      const out = {}
       for (const k of keys) out[k] = await window.electronAPI.store.get(k, null)
       return out
     })()`)
     ok(
-      '三個子分頁的 ASR 選擇互不干擾',
-      isolated?.fileAsr === 'local:qwen3asrgpu' && isolated?.liveAsr === isolated?.cloudValue &&
+      '辨識模型寫下去，即時字幕跟著走，語音輸入不動',
+      isolated?.fileAsr === 'local:qwen3asrgpu' && isolated?.liveAsr === 'local:qwen3asrgpu' &&
         isolated?.dictationAsr === 'local:qwen3asr',
       JSON.stringify(isolated)
     )
     ok(
-      '檔案轉錄與即時字幕的翻譯模型也各存各的',
-      isolated?.fileLlm === 'local:linguaforge08q4' && isolated?.liveLlm === 'local:indextranslate2b',
+      '翻譯模型也是檔案與即時字幕同一份',
+      isolated?.fileLlm === 'local:linguaforge08q4' && isolated?.liveLlm === 'local:linguaforge08q4',
       JSON.stringify(isolated)
     )
 
@@ -276,13 +332,11 @@ async function main() {
       await new Promise((r) => setTimeout(r, 900))
       return {
         file: document.getElementById('fileAsrModel')?.value || '',
-        live: document.getElementById('liveAsrModel')?.value || '',
         dict: document.getElementById('dictationAsrModel')?.value || ''
       }
     })()`)
-    ok('重新進頁時三個選單各自讀回自己的值',
-      reread?.file === 'local:qwen3asrgpu' && reread?.live === isolated?.cloudValue &&
-        reread?.dict === 'local:qwen3asr',
+    ok('重新進頁時共用選單與語音輸入各自讀回自己的值',
+      reread?.file === 'local:qwen3asrgpu' && reread?.dict === 'local:qwen3asr',
       JSON.stringify(reread))
 
     // ---- 未安裝的模型要標出來 ----
@@ -308,7 +362,7 @@ async function main() {
       await sleep(200)
     }
     await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length === 4'), 15000, '推薦模型清單')
-    // ---- 設定頁三分區 ----
+    // ---- 設定頁四分區 ----
     await cdp.eval(`document.querySelector('[data-page="settings"]').click(), 'ok'`)
     await sleep(900)
     const settings = await cdp.eval(`(() => {
@@ -335,9 +389,9 @@ async function main() {
       }
     })()`)
     ok(
-      '設定頁只剩三個分區且順序正確',
-      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'voice', 'basic']) &&
-        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('語音朗讀') && settings.titles[2].includes('基本'),
+      '設定頁四個分區且順序正確',
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'voice', 'basic', 'cli']) &&
+        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('語音朗讀') && settings.titles[2].includes('基本') && settings.titles[3].includes('CLI'),
       JSON.stringify(settings?.titles)
     )
     ok('設定頁沒有手動 GPU 開關，模型清單已搬進推薦',

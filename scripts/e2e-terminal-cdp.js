@@ -260,6 +260,19 @@ async function main() {
     createdId = created.id
     ok('建立後彈窗關閉、畫布顯示', created.dialogClosed && created.hostVisible, JSON.stringify(created))
     ok('xterm 真的掛上去了', created.panes === 1 && created.rows === 1, JSON.stringify(created))
+    const redraw = await cdp.eval(`(async () => {
+      const term = window.__testTerminal
+      const before = { cols: term.cols, rows: term.rows, viewport: term.buffer.active.viewportY }
+      const refresh = term.refresh
+      let paints = 0
+      term.refresh = function (...args) { paints++; return refresh.apply(this, args) }
+      try {
+        await import('./scripts/terminal-page.js').then(m => m.openTerminalSession(${JSON.stringify(createdId)}))
+        return { paints, same: window.__testTerminal === term,
+          stable: before.cols === term.cols && before.rows === term.rows && before.viewport === term.buffer.active.viewportY }
+      } finally { term.refresh = refresh }
+    })()`)
+    ok('點回同尺寸終端機仍重畫，保留原畫面與捲動位置', redraw.paints > 0 && redraw.same && redraw.stable, JSON.stringify(redraw))
     const keyboard = await cdp.eval(`(() => {
       const term = window.__testTerminal
       const sent = []

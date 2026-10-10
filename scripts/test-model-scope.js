@@ -245,12 +245,33 @@ check('三個 scope 的雲端選擇都清掉', () => {
   assert.strictEqual(store.data.liveLlm, 'local:linguaforge08q4')
   assert.strictEqual(store.data.dictationLlm, '')
 })
-check('還在的供應商不受影響', () => {
+check('還在的供應商不受影響，但檔案與即時字幕收成同一份', () => {
   const store = makeStore({ fileLlm: 'cloud:p1:m-1', liveLlm: 'local:indextranslate2b', dictationLlm: '' })
   scope.reconcileAll(store)
   assert.strictEqual(store.data.fileLlm, 'cloud:p1:m-1')
-  assert.strictEqual(store.data.liveLlm, 'local:indextranslate2b')
+  assert.strictEqual(store.data.liveLlm, 'cloud:p1:m-1')
   assert.strictEqual(store.data.dictationLlm, '')
+})
+check('兩邊不同時以檔案轉錄那份為準，語音輸入不動', () => {
+  const store = makeStore({
+    fileAsr: 'local:qwen3asr',
+    liveAsr: 'local:qwen3asrgpu',
+    fileLlm: 'local:indextranslate2b',
+    liveLlm: 'local:linguaforge08q4',
+    dictationAsr: 'cloud',
+    dictationLlm: ''
+  })
+  scope.alignSharedStt(store)
+  assert.strictEqual(store.data.liveAsr, 'local:qwen3asr')
+  assert.strictEqual(store.data.liveLlm, 'local:indextranslate2b')
+  assert.strictEqual(store.data.dictationAsr, 'cloud')
+  assert.strictEqual(store.data.dictationLlm, '')
+})
+check('只有即時字幕有值時抄到檔案轉錄', () => {
+  const store = makeStore({ liveAsr: 'local:qwen3asrgpu', liveLlm: 'local:indextranslate2b' })
+  scope.alignSharedStt(store)
+  assert.strictEqual(store.data.fileAsr, 'local:qwen3asrgpu')
+  assert.strictEqual(store.data.fileLlm, 'local:indextranslate2b')
 })
 
 console.log(`\n${passed} passed, ${failures.length} failed`)

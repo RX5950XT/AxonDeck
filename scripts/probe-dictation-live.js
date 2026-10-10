@@ -164,8 +164,6 @@ async function main() {
       await window.electronAPI.store.set('dictationLang', 'zh-TW')
       await window.electronAPI.store.set('dictationEnabled', true)
       document.querySelector('[data-page="stt"]').click()
-      await new Promise((r) => setTimeout(r, 500))
-      document.querySelector('#sttSubtabs [data-subtab="dictation"]').click()
       await new Promise((r) => setTimeout(r, 800))
       const status = await window.electronAPI.dictation.status()
       return {

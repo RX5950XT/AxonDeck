@@ -1739,42 +1739,34 @@
             </dialog>
           </section>
 
-          <!-- 語音轉文字：檔案與錄音｜即時字幕｜語音輸入。模型選單各自放在自己那一頁裡 -->
+          <!-- 語音轉文字：轉錄、錄音、即時字幕、語音輸入同一頁。語音輸入的模型與輸出語言獨立 -->
           <section id="page-stt" class="page">
-            <div class="page-header">
-              <h1>語音轉文字</h1>
-              <p class="page-desc">轉錄音訊檔、錄音，或做即時字幕（系統聲音／麥克風），也能用語音輸入</p>
-            </div>
-
-            <div class="subtabs" id="sttSubtabs" role="tablist" aria-label="語音轉文字模式">
-              <button type="button" class="subtab active" data-subtab="file" role="tab" aria-selected="true">
-                檔案與錄音
-              </button>
-              <button type="button" class="subtab" data-subtab="live" role="tab" aria-selected="false">
-                即時字幕
-              </button>
-              <button type="button" class="subtab" data-subtab="dictation" role="tab" aria-selected="false">
-                語音輸入
-              </button>
-            </div>
-
-            <!-- 檔案轉錄 -->
-            <div class="subtab-panel active" id="stt-file" data-subtab="file" role="tabpanel">
-            <div class="stt-split">
-            <div class="stt-split-col" id="sttFileCol">
-
-            <!-- 這一頁自己的模型（跟即時字幕、語音輸入各存各的） -->
-            <div class="scope-models" id="fileModelBar">
+            <div class="stt-board" id="stt-file">
+            <div class="scope-models stt-models" id="fileModelBar">
               <div class="option-group">
                 <label for="fileAsrModel">辨識模型</label>
-                <select id="fileAsrModel" class="select" aria-label="檔案轉錄的語音辨識模型"></select>
+                <select id="fileAsrModel" class="select" aria-label="語音辨識模型"></select>
               </div>
               <div class="option-group">
                 <label for="fileLlmModel">翻譯模型</label>
-                <select id="fileLlmModel" class="select" aria-label="檔案轉錄的翻譯模型"></select>
+                <select id="fileLlmModel" class="select" aria-label="翻譯模型"></select>
+              </div>
+              <div class="option-group">
+                <label for="liveLanguage">目標語言</label>
+                <select id="liveLanguage" class="select" aria-label="目標語言">
+                  <option value="zh-TW">繁體中文（台灣）</option>
+                  <option value="zh-CN">簡體中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                  <option value="auto">自動偵測（不翻譯）</option>
+                </select>
               </div>
               <p id="fileModelHint" class="setting-hint scope-models-hint hidden" role="status"></p>
             </div>
+
+            <div class="stt-column stt-column-file">
+            <div class="stt-drop" id="sttFileCol">
 
             <!-- 拖放區域 -->
             <div id="dropZone" class="drop-zone">
@@ -1808,238 +1800,177 @@
               </div>
             </div>
 
-            <!-- 語言選擇 -->
             <div id="transcribeOptions" class="options-panel hidden">
-              <div class="option-group">
-                <label for="outputLanguage">輸出語言</label>
-                <select id="outputLanguage" class="select">
-                  <option value="zh-TW">繁體中文（台灣）</option>
-                  <option value="zh-CN">簡體中文</option>
-                  <option value="en">English</option>
-                  <option value="ja">日本語</option>
-                  <option value="ko">한국어</option>
-                  <option value="auto">自動偵測</option>
-                </select>
-              </div>
               <button id="startTranscribeBtn" class="btn btn-primary">
                 <span>開始轉錄</span>
               </button>
             </div>
-
-            <!-- 進度顯示 -->
-            <div id="transcribeProgress" class="progress-panel hidden">
-              <div class="progress-spinner" aria-hidden="true"></div>
-              <div
-                class="progress-bar"
-                role="progressbar"
-                aria-label="轉錄進度"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow="0"
-              >
-                <div class="progress-fill" style="width: 0%"></div>
-              </div>
-              <p class="progress-text" role="status" aria-live="polite">正在轉錄中...</p>
-              <p class="progress-percent" aria-hidden="true">0%</p>
             </div>
 
-            <!-- 結果區域 -->
-            <div id="transcribeResult" class="result-panel hidden">
-              <div class="result-header">
-                <h3>轉錄結果</h3>
-                <div class="result-actions">
-                  <button id="copyResultBtn" class="btn btn-secondary">
-                    📋 複製
-                  </button>
-                  <button id="saveResultBtn" class="btn btn-secondary">
-                    💾 儲存
-                  </button>
+            <section class="stt-card stt-txlog">
+              <div class="dict-panel-head">
+                <h3>轉錄紀錄</h3>
+              </div>
+              <p id="sttTxEmpty" class="dict-empty">還沒有轉錄</p>
+              <div id="transcribeProgress" class="progress-panel hidden">
+                <div class="progress-spinner" aria-hidden="true"></div>
+                <div
+                  class="progress-bar"
+                  role="progressbar"
+                  aria-label="轉錄進度"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                >
+                  <div class="progress-fill" style="width: 0%"></div>
+                </div>
+                <p class="progress-text" role="status" aria-live="polite">正在轉錄中...</p>
+                <p class="progress-percent" aria-hidden="true">0%</p>
+              </div>
+              <div id="transcribeResult" class="result-panel hidden">
+                <div class="result-header">
+                  <div class="result-actions">
+                    <button id="copyResultBtn" class="btn btn-secondary">📋 複製</button>
+                    <button id="saveResultBtn" class="btn btn-secondary">💾 儲存</button>
+                  </div>
+                </div>
+                <p id="resultWarning" class="result-warning hidden" role="status"></p>
+                <div id="resultText" class="result-text"></div>
+              </div>
+            </section>
+
+            </div>
+            <div class="stt-column stt-column-recorder">
+            <div class="stt-card stt-rec-hero">
+              <div class="live-controls rec-controls">
+                <button id="recStartBtn" type="button" class="btn btn-primary btn-large">
+                  <span class="btn-icon">⏺️</span>
+                  <span>開始錄音</span>
+                </button>
+                <button id="recStopBtn" type="button" class="btn btn-danger btn-large hidden">
+                  <span class="btn-icon">⏹️</span>
+                  <span>停止錄音</span>
+                </button>
+              </div>
+              <div id="recStatus" class="live-status rec-status" role="status" aria-live="polite">
+                <span class="status-dot"></span>
+                <span class="status-text">未錄音</span>
+                <span id="recTimer" class="rec-timer">00:00</span>
+                <div class="level-meter" title="錄音音量">
+                  <div id="recLevel" class="level-fill"></div>
                 </div>
               </div>
-              <p id="resultWarning" class="result-warning hidden" role="status"></p>
-              <div id="resultText" class="result-text"></div>
-            </div>
+              <div class="option-group stt-rec-source">
+                <label for="recAudioSource">音源</label>
+                <select id="recAudioSource" class="select" aria-label="錄音音源">
+                  <option value="system">系統聲音</option>
+                  <option value="mic" selected>麥克風</option>
+                  <option value="both">系統＋麥克風</option>
+                </select>
+              </div>
             </div>
 
-            <!-- 錄音機：麥克風錄成 webm，可拖到左邊轉入或按轉錄 -->
-            <div class="stt-split-col" id="stt-recorder">
-            <div class="rec-content">
-              <div class="dict-hero">
-                <div class="dict-hero-main">
-                  <div class="live-controls rec-controls">
-                    <button id="recStartBtn" type="button" class="btn btn-primary btn-large">
-                      <span class="btn-icon">⏺️</span>
-                      <span>開始錄音</span>
-                    </button>
-                    <button id="recStopBtn" type="button" class="btn btn-danger btn-large hidden">
-                      <span class="btn-icon">⏹️</span>
-                      <span>停止錄音</span>
-                    </button>
+            <section class="stt-card stt-recs" id="stt-recorder">
+              <div class="dict-panel-head">
+                <h3>錄音檔</h3>
+                <button type="button" id="recOpenFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+              </div>
+              <div id="recList" class="dict-records rec-list"></div>
+            </section>
+
+            </div>
+            <div class="stt-column stt-column-live">
+              <div class="stt-card stt-live-card">
+                <div class="stt-live-start">
+                  <div class="stt-live-main">
+                    <div class="live-controls">
+                      <button id="startLiveBtn" class="btn btn-primary btn-large">
+                        <span class="btn-icon">▶️</span>
+                        <span>開始字幕</span>
+                      </button>
+                      <button id="stopLiveBtn" class="btn btn-danger btn-large hidden">
+                        <span class="btn-icon">⏹️</span>
+                        <span>停止字幕</span>
+                      </button>
+                    </div>
+                    <div id="liveStatus" class="live-status">
+                      <span class="status-dot"></span>
+                      <span class="status-text">未啟動</span>
+                      <span id="liveEngine" class="live-engine"></span>
+                      <div class="level-meter" title="系統音訊音量">
+                        <div id="levelFill" class="level-fill"></div>
+                      </div>
+                    </div>
+                    <p id="liveError" class="live-error hidden" role="alert"></p>
                   </div>
-                  <p class="setting-hint">錄音邊錄邊存。停止後可播放、按轉錄，或拖到轉入區。</p>
-                </div>
-                <div class="dict-state">
-                  <div id="recStatus" class="live-status rec-status" role="status" aria-live="polite">
-                    <span class="status-dot"></span>
-                    <span class="status-text">未錄音</span>
-                    <span id="recTimer" class="rec-timer">00:00</span>
-                  </div>
-                  <div class="level-meter" title="麥克風音量">
-                    <div id="recLevel" class="level-fill"></div>
+                  <div class="option-group stt-live-source">
+                    <label for="liveAudioSource">音源</label>
+                    <select id="liveAudioSource" class="select" aria-label="即時字幕音源">
+                      <option value="system">系統聲音</option>
+                      <option value="mic">麥克風</option>
+                      <option value="both">系統＋麥克風</option>
+                    </select>
                   </div>
                 </div>
               </div>
-
-              <section class="dict-panel">
+              <section class="stt-card live-history">
                 <div class="dict-panel-head">
-                  <h3>錄音檔</h3>
-                  <button type="button" id="recOpenFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+                  <h3>字幕紀錄</h3>
                 </div>
-                <div id="recList" class="dict-records rec-list"></div>
+                <div id="liveHistoryList" class="dict-records rec-list"></div>
               </section>
             </div>
-            </div>
-            </div>
-            </div>
-
-            <!-- 即時字幕 -->
-            <div class="subtab-panel" id="stt-live" data-subtab="live" role="tabpanel">
-            <div class="live-content">
-              <!-- 這一頁自己的模型（跟檔案轉錄、語音輸入各存各的） -->
-              <div class="scope-models" id="liveModelBar">
-                <div class="option-group">
-                  <label for="liveAsrModel">辨識模型</label>
-                  <select id="liveAsrModel" class="select" aria-label="即時字幕的語音辨識模型"></select>
-                </div>
-                <div class="option-group">
-                  <label for="liveLlmModel">翻譯模型</label>
-                  <select id="liveLlmModel" class="select" aria-label="即時字幕的翻譯模型"></select>
-                </div>
-                <p id="liveModelHint" class="setting-hint scope-models-hint hidden" role="status"></p>
-              </div>
-
-              <!-- 語言選擇 -->
-              <div class="option-group">
-                <label for="liveLanguage">目標語言</label>
-                <select id="liveLanguage" class="select">
-                  <option value="zh-TW">繁體中文（台灣）</option>
-                  <option value="zh-CN">簡體中文</option>
-                  <option value="en">English</option>
-                  <option value="ja">日本語</option>
-                  <option value="ko">한국어</option>
-                  <option value="auto">自動偵測（不翻譯）</option>
-                </select>
-              </div>
-
-              <div class="option-group">
-                <label for="liveAudioSource">音源</label>
-                <select id="liveAudioSource" class="select" aria-label="即時字幕音源">
-                  <option value="system">系統聲音</option>
-                  <option value="mic">麥克風</option>
-                </select>
-              </div>
-
-              <!-- 翻譯後端提示（雙語／僅翻譯切換已移至字幕視窗右上角）-->
-              <div class="option-group" id="liveCaptionDisplayGroup">
-                <p class="setting-hint" id="liveTranslatorHint">翻譯：檢查中…</p>
-                <p class="setting-hint">雙語／僅翻譯在字幕視窗右上角切換</p>
-              </div>
-
-              <!-- 控制按鈕 -->
-              <div class="live-controls">
-                <button id="startLiveBtn" class="btn btn-primary btn-large">
-                  <span class="btn-icon">▶️</span>
-                  <span>開始字幕</span>
-                </button>
-                <button
-                  id="stopLiveBtn"
-                  class="btn btn-danger btn-large hidden"
-                >
-                  <span class="btn-icon">⏹️</span>
-                  <span>停止字幕</span>
-                </button>
-              </div>
-
-              <!-- 狀態指示 -->
-              <div id="liveStatus" class="live-status">
-                <span class="status-dot"></span>
-                <span class="status-text">未啟動</span>
-                <span id="liveEngine" class="live-engine"></span>
-                <div class="level-meter" title="系統音訊音量">
-                  <div id="levelFill" class="level-fill"></div>
-                </div>
-              </div>
-              <p id="liveError" class="live-error hidden" role="alert"></p>
-            </div>
-
-            <!-- 過去每一場字幕的逐字稿（開始字幕就自動記） -->
-            <section class="dict-panel live-history">
-              <div class="dict-panel-head">
-                <h3>字幕紀錄</h3>
-              </div>
-              <div id="liveHistoryList" class="dict-records rec-list"></div>
-            </section>
-            </div>
-
-            <!-- 語音輸入：全域右 Alt 講話，整理完直接貼到游標所在的程式 -->
-            <div class="subtab-panel" id="stt-dictation" data-subtab="dictation" role="tabpanel">
-            <div class="dict-content">
+            <div class="stt-dict" id="stt-dictation">
               <div class="dict-hero">
-                <div class="dict-hero-main">
-                  <label class="setting-check dict-switch">
-                    <input type="checkbox" id="dictationEnabledInput" />
-                    <span>啟用語音輸入</span>
-                  </label>
-                  <p class="setting-hint">
-                    按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
-                  </p>
-                </div>
-                <div class="dict-state">
-                  <div id="dictationStatus" class="dict-status" role="status" aria-live="polite">
-                    <span class="status-dot"></span>
-                    <span class="dict-status-text">未啟用</span>
+                <div class="dict-hero-top">
+                  <div class="dict-hero-main">
+                    <label class="dict-switch">
+                      <input type="checkbox" id="dictationEnabledInput" role="switch" />
+                      <span class="dict-switch-track" aria-hidden="true"></span>
+                      <span class="dict-switch-label">啟用語音輸入</span>
+                    </label>
+                    <p class="setting-hint">
+                      按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
+                    </p>
                   </div>
-                  <div class="level-meter" title="麥克風音量">
-                    <div id="dictationLevel" class="level-fill"></div>
+                  <div class="dict-state">
+                    <div id="dictationStatus" class="dict-status" role="status" aria-live="polite">
+                      <span class="status-dot"></span>
+                      <span class="dict-status-text">未啟用</span>
+                    </div>
+                    <div class="level-meter" title="麥克風音量">
+                      <div id="dictationLevel" class="level-fill"></div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="dict-options">
-                <div class="option-group">
-                  <label for="dictationAsrModel">辨識模型</label>
-                  <select id="dictationAsrModel" class="select" aria-label="語音輸入的語音辨識模型"></select>
+                <div class="dict-options">
+                  <div class="option-group">
+                    <label for="dictationAsrModel">辨識模型</label>
+                    <select id="dictationAsrModel" class="select" aria-label="語音輸入的語音辨識模型"></select>
+                  </div>
+                  <div class="option-group">
+                    <label for="dictationLlmSelect">整理模型</label>
+                    <select id="dictationLlmSelect" class="select" aria-label="語音輸入的整理模型"></select>
+                  </div>
+                  <div class="option-group">
+                    <label for="dictationLangSelect">輸出語言</label>
+                    <select id="dictationLangSelect" class="select">
+                      <option value="zh-TW">繁體中文（台灣）</option>
+                      <option value="zh-CN">簡體中文</option>
+                      <option value="en">English</option>
+                      <option value="ja">日本語</option>
+                      <option value="ko">한국어</option>
+                    </select>
+                  </div>
+                  <p id="dictationHint" class="setting-hint hidden" role="status"></p>
                 </div>
-                <div class="option-group">
-                  <label for="dictationLlmSelect">整理模型</label>
-                  <select id="dictationLlmSelect" class="select" aria-label="語音輸入的整理模型"></select>
-                </div>
-                <div class="option-group">
-                  <label for="dictationLangSelect">輸出語言</label>
-                  <select id="dictationLangSelect" class="select">
-                    <option value="zh-TW">繁體中文（台灣）</option>
-                    <option value="zh-CN">簡體中文</option>
-                    <option value="en">English</option>
-                    <option value="ja">日本語</option>
-                    <option value="ko">한국어</option>
-                  </select>
-                </div>
-                <p id="dictationHint" class="setting-hint hidden" role="status"></p>
-              </div>
-
-              <div class="dict-result" id="dictationResult">
-                <div class="dict-result-head">
-                  <h3>這次的結果</h3>
-                  <button type="button" id="dictationCopyBtn" class="btn btn-secondary btn-sm">📋 複製</button>
-                </div>
-                <p class="dict-result-text" id="dictationResultText">還沒有內容。按住右 Alt 講一段話試試。</p>
-                <p class="dict-result-raw" id="dictationResultRaw"></p>
               </div>
 
               <div class="dict-columns">
                 <section class="dict-panel">
                   <div class="dict-panel-head">
-                    <h3>轉錄紀錄</h3>
+                    <h3>語音輸入紀錄</h3>
                     <button type="button" id="dictationClearBtn" class="btn btn-secondary btn-sm">清空</button>
                   </div>
                   <div id="dictationRecords" class="dict-records"></div>

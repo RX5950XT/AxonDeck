@@ -1,5 +1,67 @@
 # tasks/todo.md — 進行中與待辦
 
+# 2026-10-10 — 錄音字幕對齊與兩邊混音
+
+- [x] 統一兩個按鈕大小，對齊按鈕、狀態與音源列。
+- [x] 字幕也支援三種音源，共用混音取得與釋放流程，保留原字幕麥克風降噪。
+- [x] 驗證字幕混音 PCM 到字幕與停止/失敗清理；打包、版面驗證並更新預覽。
+
+## Review（錄音字幕對齊與兩邊混音）
+
+- 兩顆開始按鈕共用 64px 高與內距，錄音音量計移入狀態列；按鈕、狀態與音源列對齊。兩個唯讀代理檢查版面與掃描，無新增問題。
+- 字幕補上 both，設定讀寫驗證同步；兩邊共用音源取得與混音釋放，字幕保留既有麥克風降噪。啟動與停止時鎖住控制，部分取得失敗也釋放已開來源。
+- `node scripts/test-recording-audio.js` 8 案、`test-vad.js` 11/0、`test-stt-archive.js` 33、`node scripts/run-tests.js dictation` 2/2；`test-temp-hygiene.js` 通過。
+- 最後打包版 `node scripts/e2e-recorder-cdp.js` 40/0、`node scripts/e2e-stt-cdp.js` 32/0：三種音源錄檔頻率、字幕 16kHz PCM／VAD／ASR IPC 到畫面與紀錄、音源持久化、停止／拒絕清理、不同寬度對齊皆通過。字幕回字使用本機測試伺服器，未測雲端辨識準確度或實體麥克風收音。
+- `npm run electron:pack -- --config.npmRebuild=false` 結束碼 0、279 支 src 一致。已更新沙箱預覽 PID 60380；實量兩顆按鈕約 327.88×64px、y=227.08，截圖已檢視。使用者終端機保留，未 commit/push。
+- 推送前逐段排除其他功能的未提交改動；從暫存區匯出獨立副本，混音 8 案、模型 scope 35/0、終端機 UI 14/0、VAD 11/0、archive 33 與 Vite build 皆通過。提交範圍含同頁介面所需的共用語音設定，不含其他終端機標題、翻譯長度、runtime 或 CC 修改。
+
+# 2026-10-10 — 合併語音功能卡與錄音音源
+
+- [x] 三組上下合卡，內部水平分隔線，欄間縮到 12px。
+- [x] 錄音音源支援麥克風、系統聲音、兩者混音；記住選擇並完整釋放裝置。
+- [x] 音源失敗與混音測試、打包版三欄／錄音驗證，更新預覽。
+
+## Review（功能合卡與錄音音源）
+
+- 三個 `.stt-column` 合併上下各兩區，用 subgrid 對齊分隔線；欄間 12px，窄版依功能堆疊。兩個唯讀代理分別查版面與掃描；拖放回饋被 reset 蓋住，打包版先紅 29/1，補 scoped 底色後綠 30/0。
+- `recAudioSource` 加入 store allowlist、讀寫驗證與 UI 同步，預設 mic；system 使用既有 main loopback，both 用兩路各半混成單一音訊軌，不播放到喇叭。錄音中鎖住音源；取得另一音源失敗時釋放已開來源，停止後也關閉混音 context。
+- `node scripts/test-recording-audio.js` 7 案通過（單音源、混音、權限拒絕、無系統音訊、context 啟動失敗、非法值與釋放）；`node scripts/test-stt-archive.js` 33；`node scripts/run-tests.js dictation` 2/2；`test-temp-hygiene`、`git diff --check` 通過。
+- 最後打包版 `node scripts/e2e-recorder-cdp.js` 28/0：Chromium 假麥克風錄成 opus、播放/轉錄/拖放/刪除；440Hz/880Hz 各路及混音的實際錄檔經 ffmpeg 解碼量頻率，記住音源、鎖定、非法值、拒絕後釋放皆通過。`node scripts/e2e-stt-cdp.js` 30/0，四種視窗寬度的分組、等寬、12px 間距、長度、捲動與拖放底色通過。
+- 另以無假媒體 flags 的隔離 packaged 實例驗證 Windows 系統擷取：1 條 live audio，停止後全部 ended；不存任何聲音。實體麥克風收音未測，混音內容以已知測試音源驗證。
+- `npm run electron:pack -- --config.npmRebuild=false` 結束碼 0、279 支 src 一致；預覽重開 PID 18252。畫面實量三組各 365px 寬/715px 高、分隔線與 12px 欄距；截圖已檢視。原終端機宿主與 shell 保留，未 commit/push。
+
+# 2026-10-10 — 語音頁三欄與紀錄加長
+
+- [x] 三個開始區與三種紀錄各排等寬三欄，移除字幕底下提示。
+- [x] 語音輸入紀錄改名，紀錄與個人字典加高。
+- [x] 打包、量寬高與捲動，更新已開的預覽。
+
+## Review（三欄與紀錄加長）
+
+- 三個操作區等寬同列、三種紀錄等寬同列（至少 440px）；語音輸入紀錄與字典等寬、至少 560px。900px 以下單欄，整頁可捲動。HTML 與視覺順序一致，鍵盤焦點由上往下。
+- 字幕兩行提示與專用更新函式已移除；引用提示當初始化條件的兩支測試同步改用共用模型選單。
+- 依 skill 用兩個唯讀代理分別檢視版面與機械掃描，detector 前後皆無命中。保留既有 18/20/10px 內距及無頁面標題的設計，避免擴大此次排列需求。
+- `npm run electron:pack -- --config.npmRebuild=false` 結束碼 0，278 支 src 與原始碼相同。`node scripts/e2e-stt-cdp.js` 最後打包版 29/0，1440/1000/760/560px 等寬、高度、無橫向溢出與真滾輪到底皆通過；`node scripts/run-tests.js dictation` 2/2；`git diff --check` 通過。
+- `node scripts/probe-asr-key-cdp.js` 兩次皆在初始化回報 `Promise was collected`，未進入斷言；此額外探針尚未驗證，未擴大改啟動流程。未重測真錄音與字幕音訊擷取。
+- 已重開沙箱預覽 PID 56224、顯示語音頁；實量三個紀錄各 357px 寬/440px 高，字典與語音輸入紀錄各 560px 高；上下截圖已檢視。原安裝版 PID 27356、宿主 35608/30864、shell 11180/56728 保留。未 commit/push。
+
+# 2026-10-10 — 語音頁放寬與終端機空白
+
+- [x] 查語音頁高度限制、終端機載入與既有工作階段，保留其他未提交改動。
+- [x] 語音頁改成較寬、較長、可上下捲動；補上切回同尺寸終端機仍需重畫的缺口。
+- [x] 相關回歸、打包版真操作與大小檢查，記錄結果。
+
+## Review（語音頁與終端機空白）
+
+- 語音頁由三欄改兩欄，模型列橫跨頂端；紀錄區至少 280px、字典區至少 320px，整頁上下捲動，900px 以下改單欄。音量條固定原本的 6px，窄視窗提示文字可換行。
+- `fitAndSync` 原本遇到欄列數沒變就跳過畫布重畫。現在每次切回都重畫，尺寸沒變仍不送 PTY resize、不清 texture atlas。單元回歸修復前紅、修復後綠；打包實測沿用原 xterm、保留捲動位置。
+- `node scripts/run-tests.js terminal` 14/14；`node scripts/run-tests.js dictation` 2/2；`node scripts/test-model-scope.js` 35/0。語音頁 `node scripts/e2e-stt-cdp.js` 27/0，1440／1000／760／560px 真滾輪到底、不橫向溢出；深淺色截圖已檢視。測試的設定分區假設同步現有四區，未改設定頁。
+- 終端機完整 CDP 曾有 5 個焦點／背景時序失敗；加入唯讀焦點診斷、相同流程重測後 68/0（hidden=true、焦點仍在 xterm）。不以一次通過宣稱這些偶發現象已修復。側欄標題斷言改從 main 讀即時 OSC 名稱，配合既有未提交的標題功能。
+- `e2e-terminal-conversation-cdp.js` 28/0；三種 shell 提示字元、真正空畫面、切換後新輸出通過；五家真 CLI 啟動、切換、縮放通過，未送 AI 提問。`probe-terminal-native-scroll.js` 五家真 CLI 原生啟動通過。
+- 隔離版 restart/update 探針通過：App 完全結束、替換自己的安裝副本、重開後原 shell PID 與持續輸出都保留；明確刪除才結束 shell。探針暫存改走 `test-temp`，只收自己的 App／host／shell。
+- 安裝版 App PID 27356、宿主 PID 35608、Codex shell PID 11180 均保留；唯讀連線與畫面有文字。原本「突然全空白」尚未重現，不能認定已找到完整根因。未 commit／push、未替換安裝版。
+- 兩次打包被 asar 比對擋住（AGY 檔未改）；改用已建好的相依套件、跳過重建後通過。清掉臨時探針後 `npm run electron:pack -- --config.npmRebuild=false` 結束碼 0，278 支 src 逐檔相同，已同步 `dist/win-unpacked`。
+
 # 2026-10-10 — Claude 切對話即時改綁
 
 - [x] pid 檔已更新時，同一秒再寫入的舊 jsonl 不得蓋過。

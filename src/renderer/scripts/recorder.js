@@ -1,12 +1,14 @@
 /**
  * AxonDeck - 錄音機（語音轉文字頁的子分頁）
  *
- * 麥克風 → MediaRecorder（webm／opus）→ 每秒一塊送 main append 進 `recordings/`。
+ * 選用音源 → MediaRecorder（webm／opus）→ 每秒一塊送 main append 進 `recordings/`。
  * 不在 renderer 累積整段：錄到一半 App 當掉，檔案裡最多只少最後一秒。
  * 錄好的檔可以直接「轉錄」＝交給檔案轉錄子分頁（main 端 ffmpeg 讀得了 webm）。
  */
 
 import { showToast, electronAPI, cleanIpcError, openInFilesPage } from './app.js'
+import { syncCustomSelects } from './custom-select.js'
+import { openRecordingAudio } from './recording-audio.js'
 
 /** 64kbps opus：200MB 上限約 7 小時，語音清楚 */
 const BITS_PER_SECOND = 64000
@@ -19,6 +21,10 @@ let bound = false
 let recorder = null
 /** @type {MediaStream|null} */
 let stream = null
+let capture = null
+let starting = false
+let stopping = false
+let audioSource = 'mic'
 /** @type {AudioContext|null} */
 let meterCtx = null
 let meterTimer = 0
@@ -50,6 +56,12 @@ function bindOnce() {
   bound = true
   $('recStartBtn').addEventListener('click', start)
   $('recStopBtn').addEventListener('click', () => stop())
+  $('recAudioSource').addEventListener('change', async () => {
+    if (recorder || starting || stopping) return
+    audioSource = ['system', 'both'].includes($('recAudioSource').value) ? $('recAudioSource').value : 'mic'
+    try { await electronAPI.store.set('recAudioSource', audioSource) }
+    catch (error) { showToast(cleanIpcError(error), 'error') }
+  })
   $('recOpenFolderBtn').addEventListener('click', () => {
     call(electronAPI.sttArchive.openRecordings()).then((dir) => openInFilesPage(dir)).catch((e) => showToast(cleanIpcError(e), 'error'))
   })
@@ -58,15 +70,26 @@ function bindOnce() {
 
 export async function refreshRecorderPage() {
   bindOnce()
+  if (!recorder && !starting && !stopping) {
+    try {
+      const saved = await electronAPI.store.get('recAudioSource', 'mic')
+      if (!recorder && !starting && !stopping) {
+        audioSource = ['system', 'both'].includes(saved) ? saved : 'mic'
+        $('recAudioSource').value = audioSource
+      }
+    } catch (error) { showToast(cleanIpcError(error), 'error') }
+  }
   paintState()
   await renderList()
 }
 
 async function start() {
-  if (recorder) return
-  $('recStartBtn').disabled = true
+  if (recorder || starting || stopping) return
+  starting = true
+  paintState()
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    capture = await openRecordingAudio(audioSource)
+    stream = capture.stream
     const rec = new MediaRecorder(stream, { mimeType: MIME, audioBitsPerSecond: BITS_PER_SECOND })
     startedAt = Date.now()
     fileName = `rec-${startedAt}.webm`
@@ -76,16 +99,16 @@ async function start() {
       if (e.data.size > 0) queueWrite(e.data)
     }
     rec.onerror = () => stop('錄音裝置出錯，已停止')
-    // 麥克風被拔掉／被系統收回
-    stream.getAudioTracks().forEach((t) => t.addEventListener('ended', () => stop('麥克風中斷，已停止')))
+    capture.tracks.forEach((t) => t.addEventListener('ended', () => stop('音源中斷，已停止')))
     rec.start(1000)
     recorder = rec
     startMeter(stream)
   } catch (error) {
-    releaseStream()
-    showToast(error?.name === 'NotAllowedError' ? '沒有麥克風權限' : `無法開始錄音: ${error.message}`, 'error')
+    if (recorder) await stop()
+    else await releaseStream()
+    showToast(error?.name === 'NotAllowedError' ? '沒有音源權限或已取消擷取' : `無法開始錄音: ${cleanIpcError(error)}`, 'error')
   } finally {
-    $('recStartBtn').disabled = false
+    starting = false
     paintState()
   }
 }
@@ -111,24 +134,31 @@ function queueWrite(blob) {
 async function stop(reason) {
   const rec = recorder
   if (!rec) return
+  stopping = true
   recorder = null
+  paintState()
   // stop() 會再吐最後一塊 dataavailable，等它出來再等寫完
   const flushed = new Promise((resolve) => rec.addEventListener('stop', resolve, { once: true }))
   if (rec.state !== 'inactive') rec.stop()
   await flushed
   await writeChain
-  releaseStream()
+  await releaseStream()
+  stopping = false
   paintState()
   if (reason) showToast(reason, 'error')
   await renderList()
 }
 
-function releaseStream() {
+async function releaseStream() {
   clearInterval(meterTimer)
   meterTimer = 0
   meterCtx?.close().catch(() => {})
   meterCtx = null
-  stream?.getTracks().forEach((t) => t.stop())
+  if (capture) {
+    try { await capture.close() }
+    catch (error) { showToast(`音源釋放失敗：${cleanIpcError(error)}`, 'error') }
+  }
+  capture = null
   stream = null
 }
 
@@ -151,6 +181,9 @@ function startMeter(s) {
 
 function paintState() {
   const on = recorder !== null
+  $('recStartBtn').disabled = starting || stopping
+  $('recAudioSource').disabled = on || starting || stopping
+  syncCustomSelects()
   $('recStartBtn').classList.toggle('hidden', on)
   $('recStopBtn').classList.toggle('hidden', !on)
   $('recStatus').classList.toggle('active', on)

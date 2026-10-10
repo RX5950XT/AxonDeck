@@ -13,7 +13,7 @@ nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格並排、共用 `persist:telegram` |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
 | CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP（Claude／Codex／Grok／OpenCode 四家）／Skills 與記憶／用量統計；CLI 版本搬去設定頁 |
-| 語音轉文字 | `stt` | 檔案與錄音（左轉入、右錄音）｜即時字幕（系統聲音／麥克風）｜語音輸入 |
+| 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
 | 翻譯與 TTS | `translate` | local（LinguaForge）／cloud 翻譯；Edge TTS |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
@@ -114,9 +114,10 @@ native/
 - 模型清單每天自動同步一次（`modelsCheckedAt`），下拉依 AI lab 分組（`cc-model-groups.js`）；Codex 查詢的 `client_version` 跟隨已安裝 CLI。
 
 ### 語音
+- 檔案轉錄／錄音／字幕各一張功能卡，操作與紀錄上下合併；三欄間距 12px，900px 以下依功能單欄堆疊。錄音 `recAudioSource`（預設 mic）與字幕 `liveAudioSource`（預設 system）均有 mic／system／both；共用 `recording-audio.js` 將兩路各半合進單一音軌，字幕保留麥克風降噪，停止或啟動失敗都釋放輸入軌與混音 context。兩顆開始按鈕均 64px 高，狀態與音源列對齊。
 - 語音輸入：右 Alt → 錄音 → ASR → 字典 → LLM 整理 → 插入（自己視窗直接插、外部才走剪貼簿）；HUD 每次載入重送狀態。
-- 檔案轉錄：ffmpeg 串流切段；雲端遇 429／逾時／5xx 同段重試，仍失敗保留已完成內容。錄音機跟檔案轉入同一頁，錄音可拖過去（只帶檔名，路徑由 main 解析）。即時字幕音源記在 `liveAudioSource`（system／mic）。錄音與字幕邊錄邊 append。
-- 三個子分頁各自選模型（`model-scope.js`）：`file`／`live`／`dictation`；值 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
+- 檔案轉錄：ffmpeg 串流切段；雲端遇 429／逾時／5xx 同段重試，仍失敗保留已完成內容。錄音機跟檔案轉入同一頁，錄音可拖過去（只帶檔名，路徑由 main 解析）。錄音與字幕邊錄邊 append。
+- 轉錄與即時字幕共用模型（`fileAsr`／`fileLlm` 為準，開機 `alignSharedStt` 抄到 live；目標語言 `sttLanguage`）。語音輸入仍各自選（`dictationAsr`／`dictationLlm`）。值 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
 
 ### Telegram
 - 一格載完等 1.5 秒再載下一格；✕ 先導 `about:blank` 再拿掉；每 20 秒探各格，卡「等待網路連線」60 秒或格子當掉就全部依序重載（兩次隔 5 分鐘）；當機記到 `userData/crash.log`。

@@ -949,11 +949,12 @@ function fitPane(entry) {
 function fitAndSync(id, entry) {
   const before = `${entry.term.cols}x${entry.term.rows}`
   fitPane(entry)
+  // 畫布可能需要重畫，即使切回來的欄列數沒變。
+  try { entry.term.refresh(0, entry.term.rows - 1) } catch { /* 還沒 open */ }
   // 拖側欄寬度時 ResizeObserver 一秒送幾十次，欄列數其實大多沒變：
   // 每一次都往 main 送 resize 等於連累 ConPTY 一起重排。
   if (`${entry.term.cols}x${entry.term.rows}` === before) return
   try { entry.webgl?.clearTextureAtlas() } catch { /* DOM renderer 沒有 atlas */ }
-  try { entry.term.refresh(0, entry.term.rows - 1) } catch { /* 還沒 open */ }
   void electronAPI.terminal.resize(id, entry.term.cols, entry.term.rows)
 }
 

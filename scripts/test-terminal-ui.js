@@ -204,7 +204,11 @@ async function main() {
     const api = load({ electronAPI: { terminal: { resize: (...args) => calls.push(args) } } })
 
     // 藏起來的期間側欄被拉寬了：這一量欄數就變了
-    const entry = { term: { cols: 80, rows: 24 }, fit: null }
+    const refreshes = []
+    const entry = {
+      term: { cols: 80, rows: 24, refresh: (...args) => refreshes.push(args) },
+      webgl: { clearTextureAtlas: () => refreshes.push('atlas') }, fit: null
+    }
     entry.fit = { fit() { entry.term.cols = 100 } }
     api.fitAndSync('t1', entry)
     assert.deepEqual(calls, [['t1', 100, 24]], '欄數變了就要往 main 送 resize')
@@ -212,9 +216,11 @@ async function main() {
 
     // 沒變就不要送（拖側欄時 ResizeObserver 一秒幾十發）
     calls.length = 0
+    refreshes.length = 0
     entry.fit = { fit() { /* 尺寸沒變 */ } }
     api.fitAndSync('t1', entry)
     assert.deepEqual(calls, [], '欄列數沒變不可以送 resize')
+    assert.deepEqual(refreshes, [[0, 23]], '切回同尺寸仍要重畫，不然空白畫布不會恢復')
     ok('尺寸沒變就不吵 ConPTY')
   }
 

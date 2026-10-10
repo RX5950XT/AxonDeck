@@ -135,7 +135,7 @@ async function main() {
     }, 30000, '主視窗')
     mainCdp = new Cdp(mainPage.webSocketDebuggerUrl)
     await mainCdp.connect()
-    // 即時頁改成進分頁才載入腳本；先點進 live，再用 hint 當 readiness gate。
+    // 語音頁進頁才載入腳本，以共用模型選單填好作為 readiness gate。
     await waitFor(
       () => mainCdp.eval(`document.readyState === 'complete' && !!document.querySelector('[data-page="stt"]')`),
       15000,
@@ -145,22 +145,11 @@ async function main() {
     // 等監聽綁好再點「即時字幕」子分頁，否則第一次 click 會落空。
     await mainCdp.eval(`document.querySelector('[data-page="stt"]').click(), 'ok'`)
     await waitFor(
-      () => mainCdp.eval(`!!document.getElementById('liveAsrModel')?.options.length`),
+      () => mainCdp.eval(`!!document.getElementById('fileAsrModel')?.options.length`),
       15000,
       '語音轉文字頁初始化'
     )
-    await mainCdp.eval(`document.querySelector('#sttSubtabs [data-subtab="live"]').click(), 'ok'`)
-    await waitFor(
-      () => mainCdp.eval(`(() => {
-        const hint = document.getElementById('liveTranslatorHint')?.textContent || ''
-        return hint && !hint.includes('檢查中')
-      })()`),
-      15000,
-      '即時字幕頁初始化'
-    )
-
     await mainCdp.eval(`(() => {
-      document.querySelector('#sttSubtabs [data-subtab="live"]').click()
       document.getElementById('liveLanguage').value = 'auto'
       document.getElementById('startLiveBtn').click()
     })()`)

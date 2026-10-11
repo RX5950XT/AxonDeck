@@ -2068,7 +2068,7 @@
                     <select id="translatePageModel" class="model-chip-select" aria-label="翻譯模型"></select>
                   </label>
                 </div>
-                <details class="translate-voice">
+                <details class="translate-voice" name="translateTopbar">
                   <summary id="translateVoiceTitle">EdgeTTS</summary>
                   <div class="settings-card">
                     <p class="settings-section-desc">需要連網。改了立刻生效。</p>
@@ -2115,6 +2115,26 @@
                         </div>
                       </div>
                     </div>
+                  </div>
+                </details>
+                <details class="translate-voice translate-glossary" name="translateTopbar">
+                  <summary>術語表</summary>
+                  <div class="settings-card">
+                    <div class="setting-group">
+                      <label class="dict-switch">
+                        <input type="checkbox" id="translateGlossaryBuiltin" role="switch" aria-describedby="translateGlossaryBuiltinHint" />
+                        <span class="dict-switch-track" aria-hidden="true"></span>
+                        <span class="dict-switch-label">內建學術名詞庫</span>
+                      </label>
+                      <p id="translateGlossaryBuiltinHint" class="setting-hint">國家教育研究院學術名詞（數理化、天文地科、生命科學、材料、電機、資訊、機械、土木、化工、航太等 45 科，約 55 萬條片語），依政府資料開放授權條款使用。一詞多譯時，雲端模型依上下文挑；Index-Translate 只套用譯法唯一的詞。</p>
+                    </div>
+                    <div class="setting-group">
+                      <label for="translateGlossaryInput">自訂術語（優先於內建），每行一個：英文=繁中</label>
+                      <textarea id="translateGlossaryInput" class="input translate-glossary-input" rows="12" maxlength="50000"
+                        spellcheck="false" aria-describedby="translateGlossaryHint"></textarea>
+                      <p id="translateGlossaryHint" class="setting-hint">原文出現這個詞才套用，目標語言是繁體中文時有效。雲端模型與 Index-Translate 適用；LinguaForge 不支援。離開文字框就儲存。</p>
+                    </div>
+                    <button type="button" id="translateGlossaryReset" class="btn btn-secondary btn-sm">恢復內建清單</button>
                   </div>
                 </details>
               </div>
@@ -2167,19 +2187,16 @@
                   <button type="button" id="translateSpeakInputBtn" class="btn btn-secondary btn-sm" aria-pressed="false">🔊 朗讀</button>
                   <button type="button" id="translateClearInputBtn" class="btn btn-secondary btn-sm">清空</button>
                 </div>
-                <div id="pdfTranslateRoot" class="file-attach" aria-live="polite">
+                <div class="file-attach">
                   <div id="pdfTranslateChip" class="file-chip" hidden>
                     <span id="pdfTranslateFile" class="file-chip-name"></span>
+                    <button type="button" id="pdfTranslateRun" class="btn btn-primary btn-sm">翻譯檔案</button>
                     <button type="button" id="pdfTranslateRemove" class="file-chip-remove" aria-label="移除附件">×</button>
                   </div>
                   <div id="pdfTranslateSetup" class="file-setup" hidden>
                     <p id="pdfTranslateSetupText"></p>
                     <button type="button" id="pdfTranslateModels" class="btn btn-secondary btn-sm">前往 Local SI</button>
                   </div>
-                  <progress id="pdfTranslateProgress" class="pdf-translate-progress" aria-label="檔案翻譯進度" hidden></progress>
-                  <p id="pdfTranslateStatus" class="file-status" role="status" hidden></p>
-                  <ul id="pdfTranslateWarnings" class="pdf-translate-warnings" aria-label="需要核對的內容" hidden></ul>
-                  <button type="button" id="pdfTranslateSave" class="btn btn-secondary btn-sm" hidden>另存翻譯 PDF</button>
                   <p id="pdfTranslateError" class="live-error" role="alert" hidden></p>
                 </div>
               </div>
@@ -2199,6 +2216,12 @@
                   <button type="button" id="translateCopyOutputBtn" class="btn btn-secondary btn-sm">📋 複製</button>
                   <button type="button" id="translateSpeakOutputBtn" class="btn btn-secondary btn-sm" aria-pressed="false" disabled title="請先翻譯">🔊 朗讀</button>
                 </div>
+                <div id="pdfTranslateRoot" class="file-attach" aria-live="polite" hidden>
+                  <progress id="pdfTranslateProgress" class="pdf-translate-progress" aria-label="檔案翻譯進度" hidden></progress>
+                  <p id="pdfTranslateStatus" class="file-status" role="status" hidden></p>
+                  <ul id="pdfTranslateWarnings" class="pdf-translate-warnings" aria-label="需要核對的內容" hidden></ul>
+                  <button type="button" id="pdfTranslateSave" class="btn btn-secondary btn-sm" hidden>另存翻譯 PDF</button>
+                </div>
               </div>
             </div>
 
@@ -2206,7 +2229,7 @@
               <button type="button" id="translateRunBtn" class="btn btn-primary">
                 翻譯
               </button>
-              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段；PDF 或圖片可＋檔案、拖入或貼上，譯文輸出成 PDF。</p>
+              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段；PDF 或圖片可＋檔案、拖入或貼上，按「翻譯檔案」輸出成 PDF，處理時仍可翻譯文字。</p>
             </div>
             <p id="translateStatus" class="translate-status">翻譯：檢查中…</p>
             <p id="translateError" class="live-error hidden" role="alert"></p>

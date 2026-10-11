@@ -29,6 +29,22 @@ function s2twp(text) {
   return shaped === text ? text : toTwp(text)
 }
 
+/** 日文新字體表裡、臺灣繁中本來就在用的字（jp→t 會把它們改成異體或別的字） */
+const TW_VALID_KANJI = new Set('並予併即凜晃概欠研真翻缶芸萌郎緒鎮衛褒餅瓶桝槙弁台余岳沪祢為偽痴秘')
+let fromJp = null
+
+/**
+ * 繁中譯文裡混進的日文新字體（補関數→補關數）逐字換回繁體。
+ * 逐字轉、不走詞組，避免 jp 詞彙表改到中文詞。
+ * @param {string} text
+ * @returns {string}
+ */
+function jpKanjiToTw(text) {
+  if (!text) return text
+  if (!fromJp) fromJp = require('opencc-js').Converter({ from: 'jp', to: 't' })
+  return Array.from(text, (char) => (/\p{Script=Han}/u.test(char) && !TW_VALID_KANJI.has(char) ? fromJp(char) : char)).join('')
+}
+
 /**
  * 目標語為繁中時，僅對「像中文、非日韓」的來源做 s2twp。
  * 不可只看 lang==='zh-TW'：日文漢字會被 opencc 弄髒（国→國 等）。
@@ -44,4 +60,4 @@ function shouldS2twpSource(text, lang) {
   return cjkCount / Math.max(1, text.length) >= 0.3
 }
 
-module.exports = { s2twp, shouldS2twpSource }
+module.exports = { s2twp, jpKanjiToTw, shouldS2twpSource }

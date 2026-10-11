@@ -20,7 +20,7 @@ import {
   warnNotReady,
   resolveCloudTranslate
 } from './model-picker.js'
-import { initPdfTranslate, refreshPdfTranslate, getPdfFile, isPdfRunning, isPdfReady, startPdfJob, cancelPdfJob, detachPdfFile } from './pdf-translate.js'
+import { initPdfTranslate, refreshPdfTranslate, isPdfRunning, detachPdfFile } from './pdf-translate.js'
 
 /** @type {{ value: string, label: string, ready: boolean }[]} */
 let modelOpts = []
@@ -203,11 +203,42 @@ export function initTranslatePage() {
     await syncEngineForSettings()
   })
 
+  initGlossary()
   updateCharCount()
   setOutputState('idle')
   refreshUiState()
-  initPdfTranslate({ getLanguages: () => ({ sourceLang: el.sourceLang.value, targetLang: el.targetLang.value }),
-    onStateChange: () => { refreshUiState().catch(() => {}) } })
+  initPdfTranslate({ getLanguages: () => ({ sourceLang: el.sourceLang.value, targetLang: el.targetLang.value }) })
+}
+
+/** 術語表：main 端在沒設定過時回內建清單；存 null＝恢復內建 */
+function initGlossary() {
+  const input = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('translateGlossaryInput'))
+  if (!input) return
+  const load = async () => { input.value = await electronAPI.store.get('translateGlossary', '') }
+  const save = async (value) => {
+    try {
+      await electronAPI.store.set('translateGlossary', value)
+      await load()
+      showToast('術語表已儲存')
+    } catch (error) {
+      showToast(`術語表儲存失敗：${cleanIpcError(error)}`, 'error')
+    }
+  }
+  input.addEventListener('change', () => save(input.value))
+  document.getElementById('translateGlossaryReset')?.addEventListener('click', () => save(null))
+  void load().catch(() => {})
+  const builtin = /** @type {HTMLInputElement | null} */ (document.getElementById('translateGlossaryBuiltin'))
+  if (!builtin) return
+  builtin.addEventListener('change', async () => {
+    try {
+      await electronAPI.store.set('translateGlossaryBuiltin', builtin.checked)
+      showToast(builtin.checked ? '已啟用內建學術名詞庫' : '已關閉內建學術名詞庫')
+    } catch (error) {
+      builtin.checked = !builtin.checked
+      showToast(`設定失敗：${cleanIpcError(error)}`, 'error')
+    }
+  })
+  void electronAPI.store.get('translateGlossaryBuiltin', true).then((on) => { builtin.checked = on }).catch(() => {})
 }
 
 /**
@@ -340,12 +371,12 @@ async function refreshUiState() {
   }
   if (el.status) el.status.textContent = statusLabel
   if (el.runBtn) {
-    if (isTranslating || isPdfRunning()) {
+    if (isTranslating) {
       el.runBtn.disabled = false
       el.runBtn.textContent = '停止'
     } else {
       el.runBtn.textContent = '翻譯'
-      el.runBtn.disabled = !canTranslate || (!!getPdfFile() && !isPdfReady())
+      el.runBtn.disabled = !canTranslate
     }
   }
   updateSpeakOutputEnabled()
@@ -444,10 +475,9 @@ function resolveInputSpeakLang() {
 }
 
 async function runTranslate() {
-  // 翻譯中再按＝停止（長文分段可能跑很久；檔案亦同）
-  if (isTranslating || isPdfRunning()) {
+  // 翻譯中再按＝停止（長文分段可能跑很久）
+  if (isTranslating) {
     el._translateRequestId = 0
-    await cancelPdfJob()
     return
   }
   settings = await getSettings()
@@ -456,13 +486,6 @@ async function runTranslate() {
     showToast(el.bannerText?.textContent || '翻譯尚未就緒，請到設定檢查', 'error')
     return
   }
-  // 有附件時走檔案（語言共用上方選擇），否則走文字
-  if (getPdfFile()) {
-    await startPdfJob()
-    await refreshUiState()
-    return
-  }
-
   const text = (el.input?.value || '').trim()
   if (!text) {
     showToast('請輸入要翻譯的文字', 'error')

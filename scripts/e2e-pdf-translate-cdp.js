@@ -87,6 +87,24 @@ async function main() {
     await waitFor(() => cdp.eval(`document.readyState === 'complete' && !!window.electronAPI?.store`), 'preload')
     await cdp.eval(`document.querySelector('.nav-tab[data-page="translate"]').click()`)
     await waitFor(() => cdp.eval(`document.getElementById('translateInputPane')?.offsetHeight > 0`), '輸入框')
+    // 術語表走真的 store IPC（隔離 userData）：預設內建清單、改了存檔、恢復內建、跟 EdgeTTS 卡片互斥
+    await waitFor(() => cdp.eval(`document.getElementById('translateGlossaryInput').value.includes('正合方程')`), '術語表內建清單')
+    await cdp.eval(`(() => { const box = document.getElementById('translateGlossaryInput'); box.value = 'growth=成長'; box.dispatchEvent(new Event('change')) })()`)
+    await waitFor(() => cdp.eval(`window.electronAPI.store.get('translateGlossary').then((v) => v === 'growth=成長')`), '術語表儲存')
+    await cdp.eval(`document.getElementById('translateGlossaryReset').click()`)
+    await waitFor(() => cdp.eval(`window.electronAPI.store.get('translateGlossary').then((v) => v.includes('正合方程') && document.getElementById('translateGlossaryInput').value.includes('正合方程'))`), '術語表恢復內建')
+    await waitFor(() => cdp.eval(`document.getElementById('translateGlossaryBuiltin').checked`), '內建學術名詞庫預設開')
+    await cdp.eval(`document.getElementById('translateGlossaryBuiltin').click()`)
+    await waitFor(() => cdp.eval(`window.electronAPI.store.get('translateGlossaryBuiltin').then((v) => v === false)`), '內建學術名詞庫關閉')
+    await cdp.eval(`document.getElementById('translateGlossaryBuiltin').click()`)
+    await waitFor(() => cdp.eval(`window.electronAPI.store.get('translateGlossaryBuiltin').then((v) => v === true)`), '內建學術名詞庫重新開啟')
+    await check('術語表與 EdgeTTS 卡片一次只開一個', `(() => {
+      const [voice, terms] = document.querySelectorAll('#page-translate .translate-voice')
+      voice.open = true; terms.open = true
+      const ok = terms.open && !voice.open && terms.querySelector('.settings-card').offsetHeight > 0
+      terms.open = false
+      return ok
+    })()`)
     await check('檔案翻譯住在輸入框內、沒有獨立區塊', `!!document.getElementById('translateInput') && !!document.getElementById('pdfTranslatePick') && document.getElementById('pdfTranslatePick').closest('#translateInputPane') && !document.getElementById('pdfTranslateTitle')`)
 
     // 使用打包內的實際模組，mock IPC；換新節點避免原本的真 IPC 事件一起觸發。
@@ -94,8 +112,7 @@ async function main() {
       .replace(/^import[^\n]+\n/, '')
       .replace(/export /g, '')
     await cdp.eval(`(() => {
-      const original = document.getElementById('pdfTranslateRoot')
-      original.replaceWith(original.cloneNode(true))
+      for (const node of [document.getElementById('pdfTranslateRoot'), document.getElementById('pdfTranslateChip').parentElement]) node.replaceWith(node.cloneNode(true))
       window.pdfUiTest = { ready: true, file: null, job: null, starts: [], saves: [], states: [] }
       const test = window.pdfUiTest
       const electronAPI = {
@@ -114,8 +131,8 @@ async function main() {
       const cleanIpcError = (error) => error.message || String(error)
       const switchPage = (page) => { test.page = page }
       ${source}
-      test.api = { getPdfFile, isPdfRunning, isPdfReady, startPdfJob, cancelPdfJob, detachPdfFile, refreshPdfTranslate }
-      initPdfTranslate({ getLanguages: () => ({ sourceLang: 'auto', targetLang: document.querySelector('#translateTargetLang .active').dataset.value }), onStateChange: () => test.states.push(getPdfFile()?.fileId || null) })
+      test.api = { getPdfFile, isPdfRunning, startPdfJob, cancelPdfJob, detachPdfFile, refreshPdfTranslate }
+      initPdfTranslate({ getLanguages: () => ({ sourceLang: 'auto', targetLang: document.querySelector('#translateTargetLang .active').dataset.value }) })
       test.drop = (names) => {
         const dt = new DataTransfer()
         for (const name of names) dt.items.add(new File(['fixture'], name, { type: 'application/pdf' }))
@@ -154,20 +171,25 @@ async function main() {
     await check('貼上無效圖片報錯', `document.getElementById('pdfTranslateError').textContent === '測試圖片無效'`)
     await cdp.eval(`pdfUiTest.api.detachPdfFile(); pdfUiTest.drop(['長篇.pdf'])`)
     await waitFor(() => cdp.eval(`pdfUiTest.api.getPdfFile()?.fileId === 'test-file'`), '後續流程附件')
-    await check('附件交給主翻譯鈕，模組只暴露狀態', `typeof pdfUiTest.api.startPdfJob === 'function' && typeof pdfUiTest.api.isPdfRunning === 'function' && !document.getElementById('pdfTranslateRun') && !document.getElementById('pdfTranslateCancel')`)
+    await check('檔案有自己的翻譯鈕，進度放在譯文格', `(() => {
+      const run = document.getElementById('pdfTranslateRun'), root = document.getElementById('pdfTranslateRoot')
+      return run.offsetHeight > 0 && !run.disabled && run.textContent === '翻譯檔案' && !!run.closest('#translateInputPane')
+        && !root.closest('#translateInputPane') && !!root.closest('.translate-pane') && root.hidden
+    })()`)
     await cdp.eval(`document.querySelector('#translateTargetLang [data-value="ja"]').click(); pdfUiTest.api.startPdfJob(); pdfUiTest.api.startPdfJob()`)
     await waitFor(() => cdp.eval(`pdfUiTest.starts.length === 1 && document.getElementById('pdfTranslatePick').disabled`), '開始翻譯')
     await check('沿用語言且不重複開始', `pdfUiTest.starts[0].targetLang === 'ja' && pdfUiTest.starts[0].sourceLang === 'auto'`)
+    await check('處理中檔案鈕變停止、主翻譯鈕仍可翻文字', `document.getElementById('pdfTranslateRun').textContent === '停止' && !document.getElementById('pdfTranslateRoot').hidden && document.getElementById('translateRunBtn').textContent.trim() === '翻譯'`)
     await cdp.eval(`pdfUiTest.emit({ ...pdfUiTest.job, page: 73, stage: 'translate' })`)
     await check('長篇頁數進度與工作狀態', `document.getElementById('pdfTranslateProgress').max === 250 && document.getElementById('pdfTranslateProgress').value === 73 && document.getElementById('pdfTranslateStatus').textContent.includes('250 頁')`)
     await cdp.eval(`pdfUiTest.emit({ ...pdfUiTest.job, page: 73, stage: 'translate' })`)
     await check('長篇頁數進度與工作狀態', `document.getElementById('pdfTranslateProgress').value === 73 && document.getElementById('pdfTranslateStatus').textContent.includes('250 頁')`)
     await cdp.eval(`pdfUiTest.emit({ jobId: 'wrong-job', state: 'done' })`)
     await check('忽略其他工作進度', `document.getElementById('pdfTranslateSave').hidden && pdfUiTest.api.isPdfRunning()`)
-    await cdp.eval(`pdfUiTest.api.cancelPdfJob()`)
+    await cdp.eval(`document.getElementById('pdfTranslateRun').click()`)
     await waitFor(() => cdp.eval(`document.getElementById('pdfTranslateStatus').textContent.includes('已停止')`), '取消')
     await check('取消後沒有未完成輸出可另存', `document.getElementById('pdfTranslateSave').hidden`)
-    await cdp.eval(`pdfUiTest.api.startPdfJob()`)
+    await cdp.eval(`document.getElementById('pdfTranslateRun').click()`)
     await waitFor(() => cdp.eval(`pdfUiTest.starts.length === 2`), '再翻譯')
     await cdp.eval(`pdfUiTest.emit({ ...pdfUiTest.job, state: 'done', page: 250, pages: 250, translatedBlocks: 800, warnings: [{ code: 'overflow', count: 2 }, { code: 'small_text', count: 3 }] })`)
     await check('完成才可另存並顯示核對提示', `document.getElementById('pdfTranslateSave').offsetHeight > 0 && document.getElementById('pdfTranslateWarnings').textContent.includes('已保留原文') && document.getElementById('pdfTranslateStatus').textContent.includes('800 處')`)

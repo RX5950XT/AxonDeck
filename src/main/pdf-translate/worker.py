@@ -78,6 +78,25 @@ def validate_config(config):
         raise WorkerError("LAYOUT_MISSING")
 
 
+def create_layout(config):
+    # 版面只要框和標籤；整頁 VL 辨識每一塊很慢，原生文字頁根本用不到。
+    from paddleocr import LayoutDetection
+    return LayoutDetection(model_name="PP-DocLayoutV3", model_dir=config["layoutDir"], device="cpu")
+
+
+class LazyPipeline:
+    """只有遇到沒有原生文字的區塊（掃描頁、圖）才載入 VL 辨識。"""
+
+    def __init__(self, config):
+        self.config = config
+        self.value = None
+
+    def predict(self, *args, **kwargs):
+        if self.value is None:
+            self.value = create_pipeline(self.config)
+        return self.value.predict(*args, **kwargs)
+
+
 def create_pipeline(config):
     # 固定本機 layout，避免 Paddle 在處理文件時另下載模型。
     from paddleocr import PaddleOCRVL
@@ -152,8 +171,18 @@ def is_formula(text, font=""):
                 or ("=" in text and len(text.split()) < 10))
 
 
+# 拉丁字母要連續 3 個以上才算詞；t、P、dx、x y z 這類數學變數送去翻只會原樣回來。
+# 希臘字母同理視為符號；中日韓等其他文字一個字就有意義。
+WORD = re.compile(r"[A-Za-z\u00C0-\u024F]{3,}|[^\W\d_A-Za-z\u00C0-\u024F\u0370-\u03FF]")
+
+
+# 函數名（cos、exp）與微分（dx、Mdx、ydy）也有三個字母，但翻了會變成「餘弦」「經驗」「好的」。
+MATH_TOKEN = re.compile(r"(?:(?:arc)?(?:sin|cos|tan|cot|sec|csc)h?|exp|log|ln|lim|max|min|det|sup|inf|arg"
+                        r"|[A-Za-z]{0,3}d[rstuvxyz])\s*\(?")
+
+
 def translatable(text):
-    return any(ch.isalpha() for ch in text) and not is_formula(text)
+    return bool(WORD.search(text)) and not is_formula(text) and not MATH_TOKEN.fullmatch(text.strip())
 
 
 def direction_rotation(direction):
@@ -182,7 +211,7 @@ def span_parts(span, protected):
 
 
 def native_units(page, protected, warnings):
-    units = []
+    units, kept = [], []
     invisible = [fitz.Rect(s["bbox"]) for s in page.get_texttrace() if s.get("type") == 3]
     for block in page.get_text("rawdict", flags=fitz.TEXTFLAGS_RAWDICT & ~fitz.TEXT_PRESERVE_IMAGES)["blocks"]:
         for line in block.get("lines", []):
@@ -193,6 +222,8 @@ def native_units(page, protected, warnings):
                 text = span.get("text", "")
                 rect = fitz.Rect(span["bbox"])
                 if not text.strip() or is_formula(text, span.get("font", "")):
+                    if text.strip():
+                        kept.append(rect)
                     runs.append(None)
                     continue
                 if rotation is None:
@@ -214,8 +245,13 @@ def native_units(page, protected, warnings):
                     previous["rect"] |= rect
                 else:
                     runs.append(unit)
-            units.extend(unit for unit in runs if unit and translatable(unit["text"]))
-    return units
+            for unit in runs:
+                if unit and translatable(unit["text"]):
+                    units.append(unit)
+                elif unit:
+                    kept.append(unit["rect"])
+    # kept：留在頁面上的原文（變數、公式字），段落合併不能蓋到它們。
+    return units, kept
 
 
 def page_image(page):
@@ -226,17 +262,15 @@ def page_image(page):
     return image[:, :, ::-1].copy(), pix.width / page.rect.width, pix.height / page.rect.height
 
 
-def parse_layout(pipeline, image, sx, sy, bounds, warnings):
-    results = pipeline.predict(image, temperature=0, max_new_tokens=8192)
-    data = single_result(results)
-    raw = data.get("parsing_res_list")
+def parse_layout(layout, image, sx, sy, bounds, warnings):
+    raw = single_result(layout.predict(image)).get("boxes")
     if not isinstance(raw, list):
         raise WorkerError("OCR_RESULT")
     blocks = []
     for block in raw:
-        if not isinstance(block, dict) or not isinstance(block.get("block_label"), str):
+        if not isinstance(block, dict) or not isinstance(block.get("label"), str):
             raise WorkerError("OCR_RESULT")
-        bbox = block.get("block_bbox", [])
+        bbox = block.get("coordinate", [])
         if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
             warnings["OCR_BOX_INVALID"] += 1
             continue
@@ -248,8 +282,7 @@ def parse_layout(pipeline, image, sx, sy, bounds, warnings):
             continue
         rect = checked_rect(value, bounds, warnings)
         if rect is not None:
-            blocks.append({"rect": rect, "label": block["block_label"],
-                           "text": block.get("block_content", "")})
+            blocks.append({"rect": rect, "label": block["label"]})
     return blocks
 
 
@@ -304,24 +337,24 @@ def spotting_units(pipeline, image, region, sx, sy, bounds, protected, native, w
     return units
 
 
-def collect_units(page, pipeline, warnings):
+def collect_units(page, layout, pipeline, warnings):
     image, sx, sy = page_image(page)
-    blocks = parse_layout(pipeline, image, sx, sy, page.rect, warnings)
+    blocks = parse_layout(layout, image, sx, sy, page.rect, warnings)
     protected = [b["rect"] for b in blocks if "formula" in b["label"] or b["label"] == "seal"]
-    native = native_units(page, protected, warnings)
+    native, kept = native_units(page, protected, warnings)
     units = native[:]
     regions = [b["rect"] for b in blocks if "formula" not in b["label"] and b["label"] != "seal"]
     if not regions and not native:
         regions = [page.rect]
     for region in regions:
-        # 原生文字足夠時，表格和圖表依逐行框替換，不整塊覆蓋。
-        covered = sum((unit["rect"] & region).get_area() for unit in native)
-        if covered > region.get_area() * 0.25:
+        # 有文字層的區塊以原生文字為準（含留著的數學字）；OCR 只補掃描頁和圖片，
+        # 否則 OCR 結果會蓋在原文與公式上，又慢又擠。
+        if any(not (rect & region).is_empty for rect in [u["rect"] for u in native] + kept):
             continue
         for part in text_regions(region, protected):
             found = spotting_units(pipeline, image, part, sx, sy, page.rect, protected, units, warnings)
             units.extend(found)
-    return group_paragraphs(units, blocks, protected), image, sx, sy
+    return group_paragraphs(units, blocks, protected + kept), image, sx, sy
 
 
 def group_paragraphs(units, blocks, protected):
@@ -401,22 +434,40 @@ def replace_units(page, units, image, sx, sy):
             raise WorkerError("PDF_WRITE")
 
 
-def request_translation(stdin, stdout, request_id, text):
-    emit(stdout, {"type": "translate", "id": request_id, "text": text})
-    reply = read_message(stdin)
-    if reply.get("id") != request_id or reply.get("error"):
-        raise WorkerError("TRANSLATION")
-    translated = reply.get("text")
-    if not isinstance(translated, str) or not translated.strip() or len(translated) > 200000:
-        raise WorkerError("TRANSLATION")
-    # 上游偶發孤立替代字（無效 UTF-8）；PyMuPDF 寫不進去，整段放棄更糟，換成 �。
-    translated = "".join("\ufffd" if "\ud800" <= char <= "\udfff" else char for char in translated)
-    return translated.strip()
+SHORT_TEXT = 80
+REFERENCE_CHARS = 1500
+
+
+def request_translations(stdin, stdout, page_number, texts):
+    # 一頁的請求一次送出，main 並行翻譯，回覆順序不固定，依 id 對回。
+    ids = [f"{page_number}:{number}" for number in range(len(texts))]
+    # 圖框標籤這類短詞單獨翻會亂猜詞義（Physical System→身體的系統）；附整頁原文給模型參考。
+    reference = "\n".join(texts)[:REFERENCE_CHARS]
+    for request_id, text in zip(ids, texts):
+        message = {"type": "translate", "id": request_id, "text": text}
+        if len(text) < SHORT_TEXT and len(reference) > len(text):
+            message["reference"] = reference
+        emit(stdout, message)
+    replies = {}
+    while len(replies) < len(ids):
+        reply = read_message(stdin)
+        request_id = reply.get("id")
+        if request_id not in ids or request_id in replies or reply.get("error"):
+            raise WorkerError("TRANSLATION")
+        translated = reply.get("text")
+        if not isinstance(translated, str) or not translated.strip() or len(translated) > 200000:
+            raise WorkerError("TRANSLATION")
+        # 上游偶發孤立替代字（無效 UTF-8）；PyMuPDF 寫不進去，整段放棄更糟，換成 �。
+        replies[request_id] = "".join("\ufffd" if "\ud800" <= char <= "\udfff" else char
+                                      for char in translated).strip()
+    return [replies[request_id] for request_id in ids]
 
 
 def append_page(path, page_doc, first):
+    # 每段譯文各帶一份完整中文字型（約 3.5 MB）；先子集化，最後再去重。
+    page_doc.subset_fonts()
     if first:
-        page_doc.save(path, deflate=True)
+        page_doc.save(path, garbage=3, deflate=True)
     else:
         # 重新開啟磁碟上的輸出，避免長文件把所有頁面影像留在記憶體。
         with fitz.open(path) as output:
@@ -424,7 +475,7 @@ def append_page(path, page_doc, first):
             output.saveIncr()
 
 
-def preserve_navigation(source, path):
+def preserve_navigation(source, path, final):
     with fitz.open(path) as output:
         output.set_metadata(source.metadata)
         output.set_toc(source.get_toc(simple=False))
@@ -444,10 +495,11 @@ def preserve_navigation(source, path):
                 if "to" in value:
                     value["to"] = value["to"] * destination.rotation_matrix
                 target.insert_link(value)
-        output.saveIncr()
+        # 逐頁增量存檔會留下舊版物件；最後整份重寫並合併相同字型。
+        output.save(final, garbage=4, deflate=True)
 
 
-def run(config, stdin, stdout, pipeline=None):
+def run(config, stdin, stdout, pipeline=None, layout=None):
     validate_config(config)
     warnings = Counter()
     translated_count = 0
@@ -460,7 +512,9 @@ def run(config, stdin, stdout, pipeline=None):
             fitz.open(stream=original.convert_to_pdf(), filetype="pdf"))
         pages = source.page_count
         emit(stdout, {"type": "progress", "page": 0, "pages": pages, "stage": "opening"})
-        pipeline = pipeline if pipeline is not None else create_pipeline(config)
+        layout = layout if layout is not None else create_layout(config)
+        pipeline = pipeline if pipeline is not None else LazyPipeline(config)
+        partial = config["outputPath"] + ".pages"
         for index in range(pages):
             emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "ocr"})
             with fitz.open() as single:
@@ -470,11 +524,11 @@ def run(config, stdin, stdout, pipeline=None):
                     raise WorkerError("PDF_UNSUPPORTED")
                 if page.rotation:
                     page.remove_rotation()
-                units, image, sx, sy = collect_units(page, pipeline, warnings)
+                units, image, sx, sy = collect_units(page, layout, pipeline, warnings)
                 ready = []
                 emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "translate"})
-                for number, unit in enumerate(units):
-                    translated = request_translation(stdin, stdout, f"{index + 1}:{number}", unit["text"])
+                texts = request_translations(stdin, stdout, index + 1, [unit["text"] for unit in units])
+                for unit, translated in zip(units, texts):
                     if translated == unit["text"].strip():
                         warnings["TEXT_UNTRANSLATED"] += 1
                         continue
@@ -485,8 +539,12 @@ def run(config, stdin, stdout, pipeline=None):
                 replace_units(page, ready, image, sx, sy)
                 translated_count += len(ready)
                 emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "saving"})
-                append_page(config["outputPath"], single, index == 0)
-        preserve_navigation(source, config["outputPath"])
+                append_page(partial, single, index == 0)
+        try:
+            preserve_navigation(source, partial, config["outputPath"])
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(partial)
     codes = {"TEXT_OVERFLOW_ORIGINAL_KEPT": "overflow", "OCR_TEXT_NOT_LOCATED": "untranslated",
              "TEXT_UNTRANSLATED": "untranslated", "TEXT_ROTATION_UNSUPPORTED": "unsupported",
              "OCR_BOX_INVALID": "spotting", "TEXT_SHRUNK": "small_text"}
@@ -500,9 +558,11 @@ def run(config, stdin, stdout, pipeline=None):
 def main():
     stdin = sys.stdin
     stdout = _JSONL or sys.stdout
+    # main 用 -I 啟動會忽略 PYTHONIOENCODING；不指定就以系統碼頁（cp950）解譯文，PDF 變亂碼。
+    if hasattr(stdin, "reconfigure"):
+        stdin.reconfigure(encoding="utf-8")
     if _JSONL is None:
-        if hasattr(stdin, "reconfigure"):
-            stdin.reconfigure(encoding="utf-8")
+        if hasattr(stdout, "reconfigure"):
             stdout.reconfigure(encoding="utf-8", newline="\n")
         # 原生 Paddle 的 printf 也要導走；保留另一個 fd 專供 JSONL。
         stdout = os.fdopen(os.dup(stdout.fileno()), "w", encoding="utf-8", newline="\n", buffering=1)

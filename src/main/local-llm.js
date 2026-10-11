@@ -12,7 +12,8 @@ const {
   ggufRelativePath,
   isDownloaded
 } = require('./models')
-const { s2twp } = require('./opencc')
+const { s2twp, jpKanjiToTw } = require('./opencc')
+const glossary = require('./glossary')
 const { stripThink, stripTranslationNoise, findRepetitionLoop } = require('./translate-clean')
 const { detectGpuCapability } = require('./gpu-capability')
 const { readResponseText } = require('./usage/shared')
@@ -484,7 +485,7 @@ function splitForLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
 }
 
 /** 行首清單標記（`- ` `· ` `1. ` `(1) ` …）：不送模型，翻完原樣貼回 */
-const LIST_MARKER = /^[ 	]*(?:[-*•·‧+>]|\d{1,2}[.)、]|[（(]\d{1,2}[)）])[ 	]*/u
+const LIST_MARKER = /^[ 	]*(?:[-*•·‧+>]|\d{1,2}[.)、]|[A-Z][.)](?=[ 	])|[（(]\d{1,2}[)）])[ 	]*/u
 
 /**
  * 拆行並剝清單標記。標記不送模型（實測 `· ` 會被翻成「選擇器：」）。
@@ -562,10 +563,17 @@ async function translatePacked(jobs, targetLang, options, key) {
       out.push(job.prefix)
       continue
     }
-    const translated = await translateLocalOnce(job.text, targetLang, {}, options, key, {
+    let translated = await translateLocalOnce(job.text, targetLang, {}, options, key, {
       chunkIndex: done,
       chunkCount: total
     })
+    // 併成一段的多行，小模型常只翻第一行就停；行數變少就逐行重翻。
+    const lines = job.text.split('\n')
+    if (lines.length > 1 && translated.split('\n').filter((line) => line.trim()).length < lines.filter((line) => line.trim()).length) {
+      const each = []
+      for (const line of lines) each.push(line.trim() ? await translateLocalOnce(line, targetLang, {}, options, key) : '')
+      translated = each.join('\n')
+    }
     done += 1
     out.push(job.prefix ? job.prefix + translated : translated)
   }
@@ -672,7 +680,10 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     history.push({ type: 'model', response: [pair.prevTr] })
   }
   session.setChatHistory(history)
-  const userMsg = buildUserMessage(key, text, targetLang)
+  // 術語表只給 Index：它有官方術語約束格式；約束格式整體譯法較差，所以原文有對到詞才用。
+  // 內建詞庫有多個候選的詞不給：硬性約束只能一個譯名，選錯學科比不給更糟
+  const terms = key === INDEX_KEY ? glossary.find(options.glossary, text).filter((term) => term.targets.length === 1) : []
+  const userMsg = terms.length ? buildIndexStrictMessage(text, targetLang, { terms }) : buildUserMessage(key, text, targetLang)
 
   if (isLinguaforge(key)) {
     const decode = resolveLinguaforgeDecode(targetLang)
@@ -731,14 +742,54 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     return finalOut
   }
 
-  const out = await session.prompt(userMsg, {
+  const promptOpts = {
     signal: options.signal,
     maxTokens: resolveMaxTokens(text, options.mode, false),
     temperature: 0,
     repeatPenalty: false,
     budgets: { thoughtTokens: 0 }
-  })
-  return stripTranslationNoise(stripThink(out), text)
+  }
+  const out = stripTranslationNoise(stripThink(await session.prompt(userMsg, promptOpts)), text)
+  if (key !== INDEX_KEY || !hasLeftoverSource(out, text, targetLang)) return out
+  // 少數片段會留英文單字或冒出日文假名；換官方約束格式重翻。不是每段都用：
+  // 約束格式整體譯法較差（Formulation→配方）。先試寬鬆版，不行再加「只能用繁中」——
+  // 後者修得掉日文，但對正常片段會冒出粵語用字（是→係），所以排第二。
+  for (const strict of [false, true]) {
+    session.setChatHistory(history)
+    const retry = stripTranslationNoise(stripThink(
+      await session.prompt(buildIndexStrictMessage(text, targetLang, { leftover: true, strict, terms }), promptOpts)), text)
+    if (retry && !hasLeftoverSource(retry, text, targetLang)) return retry
+  }
+  return out
+}
+
+/**
+ * 中文譯文裡出現日文假名，或原文的小寫英文單字（專有名詞、縮寫多為大寫，不算）
+ * @param {string} out
+ * @param {string} text
+ * @param {string} targetLang
+ */
+function hasLeftoverSource(out, text, targetLang) {
+  if (targetLang !== 'zh-TW' && targetLang !== 'zh-CN') return false
+  if (/[぀-ヿ]/.test(out) && !/[぀-ヿ]/.test(text)) return true
+  return (out.match(/\b[a-z]{4,}\b/g) || []).some((word) => text.toLowerCase().includes(word.slice(0, 4)))
+}
+
+/**
+ * Index-Translate 官方 instTrans 約束格式：術語對照、「不留英文、不出日文」兩種約束按需加
+ * @param {string} text
+ * @param {string} targetLang
+ * @param {{ leftover?: boolean, strict?: boolean, terms?: { source: string, target: string }[] }} constraints
+ */
+function buildIndexStrictMessage(text, targetLang, { leftover = false, strict = false, terms = [] }) {
+  const name = INDEX_LANGUAGE_NAMES[targetLang] || LANGUAGE_NAMES[targetLang] || targetLang
+  const rules = []
+  if (terms.length) rules.push(`【硬性要求】专名/术语对照: ${terms.map((term) => `${term.source}→${term.targets[0]}`).join('、')}`)
+  if (leftover) {
+    rules.push(`【硬性要求】译文${strict ? `只能用${name}，` : ''}不得保留源文的英文单词（专有名词与缩写除外），也不得出现日文`)
+  }
+  return `请将以下文本翻译成${name}，并且严格遵循所有约束要求。\n\n【源文】\n${text}\n\n【约束要求】\n`
+    + `${rules.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}\n\n只输出译文，不要有任何额外说明。`
 }
 
 async function translateLocal(text, targetLang, context = {}, options = {}) {
@@ -749,7 +800,8 @@ async function translateLocal(text, targetLang, context = {}, options = {}) {
   }
 
   // LinguaForge：超過段長或帶清單標記才拆。標記剝掉再送，翻完貼回。
-  if (isLinguaforge(key) && options.mode !== 'live') {
+  // Index-Translate 也會吃掉行首的「A. 」「1. 」，一樣剝掉再貼回。
+  if ((isLinguaforge(key) || key === INDEX_KEY) && options.mode !== 'live') {
     const jobs = packLinguaforge(text)
     if (jobs) return translatePacked(jobs, targetLang, options, key)
   }
@@ -763,6 +815,16 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
   // 雲端無 modelKey（非 LinguaForge 訓練格式）→ 傳 null 走通用指令
   const messages = [{ role: 'system', content: buildSystemPrompt(null, targetLang, options.mode) }]
   if (options.mode !== 'live') messages[0].content += '完整翻譯全文，保留段落、標題與清單；不要摘要或省略內容。'
+  const terms = glossary.find(options.glossary, text)
+  if (terms.length) {
+    messages[0].content += '\n術語對照（原文出現時譯文用右邊的譯名；列了多個的依上下文選最合適的一個）：\n'
+      + terms.map((term) => `${term.source} → ${term.targets.join('／')}`).join('\n')
+  }
+  // 只有雲端吃得下：LinguaForge 是單輪 MT 格式；Index-Translate 2B 用官方 instTrans 約束格式帶上下文，
+  // 實測仍會把約束段落連同鄰近原文一起吐成譯文，本地兩顆都不帶。
+  if (options.reference) {
+    messages[0].content += `\n下面是同一頁的原文，只用來判斷詞義與用語。使用者訊息可能是句子的片段，只翻譯那個片段本身的每個字，不要加入參考裡的其他字，也不要加省略號：\n<reference>\n${options.reference}\n</reference>`
+  }
   const pair = buildContextPair(context)
   if (pair) {
     messages.push({ role: 'user', content: pair.prevSrc })
@@ -818,7 +880,7 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
   }
   if (!res.ok) {
     console.error(`[translate] API error: HTTP ${res.status}`)
-    throw new Error(`翻譯 API 錯誤: ${res.status}`)
+    throw Object.assign(new Error(`翻譯 API 錯誤: ${res.status}`), { status: res.status })
   }
   const choice = data?.choices?.[0]
   if (choice?.finish_reason === 'length') throw new Error('翻譯達到模型的輸出上限，全文尚未翻完，請改用輸出容量較大的模型')
@@ -890,7 +952,9 @@ async function translate(store, text, targetLang, opts = {}) {
       previousSource: opts.previousSource || '',
       previousTranslation: opts.previousTranslation || ''
     }
-    const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal }
+    const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal, reference: opts.reference,
+      // 內建譯名都是繁中，只給繁中目標
+      glossary: targetLang === 'zh-TW' ? glossary.load(store) : null }
 
     let result
     if (translator === 'local') {
@@ -925,7 +989,10 @@ async function translate(store, text, targetLang, opts = {}) {
     if (translator === 'local' && isLinguaforge(resolveLocalTranslateModel(storeRef, localKey))) {
       return result
     }
-    return targetLang === 'zh-TW' ? s2twp(result) : result
+    if (targetLang !== 'zh-TW') return result
+    // Index 直接吐繁體，s2twp 探測不到簡體就不動；它偶爾夾日文新字體（関、図），另外換回。
+    const indexLocal = translator === 'local' && resolveLocalTranslateModel(storeRef, localKey) === INDEX_KEY
+    return indexLocal ? jpKanjiToTw(s2twp(result)) : s2twp(result)
   }
   // 只有本地推論共用 session；等待雲端不可卡住本地推論與卸載。
   return translator === 'local' ? withTranslateLock(run) : run()

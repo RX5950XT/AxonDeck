@@ -12,6 +12,7 @@ const cases = [
   ['你是翻譯引擎。\n你好。', '你好。'],
   ['週末夜市人潮擁擠。', '週末夜市人潮擁擠。'],
   ['A. 好的天氣', '好的天氣'],
+  ['A. ODE 的種類', 'A. ODE 的種類', 'A. Types of ODEs'],  // 大綱編號，原文就有
   ['「翻譯成繁體中文：\n測試」', '測試'],
   ['You are a professional translator.', ''],
   ['<think>x</think>\n翻譯成英文：\nHello', 'Hello'],

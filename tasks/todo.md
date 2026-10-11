@@ -88,3 +88,58 @@
 - 2026-10-06 AGY 接 Claude Code：攤平 `anyOf`、tool id、先查即時型錄；閘道自動開關；媒體縮圖 `TypeOverlay`。
 - 2026-10-04 全專案讀碼掃 bug（61 條查證後修，未修的列在待辦）；檔案頁右欄雙擊（`event.detail === 2`）；Grok Cloudflare（後改 `grok-clearance.js`）；文件精簡。
 - 2026-10-03／04 v1.39.0：網頁版 AI、Google 登入、記憶體回收；專案搜尋逐行讀、UFFS 閒置休眠、五家 AI 紀錄與終端機接續。
+
+# 2026-10-11 — PDF 翻譯：亂碼、1GB、速度、警告、介面
+
+- [x] 亂碼：worker 以 `-I` 啟動忽略 `PYTHONIOENCODING`，正式路徑 stdin 用 cp950 解譯文 → 中文全亂碼（也是大量「縮小字體」的來源）；改在程式內設 UTF-8。
+- [x] 1.1GB：每段譯文各嵌一份 Droid Sans Fallback（3.5MB）；每頁 `subset_fonts`、最後 `garbage=4` 重寫 → 1.6MB。
+- [x] 速度：版面只跑 PP-DocLayoutV3（不再整頁 VL）；有文字層的區塊不 OCR（原本數學多的段落被整塊 OCR 蓋回去）；翻譯一頁並行送出，雲端 4 段＋429／5xx 退避重試。
+- [x] 警告：數學變數、函數名（cos、exp）、微分（dx、Mdx）不送翻譯；段落合併不蓋到留著的數學字。
+- [x] 介面：chip 上有「翻譯檔案／停止」，進度／警告／另存移到譯文格；主「翻譯」只翻文字，可同時用。
+- [x] worker 在 Windows 用 detached 啟動，避免從終端機開 App 時被 llama 的 Ctrl-C 波及。
+
+## Review（PDF 翻譯）
+
+- 實測 CH1_ODE（22 頁，雲端 gemini-3.5-flash-lite）：約 10 分 → 約 3 分 20 秒；1.1GB → 1.6MB；警告 682／217／45 → 0 未轉換、12 縮小、1 放不下（修亂碼後同譯文重放）；輸出頁面目視中文正常、公式保留。
+- 驗證：`npm run lint`、`test-pdf-translate-worker.py` 5 組、`test-pdf-translate.js`、真模型 `probe-pdf-translate.js`（PDF＋圖片走 VL OCR）、打包版 `e2e-pdf-translate-cdp.js` 31 項。
+- 短片段上下文：80 字以下附整頁原文當 `reference`（雲端放 system prompt，本地忽略）；實測第 1 頁 Physical→物理、Formulation→建立模型、Interpretation→解釋，提示要求只翻片段本身，避免把參考裡的鄰近字帶進譯文。
+
+# 2026-10-11 — Index-Translate 譯文修補
+
+- [x] 行首「A. 」被 `stripPromptLeak` 當答題標籤刪掉 → 原文也是「A. 」開頭時保留；「1. 」被模型吃掉 → Index 也走剝標記再貼回。
+- [x] 殘留英文（populations）、日文假名（振り子）→ 偵測到才用 instTrans 約束格式重翻。
+- [x] 日文新字體（補関數）→ `jpKanjiToTw` 逐字轉，排除臺灣常用字；專案 287 個檔案驗過只轉真正的日文／簡體字。
+
+## Review（Index 修補）
+
+- 60 段實測：漏翻英文、假名、「A.」「1.」全部修正；PDF 第 1 頁實跑正常。
+- 沒修：用詞偏大陸（增長），opencc twp 只在偵測到簡體時才套，套在繁體上會把「參數」改成「引數」；詞義錯（Exact equations→正確方程）是 2B 模型本身的限制。
+- `e2e-linguaforge-list.js` 原本失敗（11 行剩 8 行）：沒編號的多行併成一段，0.8B 只翻第一行；`translatePacked` 行數變少就逐行重翻，已通過。
+
+# 2026-10-11 — 翻譯術語表
+
+- [x] 自訂術語（翻譯頁頁首卡片，預設內建數理清單）＋內建國家教育研究院學術名詞庫（理工 45 科、54.6 萬條片語）。
+- [x] 雲端：system prompt 附原文出現的術語，多候選依上下文挑；Index：唯一譯名用 instTrans 術語約束；LinguaForge 不套。
+- [x] PDF 翻譯快照帶上術語設定；README 補資料來源與授權。
+- [x] 順手修：LinguaForge 多行併段只翻第一行（`e2e-linguaforge-list.js` 原本失敗）→ 行數變少就逐行重翻。
+
+## Review（術語表）
+
+- 實測：Index 的正確方程→正合方程、同質→齊次、調和振動子→諧振子、增長→成長、直接整合→直接積分；雲端 Growth→成長。一般新聞句不會被套術語（單字不收）。
+- 驗證：`test-glossary.js`、`test-strip-prompt-leak.js`、`e2e-linguaforge-list.js`、lint、打包版 `e2e-pdf-translate-cdp.js`。
+- 限制：內建詞庫是學術用語，部分詞偏某學科（physical system→物理系統／實體系統）；Index 對多候選的詞不套用。
+
+# 2026-10-11 — 參考 cc-switch 修復 CC Proxy
+
+- [x] 比對 cc-switch df40d53c 與本機切換、設定、代理呼叫鏈；保留既有翻譯修改。
+- [x] 重現並修復 Responses 工具 strict、訊息順序及串流假成功。
+- [x] 502／503／504 延遲半秒重試一次，不強制換憑證、不重播已開始的串流；429 不重試。
+- [x] CC Switch 單元 4/4 支、gateway E2E 78/78、SSE 邊界、error-hygiene 85/85、lint 通過。
+- [x] 真實 Claude Code 2.1.296 → Codex gpt-5.6-luna：純文字、串流、Bash 工具往返、非串流全通過；正式設定與憑證雜湊未變。
+- [ ] 打包與打包版 CDP：`npm run electron:pack` 被既有 dist/win-unpacked 預覽程序擋下，未關閉使用者程序。
+
+## Review（CC Proxy）
+
+- 參考 cc-switch df40d53c 的 Responses strict:false、串流終止處理與有限重試；測試先重現 3 個轉換失敗、6 個串流假成功，再修正。
+- 實測曾遇一次 Claude 工具請求 503；同一流程重跑及最終驗證皆成功。無法保證排除上游服務持續故障。
+- 修正既有真流量 probe 還讀已移除 ANTHROPIC_MODEL 的問題，改用 Sonnet 模型設定。未 commit／push／發版；執行中的版本尚未套用。

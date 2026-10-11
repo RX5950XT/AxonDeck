@@ -25,6 +25,7 @@ if (adminHostArg) {
 const models = require('./models')
 const chat = require('./chat')
 const modelScope = require('./model-scope')
+const glossary = require('./glossary')
 const chatStore = require('./chat-store')
 const chatParams = require('./chat-params')
 const { sanitizeTtsVoices, DEFAULT_TTS_VOICES, VOICES_BY_LANG, listVoices } = require('./tts-voices')
@@ -198,6 +199,8 @@ app.on('second-instance', () => showMainWindow())
 /** electron-store 允許的 key（防任意讀寫／XSS 後改 apiUrl 外洩 key） */
 const STORE_ALLOWLIST = new Set([
   'translator',
+  'translateGlossary',
+  'translateGlossaryBuiltin',
   'captionDisplayMode',
   'asrEngine',
   'asrApiUrl',
@@ -1082,6 +1085,8 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   const val = store.get(key, defaultValue)
   if (key === 'ttsVoices') return sanitizeTtsVoices(val)
   if (key === 'ttsRate') return sanitizeTtsRate(val)
+  if (key === glossary.KEY) return glossary.read(store)
+  if (key === glossary.BUILTIN_KEY) return val !== false
   if (key === 'translator') {
     return TRANSLATOR_VALUES.has(val) ? val : (TRANSLATOR_VALUES.has(defaultValue) ? defaultValue : 'local')
   }
@@ -1165,6 +1170,17 @@ ipcMain.handle('store:set', async (event, key, value) => {
   }
   if (key === 'ttsRate') {
     store.set(key, sanitizeTtsRate(value))
+    return true
+  }
+  if (key === glossary.KEY) {
+    // null＝恢復內建清單
+    const text = glossary.sanitize(value)
+    if (text === null) store.delete(key)
+    else store.set(key, text)
+    return true
+  }
+  if (key === glossary.BUILTIN_KEY) {
+    store.set(key, value !== false)
     return true
   }
   if (key === 'translator') {

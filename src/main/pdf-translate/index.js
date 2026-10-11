@@ -149,7 +149,7 @@ function missingModels() {
 function status() { const missing = missingModels(); return { job: latest?.view || null, file: fileView(), ready: !missing.length, missing } }
 
 function translationStore() {
-  const values = Object.fromEntries(['translator', 'localTranslateModel', 'translateProviderId', 'translateModelId', 'chatProviders']
+  const values = Object.fromEntries(['translator', 'localTranslateModel', 'translateProviderId', 'translateModelId', 'chatProviders', 'translateGlossary', 'translateGlossaryBuiltin']
     .map((key) => [key, structuredClone(store.get(key))]))
   values.fileLlm = values.translator === 'cloud'
     ? `cloud:${values.translateProviderId || ''}:${values.translateModelId || ''}`
@@ -242,18 +242,35 @@ async function run(job, previous) {
     translatedBlocks: summary.translatedBlocks, warnings: warningsOf(summary.warnings), error: '' }
 }
 
+// 整份文件上千段，雲端偶爾限流（429）或暫時故障（5xx）；退避重試，不讓整份工作白做。
+async function withRetry(signal, action) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await action() } catch (error) {
+      if (attempt >= 5 || !(error?.status === 429 || error?.status >= 500)) throw error
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve() }, Math.min(30000, 2000 * 2 ** attempt))
+        function stop() { clearTimeout(timer); reject(signal.reason) }
+        signal.addEventListener('abort', stop, { once: true })
+      })
+    }
+  }
+}
+
 async function translateBlock(job, message) {
   const validId = (Number.isSafeInteger(message.id) && message.id >= 0)
     || (typeof message.id === 'string' && /^\d{1,6}:\d{1,6}$/.test(message.id))
   if (!validId || typeof message.text !== 'string'
-    || !message.text.trim() || message.text.length > 100000) throw fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤')
+    || !message.text.trim() || message.text.length > 100000
+    || (message.reference !== undefined && (typeof message.reference !== 'string' || message.reference.length > 4000))) {
+    throw fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤')
+  }
   const output = []
   const llm = require('../local-llm')
   llm.setStore(store)
   for (const text of splitText(message.text)) {
     job.controller.signal.throwIfAborted()
-    const translated = await llm.translate(job.translator.store, text, job.request.targetLang,
-      { mode: 'file', scope: 'file', signal: job.controller.signal })
+    const translated = await withRetry(job.controller.signal, () => llm.translate(job.translator.store, text,
+      job.request.targetLang, { mode: 'file', scope: 'file', signal: job.controller.signal, reference: message.reference }))
     if (typeof translated !== 'string' || !translated.trim()) throw fail('EMPTY_TRANSLATION', '翻譯模型回傳空白內容，已停止')
     output.push(translated)
   }
@@ -263,10 +280,23 @@ async function translateBlock(job, message) {
 
 function runWorker(job, worker, config) {
   return new Promise((resolve, reject) => {
-    let done = null, buffered = '', pending = false, failed = false
+    let done = null, buffered = '', pending = 0, failed = false
+    // 雲端並行省下往返等待；本地模型本來就排隊，多送也不會比較快。
+    const queue = [], limit = job.translator.local ? 1 : 4
+    const pump = () => {
+      while (!failed && pending < limit && queue.length) {
+        pending++
+        translateBlock(job, queue.shift()).then((reply) => {
+          pending--
+          if (!failed && !job.controller.signal.aborted) child.stdin.write(JSON.stringify(reply) + '\n')
+          pump()
+        }).catch(stop)
+      }
+    }
     const decoder = new StringDecoder('utf8')
     const child = spawn(runtime.pythonExe(models.modelDir('pdfruntime')), ['-I', '-B', '-u', worker],
-      { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'ignore'],
+      // detached：不掛在主控台上。從終端機啟動 App 時，llama 收程序的 Ctrl-C 會連 worker 一起打掉。
+      { windowsHide: true, shell: false, detached: process.platform === 'win32', stdio: ['pipe', 'pipe', 'ignore'],
         env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
           AXONDECK_PDF_WORKER: '1',
           PADDLE_PDX_CACHE_HOME: path.join(models.modelDir('pdfruntime'), 'paddle-cache'),
@@ -290,12 +320,9 @@ function runWorker(job, worker, config) {
           if (!Number.isSafeInteger(message.pages) || message.pages < 1 || !Number.isSafeInteger(message.translatedBlocks)
             || message.translatedBlocks < 0) return stop(fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤'))
           done = message
-        } else if (message.type === 'translate' && !pending) {
-          pending = true
-          translateBlock(job, message).then((reply) => {
-            pending = false
-            if (!failed && !job.controller.signal.aborted) child.stdin.write(JSON.stringify(reply) + '\n')
-          }).catch(stop)
+        } else if (message.type === 'translate' && queue.length < 10000) {
+          queue.push(message)
+          pump()
         } else if (message.type === 'error') stop(fail('PDF_PARSE_FAILED', 'PDF 無法處理；請確認未加密、檔案完整且模型已安裝'))
         else return stop(fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤'))
       }
@@ -303,7 +330,7 @@ function runWorker(job, worker, config) {
     child.once('close', (code) => {
       job.controller.signal.removeEventListener('abort', abort)
       if (job.child === child) job.child = null
-      if (!failed && !job.controller.signal.aborted && code === 0 && done && !pending && !buffered.trim()) resolve(done)
+      if (!failed && !job.controller.signal.aborted && code === 0 && done && !pending && !queue.length && !buffered.trim()) resolve(done)
       else if (!failed) reject(fail('WORKER_EXIT', 'PDF 執行環境意外結束，未輸出不完整檔案'))
     })
     child.stdin.write(JSON.stringify(config) + '\n')

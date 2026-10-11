@@ -97,7 +97,7 @@ class FixturePipeline:
             return iter([{"res": {"spotting_res": {"rec_polys": polys, "rec_texts": texts}}}])
         self.calls += 1
         if self.calls > 2:
-            return iter([{"res": {"parsing_res_list": []}}])
+            return iter([{"res": {"boxes": []}}])
         sx, sy = width / 420, height / 540
         blocks = [("doc_title", (25, 20, 230, 50)), ("text", (25, 60, 250, 98)),
                   ("display_formula", (25, 110, 170, 134)),
@@ -112,9 +112,9 @@ class FixturePipeline:
             fitz.Rect(mixed.x0, formula.y1, mixed.x1, mixed.y1),
             fitz.Rect(mixed.x0, formula.y0, formula.x0, formula.y1),
             fitz.Rect(formula.x1, formula.y0, mixed.x1, formula.y1))])
-        return iter([{"res": {"parsing_res_list": [
-            {"block_label": label, "block_bbox": [rect[0] * sx, rect[1] * sy, rect[2] * sx, rect[3] * sy],
-             "block_content": ""} for label, rect in blocks]}}])
+        return iter([{"res": {"boxes": [
+            {"label": label, "coordinate": [rect[0] * sx, rect[1] * sy, rect[2] * sx, rect[3] * sy]}
+            for label, rect in blocks]}}])
 
 
 class Replies:
@@ -122,11 +122,19 @@ class Replies:
         self.output = output
         self.target = target
         self.requests = []
+        self.seen = 0
 
     def readline(self, _limit):
-        message = json.loads(self.output.getvalue().splitlines()[-1])
-        assert message["type"] == "translate"
+        # 一頁的請求會一次送完；依序回覆尚未回的那一筆。
+        lines = self.output.getvalue().splitlines()
+        while True:
+            message = json.loads(lines[self.seen])
+            self.seen += 1
+            if message["type"] == "translate":
+                break
         self.requests.append(message["text"])
+        # 短詞要帶整頁原文當參考，且參考裡含它自己
+        assert len(message["text"]) >= worker.SHORT_TEXT or message.get("reference", message["text"]).count(message["text"]), message
         mapping = {"Document title": "文件標題", "First paragraph line. Second paragraph line.": "第一段文字。第二行內容。",
                    "Region": "區域", "Revenue": "營收", "North": "北區", "Time": "時間",
                    "Temperature": "溫度", "Rotated label": "旋轉標籤"}
@@ -148,7 +156,8 @@ def test_pdf(root):
     before = source.read_bytes()
     stream = io.StringIO()
     reply = Replies(stream, output)
-    worker.run(config(source, output, root), reply, stream, FixturePipeline(source))
+    fixture = FixturePipeline(source)
+    worker.run(config(source, output, root), reply, stream, fixture, fixture)
     done = json.loads(stream.getvalue().splitlines()[-1])
     assert done["type"] == "done" and done["pages"] == 4, done
     assert done["translatedBlocks"] >= 15, done
@@ -156,6 +165,8 @@ def test_pdf(root):
     assert "E = mc^2" not in reply.requests and "100" not in reply.requests
     assert "First paragraph line. Second paragraph line." in reply.requests
     assert before == source.read_bytes(), "原始 PDF 被修改"
+    # 每段譯文各嵌一份中文字型時，這 4 頁會到數十 MB。
+    assert output.stat().st_size < 1_500_000, output.stat().st_size
     with fitz.open(output) as doc, fitz.open(source) as original:
         assert doc.page_count == 4
         native_text, scan_text = doc[0].get_text(), doc[1].get_text()
@@ -205,11 +216,11 @@ def test_incremental(root):
 
     class EmptyPipeline:
         def predict(self, _image, **_kwargs):
-            return [{"res": {"parsing_res_list": []}}]
+            return [{"res": {"boxes": []}}]
 
     worker.append_page = append
     try:
-        worker.run(config(source, output, root), Replies(stream, output), stream, EmptyPipeline())
+        worker.run(config(source, output, root), Replies(stream, output), stream, EmptyPipeline(), EmptyPipeline())
     finally:
         worker.append_page = original_append
     assert writes == list(range(1, 41))
@@ -232,16 +243,21 @@ def test_validation(root):
             raise AssertionError("錯誤協定被接受")
         except worker.WorkerError:
             pass
-    try:
-        worker.request_translation(io.StringIO('{"id":"wrong","text":"ok"}\n'), io.StringIO(), "1", "private")
-        raise AssertionError("錯誤 id 被接受")
-    except worker.WorkerError as error:
-        assert error.code == "TRANSLATION"
+    for raw in ('{"id":"wrong","text":"ok"}\n', '{"id":"1:0","text":"a"}\n{"id":"1:0","text":"b"}\n'):
+        try:
+            worker.request_translations(io.StringIO(raw), io.StringIO(), 1, ["private", "words"])
+            raise AssertionError("錯誤或重複 id 被接受")
+        except worker.WorkerError as error:
+            assert error.code == "TRANSLATION"
     broken = "".join(map(chr, (0xDCE6, 0xDC96, 0xDC87))) + "件"
-    dirty = worker.request_translation(
-        io.StringIO(json.dumps({"id": "1:0", "text": broken}, ensure_ascii=False) + "\n"),
-        io.StringIO(), "1:0", "Document")
+    out_of_order = (json.dumps({"id": "1:1", "text": "第二"}, ensure_ascii=False) + "\n"
+                    + json.dumps({"id": "1:0", "text": broken}, ensure_ascii=False) + "\n")
+    dirty, second = worker.request_translations(io.StringIO(out_of_order), io.StringIO(), 1, ["Document", "Second"])
+    assert second == "第二", "亂序回覆沒對回原請求"
     assert dirty == "���件" and not any(chr(0xD800) <= char <= chr(0xDFFF) for char in dirty), repr(dirty)
+    assert not worker.translatable("x y dx t") and not worker.translatable("λ") and worker.translatable("溫度")
+    assert worker.translatable("Model") and not worker.translatable("100")
+    assert not any(map(worker.translatable, ("cos", "exp", "Mdx", "ydy"))) and worker.translatable("Add")
     warnings = Counter()
     assert worker.checked_rect([0, 0, float("nan"), 100], fitz.Rect(0, 0, 100, 100), warnings) is None
     assert warnings["OCR_BOX_INVALID"] == 1
@@ -260,7 +276,8 @@ def test_validation(root):
         page.add_redact_annot((10, 10, 200, 50))
         doc.save(pending)
     try:
-        worker.run(config(pending, root / "pending-result.pdf", root), io.StringIO(), io.StringIO(), FixturePipeline(root / "source.pdf"))
+        fixture = FixturePipeline(root / "source.pdf")
+        worker.run(config(pending, root / "pending-result.pdf", root), io.StringIO(), io.StringIO(), fixture, fixture)
         raise AssertionError("執行了使用者尚未批准的 PDF 遮蔽註記")
     except worker.WorkerError as error:
         assert error.code == "PDF_UNSUPPORTED"
@@ -275,8 +292,8 @@ def test_image(root):
         doc[0].get_pixmap().save(root / "page.png")
     stream = io.StringIO()
     reply = Replies(stream, root / "image-translated.pdf")
-    worker.run(config(root / "page.png", root / "image-translated.pdf", root),
-               reply, stream, FixturePipeline(source))
+    fixture = FixturePipeline(source)
+    worker.run(config(root / "page.png", root / "image-translated.pdf", root), reply, stream, fixture, fixture)
     done = json.loads(stream.getvalue().splitlines()[-1])
     assert done["type"] == "done" and done["pages"] == 1, done
     assert done["translatedBlocks"] > 0, done

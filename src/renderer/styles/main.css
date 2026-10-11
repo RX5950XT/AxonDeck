@@ -361,6 +361,7 @@ body.is-maximized .win-btn#winMax {
   color: var(--text-secondary);
 }
 
+.file-attach[hidden],
 .file-attach [hidden] {
   display: none;
 }
@@ -602,6 +603,19 @@ body.is-maximized .win-btn#winMax {
   width: min(640px, 100%);
   max-width: none;
   box-shadow: var(--shadow-card);
+}
+
+/* `.setting-group label` 的 display:block 會蓋掉開關的 inline-flex */
+.setting-group .dict-switch {
+  display: inline-flex;
+  color: var(--text-primary);
+}
+
+.translate-glossary-input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
 }
 
 .translate-voice .settings-section-desc {

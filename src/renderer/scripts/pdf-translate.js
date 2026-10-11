@@ -8,11 +8,9 @@ let pending = false
 let previousJobId = null
 let revision = 0
 let getLanguages
-let onStateChange = () => {}
 
 export function getPdfFile() { return file }
 export function isPdfRunning() { return job?.state === 'running' }
-export function isPdfReady() { return ready }
 
 function setError(message = '') {
   el.error.textContent = message
@@ -29,6 +27,9 @@ function paint() {
   el.pick.disabled = pending || running
   el.chip.hidden = !file
   el.remove.hidden = !file || running
+  // 檔案有自己的開始／停止鈕，主翻譯鈕留給文字，兩邊可同時跑。
+  el.run.textContent = running ? '停止' : '翻譯檔案'
+  el.run.disabled = pending || (!running && !ready)
   if (file) el.file.textContent = `${file.name} · ${formatSize(file.size)}`
   el.setup.hidden = ready || !file
   const missing = el.setupText.dataset.missing
@@ -69,7 +70,7 @@ function paint() {
   el.warnings.hidden = !el.warnings.children.length
   el.save.hidden = job?.state !== 'done'
   el.save.disabled = pending
-  onStateChange()
+  el.root.hidden = !job
 }
 
 export async function refreshPdfTranslate() {
@@ -155,7 +156,7 @@ async function attachPastedImage(image) {
   }
 }
 
-export async function startPdfJob() {
+async function startPdfJob() {
   if (pending || isPdfRunning() || !file || !ready) return false
   pending = true
   revision++
@@ -178,7 +179,7 @@ export async function startPdfJob() {
   }
 }
 
-export async function cancelPdfJob() {
+async function cancelPdfJob() {
   if (pending || !isPdfRunning()) return false
   pending = true
   revision++
@@ -220,9 +221,8 @@ const ACCEPT = /\.(pdf|png|jpe?g|webp|bmp|tiff?)$/i
 
 export function initPdfTranslate(options) {
   getLanguages = options.getLanguages
-  if (typeof options.onStateChange === 'function') onStateChange = options.onStateChange
   const pane = document.getElementById(options.dropTarget || 'translateInputPane')
-  el = Object.fromEntries(['root', 'pick', 'remove', 'chip', 'file', 'status', 'progress', 'warnings', 'error', 'setup', 'setupText', 'models', 'save']
+  el = Object.fromEntries(['root', 'pick', 'run', 'remove', 'chip', 'file', 'status', 'progress', 'warnings', 'error', 'setup', 'setupText', 'models', 'save']
     .map((key) => [key, document.getElementById(`pdfTranslate${key[0].toUpperCase()}${key.slice(1)}`)]))
   if (!el.root) return
   if (!electronAPI.pdfTranslate) {
@@ -230,6 +230,7 @@ export function initPdfTranslate(options) {
     return
   }
   el.pick.addEventListener('click', () => selectFile())
+  el.run.addEventListener('click', () => (isPdfRunning() ? cancelPdfJob() : startPdfJob()))
   el.remove.addEventListener('click', detachPdfFile)
   el.save.addEventListener('click', save)
   el.models.addEventListener('click', () => switchPage('hfmodels'))

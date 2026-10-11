@@ -1579,7 +1579,7 @@ ipcMain.handle('models:download', async (event, key) => {
 ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 
 ipcMain.handle('models:delete', async (event, key) => {
-  if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'llamaruntime', 'llamaruntimecuda',
+  if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
     ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
   return models.remove(key)

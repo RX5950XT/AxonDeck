@@ -231,7 +231,7 @@ def test_incremental(root):
 def test_validation(root):
     base = config(root / "source.pdf", root / "invalid.pdf", root)
     for change in ({"outputPath": base["inputPath"]}, {"endpoint": {"baseUrl": "https://example.com/v1"}},
-                   {"endpoint": {"baseUrl": "http://127.0.0.1:8080/v1?key=secret"}}, {"ocrModel": "unknown"}):
+                   {"endpoint": {"baseUrl": "http://127.0.0.1:8080/v1?key=secret"}}, {"ocrModel": "unknown"}, {"layoutDevice": "gpu:0; rm"}):
         try:
             worker.validate_config({**base, **change})
             raise AssertionError("錯誤 config 被接受")
@@ -260,9 +260,9 @@ def test_validation(root):
                     for i, t in (("2:0", "下一頁"), ("1:0", "這一頁")))
     sent = io.StringIO()
     translations = worker.Translations(io.StringIO(cross), sent)
-    first, second = translations.request(1, ["This page"], [0]), translations.request(2, ["Next page"])
+    first, second = translations.request(1, ["This page"], {0: 3}), translations.request(2, ["Next page"])
     assert translations.collect(first) == ["這一頁"] and translations.collect(second) == ["下一頁"]
-    assert [json.loads(line).get("alone") for line in sent.getvalue().splitlines()] == [True, None]
+    assert [(m.get("alone"), m.get("line")) for m in map(json.loads, sent.getvalue().splitlines())] == [(True, 3), (None, None)]
     assert not worker.translatable("x y dx t") and not worker.translatable("λ") and worker.translatable("溫度")
     assert worker.translatable("Model") and not worker.translatable("100")
     assert not any(map(worker.translatable, ("cos", "exp", "Mdx", "ydy", ", sin", "cos x, exp"))) and worker.translatable("Add")

@@ -55,7 +55,8 @@ def validate_config(config):
     for key in ("inputPath", "outputPath", "layoutDir", "targetLang", "ocrModel"):
         if not isinstance(config.get(key), str) or not config[key] or "\0" in config[key]:
             raise WorkerError("CONFIG")
-    if config["ocrModel"] != "paddleocrvl16" or len(config["targetLang"]) > 80:
+    if (config["ocrModel"] != "paddleocrvl16" or len(config["targetLang"]) > 80
+            or config.get("layoutDevice", "cpu") not in ("cpu", "gpu")):
         raise WorkerError("CONFIG")
     endpoint = config.get("endpoint", {})
     if not isinstance(endpoint, dict) or not isinstance(endpoint.get("baseUrl"), str):
@@ -81,6 +82,12 @@ def validate_config(config):
 def create_layout(config):
     # 版面只要框和標籤；整頁 VL 辨識每一塊很慢，原生文字頁根本用不到。
     from paddleocr import LayoutDetection
+    # GPU 版執行環境：版面偵測走顯示卡（約快 45 倍）；顯示卡起不來就退回 CPU，GPU 版的 Paddle 也能跑 CPU
+    if config.get("layoutDevice") == "gpu":
+        try:
+            return LayoutDetection(model_name="PP-DocLayoutV3", model_dir=config["layoutDir"], device="gpu")
+        except Exception:  # noqa: BLE001
+            pass
     return LayoutDetection(model_name="PP-DocLayoutV3", model_dir=config["layoutDir"], device="cpu")
 
 
@@ -359,10 +366,16 @@ def collect_units(page, layout, pipeline, warnings):
     # 跟公式／變數同一行的片段（Linear independence of ＋ n ＋ functions）：
     # 數學字位置固定，合併翻時模型會為了整句通順搬字，這種要各自單獨翻
     # 不附整行原文當上下文：實測模型會把公式也翻進去（n 重複、冒出 $n$）
+    # inline＝第幾行：同一行被公式切開的片段不能放進同一批合併翻，不同行的可以
+    same_line = lambda a, b: min(a.y1, b.y1) - max(a.y0, b.y0) > min(a.height, b.height) * 0.5  # noqa: E731
+    lines = []
     for unit in grouped:
         rect = unit["rect"]
-        unit["inline"] = any(min(r.y1, rect.y1) - max(r.y0, rect.y0) > min(r.height, rect.height) * 0.5
-                             for r in protected + kept)
+        if not any(same_line(r, rect) for r in protected + kept):
+            continue
+        unit["inline"] = next((index for index, line in enumerate(lines) if same_line(line, rect)), len(lines))
+        if unit["inline"] == len(lines):
+            lines.append(rect)
     return grouped, image, sx, sy
 
 
@@ -488,16 +501,17 @@ class Translations:
         self.stdin, self.stdout = stdin, stdout
         self.pending, self.done = set(), {}
 
-    def request(self, page_number, texts, alone=()):
-        """alone：要單獨翻、不跟同頁其他段合併的位置（跟公式同一行的片段）"""
+    def request(self, page_number, texts, alone=None):
+        """alone：{位置: 第幾行}，跟公式同一行的片段；同一行的不放進同一批合併翻"""
         ids = [f"{page_number}:{number}" for number in range(len(texts))]
-        alone = set(alone)
+        alone = alone or {}
         # 圖框標籤這類短詞單獨翻會亂猜詞義（Physical System→身體的系統）；附整頁原文給模型參考。
         reference = "\n".join(texts)[:REFERENCE_CHARS]
         for number, (request_id, text) in enumerate(zip(ids, texts)):
             message = {"type": "translate", "id": request_id, "text": text}
             if number in alone:
                 message["alone"] = True
+                message["line"] = alone[number]
             if len(text) < SHORT_TEXT and len(reference) > len(text):
                 message["reference"] = reference
             emit(self.stdout, message)
@@ -591,7 +605,7 @@ def run(config, stdin, stdout, pipeline=None, layout=None):
                 page.remove_rotation()
             units, image, sx, sy = collect_units(page, layout, pipeline, warnings)
             ids = translations.request(index + 1, [unit["text"] for unit in units],
-                                       [number for number, unit in enumerate(units) if unit.get("inline")])
+                                       {number: unit["inline"] for number, unit in enumerate(units) if "inline" in unit})
             return single, units, image, sx, sy, ids
 
         upcoming = open_page(0)

@@ -140,8 +140,16 @@ async function pick() {
   } finally { selecting = false }
 }
 
+/** 裝了 GPU 加速就用它（版面偵測走顯示卡）；沒裝用 CPU 版 */
+function pdfRuntime() {
+  return models.isDownloaded('pdfruntimegpu')
+    ? { dir: models.modelDir('pdfruntimegpu'), device: 'gpu' }
+    : { dir: models.modelDir('pdfruntime'), device: 'cpu' }
+}
+
 function missingModels() {
-  const missing = ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime'].filter((key) => !models.isDownloaded(key))
+  const missing = ['paddleocrvl16', 'ppdoclayoutv3'].filter((key) => !models.isDownloaded(key))
+  if (!['pdfruntime', 'pdfruntimegpu'].some((key) => models.isDownloaded(key))) missing.push('pdfruntime')
   if (!['llamaruntime', 'llamaruntimecuda'].some((key) => models.isDownloaded(key))) missing.push('llamaruntime')
   return missing.map((key) => models.MODELS[key]?.label || key)
 }
@@ -232,6 +240,8 @@ async function run(job, previous) {
   await fs.writeFile(worker, appFs.readFileSync(path.join(__dirname, 'worker.py')))
   const config = { inputPath: path.join(job.dir, 'input.pdf'), outputPath: path.join(job.dir, 'result.partial.pdf'),
     endpoint, ocrModel: 'paddleocrvl16', layoutDir: models.modelDir('ppdoclayoutv3'), ...job.request }
+  job.runtime = pdfRuntime()
+  config.layoutDevice = job.runtime.device
   const summary = await runWorker(job, worker, config)
   job.controller.signal.throwIfAborted()
   const bytes = (await fs.stat(config.outputPath)).size
@@ -261,7 +271,8 @@ function validateRequest(message) {
     || (typeof message.id === 'string' && /^\d{1,6}:\d{1,6}$/.test(message.id))
   if (!validId || typeof message.text !== 'string'
     || !message.text.trim() || message.text.length > 100000
-    || (message.reference !== undefined && (typeof message.reference !== 'string' || message.reference.length > 4000))) {
+    || (message.reference !== undefined && (typeof message.reference !== 'string' || message.reference.length > 4000))
+    || (message.line !== undefined && !(Number.isSafeInteger(message.line) && message.line >= 0))) {
     throw fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤')
   }
 }
@@ -313,12 +324,16 @@ function runWorker(job, worker, config) {
     const pageOf = (message) => String(message.id).split(':')[0]
     const nextBatch = () => {
       const batch = [queue.shift()]
-      // worker 標 alone 的（跟公式同一行的片段）各自翻；本地模型一次一段
-      if (job.translator.local || batch[0].alone) return batch
+      if (job.translator.local) return batch
+      // worker 標 alone 的是被公式切開的片段：同一行的放進同一批，模型會在兩段間搬字
+      //（「下列函數的 n 線性獨立性」），所以每一行在一批裡最多一段
+      const lines = new Set(batch[0].alone ? [batch[0].line] : [])
       let chars = String(batch[0].text).length
       for (let index = 0; index < queue.length && batch.length < BATCH_SEGMENTS && pageOf(queue[index]) === pageOf(batch[0]);) {
-        const size = String(queue[index].text).length
-        if (queue[index].alone || chars + size > BATCH_CHARS) { index++; continue }
+        const message = queue[index]
+        const size = String(message.text).length
+        if ((message.alone && lines.has(message.line)) || chars + size > BATCH_CHARS) { index++; continue }
+        if (message.alone) lines.add(message.line)
         chars += size
         batch.push(...queue.splice(index, 1))
       }
@@ -337,13 +352,11 @@ function runWorker(job, worker, config) {
       }
     }
     const decoder = new StringDecoder('utf8')
-    const child = spawn(runtime.pythonExe(models.modelDir('pdfruntime')), ['-I', '-B', '-u', worker],
+    const child = spawn(runtime.pythonExe(job.runtime.dir), ['-I', '-B', '-u', worker],
       // detached：不掛在主控台上。從終端機啟動 App 時，llama 收程序的 Ctrl-C 會連 worker 一起打掉。
       { windowsHide: true, shell: false, detached: process.platform === 'win32', stdio: ['pipe', 'pipe', 'ignore'],
         env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
-          AXONDECK_PDF_WORKER: '1',
-          PADDLE_PDX_CACHE_HOME: path.join(models.modelDir('pdfruntime'), 'paddle-cache'),
-          PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: 'True' } })
+          AXONDECK_PDF_WORKER: '1', ...runtime.isolatedEnv(job.runtime.dir) } })
     job.child = child
     const abort = () => { reject(job.controller.signal.reason); void stopChild(job) }
     const stop = (error) => { if (failed) return; failed = true; reject(error); void stopChild(job) }

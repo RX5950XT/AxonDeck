@@ -31,7 +31,7 @@ const box = vm.createContext({ module: { exports: {} }, Buffer, structuredClone,
       showSaveDialog: async () => ({ filePath: destination, canceled: !destination }) } }
     if (id === '../models') return { MODELS: Object.fromEntries(modelKeys.map((key) => [key, { label: key }])),
       isDownloaded: () => ready, modelDir: (key) => path.join(root, key) }
-    if (id === './runtime') return { pythonExe: () => 'python.exe' }
+    if (id === './runtime') return { pythonExe: () => 'python.exe', isolatedEnv: () => ({}) }
     if (id === '../hfmodels') return { init() {}, writePresets: async () => {}, ensureRuntime: async () => {},
       refreshModels: async () => [{ id: 'paddleocrvl16' }],
       endpoint: () => ({ baseUrl: 'http://127.0.0.1:1234', apiKey: 'private-runtime-key' }) }

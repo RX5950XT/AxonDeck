@@ -67,6 +67,15 @@ const MODELS = {
     totalBytes: 800000000,
     files: []
   },
+  pdfruntimegpu: {
+    label: 'PDF GPU 加速（NVIDIA）',
+    kind: 'runtime',
+    runtime: 'pdf',
+    gpu: true,
+    description: '版面辨識改用顯示卡，約快 45 倍（整份 PDF 約快 2～3 倍）；裝了就自動使用，約 2.5 GB 下載、5 GB 空間。',
+    totalBytes: 5000000000,
+    files: []
+  },
   breezetts2q8: {
     label: 'Breeze-TTS-2 · Q8_0',
     kind: 'tts',
@@ -263,7 +272,7 @@ function isDownloaded(key) {
   const def = MODELS[key]
   if (!def) return false
   if (def.runtime === 'pdf' && def.kind === 'runtime') {
-    return !activeDownloads.has(key) && require('./pdf-translate/runtime').isReady(modelDir(key))
+    return !activeDownloads.has(key) && require('./pdf-translate/runtime').isReady(modelDir(key), def.gpu ? 'gpu' : 'cpu')
   }
   if (def.kind === 'ocr' && activeDownloads.has(key)) return false
   if (def.kind === 'tts' && activeDownloads.has(key)) return false
@@ -364,7 +373,7 @@ async function download(key, onProgress) {
 
   try {
     if (def.runtime === 'pdf' && def.kind === 'runtime') {
-      await require('./pdf-translate/runtime').install({ dir: modelDir(key), signal: controller.signal,
+      await require('./pdf-translate/runtime').install({ dir: modelDir(key), signal: controller.signal, variant: def.gpu ? 'gpu' : 'cpu',
         onProgress: progress => onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
           ...progress, cancellable: true }) })
       activeDownloads.delete(key)

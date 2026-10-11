@@ -14,6 +14,7 @@
  */
 
 const http = require('http')
+const { setTimeout: delay } = require('timers/promises')
 const { safeEqual, hostAllowed, presentedKey, sendJson } = require('../../local-proxy-http')
 const convert = require('./convert')
 const credential = require('./credential')
@@ -209,7 +210,7 @@ async function readSse(response, onPayload, onActivity) {
 }
 
 /**
- * 一次上游請求。401 會強制換 token 重試一次。
+ * 上游最多兩次：401 續期；502／503／504 等半秒重試，不重播已開始的串流。
  * @param {object} route
  * @param {string} presetId
  * @param {object} upstreamBody
@@ -218,9 +219,9 @@ async function readSse(response, onPayload, onActivity) {
 async function callUpstream(route, presetId, upstreamBody, signal, headers) {
   const fetchImpl = deps.fetchImpl || globalThis.fetch
   const url = deps.baseUrl ? `${deps.baseUrl}/${presetId}` : route.url
-
+  let force = false
   for (let attempt = 0; attempt < 2; attempt++) {
-    const auth = await authFor(route, presetId, attempt > 0)
+    const auth = await authFor(route, presetId, force)
     const response = await fetchImpl(url, {
       method: 'POST',
       headers: {
@@ -233,15 +234,17 @@ async function callUpstream(route, presetId, upstreamBody, signal, headers) {
       body: JSON.stringify(upstreamBody),
       signal
     })
-    if (response.status !== 401 || attempt > 0 || route.auth === 'key') return response
-    // 上游說 token 不能用了：清掉快取那顆，下一圈強制重換
-    ;(deps.credential || credential).invalidate(route.auth === 'codex' ? 'codex' : 'grok-build')
+    force = response.status === 401 && route.auth !== 'key'
+    const transient = [502, 503, 504].includes(response.status)
+    if (attempt > 0 || (!force && !transient)) return response
+    if (force) (deps.credential || credential).invalidate(route.auth === 'codex' ? 'codex' : 'grok-build')
     // 沒有消耗掉 body 的話 undici 的連線會卡到 GC
     try {
       await response.body?.cancel()
     } catch {
       // 已經關了
     }
+    if (transient) await delay(500, undefined, { signal })
   }
   throw new Error('UNREACHABLE')
 }
@@ -375,6 +378,7 @@ async function handle(req, res) {
       await readSse(response, (payload) => {
         for (const delta of consume(payload, state)) convert.apply(collector, delta)
       }, () => arm(IDLE_MS, 'UPSTREAM_IDLE'))
+      if (!collector.finish) throw new Error('UPSTREAM_STREAM_FAILED')
       clearTimeout(timer)
       sendJson(res, 200, convert.toResponse(collector))
     } catch {
@@ -398,6 +402,7 @@ async function handle(req, res) {
         if (chunk) res.write(chunk)
       }
     }, () => arm(IDLE_MS, 'UPSTREAM_IDLE'))
+    if (!collector.finish) throw new Error('UPSTREAM_STREAM_FAILED')
     clearTimeout(timer)
     if (!res.writableEnded) {
       res.write(convert.closeStream(collector))

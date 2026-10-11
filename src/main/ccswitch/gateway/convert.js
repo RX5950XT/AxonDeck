@@ -159,8 +159,13 @@ function messagesToResponsesInput(messages) {
     if (!Array.isArray(content)) continue
 
     /** @type {Array<object>} */
-    const parts = []
+    let parts = []
     for (const block of content) {
+      // Responses 的工具項目獨立成列，先送出前面的文字才不會交換對話順序。
+      if ((block?.type === 'tool_use' || block?.type === 'tool_result') && parts.length) {
+        input.push({ role, content: parts })
+        parts = []
+      }
       if (block?.type === 'text' && block.text) {
         parts.push(textPart(role, block.text))
       } else if (block?.type === 'image' && block.source?.type === 'base64') {
@@ -229,7 +234,8 @@ function toResponsesRequest(body, model) {
 
   const functions = toolsToFunctions(body?.tools)
   if (functions.length) {
-    request.tools = functions.map((fn) => ({ type: 'function', ...fn }))
+    // Anthropic 允許可選參數；Responses 必須明寫 false 才不會強制變成必填。
+    request.tools = functions.map((fn) => ({ type: 'function', ...fn, strict: false }))
     const choice = toolChoiceFor(body?.tool_choice)
     request.tool_choice = choice?.name ? { type: 'function', name: choice.name } : choice || 'auto'
   }
@@ -335,7 +341,8 @@ function consumeResponses(payload, state) {
   /** @type {Delta[]} */
   const out = []
 
-  if (type === 'response.failed' || type === 'error') throw new Error('UPSTREAM_FAILED')
+  if (type === 'response.failed' || type === 'error' || payload?.response?.status === 'failed' ||
+    payload?.response?.error) throw new Error('UPSTREAM_FAILED')
   if (type === 'response.output_text.delta' && typeof payload.delta === 'string') {
     out.push({ text: payload.delta })
   } else if (type === 'response.reasoning_summary_text.delta' && typeof payload.delta === 'string') {

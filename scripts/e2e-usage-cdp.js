@@ -16,6 +16,16 @@ const { NAV_PAGES: EXPECTED_ORDER } = require('./lib/nav-pages')
 const BAR_ALL = { kinds: ['rolling-5h', 'weekly', 'monthly'], showReset: true, showPlan: true, compact: false, hideDisconnected: false, showLastSync: true }
 // 額度條長在工作區主區裡：種一個專案讓主區切得過去；感測器關掉免得跳 UAC
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
+const usageHour = Math.floor(Date.now() / 3600_000) * 3600_000
+fs.writeFileSync(path.join(USER_DATA_DIR, 'code-usage.json'), JSON.stringify({
+  rulesVersion: require('../src/main/codeusage/pricing').RULES_VERSION,
+  buckets: [
+    { ts: usageHour, provider: 'claude', model: 'claude-haiku-5.5', longContext: false,
+      input: 79_000, output: 79_000, requests: 79, reportedCost: null },
+    { ts: usageHour, provider: 'claude', model: 'claude-haiku-5.5', longContext: true,
+      input: 100_001, output: 1_000, requests: 1, reportedCost: null }
+  ]
+}))
 fs.mkdirSync(path.join(USER_DATA_DIR, 'quota-project'))
 fs.writeFileSync(path.join(USER_DATA_DIR, 'workspaces.json'), JSON.stringify({
   projects: [{ id: 'w_quota_test', name: '額度測試', path: path.join(USER_DATA_DIR, 'quota-project'), createdAt: Date.now() }]
@@ -113,6 +123,7 @@ async function main() {
   // 測試視窗常被蓋在後面，不關掉遮蔽偵測的話自動同步那條會隨機等不到
   const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`,
     '--disable-backgrounding-occluded-windows'], {
+    detached: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })
   let processLog = ''
@@ -464,6 +475,14 @@ async function main() {
     if (cuStats.data.range !== '7d') throw new Error('range 沒有照送出去的 key')
     if (cuStats.data.providers.length !== 5) throw new Error('用量統計應涵蓋五家')
     pass('用量統計 IPC 回得出五家')
+    const haiku = cuStats.data.models.find((row) => row.key === 'claude-haiku-5.5')
+    if (cuStats.data.summary.uncostedRequests !== 0 || !haiku || haiku.requests !== 80 ||
+        Math.abs(haiku.costUsd - 0.0999005) > 1e-12 ||
+        Math.abs(haiku.costParts.input - 0.0579005) > 1e-12 ||
+        Math.abs(haiku.costParts.output - 0.042) > 1e-12) {
+      throw new Error(`Haiku 5.5 兩級單價／拆帳不符：${JSON.stringify(haiku)}`)
+    }
+    pass('Haiku 5.5 的 80 次請求都計費，長短單價及拆帳正確')
 
     const badRange = await cdp.eval("window.electronAPI.codeusage.stats({ range: 'rm -rf' })")
     if (badRange?.data?.range !== '7d') throw new Error('未知 range 沒有退回預設')

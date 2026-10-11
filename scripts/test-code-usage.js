@@ -404,6 +404,44 @@ console.log('\n[D] Grok Build 解析')
 // ===== 桶子與統計 =====
 console.log('\n[E] 桶子與統計')
 {
+  const base = Math.floor(Date.now() / HOUR) * HOUR
+  const price = pricing.priceFor(pricing.normalizeModel('anthropic/claude-haiku-5-5'))
+  ok('Haiku 5.5 一般與長上下文五種單價完整',
+    price.input === 0.1 && price.output === 0.5 && price.cacheRead === 0.01 &&
+    price.cacheWrite === 0.125 && price.cacheWrite1h === 0.2 &&
+    price.longContext.input === 0.5 && price.longContext.output === 2.5 &&
+    price.longContext.cacheRead === 0.05 && price.longContext.cacheWrite === 0.625 &&
+    price.longContext.cacheWrite1h === 1)
+  const cases = [
+    { input: 10_000, cacheRead: 80_000, cacheWrite: 5_000, cacheWrite1h: 5_000, output: 200_000, long: false, cost: 0.103425 },
+    { input: 10_001, cacheRead: 80_000, cacheWrite: 5_000, cacheWrite1h: 5_000, output: 100, long: true, cost: 0.0173755 },
+    { input: 1, cacheRead: 100_000, long: true, cost: 0.0050005 },
+    { cacheWrite: 100_001, long: true, cost: 0.062500625 },
+    { cacheWrite1h: 100_001, long: true, cost: 0.100001 }
+  ]
+  for (const [i, usage] of cases.entries()) {
+    const buckets = new Map()
+    codeusage.addEvent(buckets, 'claude', { ...usage, ts: base, model: 'claude-haiku-5-5', requests: 1 })
+    const row = [...buckets.values()][0]
+    ok(`Haiku 級距 ${i}：含快取、不含輸出、10 萬邊界`, row.longContext === usage.long)
+    ok(`Haiku 級距 ${i}：金額與官方單價一致`, Math.abs(codeusage.withCost(row, {}).costUsd - usage.cost) < 1e-12)
+  }
+  const buckets = new Map()
+  for (const usage of [cases[0], cases[0], cases[1]]) {
+    codeusage.addEvent(buckets, 'claude', { ...usage, ts: base, model: 'claude-haiku-5.5', requests: 1 })
+  }
+  const loaded = codeusage.loadBuckets(JSON.parse(JSON.stringify([...buckets.values()])))
+  const rows = [...loaded.values()]
+  ok('同小時兩級價格落盤讀回不互相覆蓋', rows.length === 2 && rows.reduce((sum, row) => sum + row.requests, 0) === 3)
+  ok('多筆短請求加總超過 10 萬仍用短價',
+    Math.abs(rows.reduce((sum, row) => sum + codeusage.withCost(row, {}).costUsd, 0) - 0.2242255) < 1e-12)
+  const long = rows.find((row) => row.longContext)
+  ok('自訂固定單價仍優先於內建級距',
+    Math.abs(codeusage.withCost(long, { 'claude-haiku-5.5': { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } }).costUsd - 0.010201) < 1e-12)
+  ok('來源自帶金額仍優先', codeusage.withCost({ ...long, reportedCost: 0.3 }, {}).costUsd === 0.3)
+  ok('舊桶版本會重掃分級', pricing.needsFullRescan(10))
+}
+{
   const buckets = new Map()
   const base = Math.floor(Date.now() / HOUR) * HOUR
   codeusage.addEvent(buckets, 'claude', {

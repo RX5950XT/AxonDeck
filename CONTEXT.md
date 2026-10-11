@@ -5,22 +5,23 @@
 ## 概況
 
 AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.44.0**（2026-10-10）。
-nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
+nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
 | SI | `chat` | 側欄 Agent（專案）／Chat（對話）；主區三選一 `setChatPaneMode('chat'\|'workspace'\|'web')` |
 | Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格並排、共用 `persist:telegram` |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 檔名搜尋 |
-| CC Proxy | `ccswitch` | 供應商切換改 `~/.claude/settings.json`、轉換閘道（自動）、子分頁：AGY 反代（Antigravity → OpenAI／Anthropic 端點）／MCP（Claude／Codex／Grok／OpenCode 四家）／Skills 與記憶／用量統計；CLI 版本搬去設定頁 |
 | 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
 | 翻譯 | `translate` | local（LinguaForge）／cloud 翻譯；EdgeTTS 與模型按鈕同一排、按鈕寬度貼文字，展開浮在內容上。語音是繁中、簡中、英文、日文 |
 | 文字轉語音 | `speech` | Breeze-TTS-2 Q8：聲音設計、語音克隆、語氣指導、保存聲音、實驗性變聲、串流試聽與 WAV 匯出 |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
-| 設定 | `settings` | 雲端端點、終端機配色與桌布；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
+| 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
 
-滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
+滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡（功能頁模式下每個 renderer 只記自己那頁，跨頁的足跡在 main `pages.history`）；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
+功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
+設定頁雲端分區是整份 `providerDraft` 寫回 `cloudProviders`：功能頁切走（`visibilitychange` hidden）時有沒存的修改就當下存，不能等被節流的計時器，否則會用舊草稿蓋掉別頁或 main 期間寫進來的供應商。
 
 ## 模組地圖
 
@@ -82,18 +83,19 @@ native/
 ### AI 頁
 - Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。
 - 網頁版 AI 對話存 `chats.json` 的 `web: { site, url, title }`，可改名、搬資料夾、拖曳；webview 回報網址／標題由 `ai-web.js` 把關。
-- 分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`：UA 偽裝 Chrome（Grok 改用替它過驗證的 Edge／Chrome 的 UA，存在 `grok-clearance.json`）、`ai-web-shim.js` 補 `window.chrome`、權限只給剪貼簿／全螢幕／純麥克風、`accounts.google.com` 走精簡版登入、登入小視窗在 App 內開。
+- 分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`：UA 偽裝 Chrome（Grok 改用替它過驗證的 Edge／Chrome 的 UA，存在 `grok-clearance.json`）、`ai-web-shim.js` 補 `window.chrome` 與 `navigator.userAgentData` 的 Google Chrome 品牌、https 請求補 `Sec-CH-UA`（品牌順序照 Chromium 算法，跟 JS 同一份）、Accept-Language 對齊 `navigator.languages`、權限只給剪貼簿／全螢幕／純麥克風、`accounts.google.com` 走精簡版登入、登入小視窗在 App 內開。
+- 外連（App 內 `target=_blank`、各 webview 的 popup、終端機網址、Git 面板 GitHub 鈕）一律開成專案瀏覽器分頁（`openInProjectBrowser` → `pages:navigate` 的 `action: 'browser'` → `openUrlInProject`）；沒有任何專案才退回系統瀏覽器。只剩瀏覽器工具列與分頁右鍵的「用系統瀏覽器開」、OAuth 裝置碼、PawnIO 下載仍走系統瀏覽器。
 - 記憶體：網頁藏超過 5 分鐘或同時超過 3 則就移除 webview（正在出聲的不收），再點照網址重建；工作區背景瀏覽器分頁閒置 10 分鐘拆掉。聊天圖片快取 LRU 約 16MB。
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
 ### 專案工作區與終端機
-- 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄檔案樹（含搜尋）／Git／AI 記錄／監聽埠，主區底部是額度條 `quota-bar.js`。
+- 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄五顆：檔案樹（含搜尋）／Git／AI 記錄／Port（main 對每個埠打一次 HTTP，2xx 的 HTML 或 3xx 轉址才算「網頁」，排上面、每列最右邊一顆「開啟」；其他服務只列）／MCP/Skills（不是側欄面板，是在目前專案開一個 `cc-tools` 分頁，一個專案最多一個）；主區底部是額度條 `quota-bar.js`。
 - 檔案樹圖片與 MP4／WebM 直接開工作區分頁（`vi-media://`）；Markdown 圖片支援專案相對路徑；Git 面板有 GitHub 按鈕（`githubUrl`）。
 - 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI；IPC 分段讀取，renderer 自動接成完整單頁，後續只重讀末段。標題／接續／複製路徑與概況／工具統計共用置頂區塊，長標題可展開；Ctrl+F 搜尋全文與工具內容，Enter／Shift+Enter／F3 前後跳轉，命中工具自動展開，Esc 關閉。
 - 終端機 PTY 在獨立宿主（`<userData>/terminal-host/`），App 重開／更新只斷線；五種 AI CLI 重開時接回原程序，程序已結束就用記住的對話 ID 接續（Claude 靠 hook，其他靠啟動前紀錄基準）。
 - Claude 狀態：hook（`<userData>/claude-hook/`）＋畫面判斷 → 分頁顯示運行中／等你回答／閒置。
-- 其他：WebGL renderer、搜尋、字級、最多 3 格並排、OSC 標題與 cwd、連結、Ctrl+G 用 App 內編輯分頁、剪貼簿截圖貼路徑、桌布與配色、管理員終端機。Codex 預設指令 `codex --no-daemon`（避免彈外部視窗）。
-- 終端機右緣：`term-scrollbar.js` 與滑鼠滾輪共用 xterm 的實際列號；`term-conversation.js` 右上角滑入展開、離開收合，只列提問／最終回答（略過 Grok 的 system-reminder 注入），點選同步 `scrollToLine`，全螢幕的 alternate buffer 也照目前畫面定位，不送逐段滾輪、不建立第二份終端機。main 依已驗證 session id 讀正式紀錄；同視窗切換對話時，OpenCode 用 `OC | 標題`（含狀態前綴與結尾省略）、Codex 先去掉忙碌圖示再對唯一明確標題；標題只有資料夾名稱時，改看這次程序開始後、這個目錄裡唯一且較新的紀錄。Grok 先對 `~/.grok/active_sessions.json` 裡同一個 grok.exe、同一個目錄、開檔時間不早於這次程序的最新 session（OSC 標題一直停在 `grok` 也會改綁）；標題以 `標題 - grok` 結尾時同樣改綁。分頁在 OSC 只是 `grok` 這類通用名稱時顯示該對話 `summary.json` 的 `generated_title`（沒有就用 `session_summary`），使用者改過的名字仍優先。側欄與分頁的運行狀態跟該對話 `events.jsonl` 的回合與權限，回合結束就離開運行中。Antigravity 對該次 agy.exe 的 cli log，取最後一筆 `Streaming conversation`；這次 log 沒有對話代碼時，改用這個目錄在 `last_conversations.json` 的那一筆。工作區路徑和終端機目錄不同時，仍綁定這次程序已證實的對話庫並顯示紀錄。終端機清單與專案裡的同一頁會改讀該段最新內容並繼續更新。改綁寫入後通知該分頁重讀，面板關著也換；進行中的掃描不把已經讀過的舊標題交給後到的查詢。Claude 由 PTY 子程序對應 `sessions/<pid>.json`（`/resume` 會改這份）。離開的對話若在同一秒再寫入 jsonl，仍以 pid 檔為準；pid 檔沒跟著改、專案 jsonl 又晚了兩秒以上，且這個目錄只有一支 Claude 時，才改綁那份較新的紀錄。其他可讀明確 resume 參數。啟動與恢復：Codex `--no-alt-screen`、Grok `--minimal --no-alt-screen`；JS／Rust 宿主均給 Claude `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`。OpenCode 維持全螢幕，宿主以 `OPENCODE_TUI_CONFIG` 載入 `opencode/navigation.mjs`（右緣拖曳軌用實際內容高度；對話清單只留 AxonDeck 右上角那一顆，外掛不再畫第二顆。依訊息 ID 跳轉；點任何一則都停在該則開頭，後面的輸出留在下面。xterm 找不到時寫 `terminal-nav/<id>.json`，外掛把內部捲軸移到該則；1.18.35 的回答沒有節點 ID 時，只接受同一提問內第一行唯一吻合的區塊）。專案側欄的 AI 紀錄每家各留最新 30 筆，面板開著時會再讀。全螢幕只收起 AxonDeck 捲軸，對話清單留著；點擊、拖曳與滾輪交給 CLI，Shift＋拖曳仍做本地選取。本機 Antigravity 已備份設定並設 `altScreenMode: never`（其他機器仍需同項 CLI 設定）。一般緩衝區保留 50000 列。經使用者同意，開啟時將正式保存的提問／回答（移除 ANSI 控制碼）逐頁補入同一個 xterm 的上方，再接原 PTY 畫面與即時輸出；以 marker 定位重複提問，保留可輸入的原 CLI。若 CLI 內切換舊對話後目標尚未載入，點選會補回保存紀錄與原 PTY 快照（期間即時輸出排隊、按 seq 去重），再一次跳轉；不重啟 PTY。超過緩衝區上限或仍無法定位時明示找不到。已運行的 CLI 要重啟接回後才套用原生模式。
+- 其他：WebGL renderer、搜尋、字級、最多 3 格並排、OSC 標題與 cwd、連結（CLI 自己換行的網址／路徑也接得起來：接續列縮排不算、上一列要寫到附近最長列的寬度才算被切斷）、Ctrl+G 用 App 內編輯分頁、剪貼簿截圖貼路徑、桌布與配色、管理員終端機。Codex 預設指令 `codex --no-daemon`（避免彈外部視窗）。
+- 終端機右緣：`term-scrollbar.js` 與滑鼠滾輪共用 xterm 的實際列號；`term-conversation.js` 右上角滑入展開、離開收合，只列提問／最終回答（略過 Grok 的 system-reminder 注入），點選同步 `scrollToLine`，全螢幕的 alternate buffer 也照目前畫面定位，不送逐段滾輪、不建立第二份終端機。main 依已驗證 session id 讀正式紀錄；同視窗切換對話時，OpenCode 用 `OC | 標題`（含狀態前綴與結尾省略）、Codex 先去掉忙碌圖示再對唯一明確標題；標題只有資料夾名稱時，改看這次程序開始後、這個目錄裡唯一且較新的紀錄。Grok 先對 `~/.grok/active_sessions.json` 裡同一個 grok.exe、同一個目錄、開檔時間不早於這次程序的最新 session（OSC 標題一直停在 `grok` 也會改綁）；標題以 `標題 - grok` 結尾時同樣改綁。分頁在 OSC 只是 `grok` 這類通用名稱時顯示該對話 `summary.json` 的 `generated_title`（沒有就用 `session_summary`），使用者改過的名字仍優先。側欄與分頁的運行狀態跟該對話 `events.jsonl` 的回合與權限，回合結束就離開運行中。Antigravity 對該次 agy.exe 的 cli log，取最後一筆 `Streaming conversation`；這次 log 沒有對話代碼、且這個目錄只有一個 agy 分頁時，才改用這個目錄在 `last_conversations.json` 的那一筆。同專案多開分頁時各看各的：一筆對話只綁給一個還在跑的分頁（`agent-resume.js` 的 `claimed` 記擁有者），那個分頁的 CLI 關了才放行給新分頁接續。工作區路徑和終端機目錄不同時，仍綁定這次程序已證實的對話庫並顯示紀錄。終端機清單與專案裡的同一頁會改讀該段最新內容並繼續更新。改綁寫入後通知該分頁重讀，面板關著也換；進行中的掃描不把已經讀過的舊標題交給後到的查詢。Claude 由 PTY 子程序對應 `sessions/<pid>.json`（`/resume` 會改這份）。離開的對話若在同一秒再寫入 jsonl，仍以 pid 檔為準；pid 檔沒跟著改、專案 jsonl 又晚了兩秒以上，且這個目錄只有一支 Claude 時，才改綁那份較新的紀錄。其他可讀明確 resume 參數。啟動與恢復：Codex `--no-alt-screen`、Grok `--minimal --no-alt-screen`；JS／Rust 宿主均給 Claude `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`。OpenCode 維持全螢幕，宿主以 `OPENCODE_TUI_CONFIG` 載入 `opencode/navigation.mjs`（右緣拖曳軌用實際內容高度；對話清單只留 AxonDeck 右上角那一顆，外掛不再畫第二顆。依訊息 ID 跳轉；點任何一則都停在該則開頭，後面的輸出留在下面。xterm 找不到時寫 `terminal-nav/<id>.json`，外掛把內部捲軸移到該則；1.18.35 的回答沒有節點 ID 時，只接受同一提問內第一行唯一吻合的區塊）。專案側欄的 AI 紀錄每家各留最新 30 筆，面板開著時會再讀。全螢幕只收起 AxonDeck 捲軸，對話清單留著；點擊、拖曳與滾輪交給 CLI，Shift＋拖曳仍做本地選取。本機 Antigravity 已備份設定並設 `altScreenMode: never`（其他機器仍需同項 CLI 設定）。一般緩衝區保留 50000 列。經使用者同意，開啟時將正式保存的提問／回答（移除 ANSI 控制碼）逐頁補入同一個 xterm 的上方，再接原 PTY 畫面與即時輸出；以 marker 定位重複提問，保留可輸入的原 CLI。若 CLI 內切換舊對話後目標尚未載入，點選會補回保存紀錄與原 PTY 快照（期間即時輸出排隊、按 seq 去重），再一次跳轉；不重啟 PTY。超過緩衝區上限或仍無法定位時明示找不到。已運行的 CLI 要重啟接回後才套用原生模式。
 
 ### 檔案頁
 - 分頁、雙欄（作用欄＋各自分頁組）、首頁「本機」（插拔即時更新）、清單／方格（Ctrl+滾輪 48～256px）、每個資料夾記自己的檢視／大小／排序（`explorer.json` 的 `folderViews`）。
@@ -115,13 +117,16 @@ native/
 
 ### 額度與用量統計
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
-- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，在 CC Proxy 子分頁。
+- 額度條左邊兩顆按鈕「供應商」「用量統計」（顯示目前供應商、目前範圍花費），點開從條上方展開不透明抽屜（疊在內容上、不推擠終端機；點條外或 Esc 收起，彈窗與選單內的點擊不算）。同步診斷已整條拿掉（按鈕、彈窗、IPC）。
+- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。
+- 用量統計抽屜：左邊總計（花費＋四種 token，色點兼圖例）在上、趨勢填滿下方；右邊依工具／依模型，每列明細一種 token 一格。整塊固定高度、分佈在自己那欄捲；抽屜窄於 760px（container query）改成一欄往下疊。
 - Haiku 5.5 依逐請求輸入（含快取）是否超過 100K 分開價格級距，同一模型顯示時合併；`RULES_VERSION = 11` 會重讀舊桶。自訂固定單價及來源自帶金額仍優先。
 
-### CC Proxy
+### Claude Code 供應商／MCP／Skills（原 CC Proxy 頁，邏輯都在 `ccswitch-page.js`）
 - 內建 Grok、Codex、Ollama Cloud、OpenCode Go、Command Code、OpenRouter 可選上游格式，非 Anthropic 走本機閘道轉換；Codex／Grok 可在 App 登入或沿用 CLI。
 - 轉換閘道跟著供應商自動開關（沒有手動開關）；AGY 反代執行中會自動多一張「Antigravity」供應商（直連反代、位址金鑰自動帶入，啟用時反代沒開會自動開）。
-- AGY 反代從獨立頁搬成 CC Proxy 的子分頁（`#cc-agy`，`agy-page.js` 照舊管自己的輪詢）。AGY 模型映射先比對即時型錄，再退回靜態表。
+- 入口：`refreshProviders`（額度條抽屜）、`refreshCcTools`（MCP 與 Skills 分頁：五家共用最上面一個切換，`.agents` 沒有 MCP 就收起 MCP 那塊）、`refreshVersionsSection`（設定頁 CLI）。訊息寫進看得到的那塊（`.cc-page-error`／`.cc-page-status`），彈窗開著寫彈窗。
+- AGY 反代在設定頁 `#set-agy`（`agy-page.js` 照舊管自己的輪詢，只在設定頁該區看得到時輪詢）。AGY 模型映射先比對即時型錄，再退回靜態表。
 - 供應商彈窗：金鑰／登入／模型在外面，名稱、上游格式、1M 收在「進階設定」（自訂預設展開）；多一顆「儲存並啟用」。
 - 模型清單每天自動同步一次（`modelsCheckedAt`），下拉依 AI lab 分組（`cc-model-groups.js`）；Codex 查詢的 `client_version` 跟隨已安裝 CLI。
 

@@ -318,22 +318,10 @@ async function trashFile(cdp, ok, root) {
   ok('選到 a.bin', picked.ok === true && picked.name === 'a.bin' && picked.path === aPath, JSON.stringify(picked))
   if (!picked.ok || picked.path !== aPath) return
   await cdp.eval(`document.getElementById('diskMark').click()`)
-  const opened = await cdp.eval(`(() => {
-    document.getElementById('diskTrash').click()
-    const dialog = document.querySelector('dialog[open]')
-    return {
-      shown: Boolean(dialog),
-      desc: dialog?.querySelector('.dialog-desc')?.textContent || '',
-      confirm: dialog?.querySelector('.btn-danger')?.textContent || ''
-    }
-  })()`)
-  const norm = (value) => String(value || '').replace(/\//g, '\\').toLowerCase()
-  ok('確認框裡有 a.bin 的完整路徑',
-    opened.shown && norm(opened.desc).includes(norm(aPath)),
-    opened.desc)
-  if (!opened.shown || !norm(opened.desc).includes(norm(aPath))) return
   const before = await cdp.eval(`window.__diskView().bytes`)
-  await cdp.eval(`document.querySelector('dialog[open] .btn-danger').click()`)
+  // v1.39.3 起丟資源回收筒不再問（救得回來），按下去就丟
+  await cdp.eval(`document.getElementById('diskTrash').click()`)
+  ok('丟回收筒不跳確認框', !(await cdp.eval(`Boolean(document.querySelector('dialog[open]'))`)))
   const after = await waitFor(
     async () => {
       const view = await cdp.eval(`window.__diskView()`)

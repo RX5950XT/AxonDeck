@@ -274,6 +274,8 @@ async function main() {
     await cdp.connect()
     await cdp.send('Runtime.enable')
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false })
+    // 視窗是 --hidden 開的：不模擬焦點的話，就地輸入框的焦點與 Monaco 的 hover 時有時無
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
     await sleep(1500)
     // 感測器 sidecar 會跳 UAC，測試一律先關掉
     await cdp.eval(`window.electronAPI.store.set('sysmonSensors', false)`)
@@ -1437,16 +1439,22 @@ async function main() {
       await waitInPage(cdp, `document.querySelector('#projList [data-id="${PROJECT_ID}"] .chat-list-open')`, 5000)
       await cdp.eval(`document.querySelector('#projList [data-id="${PROJECT_ID}"] .chat-list-open')?.click()`)
       await waitInPage(cdp, `document.querySelector('#wsTree .ws-tree-row[data-rel="README.md"]')`, 10000)
-      await cdp.eval(`(() => {
-        const row = document.querySelector('#wsTree .ws-tree-row[data-rel="src"]')
-        if (row && row.getAttribute('aria-expanded') !== 'true') row.click()
-      })()`)
-      await waitInPage(cdp, `document.querySelector('${newRow} .ws-tree-status')`, 8000)
-      await cdp.eval(`document.querySelector('${newRow} .ws-tree-status')?.click()`)
-      ok('[V] 檔案頁的狀態標記可以開未提交 Diff',
-        await waitInPage(cdp,
-          `document.getElementById('wsDiffTitle')?.textContent.includes('[工作區]')`
-          + ` && /\\+[1-9][0-9]*/.test(document.getElementById('wsDiffStats')?.textContent || '')`, 15000))
+      // 重開專案後檔案樹會自己把之前展開的資料夾非同步展回來：這時候去點 src 會跟它互相抵消又收起來。
+      // 同一個輪詢裡：src 沒展開就展開（隔 1.5 秒以上才再點），展開了再點狀態標記；監看重畫把列換掉也會再點
+      const vOpened = await waitInPage(cdp, `(() => {
+          const title = document.getElementById('wsDiffTitle')?.textContent || ''
+          if (title.includes('[工作區]') && title.includes('new-untracked')) {
+            return /\\+[1-9][0-9]*/.test(document.getElementById('wsDiffStats')?.textContent || '')
+          }
+          const src = document.querySelector('#wsTree .ws-tree-row[data-rel="src"]')
+          if (src && src.getAttribute('aria-expanded') !== 'true') {
+            if (Date.now() - (window.__vSrcClick || 0) > 1500) { window.__vSrcClick = Date.now(); src.click() }
+            return false
+          }
+          document.querySelector('${newRow} .ws-tree-status')?.click()
+          return false
+        })()`, 20000)
+      ok('[V] 檔案頁的狀態標記可以開未提交 Diff', vOpened)
       await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="files"]').click()`)
       await waitInPage(cdp, `document.querySelector('#wsTree .ws-tree-row[data-rel="README.md"]')`, 8000)
     }

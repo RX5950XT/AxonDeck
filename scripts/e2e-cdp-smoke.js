@@ -193,24 +193,28 @@ async function main() {
         barInWorkspace: !!bar && bar.closest('#termMain') !== null,
         hasSync: !!document.getElementById('quotaSyncBtn'),
         hasSettings: !!document.getElementById('usageSettingsDialog'),
-        hasDiagnostics: !!document.getElementById('usageDiagnosticsDialog'),
-        statsInCc: !!document.querySelector('#page-ccswitch #cc-stats #cuSummary'),
+        noDiagnostics: !document.getElementById('usageDiagnosticsDialog') && !document.getElementById('quotaDiagnosticsBtn'),
+        statsInBar: !!document.querySelector('#quotaBar #quotaDrawerStats #cuSummary'),
+        providersInBar: !!document.querySelector('#quotaBar #quotaDrawerProviders #ccProviderList'),
+        noCcPage: !document.getElementById('page-ccswitch'),
         accounts: usageState.data.accounts.length,
         barSettings: !!usageState.data.settings.bar
       }
     })()`)
     ok(
-      'ten-tab order + quota bar under the terminal + stats under CC',
+      'nine-tab order + quota bar under the terminal + providers/stats in the bar drawer',
       JSON.stringify(usageUi?.order) === JSON.stringify([
-        'chat', 'telegram', 'explorer', 'ccswitch', 'stt', 'translate', 'speech', 'sysmon', 'hfmodels', 'settings'
+        'chat', 'telegram', 'explorer', 'stt', 'translate', 'speech', 'sysmon', 'hfmodels', 'settings'
       ]) &&
         usageUi.hasApi &&
         usageUi.noUsagePage &&
         usageUi.barInWorkspace &&
         usageUi.hasSync &&
         usageUi.hasSettings &&
-        usageUi.hasDiagnostics &&
-        usageUi.statsInCc &&
+        usageUi.noDiagnostics &&
+        usageUi.statsInBar &&
+        usageUi.providersInBar &&
+        usageUi.noCcPage &&
         usageUi.accounts === 7 &&
         usageUi.barSettings,
       JSON.stringify(usageUi)
@@ -392,7 +396,7 @@ async function main() {
         settingsUi?.translateNav === '翻譯' &&
         settingsUi?.hasModelList &&
         JSON.stringify(settingsUi?.navSections) ===
-          JSON.stringify(['cloud', 'basic', 'appearance', 'cli']) &&
+          JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'cli']) &&
         settingsUi?.activeSections === 1 &&
         settingsUi?.noFooterSave,
       JSON.stringify(settingsUi)

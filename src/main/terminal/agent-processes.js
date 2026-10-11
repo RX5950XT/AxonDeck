@@ -99,13 +99,14 @@ async function identifySessions(states, terminals, homes, snapshot = processSnap
     for (const process of ownedProcesses(state.pid, processes)) {
       if (process.Name?.toLowerCase() !== `${meta.preset}.exe`) continue
       const processCandidates = []
+      // 同目錄同工具有幾個分頁：只有一個時才可以拿「目錄裡最新的那筆」來猜
+      const peers = terminals.filter(item => item.preset === meta.preset && item.cwd && meta.cwd
+        && path.resolve(item.cwd).toLowerCase() === path.resolve(meta.cwd).toLowerCase())
       if (['grok', 'agy'].includes(meta.preset)) {
-        const id = await require('./agent-live-session').liveSession(meta.preset, process, meta.cwd)
+        const id = await require('./agent-live-session').liveSession(meta.preset, process, meta.cwd, peers.length)
         if (id) processCandidates.push(id)
       }
       if (meta.preset === 'claude') {
-        const peers = terminals.filter(item => item.preset === 'claude' && item.cwd && meta.cwd
-          && path.resolve(item.cwd).toLowerCase() === path.resolve(meta.cwd).toLowerCase())
         const id = await claudeSessionId(homes, meta.cwd, process, peers.length)
         if (id) processCandidates.push(id)
       }

@@ -5,7 +5,10 @@ const fs = require('fs')
 const path = require('path')
 
 const indexFile = path.join(__dirname, '../renderer/index.html')
-const pageNames = [...fs.readFileSync(indexFile, 'utf8').matchAll(/class="nav-tab[^"]*" data-page="(\w+)"/g)].map((m) => m[1])
+const navHtml = fs.readFileSync(indexFile, 'utf8')
+const pageNames = [...navHtml.matchAll(/class="nav-tab[^"]*" data-page="(\w+)"/g)].map((m) => m[1])
+/** 彈出視窗的標題（工作列看的就是它）：沿用導覽列那顆的 aria-label */
+const pageLabels = new Map([...navHtml.matchAll(/class="nav-tab[^"]*" data-page="(\w+)"[^>]*aria-label="([^"]+)"/g)].map((m) => [m[1], m[2]]))
 
 /** 每頁只有一份 renderer；收回只搬 view，不重載、不複製草稿或工作。 */
 function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
@@ -100,9 +103,10 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
     if (!request || !pageNames.includes(request.page)) throw new Error('無效功能頁')
     const { page, subtab = '', action = '', full = '', kind = 'dir' } = request
     if (!['', 'recommend', 'cloud', 'basic', 'appearance', 'cli'].includes(subtab)) throw new Error('無效子頁')
-    if (!['', 'files', 'project'].includes(action) || typeof full !== 'string' || full.length > 32768
+    if (!['', 'files', 'project', 'browser'].includes(action) || typeof full !== 'string' || full.length > 32768
       || !['dir', 'file'].includes(kind) || (action === 'files' && page !== 'explorer')
-      || (action === 'project' && page !== 'chat')) throw new Error('無效頁面操作')
+      || ((action === 'project' || action === 'browser') && page !== 'chat')
+      || (action === 'browser' && !/^https?:\/\//i.test(full))) throw new Error('無效頁面操作')
     return { page, subtab, action, full, kind }
   }
 
@@ -158,7 +162,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
       current = null
     }
     const popup = new BrowserWindow({ width: 1100, height: 760, minWidth: 900, minHeight: 600,
-      frame: false, icon, title: 'AxonDeck', backgroundColor: background(), show: false,
+      frame: false, icon, title: pageLabels.has(entry.page) ? `${pageLabels.get(entry.page)} — AxonDeck` : 'AxonDeck', backgroundColor: background(), show: false,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
     entry.popup = popup
     popup.setMenu(null)
@@ -204,4 +208,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
   }
 }
 
-module.exports = { createPageWindows }
+module.exports = {
+  pageLabels,
+  createPageWindows
+}

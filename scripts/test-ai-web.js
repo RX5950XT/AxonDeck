@@ -1,7 +1,7 @@
 'use strict'
 // 網頁版 AI 對話的網址／標題把關：`node scripts/test-ai-web.js`
 const assert = require('node:assert/strict')
-const { SITES, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup, chromeUserAgent, allowPermission } = require('../src/main/ai-web')
+const { SITES, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup, chromeUserAgent, allowPermission, brandList, clientHints } = require('../src/main/ai-web')
 
 assert.equal(safeUrl('chatgpt', 'https://chatgpt.com/c/abc'), 'https://chatgpt.com/c/abc')
 assert.equal(safeUrl('chatgpt', 'https://evil.example/c/abc'), '', '別的網域不收')
@@ -31,19 +31,34 @@ assert.ok(!isChatUrl('claude', 'https://claude.ai/login'), '登入頁不是對�
 assert.ok(!isChatUrl('grok', 'https://grok.com/'), '首頁（含 Cloudflare 驗證頁）不是對話')
 assert.ok(!isChatUrl('gemini', 'https://accounts.google.com/signin'), '別的網域')
 
-// Google 登入：只改 accounts.google.com 的識別並拿掉 Client Hints
+// Google 登入：只改 accounts.google.com 的識別並拿掉 Client Hints；其他 https 請求補上真 Chrome 的 Client Hints
 let filter, handler
 installGoogleLoginFix({ webRequest: { onBeforeSendHeaders: (f, h) => { filter = f; handler = h } } })
-assert.deepEqual(filter.urls, ['https://accounts.google.com/*'])
-handler({ resourceType: 'subFrame', requestHeaders: { 'User-Agent': 'Chrome' } }, (out) => {
-  assert.deepEqual(out, {}, '網站嵌的 Google 登入元件不動')
+assert.deepEqual(filter.urls, ['https://*/*'])
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
+handler({ url: 'https://accounts.google.com/gsi/iframe', resourceType: 'subFrame', requestHeaders: { 'User-Agent': UA } }, (out) => {
+  assert.equal(out.requestHeaders['User-Agent'], UA, '網站嵌的 Google 登入元件不換識別')
 })
-handler({ resourceType: 'mainFrame', requestHeaders: { 'User-Agent': 'Chrome', 'sec-ch-ua': 'x', 'Sec-CH-UA-Platform': 'y', Accept: '*/*' } }, (out) => {
+handler({ url: 'https://accounts.google.com/signin', resourceType: 'mainFrame', requestHeaders: { 'User-Agent': 'Chrome', 'sec-ch-ua': 'x', 'Sec-CH-UA-Platform': 'y', Accept: '*/*' } }, (out) => {
   assert.deepEqual(out.requestHeaders, { 'User-Agent': 'https://accounts.google.com/', Accept: '*/*' })
 })
+handler({ url: 'https://example.com/', resourceType: 'mainFrame', requestHeaders: { 'User-Agent': UA } }, (out) => {
+  assert.equal(out.requestHeaders['sec-ch-ua'], '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"', '補上 Chrome 150 的品牌')
+  assert.equal(out.requestHeaders['sec-ch-ua-platform'], '"Windows"')
+  assert.equal(out.requestHeaders['sec-ch-ua-mobile'], '?0')
+})
+handler({ url: 'https://example.com/', resourceType: 'xhr', requestHeaders: { 'User-Agent': UA, 'Sec-CH-UA': 'kept' } }, (out) => {
+  assert.deepEqual(out, {}, '已經有 Client Hints 就不動')
+})
+// 對照真 Chrome 實際送出的字串（不同版號的假品牌與順序都不同）
+assert.equal(clientHints(UA.replace('150', '120'))['sec-ch-ua'], '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"')
+assert.equal(clientHints(UA.replace('150', '124'))['sec-ch-ua'], '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"')
+assert.equal(clientHints(`${UA} Edg/124.0.0.0`.replace('150', '124'))['sec-ch-ua'], '"Chromium";v="124", "Microsoft Edge";v="124", "Not-A.Brand";v="99"')
+assert.equal(clientHints('curl/8'), null)
+assert.deepEqual(brandList(150, '150.0.7871.250').map((b) => b.version), ['8.0.0.0', '150.0.7871.250', '150.0.7871.250'], '完整版號清單')
 assert.ok(isLoginPopup('https://accounts.google.com/o/oauth2/v2/auth?x=1'), 'Google 登入小視窗留在 App')
 assert.ok(isLoginPopup('https://github.com/login/oauth/authorize'))
-assert.ok(!isLoginPopup('https://github.com/user/repo'), '回答裡的 GitHub 連結交給系統瀏覽器')
+assert.ok(!isLoginPopup('https://github.com/user/repo'), '回答裡的 GitHub 連結不當登入小視窗')
 assert.ok(!isLoginPopup('https://x.com/someone/status/1'))
 assert.ok(!isLoginPopup('http://accounts.google.com/'), '只收 https')
 assert.equal(chromeUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) axondeck/1.38.4 Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36'),

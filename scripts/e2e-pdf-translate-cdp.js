@@ -26,8 +26,9 @@ function getPages() {
 }
 
 class Cdp {
-  constructor() { this.id = 0; this.pending = new Map(); this.exceptions = [] }
-  async connect(url) {
+  // page-cdp.js 跟著功能頁換 target 時是 `new Cdp(url)` 再 `connect()`：兩種給法都要收
+  constructor(url) { this.url = url; this.id = 0; this.pending = new Map(); this.exceptions = [] }
+  async connect(url = this.url) {
     this.ws = new WebSocket(url)
     await new Promise((resolve, reject) => {
       this.ws.addEventListener('open', resolve)

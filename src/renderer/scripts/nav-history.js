@@ -6,6 +6,7 @@
  */
 import { electronAPI, switchPage, setChatPaneMode, getChatPaneMode } from './app.js'
 import { currentChatId, openChatById } from './chat-page.js'
+import { pageOwner } from './page-windows.js'
 
 const MAX_STEPS = 50
 
@@ -15,7 +16,10 @@ let index = -1
 let restoring = false
 
 function here() {
-  const page = /** @type {HTMLElement | null} */ (document.querySelector('.nav-tab.active'))?.dataset.page || ''
+  // 功能頁各自一個 renderer：這份只記自己這一頁（跨頁的足跡在 main，`pages.history`）。
+  // 讀 .nav-tab.active 會在頁面剛載入時讀到 index.html 預設的 chat，多記一步假的
+  const owned = pageOwner && pageOwner !== 'host' ? pageOwner : ''
+  const page = owned || /** @type {HTMLElement | null} */ (document.querySelector('.nav-tab.active'))?.dataset.page || ''
   if (page !== 'chat') return { page, pane: '', chatId: '' }
   const pane = getChatPaneMode()
   return { page, pane, chatId: pane === 'workspace' ? '' : currentChatId() }

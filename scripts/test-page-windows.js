@@ -22,8 +22,9 @@ class View {
   setVisible(visible) { this.visible = visible }
 }
 class Window extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super()
+    this.options = options
     this.webContents = new Contents()
     this.children = new Set()
     this.contentView = {
@@ -71,6 +72,10 @@ async function test() {
   assert.equal(main.children.has(first), false)
   assert.equal(popup.children.has(first), true)
   assert.equal(first.visible, true)
+  // 工作列顯示的是視窗標題：要帶那一頁的名稱，不能每個都叫 AxonDeck
+  const navLabel = fs.readFileSync('src/renderer/index.html', 'utf8')
+    .match(new RegExp(`data-page="${NAV_PAGES[0]}"[^>]*aria-label="([^"]+)"`))[1]
+  assert.equal(popup.options.title, `${navLabel} — AxonDeck`)
   await open(NAV_PAGES[0], true)
   assert.equal(views.length, 1)
   assert.equal(windows.length, 2)

@@ -184,6 +184,61 @@ async function main() {
     ok('滿列硬換行的網址接得起來', hit?.url === 'http://example.com/abcdef/file.js', JSON.stringify({ text: info?.text, hit }))
   }
   {
+    // Claude Code：訊息右邊沒貼齊、接續列前面縮兩格
+    const cols = 40
+    const rows = [
+      { text: '● see https://example.com/aaaaaaaaaaaaa' },
+      { text: '  bbbb/c.html for more' }
+    ]
+    ok('第一列沒寫滿 cols', rows[0].text.length < cols)
+    const buf = fakeBuffer(rows, cols)
+    const want = 'https://example.com/aaaaaaaaaaaaabbbb/c.html'
+    for (const y of [1, 2]) {
+      const info = scan.logicalLine(buf, y)
+      const hit = scan.scanLine(info.text).find((entry) => entry.url)
+      ok(`縮排接續列的網址接得起來（滑在第 ${y} 列）`, hit?.url === want, JSON.stringify({ text: info?.text, hit }))
+      if (y === 2) {
+        ok('縮排不算進網址的起點', JSON.stringify(info.at(hit.start)) === JSON.stringify({ x: 7, y: 1 }))
+        ok('底線停在第 2 列的 c.html 結尾', JSON.stringify(info.endAt(hit.end - 1)) === JSON.stringify({ x: 13, y: 2 }),
+          JSON.stringify(info.endAt(hit.end - 1)))
+      }
+    }
+  }
+  {
+    // 三列的網址：中間那列整列都是網址、沒有斜線；滑在最後一列也要接回第一列
+    const cols = 30
+    const rows = [
+      { text: '● https://example.com/q?a=1234' },
+      { text: '  5678901234567890123456789012' },
+      { text: '  yy end' }
+    ]
+    const info = scan.logicalLine(fakeBuffer(rows, cols), 3)
+    const hit = scan.scanLine(info.text).find((entry) => entry.url)
+    ok('三列網址從最後一列接回整段', hit?.url === 'https://example.com/q?a=12345678901234567890123456789012yy',
+      JSON.stringify({ text: info?.text, hit }))
+  }
+  {
+    // 一般斷字：網址剛好排在行尾、旁邊有更長的列 → 不是被硬切斷，下一列的字不能黏上去
+    const rows = [
+      { text: 'aaaa bbbb cccc dddd eeee ffff gggg hhhh' },
+      { text: 'see https://example.com/abcdefghijk' },
+      { text: 'for details' }
+    ]
+    const info = scan.logicalLine(fakeBuffer(rows, 40), 2)
+    const hit = scan.scanLine(info.text).find((entry) => entry.url)
+    ok('斷字換行的網址不黏下一列', hit?.url === 'https://example.com/abcdefghijk', JSON.stringify({ text: info?.text, hit }))
+  }
+  {
+    // 斜線結尾、下一列有縮排的路徑
+    const rows = [
+      { text: '⎿  Created src/components/' },
+      { text: '     Button.tsx' }
+    ]
+    const info = scan.logicalLine(fakeBuffer(rows, 80), 2)
+    const hit = scan.scanLine(info.text).find((entry) => !entry.url)
+    ok('縮排接續列的路徑接得起來', hit?.text === 'src/components/Button.tsx', JSON.stringify({ text: info?.text, hit }))
+  }
+  {
     // 「看」佔兩欄，「 src/a.js」從第 3 欄開始。若用字元位移 % cols，底線會畫到「看」上面。
     const line = {
       isWrapped: false,

@@ -235,6 +235,14 @@ async function launch() {
     30_000,
     'preload'
   )
+  // 虛擬清單靠 scroll 事件換可見範圍，而 scroll 事件只在畫面更新時發：--hidden 的視窗不畫。
+  // 跟真的使用一樣讓視窗顯示出來（不搶焦點）
+  const inspector = await waitFor(async () => {
+    try { return (await getJson(`http://127.0.0.1:${INSPECT_PORT}/json/list`))[0] } catch { return null }
+  }, 15_000, 'main inspector')
+  const mainCdp = new Cdp(inspector.webSocketDebuggerUrl)
+  await mainCdp.connect(false)
+  await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().find(w => /index\\.html/.test(w.webContents.getURL()))?.showInactive()`)
   await cdp.eval(`document.querySelector('[data-page="explorer"]').click()`)
   await waitFor(() => cdp.eval(`document.getElementById('page-explorer')?.classList.contains('active')`), 15_000, '檔案頁')
   // 大資料夾是分批載入的：等第一批真的畫出來再動作，不然後到的那一批會把剛切走的路徑蓋回來。
@@ -368,9 +376,12 @@ async function main() {
     assert(scrolled >= 4000, '清單真的捲下去了', json(scrolled))
     // 點畫面中段那一列：點第一列會被捲回頂端，測不出「切回來還在原處」。
     // 等虛擬清單真的把視窗換到捲動後的位置，再挑列；不然挑到的是換窗前那一批。
+    // scroll 事件是畫面更新那一步才發的；--hidden 的視窗不畫，改程式設的 scrollTop 不會自己發，補一下
     await waitFor(() => cdp.eval(`(() => {
       const first = document.querySelector('#exList .ex-row')?.dataset.id || ''
-      return first && first !== 'item-00000.txt' ? first : null
+      if (first && first !== 'item-00000.txt') return first
+      document.getElementById('exList').dispatchEvent(new Event('scroll'))
+      return null
     })()`), 20_000, '可見範圍跟著捲動換過去')
     const marked = await waitFor(() => cdp.eval(`(() => {
       const list = document.getElementById('exList')
@@ -553,7 +564,8 @@ async function main() {
       const row = [...document.querySelectorAll('#exSecondList .ex-row')]
         .find((r) => r.dataset.name === 'target-folder')
       if (!row) return null
-      row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+      // 右欄不掛 dblclick（第一下的重畫會換掉列），認的是 detail 為 2 的第二下 click
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }))
       return true
     })()`), 20_000, '右欄走進 target-folder')
     const rightAt = await waitFor(async () => {
@@ -579,6 +591,9 @@ async function main() {
       '左欄的檔真的搬走'
     )
     assert(!fs.existsSync(path.join(DUAL_DIR, 'dual-1.txt')), '搬到右欄之後左欄不再有 dual-1.txt')
+    // 兩個檔是一個接一個搬的：第一個走了不代表第二個已經到
+    await waitFor(() => (fs.existsSync(path.join(TARGET_DIR, 'dual-1.txt')) && fs.existsSync(path.join(TARGET_DIR, 'dual-2.txt')) ? true : null),
+      30_000, '兩個檔都搬到右欄').catch(() => null)
     assert(fs.existsSync(path.join(TARGET_DIR, 'dual-1.txt')) && fs.existsSync(path.join(TARGET_DIR, 'dual-2.txt')),
       '兩個檔真的落在右欄的資料夾')
     assert(await cdp.eval(`document.querySelector('#exTabStrip .ex-tab.is-active')?.dataset.path === ${json(DUAL_DIR)}`),
@@ -612,7 +627,9 @@ async function main() {
       return true
     })()`)
     assert(renamed, '填了前綴之後可以套用')
-    await waitFor(() => (fs.existsSync(path.join(TARGET_DIR, 'vi-copy-a.txt')) ? true : null), 20_000, '改名落地')
+    // 一個接一個改：等兩個都落地再驗，不然第一個好了就去看第二個
+    await waitFor(() => (fs.existsSync(path.join(TARGET_DIR, 'vi-copy-a.txt'))
+      && fs.existsSync(path.join(TARGET_DIR, 'vi-copy-b.txt')) ? true : null), 20_000, '改名落地').catch(() => null)
     assert(fs.existsSync(path.join(TARGET_DIR, 'vi-copy-a.txt')) && fs.existsSync(path.join(TARGET_DIR, 'vi-copy-b.txt')),
       '兩個檔都真的改了名')
 

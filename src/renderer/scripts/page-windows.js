@@ -18,7 +18,7 @@ export async function navigateToPage(request, detach = false) {
   }
 }
 
-export function initPageWindows({ switchPage, openSettingsPage, openInFilesPage, openFolderInWorkspace, cooldown, settingsChanged }) {
+export function initPageWindows({ switchPage, openSettingsPage, openInFilesPage, openFolderInWorkspace, openUrlInApp, cooldown, settingsChanged }) {
   if (!pageOwner) return
   document.body.classList.toggle('page-host', isPageHost)
   if (isPageHost) {
@@ -55,6 +55,7 @@ export function initPageWindows({ switchPage, openSettingsPage, openInFilesPage,
     try {
       if (action === 'files') await openInFilesPage(full, kind)
       else if (action === 'project') await openFolderInWorkspace(full)
+      else if (action === 'browser') await openUrlInApp(full)
       else if (page === 'settings' && subtab) openSettingsPage(subtab)
       else if (subtab) switchPage(page, subtab)
     } catch { showToast('無法開啟指定內容', 'error') }

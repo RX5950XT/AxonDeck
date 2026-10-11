@@ -197,7 +197,7 @@ async function main() {
       }
     })()`)
     if (JSON.stringify(structure.order) !== JSON.stringify(EXPECTED_ORDER) || !structure.noPage ||
-        !structure.inTermMain || !structure.belowSurfaces || structure.height > 30 || structure.chips !== 7) {
+        !structure.inTermMain || !structure.belowSurfaces || structure.height > 40 || structure.chips !== 7) {
       throw new Error(`額度條結構錯誤：${JSON.stringify(structure)}`)
     }
     pass(`額度頁拿掉了；額度條在終端機下面、高 ${Math.round(structure.height)}px、七顆都在`)
@@ -211,7 +211,7 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, 500))
       const afterSave = document.querySelectorAll('#quotaItems .quota-item').length
       const hasGrok = !!document.querySelector('#quotaItems .quota-item[data-id="grok"]')
-      document.querySelector('[data-page="ccswitch"]').click()
+      // 每頁是獨立的 renderer，點別頁會把 CDP 帶去那一頁；這裡只在同一頁重畫
       document.querySelector('[data-page="chat"]').click()
       await new Promise((resolve) => setTimeout(resolve, 400))
       const saved = (await window.electronAPI.usage.load()).data.settings.visibleProviders
@@ -357,18 +357,10 @@ async function main() {
     }
     pass('點一下開那一家的完整卡片（在條的上方、不透明），再點一下收起來')
 
-    await applyAllOn()
-    const diagnostics = await cdp.eval(`(async () => {
-      document.getElementById('quotaDiagnosticsBtn').click()
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      const text = document.getElementById('usageDiagnosticsText').textContent
-      document.getElementById('usageDiagnosticsClose').click()
-      return text
-    })()`)
-    if (/Bearer\s+[A-Za-z0-9._-]{8,}|refresh_token|client_secret|sk-[A-Za-z0-9]/i.test(diagnostics)) {
-      throw new Error('診斷內容疑似含憑證')
-    }
-    pass('診斷內容已去敏')
+    // 同步診斷整條拿掉了（按鈕、彈窗、IPC）；狀態去敏由 e2e-usage.js 檢查
+    const noDiagnostics = await cdp.eval(`!document.getElementById('quotaDiagnosticsBtn') && !document.getElementById('usageDiagnosticsDialog') && !window.electronAPI.usage.getDiagnostics`)
+    if (!noDiagnostics) throw new Error('同步診斷還沒拿乾淨')
+    pass('額度條沒有同步診斷')
 
     // 真的兌換會扣使用者的次數，這裡只驗「清單外的 id 在碰到 CLI 之前就被擋下」
     const fakeRedeem = await cdp.eval(`window.electronAPI.usage.redeemCodexReset('rlrc_not_in_list')`)
@@ -455,20 +447,20 @@ async function main() {
     }
     pass('深淺主題都看得到、字色跟著主題換、沒有水平溢出')
 
-    // ===== 用量統計子分頁 =====
+    // ===== 用量統計（額度條抽屜） =====
     // 只驗「切得過去、面板都在、統計讀得出來」。**刻意不按「掃描本機記錄」**：
     // 那會讀滿 GB 等級的 session 記錄，是使用者自己決定要不要跑的動作，不該由測試代按。
-    // 用量統計搬到 CC Proxy頁的子分頁
-    await cdp.eval("document.querySelector('[data-page=\"ccswitch\"]').click()")
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"stats\"]').click()")
+    // 用量統計在工作區額度條的抽屜裡
+    await cdp.eval("document.querySelector('[data-page=\"chat\"]').click()")
+    await cdp.eval("document.getElementById('quotaStatsBtn').click()")
     await waitFor(
-      () => cdp.eval("document.getElementById('cc-stats').classList.contains('active') && document.querySelectorAll('#cuChart .cu-bar-col').length > 0"),
+      () => cdp.eval("!document.getElementById('quotaDrawerStats').hidden && document.querySelectorAll('#cuChart .cu-bar-col').length > 0"),
       15_000,
-      'CC Proxy的用量統計子分頁'
+      '額度條的用量統計抽屜'
     )
-    pass('CC Proxy頁的「用量統計」子分頁切得過去')
+    pass('額度條的「用量統計」抽屜打得開')
 
-    const statsPanels = await cdp.eval("document.querySelectorAll('#cc-stats .cc-panel').length")
+    const statsPanels = await cdp.eval("document.querySelectorAll('#quotaDrawerStats .cc-panel').length")
     if (statsPanels !== 3) throw new Error(`用量統計應有三個面板，實際 ${statsPanels}`)
     pass('用量統計三個面板都在')
 

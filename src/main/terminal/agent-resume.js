@@ -83,8 +83,12 @@ function createTracker(store, agents, now = Date.now, states = async () => [], i
   const active = new Set()
 
   async function remember(meta, agent, sessionId, claimed) {
+    // 一筆對話只屬於一個分頁：另一個還在跑的分頁接著它，就不再接到這一顆（同專案多開時各看各的）。
+    // 那個分頁的 CLI 已經關了就放行：在新分頁接續舊對話是正常操作
+    const owner = claimed.get(`${agent}:${sessionId}`)
+    if (owner && owner !== meta.id && active.has(owner)) return
     if (await store.setAgentSession(meta.id, agent, sessionId, meta.agentStartedAt) === false) return
-    claimed.add(`${agent}:${sessionId}`)
+    claimed.set(`${agent}:${sessionId}`, meta.id)
     onChange(meta.id, sessionId)
   }
 
@@ -103,7 +107,8 @@ function createTracker(store, agents, now = Date.now, states = async () => [], i
 
   async function scan() {
     const terminals = await store.list()
-    const claimed = new Set(terminals.filter(t => t.agentSessionId).map(t => `${t.preset}:${t.agentSessionId}`))
+    /** `工具:對話 ID` → 接著它的終端機 id */
+    const claimed = new Map(terminals.filter(t => t.agentSessionId).map(t => [`${t.preset}:${t.agentSessionId}`, t.id]))
     const pending = terminals.filter(t => active.has(t.id) && !t.agentSessionId && t.agentStartedAt)
     const live = await states() || []
     const titles = new Map(live.map(t => [t.id, t.title]))

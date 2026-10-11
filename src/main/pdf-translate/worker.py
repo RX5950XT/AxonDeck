@@ -182,7 +182,9 @@ MATH_TOKEN = re.compile(r"(?:(?:arc)?(?:sin|cos|tan|cot|sec|csc)h?|exp|log|ln|li
 
 
 def translatable(text):
-    return bool(WORD.search(text)) and not is_formula(text) and not MATH_TOKEN.fullmatch(text.strip())
+    # 每個詞都是數學記號（「, sin」「cos x, exp」）就整段不翻：數學一律留原樣
+    words = [word for word in WORD.findall(text) if not MATH_TOKEN.fullmatch(word)]
+    return bool(words) and not is_formula(text)
 
 
 def direction_rotation(direction):
@@ -306,9 +308,8 @@ def spotting_units(pipeline, image, region, sx, sy, bounds, protected, native, w
             text = text[0] if text else ""
         if not isinstance(text, str):
             raise WorkerError("OCR_RESULT")
+        # 公式與數學記號刻意保留，不算沒翻到
         if not translatable(text):
-            if is_formula(text) and len(re.findall(r"[A-Za-z]{3,}", text)) > 1:
-                warnings["TEXT_UNTRANSLATED"] += 1
             continue
         try:
             coords = [(float(p[0]) / sx + x0 / sx, float(p[1]) / sy + y0 / sy) for p in points]
@@ -354,7 +355,15 @@ def collect_units(page, layout, pipeline, warnings):
         for part in text_regions(region, protected):
             found = spotting_units(pipeline, image, part, sx, sy, page.rect, protected, units, warnings)
             units.extend(found)
-    return group_paragraphs(units, blocks, protected + kept), image, sx, sy
+    grouped = group_paragraphs(units, blocks, protected + kept)
+    # 跟公式／變數同一行的片段（Linear independence of ＋ n ＋ functions）：
+    # 數學字位置固定，合併翻時模型會為了整句通順搬字，這種要各自單獨翻
+    # 不附整行原文當上下文：實測模型會把公式也翻進去（n 重複、冒出 $n$）
+    for unit in grouped:
+        rect = unit["rect"]
+        unit["inline"] = any(min(r.y1, rect.y1) - max(r.y0, rect.y0) > min(r.height, rect.height) * 0.5
+                             for r in protected + kept)
+    return grouped, image, sx, sy
 
 
 def group_paragraphs(units, blocks, protected):
@@ -402,19 +411,50 @@ def text_html(text, unit, target):
     return f'<div lang="{html.escape(target, quote=True)}" style="{style}">{html.escape(text).replace(chr(10), "<br>")}</div>'
 
 
-def prepare_translation(unit, translated, target, warnings):
+def room_right(page, units):
+    """每段橫排原生文字右邊還能用到哪裡：同一行下一個字、包住它的框線、頁面右邊界（跟左邊界對稱）。"""
+    words = [fitz.Rect(w[:4]) for w in page.get_text("words")]
+    drawings = [d["rect"] for d in page.get_drawings() if d["rect"].width > 4 and d["rect"].height > 4]
+    left = min((w.x0 for w in words), default=36)
+    edge = page.rect.x1 - max(18, left)
+    rooms = []
+    for unit in units:
+        rect = unit["rect"]
+        if unit["raster"] or unit["rotate"]:
+            rooms.append(None)
+            continue
+        same_line = lambda r: min(r.y1, rect.y1) - max(r.y0, rect.y0) > rect.height * 0.3  # noqa: E731
+        right = min([w.x0 for w in words if same_line(w) and w.x0 >= rect.x1 - 1] + [edge])
+        # 圖框裡的標籤不能長出框外
+        right = min([d.x1 for d in drawings if d.contains(rect)] + [right])
+        rooms.append(right - 2 if right - 2 > rect.x1 + 1 else None)
+    return rooms
+
+
+def fit(rect, markup, scale_low, rotate):
+    with fitz.open() as probe:
+        test_page = probe.new_page(width=max(rect.x1 + 1, 10), height=max(rect.y1 + 1, 10))
+        return test_page.insert_htmlbox(rect, markup, scale_low=scale_low, rotate=rotate)
+
+
+def prepare_translation(unit, translated, target, warnings, right=None):
     rect = unit["rect"]
     markup = text_html(translated, unit, target)
     scale_low = min(1, max(0.5, MIN_FONT_SIZE / unit["size"]))
-    with fitz.open() as probe:
-        test_page = probe.new_page(width=max(rect.x1 + 1, 10), height=max(rect.y1 + 1, 10))
-        spare, scale = test_page.insert_htmlbox(rect, markup, scale_low=scale_low, rotate=unit["rotate"])
+    boxes = [rect] + ([fitz.Rect(rect.x0, rect.y0, right, rect.y1)] if right else [])
+    # 先原框、再往右延伸；都放不下就縮到 3pt，寧可字小也不保留原文（3pt 還放不下＝譯文長得不合理）
+    for box in boxes:
+        spare, scale = fit(box, markup, scale_low, unit["rotate"])
+        if spare >= 0 and scale >= 0.75:
+            return {**unit, "box": box, "markup": markup, "scale_low": scale_low}
+    floor = min(scale_low, 3 / unit["size"])
+    spare, scale = fit(boxes[-1], markup, floor, unit["rotate"])
     if spare < 0:
         warnings["TEXT_OVERFLOW_ORIGINAL_KEPT"] += 1
         return None
     if scale < 0.75:
         warnings["TEXT_SHRUNK"] += 1
-    return {**unit, "markup": markup, "scale_low": scale_low}
+    return {**unit, "box": boxes[-1], "markup": markup, "scale_low": floor}
 
 
 def replace_units(page, units, image, sx, sy):
@@ -428,7 +468,7 @@ def replace_units(page, units, image, sx, sy):
         if selected:
             page.apply_redactions(images=2 if raster else 0, graphics=0, text=0)
     for unit in units:
-        spare, _ = page.insert_htmlbox(unit["rect"], unit["markup"],
+        spare, _ = page.insert_htmlbox(unit.get("box", unit["rect"]), unit["markup"],
                                       scale_low=unit["scale_low"], rotate=unit["rotate"])
         if spare < 0:
             raise WorkerError("PDF_WRITE")
@@ -438,29 +478,51 @@ SHORT_TEXT = 80
 REFERENCE_CHARS = 1500
 
 
+class Translations:
+    """一頁的請求一次送出，main 並行翻譯，回覆順序不固定，依 id 對回。
+
+    可以先送下一頁的請求再收這一頁的回覆：別頁的回覆先收著，輪到那頁再取。
+    """
+
+    def __init__(self, stdin, stdout):
+        self.stdin, self.stdout = stdin, stdout
+        self.pending, self.done = set(), {}
+
+    def request(self, page_number, texts, alone=()):
+        """alone：要單獨翻、不跟同頁其他段合併的位置（跟公式同一行的片段）"""
+        ids = [f"{page_number}:{number}" for number in range(len(texts))]
+        alone = set(alone)
+        # 圖框標籤這類短詞單獨翻會亂猜詞義（Physical System→身體的系統）；附整頁原文給模型參考。
+        reference = "\n".join(texts)[:REFERENCE_CHARS]
+        for number, (request_id, text) in enumerate(zip(ids, texts)):
+            message = {"type": "translate", "id": request_id, "text": text}
+            if number in alone:
+                message["alone"] = True
+            if len(text) < SHORT_TEXT and len(reference) > len(text):
+                message["reference"] = reference
+            emit(self.stdout, message)
+            self.pending.add(request_id)
+        return ids
+
+    def collect(self, ids):
+        while any(request_id not in self.done for request_id in ids):
+            reply = read_message(self.stdin)
+            request_id = reply.get("id")
+            if request_id not in self.pending or reply.get("error"):
+                raise WorkerError("TRANSLATION")
+            translated = reply.get("text")
+            if not isinstance(translated, str) or not translated.strip() or len(translated) > 200000:
+                raise WorkerError("TRANSLATION")
+            self.pending.discard(request_id)
+            # 上游偶發孤立替代字（無效 UTF-8）；PyMuPDF 寫不進去，整段放棄更糟，換成 U+FFFD。
+            self.done[request_id] = "".join("\ufffd" if "\ud800" <= char <= "\udfff" else char
+                                            for char in translated).strip()
+        return [self.done.pop(request_id) for request_id in ids]
+
+
 def request_translations(stdin, stdout, page_number, texts):
-    # 一頁的請求一次送出，main 並行翻譯，回覆順序不固定，依 id 對回。
-    ids = [f"{page_number}:{number}" for number in range(len(texts))]
-    # 圖框標籤這類短詞單獨翻會亂猜詞義（Physical System→身體的系統）；附整頁原文給模型參考。
-    reference = "\n".join(texts)[:REFERENCE_CHARS]
-    for request_id, text in zip(ids, texts):
-        message = {"type": "translate", "id": request_id, "text": text}
-        if len(text) < SHORT_TEXT and len(reference) > len(text):
-            message["reference"] = reference
-        emit(stdout, message)
-    replies = {}
-    while len(replies) < len(ids):
-        reply = read_message(stdin)
-        request_id = reply.get("id")
-        if request_id not in ids or request_id in replies or reply.get("error"):
-            raise WorkerError("TRANSLATION")
-        translated = reply.get("text")
-        if not isinstance(translated, str) or not translated.strip() or len(translated) > 200000:
-            raise WorkerError("TRANSLATION")
-        # 上游偶發孤立替代字（無效 UTF-8）；PyMuPDF 寫不進去，整段放棄更糟，換成 �。
-        replies[request_id] = "".join("\ufffd" if "\ud800" <= char <= "\udfff" else char
-                                      for char in translated).strip()
-    return [replies[request_id] for request_id in ids]
+    translations = Translations(stdin, stdout)
+    return translations.collect(translations.request(page_number, texts))
 
 
 def append_page(path, page_doc, first):
@@ -515,24 +577,44 @@ def run(config, stdin, stdout, pipeline=None, layout=None):
         layout = layout if layout is not None else create_layout(config)
         pipeline = pipeline if pipeline is not None else LazyPipeline(config)
         partial = config["outputPath"] + ".pages"
-        for index in range(pages):
+        translations = Translations(stdin, stdout)
+
+        def open_page(index):
             emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "ocr"})
-            with fitz.open() as single:
-                single.insert_pdf(source, from_page=index, to_page=index)
+            # 出錯時整個 worker 結束，不另外關這份暫存文件
+            single = fitz.open()
+            single.insert_pdf(source, from_page=index, to_page=index)
+            page = single[0]
+            if any(annot.type[0] == fitz.PDF_ANNOT_REDACT for annot in page.annots() or []):
+                raise WorkerError("PDF_UNSUPPORTED")
+            if page.rotation:
+                page.remove_rotation()
+            units, image, sx, sy = collect_units(page, layout, pipeline, warnings)
+            ids = translations.request(index + 1, [unit["text"] for unit in units],
+                                       [number for number, unit in enumerate(units) if unit.get("inline")])
+            return single, units, image, sx, sy, ids
+
+        upcoming = open_page(0)
+        for index in range(pages):
+            current, upcoming = upcoming, None
+            single, units, image, sx, sy, ids = current
+            with single:
                 page = single[0]
-                if any(annot.type[0] == fitz.PDF_ANNOT_REDACT for annot in page.annots() or []):
-                    raise WorkerError("PDF_UNSUPPORTED")
-                if page.rotation:
-                    page.remove_rotation()
-                units, image, sx, sy = collect_units(page, layout, pipeline, warnings)
+                # 這頁在等翻譯時先做下一頁的版面偵測，請求也先送出去，main 不會閒著
+                if index + 1 < pages:
+                    upcoming = open_page(index + 1)
                 ready = []
                 emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "translate"})
-                texts = request_translations(stdin, stdout, index + 1, [unit["text"] for unit in units])
-                for unit, translated in zip(units, texts):
+                texts = translations.collect(ids)
+                for unit, translated, right in zip(units, texts, room_right(page, units)):
                     if translated == unit["text"].strip():
-                        warnings["TEXT_UNTRANSLATED"] += 1
+                        # 縮寫、術語、程式碼（DEs、Top-K、zero-shot、"size": "small"）原樣保留是對的；
+                        # 像一句話（三個以上一般英文字、不帶程式符號）才算沒翻到
+                        if (len(re.findall(r"\b[a-z]{3,}\b", translated)) >= 3
+                                and not re.search(r'[{}\[\]"_<>=]', translated)):
+                            warnings["TEXT_UNTRANSLATED"] += 1
                         continue
-                    result = prepare_translation(unit, translated, config["targetLang"], warnings)
+                    result = prepare_translation(unit, translated, config["targetLang"], warnings, right)
                     if result is not None:
                         ready.append(result)
                 emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "render"})

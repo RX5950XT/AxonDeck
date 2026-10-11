@@ -57,5 +57,12 @@ for (const [inp, exp, src = ''] of cases) {
   )
   if (!ok) fail++
 }
+// 簡轉繁：「证明了」不能變「證明瞭」，「簡單明瞭」要保留
+const { s2twp } = require('../src/main/opencc')
+for (const [inp, exp] of [['因此我们证明了如果', '因此我們證明了如果'], ['这说明了问题', '這說明了問題'], ['简单明了', '簡單明瞭']]) {
+  const out = s2twp(inp)
+  console.log(out === exp ? 'PASS' : 'FAIL', inp, '->', out)
+  if (out !== exp) fail++
+}
 console.log(fail === 0 ? 'ALL PASS' : `${fail} FAILED`)
 process.exit(fail === 0 ? 0 : 1)

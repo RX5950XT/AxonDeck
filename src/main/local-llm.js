@@ -749,7 +749,12 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     repeatPenalty: false,
     budgets: { thoughtTokens: 0 }
   }
-  const out = stripTranslationNoise(stripThink(await session.prompt(userMsg, promptOpts)), text)
+  let out = stripTranslationNoise(stripThink(await session.prompt(userMsg, promptOpts)), text)
+  // 約束格式偶爾連「【约束要求】…只输出译文」一起吐出來；這時改回一般格式重翻
+  if (terms.length && leaksConstraints(out)) {
+    session.setChatHistory(history)
+    out = stripTranslationNoise(stripThink(await session.prompt(buildUserMessage(key, text, targetLang), promptOpts)), text)
+  }
   if (key !== INDEX_KEY || !hasLeftoverSource(out, text, targetLang)) return out
   // 少數片段會留英文單字或冒出日文假名；換官方約束格式重翻。不是每段都用：
   // 約束格式整體譯法較差（Formulation→配方）。先試寬鬆版，不行再加「只能用繁中」——
@@ -758,9 +763,14 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     session.setChatHistory(history)
     const retry = stripTranslationNoise(stripThink(
       await session.prompt(buildIndexStrictMessage(text, targetLang, { leftover: true, strict, terms }), promptOpts)), text)
-    if (retry && !hasLeftoverSource(retry, text, targetLang)) return retry
+    if (retry && !leaksConstraints(retry) && !hasLeftoverSource(retry, text, targetLang)) return retry
   }
   return out
+}
+
+/** Index 把 instTrans 約束格式的說明當成譯文吐出來 */
+function leaksConstraints(out) {
+  return /【(?:约束|約束)要求】|【(?:源文)】|只(?:输出|輸出)(?:译文|譯文)/.test(out)
 }
 
 /**
@@ -822,8 +832,18 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
   }
   // 只有雲端吃得下：LinguaForge 是單輪 MT 格式；Index-Translate 2B 用官方 instTrans 約束格式帶上下文，
   // 實測仍會把約束段落連同鄰近原文一起吐成譯文，本地兩顆都不帶。
+  if (options.reference || options.segments) {
+    // PDF 片段：數學照抄（模型常把 Yp 寫成 $Y_p$），片段各自讀得通
+    messages[0].content += '\n數學符號、變數與公式照原文寫法照抄，不要改寫成 LaTeX、不要加 $。'
+      + '片段不要用「之」「的」「自」這類虛字開頭或結尾去接別段。'
+  }
   if (options.reference) {
     messages[0].content += `\n下面是同一頁的原文，只用來判斷詞義與用語。使用者訊息可能是句子的片段，只翻譯那個片段本身的每個字，不要加入參考裡的其他字，也不要加省略號：\n<reference>\n${options.reference}\n</reference>`
+  }
+  if (options.segments) {
+    messages[0].content += '\n使用者訊息是同一頁的多個片段，每段前有 <<編號>> 標記；片段可能是半句或圖表標籤，'
+      + '整頁一起看來判斷詞義。逐段翻譯：保留每個標記與順序，標記後接那一段自己的譯文，不要合併、拆開、省略或補上其他段的字。'
+      + '同一句被公式或變數切成幾段時（例如「Linear independence of」＋ n ＋「functions」），每段譯文要自己讀得通。'
   }
   const pair = buildContextPair(context)
   if (pair) {
@@ -952,7 +972,7 @@ async function translate(store, text, targetLang, opts = {}) {
       previousSource: opts.previousSource || '',
       previousTranslation: opts.previousTranslation || ''
     }
-    const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal, reference: opts.reference,
+    const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal, reference: opts.reference, segments: opts.segments,
       // 內建譯名都是繁中，只給繁中目標
       glossary: targetLang === 'zh-TW' ? glossary.load(store) : null }
 
@@ -989,7 +1009,8 @@ async function translate(store, text, targetLang, opts = {}) {
     if (translator === 'local' && isLinguaforge(resolveLocalTranslateModel(storeRef, localKey))) {
       return result
     }
-    if (targetLang !== 'zh-TW') return result
+    // 多段合併的譯文由 translateSegments 逐段轉：整批一起轉時，一個簡體字就讓整批套詞彙表（證明了→證明瞭）
+    if (targetLang !== 'zh-TW' || opts.segments) return result
     // Index 直接吐繁體，s2twp 探測不到簡體就不動；它偶爾夾日文新字體（関、図），另外換回。
     const indexLocal = translator === 'local' && resolveLocalTranslateModel(storeRef, localKey) === INDEX_KEY
     return indexLocal ? jpKanjiToTw(s2twp(result)) : s2twp(result)
@@ -998,8 +1019,35 @@ async function translate(store, text, targetLang, opts = {}) {
   return translator === 'local' ? withTranslateLock(run) : run()
 }
 
+/**
+ * 多個片段合成一個請求翻（加 <<編號>> 標記），回來依編號拆開。
+ * 對不上的位置回 null，呼叫端再個別翻。
+ * @param {object} store
+ * @param {string[]} texts
+ * @param {string} targetLang
+ * @param {object} [opts] 同 translate
+ * @returns {Promise<(string | null)[]>}
+ */
+async function translateSegments(store, texts, targetLang, opts = {}) {
+  const tagged = texts.map((text, index) => `<<${index + 1}>>\n${text.trim()}`).join('\n')
+  const output = await translate(store, tagged, targetLang, { ...opts, segments: true })
+  const found = new Map()
+  for (const [, number, body] of String(output || '').matchAll(/<<\s*(\d+)\s*>>([\s\S]*?)(?=<<\s*\d+\s*>>|$)/g)) {
+    const index = Number(number) - 1
+    // 重複的編號＝模型亂了，兩段都不採信
+    const value = targetLang === 'zh-TW' ? s2twp(body.trim()) : body.trim()
+    found.set(index, found.has(index) ? null : value)
+  }
+  return texts.map((text, index) => {
+    const value = found.get(index)
+    // 原樣回傳或留著原文英文單字（「但 trivial case 除外」）的，交給呼叫端單獨重翻
+    return value && value !== text.trim() && !hasLeftoverSource(value, text, targetLang) ? value : null
+  })
+}
+
 module.exports = {
   translate,
+  translateSegments,
   promptOnce,
   warm,
   unload,

@@ -26,7 +26,8 @@ function s2twp(text) {
   if (!text) return text
   ensure()
   const shaped = toTw(text)
-  return shaped === text ? text : toTwp(text)
+  // 詞彙表把「证明了」斷成「證／明了」，「明了」又換成「明瞭」；動詞「X明」後面的「了」改回來
+  return shaped === text ? text : toTwp(text).replace(/([證說表聲查闡指標發])明瞭/g, '$1明了')
 }
 
 /** 日文新字體表裡、臺灣繁中本來就在用的字（jp→t 會把它們改成異體或別的字） */

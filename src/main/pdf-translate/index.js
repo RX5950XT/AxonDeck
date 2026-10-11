@@ -256,7 +256,7 @@ async function withRetry(signal, action) {
   }
 }
 
-async function translateBlock(job, message) {
+function validateRequest(message) {
   const validId = (Number.isSafeInteger(message.id) && message.id >= 0)
     || (typeof message.id === 'string' && /^\d{1,6}:\d{1,6}$/.test(message.id))
   if (!validId || typeof message.text !== 'string'
@@ -264,6 +264,28 @@ async function translateBlock(job, message) {
     || (message.reference !== undefined && (typeof message.reference !== 'string' || message.reference.length > 4000))) {
     throw fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤')
   }
+}
+
+// 雲端整頁合併送翻：一頁約 30 段從 30 個請求變 1～2 個，模型也看得到整頁上下文
+const BATCH_CHARS = 3000
+const BATCH_SEGMENTS = 40
+
+/** 同一頁的幾段合成一個請求；模型漏段、併段或原樣回傳的那幾段再個別翻 */
+async function translateBatch(job, messages) {
+  if (messages.length === 1) return [await translateBlock(job, messages[0])]
+  messages.forEach(validateRequest)
+  const llm = require('../local-llm')
+  llm.setStore(store)
+  const texts = await withRetry(job.controller.signal, () => llm.translateSegments(job.translator.store,
+    messages.map((message) => message.text), job.request.targetLang, { mode: 'file', scope: 'file', signal: job.controller.signal }))
+  job.controller.signal.throwIfAborted()
+  return Promise.all(messages.map((message, index) => (texts[index]
+    ? { id: message.id, text: dropLatex(message.text, texts[index]) }
+    : translateBlock(job, message))))
+}
+
+async function translateBlock(job, message) {
+  validateRequest(message)
   const output = []
   const llm = require('../local-llm')
   llm.setStore(store)
@@ -275,7 +297,12 @@ async function translateBlock(job, message) {
     output.push(translated)
   }
   job.controller.signal.throwIfAborted()
-  return { id: message.id, text: output.join('') }
+  return { id: message.id, text: dropLatex(message.text, output.join('')) }
+}
+
+/** 原文沒有 $ 卻冒出來＝模型把變數寫成 LaTeX（Yp→$Y_p$）；拿掉記號，PDF 上不會出現 $ */
+function dropLatex(source, text) {
+  return source.includes('$') ? text : text.replace(/\$/g, '')
 }
 
 function runWorker(job, worker, config) {
@@ -283,12 +310,28 @@ function runWorker(job, worker, config) {
     let done = null, buffered = '', pending = 0, failed = false
     // 雲端並行省下往返等待；本地模型本來就排隊，多送也不會比較快。
     const queue = [], limit = job.translator.local ? 1 : 4
+    const pageOf = (message) => String(message.id).split(':')[0]
+    const nextBatch = () => {
+      const batch = [queue.shift()]
+      // worker 標 alone 的（跟公式同一行的片段）各自翻；本地模型一次一段
+      if (job.translator.local || batch[0].alone) return batch
+      let chars = String(batch[0].text).length
+      for (let index = 0; index < queue.length && batch.length < BATCH_SEGMENTS && pageOf(queue[index]) === pageOf(batch[0]);) {
+        const size = String(queue[index].text).length
+        if (queue[index].alone || chars + size > BATCH_CHARS) { index++; continue }
+        chars += size
+        batch.push(...queue.splice(index, 1))
+      }
+      return batch
+    }
     const pump = () => {
       while (!failed && pending < limit && queue.length) {
         pending++
-        translateBlock(job, queue.shift()).then((reply) => {
+        translateBatch(job, nextBatch()).then((replies) => {
           pending--
-          if (!failed && !job.controller.signal.aborted) child.stdin.write(JSON.stringify(reply) + '\n')
+          if (!failed && !job.controller.signal.aborted) {
+            for (const reply of replies) child.stdin.write(JSON.stringify(reply) + '\n')
+          }
           pump()
         }).catch(stop)
       }
@@ -322,10 +365,11 @@ function runWorker(job, worker, config) {
           done = message
         } else if (message.type === 'translate' && queue.length < 10000) {
           queue.push(message)
-          pump()
         } else if (message.type === 'error') stop(fail('PDF_PARSE_FAILED', 'PDF 無法處理；請確認未加密、檔案完整且模型已安裝'))
         else return stop(fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤'))
       }
+      // 這一批資料全部排進佇列才開始送，同一頁的段落才湊得成一批
+      pump()
     })
     child.once('close', (code) => {
       job.controller.signal.removeEventListener('abort', abort)

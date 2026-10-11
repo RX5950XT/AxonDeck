@@ -255,9 +255,18 @@ def test_validation(root):
     dirty, second = worker.request_translations(io.StringIO(out_of_order), io.StringIO(), 1, ["Document", "Second"])
     assert second == "第二", "亂序回覆沒對回原請求"
     assert dirty == "���件" and not any(chr(0xD800) <= char <= chr(0xDFFF) for char in dirty), repr(dirty)
+    # 先送下一頁再收這一頁：別頁的回覆先收著，輪到那頁再取；alone 標記照送
+    cross = "".join(json.dumps({"id": i, "text": t}, ensure_ascii=False) + "\n"
+                    for i, t in (("2:0", "下一頁"), ("1:0", "這一頁")))
+    sent = io.StringIO()
+    translations = worker.Translations(io.StringIO(cross), sent)
+    first, second = translations.request(1, ["This page"], [0]), translations.request(2, ["Next page"])
+    assert translations.collect(first) == ["這一頁"] and translations.collect(second) == ["下一頁"]
+    assert [json.loads(line).get("alone") for line in sent.getvalue().splitlines()] == [True, None]
     assert not worker.translatable("x y dx t") and not worker.translatable("λ") and worker.translatable("溫度")
     assert worker.translatable("Model") and not worker.translatable("100")
-    assert not any(map(worker.translatable, ("cos", "exp", "Mdx", "ydy"))) and worker.translatable("Add")
+    assert not any(map(worker.translatable, ("cos", "exp", "Mdx", "ydy", ", sin", "cos x, exp"))) and worker.translatable("Add")
+    assert worker.translatable("the max value") and worker.translatable("sinusoidal wave")
     warnings = Counter()
     assert worker.checked_rect([0, 0, float("nan"), 100], fitz.Rect(0, 0, 100, 100), warnings) is None
     assert warnings["OCR_BOX_INVALID"] == 1

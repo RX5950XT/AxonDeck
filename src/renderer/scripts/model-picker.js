@@ -113,6 +113,7 @@ export function translateOptions(modelsMap, settings, opts = {}) {
   for (const provider of providers) {
     const ready = Boolean(provider?.apiUrl && provider?.apiKey)
     for (const model of provider?.models || []) {
+      if (provider.imageModels?.includes(model)) continue
       options.push({
         value: `${CLOUD_VALUE}:${provider.id}:${model}`,
         label: `雲端 · ${provider.name || '未命名'} / ${model}${cloudSetupHint(provider)}`,
@@ -137,7 +138,7 @@ export function translateOptions(modelsMap, settings, opts = {}) {
 export function resolveCloudTranslate(settings) {
   const providers = Array.isArray(settings?.chatProviders) ? settings.chatProviders : []
   const provider = providers.find((p) => p.id === settings?.translateProviderId) || providers[0] || null
-  const models = provider?.models || []
+  const models = (provider?.models || []).filter((id) => !provider.imageModels?.includes(id))
   const modelId = models.includes(settings?.translateModelId) ? settings.translateModelId : (models[0] || '')
   return { provider, modelId, ready: Boolean(provider?.apiUrl && provider?.apiKey && modelId) }
 }
@@ -158,7 +159,7 @@ export function resolveScopedCloud(settings, value) {
   return {
     provider,
     modelId,
-    ready: Boolean(provider?.apiUrl && provider?.apiKey && provider?.models?.includes(modelId))
+    ready: Boolean(provider?.apiUrl && provider?.apiKey && provider?.models?.includes(modelId) && !provider.imageModels?.includes(modelId))
   }
 }
 

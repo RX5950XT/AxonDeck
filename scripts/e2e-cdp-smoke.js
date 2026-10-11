@@ -358,7 +358,8 @@ async function main() {
           noAsrEngineSeg: !document.getElementById('asrEngineSegment'),
           // 翻譯的雲端端點已併進聊天供應商，不該再有第二份 URL／Key 欄位
           noSeparateTranslate: !document.getElementById('apiUrlInput'),
-          hasCloudAsr: !!document.getElementById('asrApiUrlInput'),
+          // 語音轉文字併入同一份供應商，不再有第二份端點欄位
+          noSeparateAsr: !document.getElementById('asrApiUrlInput'),
           hasCloudChat: !!document.getElementById('chatApiUrlInput'),
           hasTtsRate: !!document.querySelector('#page-translate #ttsRateInput'),
           hasTtsPreview: document.querySelectorAll('#page-translate .tts-preview-btn').length === 4,
@@ -369,7 +370,8 @@ async function main() {
           navSections: [...document.querySelectorAll('#settingsNav .settings-nav-item')]
             .map((b) => b.dataset.section),
           activeSections: document.querySelectorAll('#page-settings .settings-section.active').length,
-          hasFooterSave: !!document.getElementById('saveSettingsBtn'),
+          // 改成自動儲存，底部儲存列已移除
+          noFooterSave: !document.getElementById('saveSettingsBtn'),
           textHasModels: /模型/.test(text)
         }
       })()
@@ -380,7 +382,7 @@ async function main() {
         settingsUi?.noTranslatorSeg &&
         settingsUi?.noAsrEngineSeg &&
         settingsUi?.noSeparateTranslate &&
-        settingsUi?.hasCloudAsr &&
+        settingsUi?.noSeparateAsr &&
         settingsUi?.hasCloudChat &&
         settingsUi?.hasTtsRate &&
         settingsUi?.hasTtsPreview &&
@@ -388,9 +390,9 @@ async function main() {
         settingsUi?.translateNav === '翻譯' &&
         settingsUi?.hasModelList &&
         JSON.stringify(settingsUi?.navSections) ===
-          JSON.stringify(['cloud', 'basic', 'cli']) &&
+          JSON.stringify(['cloud', 'basic', 'appearance', 'cli']) &&
         settingsUi?.activeSections === 1 &&
-        settingsUi?.hasFooterSave,
+        settingsUi?.noFooterSave,
       JSON.stringify(settingsUi)
     )
 
@@ -475,9 +477,10 @@ async function main() {
     )
 
     const chatSettings = await cdp.eval(`(async () => {
-      // 雲端設定區的模型列來自 chatProviders（前面已種過一組）；設定表單要先重載
-      await window.electronAPI.store.set('chatProviders', [
-        { id: 'smoke_prov', name: '煙霧測試', apiUrl: 'https://example.invalid/v1', apiKey: 'k', models: ['m-one', 'm-two'] }
+      // 雲端設定區的模型列來自統一的 cloudProviders；設定表單要先重載
+      await window.electronAPI.store.set('cloudProviders', [
+        { id: 'smoke_prov', name: '煙霧測試', apiUrl: 'https://example.invalid/v1', apiKey: 'k',
+          models: [{ id: 'm-one', type: 'chat' }, { id: 'm-two', type: 'chat' }] }
       ])
       document.querySelector('[data-page="settings"]')?.click()
       await new Promise((r) => setTimeout(r, 300))

@@ -77,7 +77,10 @@ async function start() {
     apiKey: settings.agyApiKey || ensureApiKey(),
     logBodies: settings.agyLogBodies
   })
-  if (result.ok) store?.set('agyEnabled', true)
+  if (result.ok) {
+    store?.set('agyEnabled', true)
+    require('../cloud-providers').syncAntigravity(store, endpoint())
+  }
   return result
 }
 

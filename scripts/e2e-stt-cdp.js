@@ -360,7 +360,7 @@ async function main() {
       await sleep(200)
     }
     await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length === 4'), 15000, '推薦模型清單')
-    // ---- 設定頁三分區（語音朗讀在翻譯頁）----
+    // ---- 設定頁四分區（語音朗讀在翻譯頁）----
     await cdp.eval(`document.querySelector('[data-page="settings"]').click(), 'ok'`)
     await sleep(900)
     const settings = await cdp.eval(`(() => {
@@ -383,13 +383,15 @@ async function main() {
         cloudChat: !!document.querySelector('#set-cloud #chatApiUrlInput'),
         // 翻譯與聊天共用同一組供應商，不再有第二份 URL／Key 欄位
         noSeparateTranslate: !document.getElementById('apiUrlInput') && !document.getElementById('modelIdInput'),
-        cloudAsr: !!document.querySelector('#set-cloud #asrApiUrlInput')
+        // 語音轉文字模型改用同一份供應商、依用途分流，不再有獨立端點欄位
+        noSeparateAsr: !document.getElementById('asrApiUrlInput')
       }
     })()`)
     ok(
-      '設定頁三個分區且順序正確',
-      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'cli']) &&
-        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('基本') && settings.titles[2].includes('CLI'),
+      '設定頁四個分區且順序正確',
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'appearance', 'cli']) &&
+        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('基本') &&
+        settings.titles[2].includes('外觀') && settings.titles[3].includes('CLI'),
       JSON.stringify(settings?.titles)
     )
     ok('設定頁沒有手動 GPU 開關，模型清單已搬進推薦',
@@ -401,8 +403,8 @@ async function main() {
     ok('雲端翻譯併入聊天供應商（沒有第二份端點欄位）',
       settings?.noSeparateTranslate === true,
       JSON.stringify(settings))
-    ok('共用供應商與語音轉文字端點都在「雲端模型」',
-      settings?.cloudChat && settings.cloudAsr, JSON.stringify(settings))
+    ok('統一供應商在「雲端模型」，沒有獨立的語音轉文字端點',
+      settings?.cloudChat && settings.noSeparateAsr, JSON.stringify(settings))
 
     // ---- 語音試聽（翻譯頁）----
     await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)

@@ -34,6 +34,7 @@ function cleanupOptions(settings) {
   for (const provider of providers) {
     const ready = Boolean(provider?.apiUrl && provider?.apiKey)
     for (const model of provider?.models || []) {
+      if (provider.imageModels?.includes(model)) continue
       options.push({
         value: `cloud:${provider.id}:${model}`,
         label: `雲端 · ${provider.name || '未命名'} / ${model}${cloudSetupHint(provider)}`,

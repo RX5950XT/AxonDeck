@@ -116,6 +116,7 @@ native/
 ### 額度與用量統計
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
 - 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，在 CC Proxy 子分頁。
+- Haiku 5.5 依逐請求輸入（含快取）是否超過 100K 分開價格級距，同一模型顯示時合併；`RULES_VERSION = 11` 會重讀舊桶。自訂固定單價及來源自帶金額仍優先。
 
 ### CC Proxy
 - 內建 Grok、Codex、Ollama Cloud、OpenCode Go、Command Code、OpenRouter 可選上游格式，非 Anthropic 走本機閘道轉換；Codex／Grok 可在 App 登入或沿用 CLI。
@@ -130,6 +131,13 @@ native/
 - 檔案轉錄：ffmpeg 串流切段；雲端遇 429／逾時／5xx 同段重試，仍失敗保留已完成內容。錄音機跟檔案轉入同一頁，錄音可拖過去（只帶檔名，路徑由 main 解析）。錄音與字幕邊錄邊 append。
 - 錄音清單可下載原始 webm；仍由 main 驗證檔名並讀取，不接受 renderer 提供路徑。
 - 轉錄與即時字幕共用模型（`fileAsr`／`fileLlm` 為準，開機 `alignSharedStt` 抄到 live；目標語言 `sttLanguage`）。語音輸入仍各自選（`dictationAsr`／`dictationLlm`）。值 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
+
+### 設定頁
+- 側欄四區：雲端模型／基本（更新置頂、視窗與啟動）／外觀（主題、終端機外觀＋`term-appearance-preview.js` 即時預覽）／CLI 版本。全部自動儲存，沒有底部「儲存設定」列。
+- 雲端模型只有一份 `cloudProviders`（`src/main/cloud-providers.js`）：每顆模型帶用途（`src/shared/cloud-model-types.mjs` 的 chat／image／asr／tts／unknown／unsupported），掃描時依 `/models` 能力欄位自動分類，猜不到標「待選用途」不進任何選單。寫入時一次投影回 `chatProviders`（聊天＋生圖；翻譯與整理排除生圖）與 `asrClouds`，功能頁照舊讀這兩把；沒有 `cloudProviders` 時由舊鍵即時合併（同網址＋金鑰合併，ID 保留舊選取）。
+- 全新設定預設一組空的 OpenRouter；AGY 反代啟動時 `syncAntigravity` 自動加入 Antigravity（`gemini-3.8-flash-high`、`gemini-3.5-flash-lite`，位址金鑰跟著反代）。
+- 雲端文字轉語音 `src/main/cloud-tts/`：OpenAI 相容 `/audio/speech`、MP3、可取消、匯出；語音頁「語音來源」切本機 Breeze／雲端（`cloud-speech.js`）。音訊以 base64 回 renderer 轉 blob（CSP `media-src` 不收 `data:`）。
+- 驗證：`npx electron scripts/test-cloud-providers.js`、`node scripts/test-cloud-tts.js`、打包版 `node scripts/e2e-cloud-models-cdp.js`（本機 mock，不用真金鑰）。
 
 ### Telegram
 - 一格載完等 1.5 秒再載下一格；✕ 先導 `about:blank` 再拿掉；每 20 秒探各格，卡「等待網路連線」60 秒或格子當掉就全部依序重載（兩次隔 5 分鐘）；當機記到 `userData/crash.log`。

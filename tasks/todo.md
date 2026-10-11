@@ -168,3 +168,36 @@
 
 - 使用者那份講義 7 頁：0 警告、54 秒；Prompt Engineering 白皮書 8 頁：版面與譯文正常、45 秒；CH1_ODE 22 頁：0 未轉換、0 放不下、9 縮小。
 - 驗證：worker 測試、`test-pdf-translate.js`、`test-strip-prompt-leak.js`（含 opencc）、`test-glossary.js`、lint、打包版介面測試。
+
+
+# 2026-10-11 — 雲端模型設定合併
+
+- [x] 合併供應商草稿與原子儲存，保留舊 ASR／聊天模型選取。
+- [x] 模型能力辨識、手動用途選擇、功能頁路由與選單整理。
+- [x] 預設 OpenRouter；AGY 啟動自動帶入 Antigravity 與指定兩模型。
+- [x] 雲端文字轉語音生成、取消、播放與匯出。
+- [x] 移除底部「儲存設定」，雲端設定改自動儲存。
+- [x] 設定側欄新增「外觀」（主題＋終端機外觀＋預覽），「基本」重排、更新區加大。
+- [x] 邏輯測試、lint、打包與隔離介面驗收。
+
+## Review（雲端模型設定合併）
+
+- Codex 中途用量用完，Claude 接手收尾：修外觀預覽 lint（`electronAPI` 未定義）、雲端語音與預覽被 CSP 擋（`data:` 播放／`fetch(data:)`）、語音頁模組晚載入時切換「語音來源」沒反應。
+- 舊 e2e 跟上新設計：chat（用途下拉取代生圖勾選、改種 `cloudProviders`）、smoke／stt（四個分區、無儲存列）、visual（模型列對齊）。
+- 驗證：`npm run lint`、`run-tests.js` 132/132、`test-cloud-providers` 14/14、`test-cloud-tts`、打包版 `e2e-cloud-models-cdp`／`e2e-chat-cdp` 75／`e2e-cdp-smoke` 22／`e2e-visual-cdp` 59 全過。
+- 預覽／沙箱／e2e（帶 `--user-data-dir`）啟動會把使用者的開機啟動改寫成 dist 預覽版：`migrateLoginItemName` 與開機設定 IPC 對這類實例停用；登錄值已改回安裝版。預覽一律用 `dev-sandbox.js --packed`（寫進 AGENTS.md）。
+- `e2e-stt-cdp` 沒過：腳本還寫死「推薦模型 4 項、兩組」（10/06 的狀態），實際已是 7 項、4 組（語音生成／語音辨識／翻譯／PDF 文件辨識），是舊斷言過期，與本次無關。
+
+# 2026-10-11 — Haiku 5.5 用量單價
+
+- [x] 查證官方一般／長上下文及快取單價，追查計費 caller。
+- [x] 補內建價格、逐請求分級、舊統計自動重掃與相關驗證。
+- [x] 跑用量測試、lint、打包與隔離驗收，記錄結果。
+
+## Review（Haiku 5.5 用量單價）
+
+- 官方 100K 以下 input/output/read/5m/1h：$0.10/$0.50/$0.01/$0.125/$0.20；超過 100K：$0.50/$2.50/$0.05/$0.625/$1，皆為 USD/1M tokens。
+- `node scripts/test-code-usage.js` 174/174；`node scripts/test-code-usage-persistence.js` 通過；`npm run lint` 通過。
+- `npm run electron:pack` 通過（300 支 src asar 比對）；`node scripts/e2e-usage-cdp.js` 25/25，包含 80 筆混合級距的計費與拆帳。
+- `npx electron scripts/probe-code-usage-audit.js` 真實資料獨立對帳全部通過；Haiku 5.5 實際 80 次、13,627,912 tokens，手算與 App 均約 $1.01。只寫隔離暫存，不改正式統計檔。
+- 已重新開啟原有沙箱預覽；未 commit/push、未發版或覆蓋正式安裝版。

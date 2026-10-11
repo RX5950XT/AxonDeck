@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('pdfTranslate:progress', handler)
     }
   },
+  cloudTts: {
+    status: () => ipcRenderer.invoke('cloudTts:status'),
+    generate: (options) => ipcRenderer.invoke('cloudTts:generate', options),
+    cancel: (options) => ipcRenderer.invoke('cloudTts:cancel', options),
+    saveAudio: (options) => ipcRenderer.invoke('cloudTts:saveAudio', options)
+  },
   breeze: {
     status: () => ipcRenderer.invoke('breeze:status'),
     generate: (options) => ipcRenderer.invoke('breeze:generate', options),

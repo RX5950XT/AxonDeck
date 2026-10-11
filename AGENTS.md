@@ -22,6 +22,12 @@ npm run build:sensors / build:hook / build:media   # 感測器 sidecar／熱鍵�
 
 `resources/{sensors,hook,shell,probe,media}/` 不進版控；沒建也打得起來，只是對應功能降級。打包前關掉 `dist/win-unpacked/AxonDeck.exe`。
 
+### 開預覽給使用者看（唯一正確做法）
+- 一律 `node scripts/dev-sandbox.js --packed`（背景執行）：沙箱 `%APPDATA%\axondeck-dev` 複製設定與專案清單，`models`／`hf-models` 以 junction 接回真資料，並關掉 AGY／語音輸入熱鍵／感測器等會影響整機的功能。
+- 不要直接開 `dist/win-unpacked/AxonDeck.exe`：跟安裝版搶同一把單一實例鎖，會自己關掉。
+- 不要自己帶空的 `--user-data-dir`（例如 `dist/win-unpacked/user-data`）：拿不到設定，還會把執行環境／模型重新下載一份（實際發生過，平白下載約 800 MB）。
+- 重新打包前先關掉沙箱預覽（`CommandLine` 含 `axondeck-dev` 的 AxonDeck.exe）。
+
 ### 發行流程（漏一步舊版就永遠檢查不到更新，而且不報錯）
 ```bash
 # 1) bump package.json version（不可與既有 tag 重複）＋ README 版本行

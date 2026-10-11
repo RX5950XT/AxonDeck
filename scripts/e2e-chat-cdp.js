@@ -377,10 +377,11 @@ async function main() {
 
     console.log('\n設定頁：聊天分區')
 
-    // 暫存 user-data-dir 是全新環境，`chatProviders` 本來是空的（供應商下拉會沒有選項）：
-    // 先種一組，後面的欄位／模型列才有東西可測。
-    await cdp.eval(`window.electronAPI.store.set('chatProviders', [
-      { id: 'e2e_prov', name: 'E2E 測試', apiUrl: 'https://example.invalid/v1', apiKey: 'k', models: ['m-one', 'm-two'] }
+    // 暫存 user-data-dir 只有預設的空 OpenRouter：先種一組有模型的，後面的欄位／模型列才有東西可測。
+    // 設定頁讀的是統一的 cloudProviders（chatProviders 只是它投影出來的聊天清單）
+    await cdp.eval(`window.electronAPI.store.set('cloudProviders', [
+      { id: 'e2e_prov', name: 'E2E 測試', apiUrl: 'https://example.invalid/v1', apiKey: 'k',
+        models: [{ id: 'm-one', type: 'chat' }, { id: 'm-two', type: 'chat' }] }
     ])`)
 
     // 分兩段等，而且各自只點一次。
@@ -497,13 +498,14 @@ async function main() {
     check('切回來時 URL 草稿還在', draftKept.url === 'https://draft.test/v1', draftKept.url)
     check('切回來時模型草稿還在', draftKept.models.includes('draft/model-x'), draftKept.models.join(','))
 
-    // 生圖標記跟模型 ID 在同一列（不另開「圖片模型」欄位），切走再切回也要留著
+    // 用途（含生圖）跟模型 ID 在同一列，切走再切回也要留著
     const imageFlag = await cdp.eval(`(() => {
       const rows = [...document.querySelectorAll('#chatModelList .chat-model-row')]
       const row = rows.at(-1)
-      const box = row?.querySelector('input[data-image-flag]')
+      const box = row?.querySelector('select.cloud-model-type')
       if (!box) return { hasBox: false }
-      box.checked = true
+      box.value = 'image'
+      box.dispatchEvent(new Event('change', { bubbles: true }))
       const select = document.getElementById('chatProviderSelect')
       const mine = select.value
       select.value = select.options[0].value
@@ -514,11 +516,11 @@ async function main() {
         .find((r) => r.querySelector('input[type="text"]')?.value === 'draft/model-x')
       return {
         hasBox: true,
-        kept: back?.querySelector('input[data-image-flag]')?.checked === true
+        kept: back?.querySelector('select.cloud-model-type')?.value === 'image'
       }
     })()`)
-    check('模型列有「生圖」勾選框', imageFlag.hasBox)
-    check('生圖標記切換供應商後仍在', imageFlag.kept, JSON.stringify(imageFlag))
+    check('模型列有用途選單', imageFlag.hasBox)
+    check('生圖用途切換供應商後仍在', imageFlag.kept, JSON.stringify(imageFlag))
 
     // 刪除供應商不再跳確認（草稿沒按儲存前都還原得回來）
     const deleted = await cdp.eval(`(async () => {
@@ -539,7 +541,7 @@ async function main() {
     // 掃描會把草稿寫進 store（main 得從 store 讀網址與金鑰），
     // 所以先備份使用者的真實設定，這一段結束一定還原。
     const original = await cdp.eval(`(async () => ({
-      providers: await window.electronAPI.store.get('chatProviders', []),
+      providers: await window.electronAPI.store.get('cloudProviders', []),
       providerId: await window.electronAPI.store.get('chatProviderId', ''),
       modelId: await window.electronAPI.store.get('chatModelId', ''),
       // 翻譯跟聊天共用這份清單：中途改動供應商會連帶把翻譯的選擇收斂掉，一起還原
@@ -610,7 +612,7 @@ async function main() {
       await cdp.eval(`document.getElementById('chatScanCancelBtn').click()`)
     } finally {
       await cdp.eval(`(async () => {
-        await window.electronAPI.store.set('chatProviders', ${JSON.stringify(original.providers)})
+        await window.electronAPI.store.set('cloudProviders', ${JSON.stringify(original.providers)})
         await window.electronAPI.store.set('chatProviderId', ${JSON.stringify(original.providerId)})
         await window.electronAPI.store.set('chatModelId', ${JSON.stringify(original.modelId)})
         await window.electronAPI.store.set('translateProviderId', ${JSON.stringify(original.translateProviderId)})
@@ -619,7 +621,7 @@ async function main() {
     }
 
     const restored = await cdp.eval(`(async () => {
-      const providers = await window.electronAPI.store.get('chatProviders', [])
+      const providers = await window.electronAPI.store.get('cloudProviders', [])
       return providers.some((p) => p.name === '掃描測試')
     })()`)
     check('測試用供應商已從真實設定清除', restored === false)
@@ -645,12 +647,12 @@ async function main() {
     check('模型依供應商分組（optgroup）', modelSelect.groups.length >= 1, modelSelect.groups.join(', '))
     check('每個選項都帶 providerId 與 model', modelSelect.hasDataset)
 
-    // 草稿沒存下去，所以真實設定不該被這支測試改到
+    // 設定自動儲存：測試用供應商已在上面刪掉，刪除也要一起存下去
     const untouched = await cdp.eval(`(async () => {
-      const providers = await window.electronAPI.store.get('chatProviders', [])
+      const providers = await window.electronAPI.store.get('cloudProviders', [])
       return providers.some((p) => p.name === '測試用供應商')
     })()`)
-    check('未按儲存 → 真實設定沒有被寫入測試資料', untouched === false)
+    check('刪除後自動儲存 → 設定裡沒有測試資料', untouched === false)
 
     console.log('\n聊天頁版面：上方工具列已清空')
 

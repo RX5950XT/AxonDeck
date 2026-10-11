@@ -1,3 +1,4 @@
+import { initCloudSpeech, refreshCloudSpeech } from './cloud-speech.js'
 import { electronAPI, switchPage } from './app.js'
 import { askConfirm } from './app-dialog.js'
 import { syncCustomSelects } from './custom-select.js'
@@ -251,6 +252,17 @@ function action(id, fn) {
 }
 
 function init() {
+  initCloudSpeech()
+  const applyBackend = () => {
+    const cloud = $('speechBackend').value === 'cloud'
+    $('speechLocalPanel').hidden = cloud
+    $('speechCloudPanel').hidden = !cloud
+    if (cloud) void refreshCloudSpeech()
+  }
+  $('speechBackend').addEventListener('change', applyBackend)
+  // 模組晚載入：初始化前就切過的值也要套用
+  applyBackend()
+  document.addEventListener('settings-changed', () => void refreshCloudSpeech())
   initialized = true
   $('speechForm').addEventListener('submit', generate)
   $('speechModelsBtn').addEventListener('click', () => switchPage('hfmodels', 'recommend'))
@@ -296,6 +308,7 @@ function init() {
 
 export async function refreshSpeechPage() {
   if (!initialized) init()
+  await refreshCloudSpeech()
   try {
     paintStatus(await call('status'))
     if (installed && !requestId) await refreshVoices()

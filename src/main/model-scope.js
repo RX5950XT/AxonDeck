@@ -104,7 +104,7 @@ function sanitizeLlm(raw, providers, allowOff) {
     const [, providerId, ...rest] = value.split(':')
     const modelId = rest.join(':')
     const provider = (Array.isArray(providers) ? providers : []).find((p) => p?.id === providerId)
-    if (provider && Array.isArray(provider.models) && provider.models.includes(modelId)) {
+    if (provider && Array.isArray(provider.models) && provider.models.includes(modelId) && !provider.imageModels?.includes(modelId)) {
       return `cloud:${providerId}:${modelId}`
     }
   }

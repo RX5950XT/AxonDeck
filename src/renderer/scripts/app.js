@@ -15,6 +15,7 @@ import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { createListReorder } from './list-reorder.js'
 import { initNavHistory, noteLocation } from './nav-history.js'
+import { refreshTermAppearancePreview } from './term-appearance-preview.js'
 import { TERM_THEMES, DEFAULT_TERM_THEME, DEFAULT_TERM_BG_OPACITY, MIN_TERM_BG_OPACITY } from './term-themes.js'
 
 /** @type {typeof import('./live-caption.js') | null} */
@@ -467,16 +468,6 @@ export async function getSettings() {
 // ===== DOM 元素 =====
 const navItems = document.querySelectorAll('.nav-tab')
 const pages = document.querySelectorAll('.page')
-const asrApiUrlInput = document.getElementById('asrApiUrlInput')
-const asrApiKeyInput = document.getElementById('asrApiKeyInput')
-const asrModelListEl = document.getElementById('asrModelList')
-const asrAddModelBtn = document.getElementById('asrAddModelBtn')
-const asrCloudSelect = document.getElementById('asrCloudSelect')
-const asrCloudNameInput = document.getElementById('asrCloudNameInput')
-const asrAddCloudBtn = document.getElementById('asrAddCloudBtn')
-const asrDeleteCloudBtn = document.getElementById('asrDeleteCloudBtn')
-const asrCloudHint = document.getElementById('asrCloudHint')
-const toggleAsrApiKeyVisibility = document.getElementById('toggleAsrApiKeyVisibility')
 const ttsRateInput = document.getElementById('ttsRateInput')
 const ttsRateLabel = document.getElementById('ttsRateLabel')
 const toast = document.getElementById('toast')
@@ -520,6 +511,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', t)
   segmentValues.themeSegment = t
   setSegmentValue('themeSegment', t)
+  void refreshTermAppearancePreview()
 }
 
 async function initTheme() {
@@ -577,7 +569,7 @@ async function loadStartupSettings() {
   })
 }
 
-// ===== 終端機外觀（設定 → 基本；跟主題一樣即時套用，不用按儲存）=====
+// ===== 終端機外觀（設定 → 外觀；跟主題一樣即時套用，不用按儲存）=====
 
 /** 只綁一次，之後每次進設定頁只重讀值 */
 let termAppearanceBound = false
@@ -588,6 +580,7 @@ let termBgName = ''
 /** 改完就叫終端機頁重讀（它自己去跟 main 要 data: URI） */
 function notifyTermAppearance() {
   window.dispatchEvent(new CustomEvent('axondeck:term-appearance'))
+  void refreshTermAppearancePreview()
 }
 
 /**
@@ -625,6 +618,7 @@ async function loadTermAppearanceSettings() {
   opacity.value = String(Number.isFinite(saved) && saved >= MIN_TERM_BG_OPACITY ? Math.min(100, saved) : DEFAULT_TERM_BG_OPACITY)
   if (opacityLabel) opacityLabel.textContent = `${opacity.value}%`
   paintTermBgState(clearBtn, nameEl)
+  void refreshTermAppearancePreview()
 
   if (termAppearanceBound) return
   termAppearanceBound = true
@@ -636,6 +630,7 @@ async function loadTermAppearanceSettings() {
   // 拖曳中就先看到效果，放開才寫進 store（拖一次會觸發幾十個 input）
   opacity.addEventListener('input', () => {
     if (opacityLabel) opacityLabel.textContent = `${opacity.value}%`
+    void refreshTermAppearancePreview()
   })
   opacity.addEventListener('change', async () => {
     await electronAPI.store.set('termBgOpacity', Number(opacity.value))
@@ -807,6 +802,10 @@ function initNavigation() {
     item.addEventListener('keydown', navReorder.onKeydown)
   })
   applyNavOrder()
+  document.querySelectorAll('.settings-nav-item .nav-icon[data-icon]').forEach((slot) => {
+    const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
+    if (icon) slot.appendChild(icon)
+  })
   // AI 頁側欄的 Local／ChatGPT／Gemini／Claude／Grok 也用同一套圖示
   document.querySelectorAll('.chat-panel-actions .nav-icon[data-icon]').forEach((slot) => {
     const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
@@ -999,7 +998,7 @@ export function switchPage(pageName, subtab = '') {
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'cloud'|'basic'|'cli'} [section]
+ * @param {'cloud'|'basic'|'appearance'|'cli'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
   switchPage('settings')
@@ -1016,10 +1015,15 @@ function activateSettingsSection(target) {
   if (!nav || !item) return
   const items = [...nav.querySelectorAll('.settings-nav-item')]
   const sections = [...document.querySelectorAll('#page-settings .settings-section')]
-  items.forEach((candidate) => candidate.classList.toggle('active', candidate === item))
+  items.forEach((candidate) => {
+    candidate.classList.toggle('active', candidate === item)
+    if (candidate === item) candidate.setAttribute('aria-current', 'page')
+    else candidate.removeAttribute('aria-current')
+  })
   sections.forEach((section) => section.classList.toggle('active', section.dataset.section === target))
   const scroll = document.getElementById('settingsScroll')
   if (scroll) scroll.scrollTop = 0
+  if (target === 'appearance') void refreshTermAppearancePreview()
   if (target === 'cli') void loadCcSwitchPage().then((mod) => mod.refreshVersionsSection())
 }
 
@@ -1044,14 +1048,6 @@ function initSettingsNav() {
  * 表單內容在進設定頁時才 loadSettingsForm。
  */
 function bindSettingsControls() {
-  if (toggleAsrApiKeyVisibility) {
-    toggleAsrApiKeyVisibility.addEventListener('click', () => {
-      const isPassword = asrApiKeyInput.type === 'password'
-      asrApiKeyInput.type = isPassword ? 'text' : 'password'
-      toggleAsrApiKeyVisibility.textContent = isPassword ? '🙈' : '👁️'
-    })
-  }
-
   if (ttsRateInput) {
     ttsRateInput.addEventListener('input', () => {
       updateTtsRateLabel(Number(ttsRateInput.value))
@@ -1062,7 +1058,6 @@ function bindSettingsControls() {
     })
   }
 
-  document.getElementById('saveSettingsBtn')?.addEventListener('click', saveSettings)
 
   document.querySelectorAll('.tts-preview-btn').forEach((btn) => {
     btn.addEventListener('click', () => previewVoice(/** @type {HTMLButtonElement} */ (btn)))
@@ -1266,190 +1261,39 @@ function setSegmentValue(id, value) {
   })
 }
 
-// ===== 雲端 ASR 多組設定（跟聊天供應商同一套草稿機制）=====
-
-/** 全部設定 @type {Array<{ id: string, name: string, apiUrl: string, apiKey: string, models: string[] }>} */
-let asrCloudsDraft = []
-/** 目前編輯中的那一筆 */
-let asrCloudDraftId = ''
-
-function newAsrCloudId() {
-  return `ac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-}
-
-/** 把畫面上的欄位收回草稿。切換設定與儲存前都要先做，否則編輯中的內容會掉。 */
-function captureAsrCloudFields() {
-  const cur = asrCloudsDraft.find((c) => c.id === asrCloudDraftId)
-  if (!cur) return
-  cur.name = asrCloudNameInput?.value.trim() || ''
-  cur.apiUrl = asrApiUrlInput?.value.trim() || ''
-  cur.apiKey = asrApiKeyInput?.value.trim() || ''
-  cur.models = readAsrModelRows()
-}
-
-/**
- * 一組設定底下的模型清單（跟聊天供應商同一套：一列一顆、可增可刪）
- * @param {string} value
- * @param {{ focus?: boolean }} [options]
- */
-function appendAsrModelRow(value, options = {}) {
-  if (!asrModelListEl) return
-  const row = document.createElement('div')
-  row.className = 'chat-model-row'
-  const input = document.createElement('input')
-  input.type = 'text'
-  input.className = 'input'
-  input.value = value
-  input.placeholder = '轉錄模型 ID'
-  input.setAttribute('aria-label', '轉錄模型 ID')
-  const remove = document.createElement('button')
-  remove.type = 'button'
-  remove.className = 'btn-icon'
-  remove.title = '移除'
-  remove.setAttribute('aria-label', '移除模型')
-  remove.textContent = '−'
-  remove.addEventListener('click', () => row.remove())
-  row.append(input, remove)
-  asrModelListEl.appendChild(row)
-  if (options.focus) input.focus()
-}
-
-/** @returns {string[]} 去掉空白與重複 */
-function readAsrModelRows() {
-  if (!asrModelListEl) return []
-  const out = []
-  for (const row of asrModelListEl.querySelectorAll('.chat-model-row')) {
-    const id = row.querySelector('input[type="text"]')?.value.trim() || ''
-    if (id && !out.includes(id)) out.push(id)
-  }
-  return out
-}
-
-function renderAsrCloudSelect() {
-  if (!asrCloudSelect) return
-  asrCloudSelect.replaceChildren()
-  for (const cloud of asrCloudsDraft) {
-    const option = document.createElement('option')
-    option.value = cloud.id
-    option.textContent = cloud.name || '未命名設定'
-    asrCloudSelect.appendChild(option)
-  }
-  asrCloudSelect.value = asrCloudDraftId
-  asrCloudSelect.disabled = asrCloudsDraft.length === 0
-  syncCustomSelects()
-}
-
-function renderAsrCloudFields() {
-  const cur = asrCloudsDraft.find((c) => c.id === asrCloudDraftId) || null
-  const has = Boolean(cur)
-  for (const el of [asrCloudNameInput, asrApiUrlInput, asrApiKeyInput, asrAddModelBtn, asrDeleteCloudBtn]) {
-    if (el) el.disabled = !has
-  }
-  if (asrCloudNameInput) asrCloudNameInput.value = cur?.name || ''
-  if (asrApiUrlInput) asrApiUrlInput.value = cur?.apiUrl || ''
-  if (asrApiKeyInput) asrApiKeyInput.value = cur?.apiKey || ''
-  asrModelListEl?.replaceChildren()
-  const modelList = cur?.models?.length ? cur.models : (cur ? [DEFAULT_ASR_MODEL] : [])
-  for (const model of modelList) appendAsrModelRow(model)
-  if (asrCloudHint) {
-    asrCloudHint.textContent = has
-      ? '以下欄位屬於目前選取的設定，按下方「儲存設定」才會寫入。'
-      : '尚未有任何設定，按「＋ 新增」建立一組。'
-  }
-}
-
-/** 改名即時反映到上方下拉（聊天供應商那邊也是這樣） */
-function syncAsrCloudName() {
-  const cur = asrCloudsDraft.find((c) => c.id === asrCloudDraftId)
-  if (!cur || !asrCloudSelect) return
-  cur.name = asrCloudNameInput?.value.trim() || ''
-  const option = [...asrCloudSelect.options].find((o) => o.value === asrCloudDraftId)
-  if (option) option.textContent = cur.name || '未命名設定'
-  syncCustomSelects()
-}
-
-function handleAsrCloudSwitch() {
-  captureAsrCloudFields()
-  asrCloudDraftId = asrCloudSelect?.value || ''
-  renderAsrCloudFields()
-}
-
-function handleAddAsrCloud() {
-  captureAsrCloudFields()
-  const cloud = {
-    id: newAsrCloudId(),
-    name: '新設定',
-    apiUrl: DEFAULT_ASR_API_URL,
-    apiKey: '',
-    models: [DEFAULT_ASR_MODEL]
-  }
-  asrCloudsDraft.push(cloud)
-  asrCloudDraftId = cloud.id
-  renderAsrCloudSelect()
-  renderAsrCloudFields()
-  asrCloudNameInput?.focus()
-  asrCloudNameInput?.select()
-}
-
-async function handleDeleteAsrCloud() {
-  const cur = asrCloudsDraft.find((c) => c.id === asrCloudDraftId)
-  if (!cur) return
-  asrCloudsDraft = asrCloudsDraft.filter((c) => c.id !== asrCloudDraftId)
-  asrCloudDraftId = asrCloudsDraft[0]?.id || ''
-  renderAsrCloudSelect()
-  renderAsrCloudFields()
-}
-
-async function loadAsrCloudSettings() {
-  if (!asrApiUrlInput) return
-  const [clouds, activeId] = await Promise.all([
-    electronAPI.store.get('asrClouds', []),
-    electronAPI.store.get('asrCloudId', '')
-  ])
-  // 深拷貝成草稿：直接改 IPC 回來的物件不會有任何效果
-  asrCloudsDraft = (Array.isArray(clouds) ? clouds : []).map((c) => ({
-    id: c.id,
-    name: c.name || '',
-    apiUrl: c.apiUrl || '',
-    apiKey: c.apiKey || '',
-    // 舊檔只有單一 modelId，讀進來變成只有一顆的清單
-    models: Array.isArray(c.models) ? [...c.models] : (c.modelId ? [c.modelId] : [])
-  }))
-  asrCloudDraftId = asrCloudsDraft.find((c) => c.id === activeId)?.id || asrCloudsDraft[0]?.id || ''
-  renderAsrCloudSelect()
-  renderAsrCloudFields()
-}
-
 let segmentsInited = false
 /** 設定頁有沒存的修改（「基本」那區即時套用，不算） */
 let settingsDirty = false
 
+let settingsSaveTimer = 0
+let settingsRevision = 0
+let settingsSaving = false
+
 function markSettingsDirty(event) {
-  const target = /** @type {HTMLElement|null} */ (event.target instanceof HTMLElement ? event.target : null)
-  // 「基本」即時套用；CLI 版本區跟設定表單無關；模型清單的下載／刪除也是當下就做，都不算草稿
-  if (!target || target.closest('#set-basic') || target.closest('#set-cli') || target.closest('.model-actions')) return
-  if (event.type === 'click' && !target.closest('button')) return
+  const target = event.target instanceof HTMLElement ? event.target : null
+  if (!target?.closest('#set-cloud')) return
+  if (event.type === 'click' && !target.closest('#chatAddProviderBtn, #chatDeleteProviderBtn, #chatAddModelBtn, .chat-model-row > .btn-icon')) return
+  if (target.id === 'chatProviderSelect') return
   settingsDirty = true
+  settingsRevision += 1
+  document.getElementById('cloudSaveStatus').textContent = '正在儲存…'
+  clearTimeout(settingsSaveTimer)
+  settingsSaveTimer = setTimeout(() => void saveSettings(), event.type === 'input' ? 450 : 0)
 }
 
 /**
  * 從 store 重灌設定表單
  */
 async function loadSettingsForm({ keepDraft = false } = {}) {
-  if (!keepDraft) await loadAsrCloudSettings()
 
   const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
 
   if (!segmentsInited) {
     initSegment('themeSegment', theme, onThemeSegmentChange)
     initSettingsNav()
-    asrCloudSelect?.addEventListener('change', handleAsrCloudSwitch)
-    asrAddModelBtn?.addEventListener('click', () => appendAsrModelRow('', { focus: true }))
-    asrAddCloudBtn?.addEventListener('click', handleAddAsrCloud)
-    asrDeleteCloudBtn?.addEventListener('click', () => void handleDeleteAsrCloud())
-    asrCloudNameInput?.addEventListener('input', syncAsrCloudName)
     const scroll = document.getElementById('settingsScroll')
     for (const type of ['input', 'change', 'click']) scroll?.addEventListener(type, markSettingsDirty)
+    scroll?.addEventListener('focusout', () => { if (settingsDirty) void saveSettings() })
     segmentsInited = true
   } else if (keepDraft) {
     setSegmentValue('themeSegment', theme)
@@ -1465,62 +1309,25 @@ async function loadSettingsForm({ keepDraft = false } = {}) {
 }
 
 async function saveSettings() {
-  // 先把畫面欄位收回雲端 ASR 草稿，再取「目前選用那一筆」的金鑰來擋空
-  captureAsrCloudFields()
-  const badCloud = asrCloudsDraft.find((c) => c.apiUrl && !/^https?:\/\//i.test(c.apiUrl))
-  if (badCloud) {
-    showToast(`設定「${badCloud.name || '未命名'}」的 API URL 要以 http:// 或 https:// 開頭`, 'error')
-    activateSettingsSection('cloud')
-    if (asrCloudSelect && asrCloudDraftId !== badCloud.id) {
-      asrCloudSelect.value = badCloud.id
-      handleAsrCloudSwitch()
-      syncCustomSelects()
+  if (!settingsDirty || settingsSaving) return
+  settingsSaving = true
+  const revision = settingsRevision
+  const status = document.getElementById('cloudSaveStatus')
+  try {
+    const validation = validateChatSettings()
+    if (!validation.ok) { status.textContent = validation.error; return }
+    await saveChatSettings(validation)
+    if (revision === settingsRevision) {
+      settingsDirty = false
+      status.textContent = '已自動儲存'
     }
-    asrApiUrlInput?.focus()
-    return
+    document.dispatchEvent(new CustomEvent('settings-changed'))
+  } catch (error) {
+    status.textContent = `尚未儲存：${cleanIpcError(error)}`
+  } finally {
+    settingsSaving = false
+    if (revision !== settingsRevision) void saveSettings()
   }
-
-  // 後端選擇已移到各子分頁自己的模型選單（值是 cloud:<設定 id>:<模型>），
-  // 只擋「真的被選用」的那幾組沒金鑰；沒帶 id 或指到已刪除的，執行時會退回這次存的 asrCloudId
-  const cloudRefs = await Promise.all(
-    ['fileAsr', 'liveAsr', 'dictationAsr'].map((k) => electronAPI.store.get(k, 'local:qwen3asr'))
-  ).then((values) => values.filter((v) => String(v || '').startsWith('cloud')).map((v) => String(v).split(':')[1] || ''))
-  const pickCloud = (id) => asrCloudsDraft.find((c) => c.id === id)
-    || asrCloudsDraft.find((c) => c.id === asrCloudDraftId) || asrCloudsDraft[0]
-  const usedClouds = cloudRefs.map(pickCloud)
-  const keyless = usedClouds.find((c) => c && !c.apiKey)
-  if (usedClouds.some((c) => !c) || keyless) {
-    showToast(`語音轉文字用到的「${keyless?.name || '雲端設定'}」沒有 API Key`, 'error')
-    activateSettingsSection('cloud')
-    if (keyless && asrCloudSelect && asrCloudDraftId !== keyless.id) {
-      asrCloudSelect.value = keyless.id
-      handleAsrCloudSwitch()
-      syncCustomSelects()
-    }
-    asrApiKeyInput?.focus()
-    return
-  }
-  const chatValidation = validateChatSettings()
-  if (!chatValidation.ok) {
-    activateSettingsSection('cloud')
-    return
-  }
-  const notes = []
-  if (chatValidation.dropped > 0) notes.push(`略過 ${chatValidation.dropped} 個空白或重複的模型`)
-
-  await Promise.all([
-    // 舊的 asrApiUrl／asrApiKey／asrModelId 不再寫入；空清單代表刪除，不再使用舊 Key
-    // 語音朗讀在翻譯頁，改了就寫入，不走這裡
-    electronAPI.store.set('asrClouds', asrCloudsDraft),
-    electronAPI.store.set('asrCloudId', asrCloudDraftId),
-    saveChatSettings(chatValidation)
-  ])
-
-  settingsDirty = false
-  renderAsrCloudSelect()
-  document.dispatchEvent(new CustomEvent('settings-changed'))
-  // 附帶提醒併進同一則（只有一個 toast，分開跳會被下一則立刻蓋掉）
-  showToast(notes.length ? `設定已儲存（${notes.join('；')}）` : '設定已儲存')
 }
 
 /**

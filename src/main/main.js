@@ -50,6 +50,7 @@ const workspaceMedia = require('./workspace/media')
 protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
+const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
 const { registerBreezeIpc } = require('./breeze-tts/ipc')
 const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
@@ -90,6 +91,7 @@ const loadEngine = lazyLoad('./engine')
 const loadFileTranscribe = lazyLoad('./file-transcribe')
 const loadEdgeTts = lazyLoad('./edge-tts')
 const loadCloudAsr = lazyLoad('./cloud-asr')
+const loadCloudTts = lazyLoad('./cloud-tts')
 const loadChatModels = lazyLoad('./chat-models')
 const loadChatImages = lazyLoad('./chat-images')
 const loadUsage = lazyLoad('./usage')
@@ -224,6 +226,7 @@ const STORE_ALLOWLIST = new Set([
   'localTranslateModel',
   'asrModelKey',
   'chatProviders',
+  'cloudProviders',
   'chatProviderId',
   'chatModelId',
   'translateProviderId',
@@ -645,6 +648,10 @@ async function initStore() {
     storeReady = (async () => {
       const Store = (await import('electron-store')).default
       store = new Store()
+      if (!store.has('cloudProviders') && !store.has('chatProviders') && !store.has('asrClouds')
+        && !['chatApiUrl', 'chatApiKey', 'chatModels', 'asrApiUrl', 'asrApiKey', 'asrModelId', 'apiUrl', 'apiKey', 'modelId'].some((key) => store.has(key))) {
+        require('./cloud-providers').write(store, require('./cloud-providers').read(store))
+      }
       migrateChatSystemPrompt()
       migrateChatProviders()
       chat.setStore(store)
@@ -773,7 +780,7 @@ function migrateAsrClouds(asrCloudMod) {
  * @returns {string[]}
  */
 function translateProviderModels() {
-  const list = chat.allProviders()
+  const list = chat.textProviders()
   const wanted = String(store.get('translateProviderId', '') || '')
   return (list.find((p) => p.id === wanted) || list[0])?.models || []
 }
@@ -1082,6 +1089,7 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
     throw new Error(`不允許的設定鍵: ${key}`)
   }
   if (!store) await initStore()
+  if (key === 'cloudProviders') return require('./cloud-providers').read(store)
   const val = store.get(key, defaultValue)
   if (key === 'ttsVoices') return sanitizeTtsVoices(val)
   if (key === 'ttsRate') return sanitizeTtsRate(val)
@@ -1123,7 +1131,7 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   }
   if (key === 'translateProviderId') {
     if (val === chat.LOCAL_PROVIDER_ID) return val
-    const list = chat.sanitizeProviders(store.get('chatProviders', []))
+    const list = chat.textProviders()
     return list.some((p) => p.id === val) ? val : (list[0]?.id || '')
   }
   if (key === 'translateModelId') {
@@ -1163,6 +1171,15 @@ ipcMain.handle('store:set', async (event, key, value) => {
     throw new Error(`不允許的設定鍵: ${key}`)
   }
   if (!store) await initStore()
+  if (key === 'cloudProviders') {
+    const { chatProviders, asrClouds } = require('./cloud-providers').write(store, value)
+    reconcileProviderSelection(chatProviders, 'chatProviderId', 'chatModelId')
+    reconcileProviderSelection(chat.textProviders(chatProviders), 'translateProviderId', 'translateModelId')
+    const activeAsr = store.get('asrCloudId', '')
+    store.set('asrCloudId', asrClouds.some((p) => p.id === activeAsr) ? activeAsr : (asrClouds[0]?.id || ''))
+    modelScope.reconcileAll(store)
+    return true
+  }
   // ttsVoices 深度校驗（五語 + allowlist shortName）
   if (key === 'ttsVoices') {
     store.set(key, sanitizeTtsVoices(value))
@@ -1265,13 +1282,13 @@ ipcMain.handle('store:set', async (event, key, value) => {
     // 供應商可能被刪掉或改名 → 選取與模型都要跟著收斂，否則聊天請求會被自己的驗證擋下。
     // 翻譯用的是同一份清單，所以兩組選擇都要收
     reconcileProviderSelection(list, 'chatProviderId', 'chatModelId')
-    reconcileProviderSelection(list, 'translateProviderId', 'translateModelId')
+    reconcileProviderSelection(chat.textProviders(list), 'translateProviderId', 'translateModelId')
     // 三個子分頁的 LLM 選擇都是「供應商 id + 模型 id」的字串，同樣可能指到已刪掉的那一組
     modelScope.reconcileAll(store)
     return true
   }
   if (key === 'chatProviderId' || key === 'translateProviderId') {
-    const list = chat.allProviders()
+    const list = key === 'translateProviderId' ? chat.textProviders() : chat.allProviders()
     const active = list.find((p) => p.id === value) || list[0] || null
     store.set(key, active?.id || '')
     // 換供應商就換模型池，舊選擇不再有效
@@ -1430,7 +1447,9 @@ const APP_LOGIN_ITEM = 'com.voiceink.app'
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 
 function migrateLoginItemName() {
-  if (isDev) return
+  // 帶 --user-data-dir 的是預覽／沙箱／e2e：getLoginItemSettings 比對的是自己的 exe 路徑，
+  // 會判成「沒開」而把使用者的開機啟動改寫成 dist 裡的預覽版（實際發生過）
+  if (isDev || userDataDir) return
   try {
     if (app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin) return
     // 系統工具一律指名 System32：PATH 上可能擺著 MSYS 的同名執行檔
@@ -1449,13 +1468,13 @@ function migrateLoginItemName() {
 
 ipcMain.handle('system:getStartup', (event) => {
   if (!assertMainWindowSender(event)) return { openAtLogin: false, supported: false }
-  if (isDev) return { openAtLogin: false, supported: false }
+  if (isDev || userDataDir) return { openAtLogin: false, supported: false }
   return { openAtLogin: app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin === true, supported: true }
 })
 
 ipcMain.handle('system:setStartup', (event, enabled) => {
   if (!assertMainWindowSender(event)) return { openAtLogin: false, supported: false }
-  if (isDev) return { openAtLogin: false, supported: false }
+  if (isDev || userDataDir) return { openAtLogin: false, supported: false }
   app.setLoginItemSettings({ ...LOGIN_ITEM_OPTIONS, openAtLogin: enabled === true })
   return { openAtLogin: app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin === true, supported: true }
 })
@@ -1779,10 +1798,10 @@ ipcMain.handle('chat:providerOptions', async () => {
  */
 ipcMain.handle('chat:scanModels', async (event, providerId) => {
   if (!store) await initStore()
-  const providers = chat.sanitizeProviders(store.get('chatProviders', []))
+  const providers = require('./cloud-providers').read(store)
   const provider = providers.find((p) => p.id === providerId)
   if (!provider) return { ok: false, code: 'NO_PROVIDER', error: '找不到這個供應商' }
-  return loadChatModels().fetchModels({ apiUrl: provider.apiUrl, apiKey: provider.apiKey })
+  return loadChatModels().fetchModels({ apiUrl: provider.apiUrl, apiKey: provider.apiKey, includeTypes: true })
 })
 ipcMain.handle('chat:send', async (event, req) => {
   if (!store) await initStore()
@@ -2038,6 +2057,17 @@ registerHfModelsIpc({
     unloadModel: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().unloadModel(...args) },
     refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+registerCloudTtsIpc({
+  ipcMain,
+  service: {
+    status: async () => { await initStore(); return loadCloudTts().status() },
+    generate: async (options) => { await initStore(); return loadCloudTts().generate(options) },
+    cancel: (options) => loadCloudTts().cancel(options),
+    saveAudio: (options) => loadCloudTts().saveAudio(options)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2471,6 +2501,7 @@ app.on('before-quit', (e) => {
     : Promise.resolve()
   const stopAgy = Promise.all([
     pdfTranslateMod ? pdfTranslateMod.shutdown() : Promise.resolve(),
+    loadCloudTts().shutdown(),
     breezeMod ? breezeMod.shutdown() : Promise.resolve(),
     stopTerminal,
     stopExplorer,

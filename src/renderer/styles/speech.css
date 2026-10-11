@@ -59,3 +59,13 @@
 @media (max-width: 1000px) { .speech-workbench { padding: 22px; } .speech-form { grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; } }
 @media (max-width: 760px) { .speech-form { grid-template-columns: minmax(0, 1fr); } .speech-head { align-items: flex-start; flex-direction: column; } .speech-model { text-align: left; } .speech-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); } .speech-mode { padding: 8px 10px; } .speech-notice { flex-wrap: wrap; } .speech-player-row { flex-wrap: wrap; } .speech-player-row audio { flex-basis: 100%; } }
 @media (prefers-reduced-motion: reduce) { .speech-mode { transition: none; } }
+
+.speech-backend { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+.speech-backend > label { font-size: 13px; font-weight: 600; }
+.speech-backend .custom-select { min-width: 220px; }
+#speechLocalPanel[hidden], #speechCloudPanel[hidden], #cloudSpeechEmpty[hidden], #cloudSpeechAudio[hidden], #cloudSpeechCancel[hidden] { display: none; }
+#cloudSpeechText { width: 100%; min-height: 330px; margin-top: 12px; resize: vertical; line-height: 1.8; padding: 18px; }
+#speechCloudPanel .custom-select { width: 100%; min-width: 0; }
+#speechCloudPanel .custom-select-trigger { height: auto; min-height: 42px; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+#speechCloudPanel .speech-player-row { margin-top: 24px; }
+#cloudSpeechStatus { color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }

@@ -652,25 +652,6 @@ body.is-maximized .win-btn#winMax {
   gap: 8px;
 }
 
-/* 設定 → 基本 → 更新 */
-.update-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.update-version {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-right: auto;
-}
-
-.update-row .btn.hidden {
-  display: none;
-}
-
 .tts-voice-row .select {
   flex: 1;
   min-width: 0;
@@ -1188,7 +1169,7 @@ body.is-maximized .win-btn#winMax {
   background-color: transparent;
   color: var(--text-secondary);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -1206,9 +1187,18 @@ body.is-maximized .win-btn#winMax {
   font-weight: 600;
 }
 
-.settings-nav-icon {
-  font-size: 15px;
-  line-height: 1;
+.settings-nav-item .nav-icon {
+  display: flex;
+}
+
+.settings-nav-item .ws-tool-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+.settings-nav-item.active .ws-tool-icon {
+  color: var(--accent-primary);
 }
 
 .settings-body {
@@ -5664,7 +5654,7 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 
 .chat-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px 40px;
+  grid-template-columns: minmax(0, 1fr) 190px 40px;
   gap: 10px;
   align-items: stretch;
 }
@@ -5674,61 +5664,6 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   height: 40px;
   min-height: 40px;
   padding: 8px 12px;
-}
-
-/* 生圖標記：跟模型 ID 同一列，不另開欄位——它們是同一個端點、同一組金鑰 */
-label.chat-model-flag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 82px;
-  height: 40px;
-  min-height: 40px;
-  padding: 0 10px;
-  margin-bottom: 0;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-control);
-  background-color: var(--surface-subtle);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.chat-model-flag:hover {
-  border-color: var(--glass-border-strong);
-  background-color: var(--surface-hover);
-}
-
-.chat-model-flag:has(input:checked) {
-  border-color: var(--accent-primary);
-  background-color: var(--accent-soft);
-  color: var(--accent-primary);
-}
-
-.chat-model-flag input {
-  display: block;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent-primary);
-}
-
-.chat-model-flag > span {
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
-  line-height: 16px;
-}
-
-.chat-model-flag:has(input:focus-visible) {
-  outline: 2px solid var(--focus-ring-color, var(--accent-primary));
-  outline-offset: 2px;
 }
 
 .chat-model-row .btn-icon {
@@ -6527,15 +6462,6 @@ h6.md-h { font-size: 14px; }
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(22px) saturate(1.08);
   -webkit-backdrop-filter: blur(22px) saturate(1.08);
-}
-
-/* 設定頁的終端機背景圖那一排（選圖／移除／狀態） */
-.term-bg-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0 4px;
 }
 
 /* 終端機的畫布必須不透明：xterm 自己畫每一格，半透明會讓捲動殘影疊在一起。
@@ -14461,4 +14387,64 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   background-color: var(--surface-glass-strong);
   box-shadow: var(--shadow);
   user-select: text;
+}
+
+/* 雲端模型：模型名稱與用途對齊，操作不藏在 hover。 */
+.cloud-model-columns { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 10px; margin: 18px 0 8px; color: var(--text-secondary); font-size: 12px; }
+#chatModelList { gap: 0; }
+#chatModelList:empty::after { content: '尚未加入模型。掃描供應商清單，或手動填入模型 ID。'; padding: 24px 0; color: var(--text-secondary); line-height: 1.7; }
+#chatModelList .chat-model-row { padding: 10px 0; border-bottom: 1px solid var(--border-color); }
+#chatModelList .custom-select { width: 100%; min-width: 0; }
+#chatModelList .custom-select-trigger { min-height: 40px; font-size: 13px; }
+.cloud-model-kind { color: var(--text-secondary); font-size: 12px; flex-shrink: 0; }
+#cloudSaveStatus { min-height: 20px; margin: 8px 0 0; }
+#chatScanList .chat-scan-item { min-height: 44px; }
+@media (max-width: 850px) {
+  #chatModelList .chat-model-row { grid-template-columns: minmax(0, 1fr) 40px; }
+  #chatModelList .chat-model-row > input { grid-column: 1 / -1; }
+  .cloud-model-columns { display: none; }
+  .cloud-model-kind { max-width: 110px; white-space: normal; }
+}
+
+/* 設定：基本與外觀共用的「群組＋列」排版——說明在左、控制項在右，分隔線取代卡片套卡片。 */
+.settings-basic-card { display: grid; }
+.settings-group-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.settings-group + .settings-group { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-color); }
+.settings-rows { display: grid; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 56px; padding: 12px 0; border-top: 1px solid var(--border-color); }
+.settings-rows > .setting-row:first-child { border-top: 0; }
+label.setting-row { cursor: pointer; }
+.setting-row-text { display: grid; gap: 3px; min-width: 0; }
+.setting-row-title { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.setting-row-desc { font-size: 12px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
+.setting-row-desc:empty { display: none; }
+.setting-row-control { display: flex; align-items: center; gap: 8px; flex: none; }
+.setting-row-control.is-select { width: 200px; }
+.setting-row-control.is-select .custom-select { width: 100%; }
+.setting-row > .segmented { min-width: 184px; }
+.setting-row.is-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.setting-row-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0; }
+.setting-row-control .btn { min-height: 34px; padding-inline: 14px; }
+.setting-row-control .btn.hidden { display: none; }
+
+/* 開關：取代原生勾選框，輸入元素還是 checkbox（id／change 事件不變） */
+.switch { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 40px; height: 24px; margin: 0; border: 1px solid var(--glass-border-strong); border-radius: 999px; background: var(--surface-hover); cursor: pointer; transition: background-color 160ms var(--ease-out), border-color 160ms var(--ease-out); }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-secondary); transition: transform 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.switch:checked { border-color: var(--accent-primary); background: var(--accent-primary); }
+.switch:checked::after { transform: translateX(16px); background: #fff; }
+.switch:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 終端機預覽：只放一行根目錄提示字元，桌布與強度跟真的終端機一樣 */
+.term-preview { margin: 12px 0 8px; }
+.term-preview-screen { position: relative; isolation: isolate; overflow: hidden; min-height: 168px; padding: 20px 22px; border: 1px solid var(--glass-border); border-radius: var(--radius-card, 12px); background: var(--term-theme-bg, var(--term-bg)); font-family: "Cascadia Mono", "Cascadia Code", Consolas, "微軟正黑體", monospace; line-height: 1.5; }
+.term-preview-screen.has-term-bg::before { content: ''; position: absolute; z-index: -1; inset: 0; background: var(--term-bg-image) center / cover no-repeat; opacity: var(--term-bg-opacity); pointer-events: none; }
+.term-preview-text { position: relative; overflow-wrap: anywhere; }
+.term-preview-text::selection, .term-preview-text ::selection { background: var(--preview-selection); }
+.term-preview-cursor { display: inline-block; width: .6em; height: 1.1em; vertical-align: text-bottom; background: var(--preview-cursor); }
+#termBgClearBtn[hidden] { display: none; }
+#termPreviewStatus:empty { display: none; }
+@media (max-width: 640px) {
+  .setting-row { flex-wrap: wrap; }
+  .setting-row-control.is-select { width: 100%; }
 }

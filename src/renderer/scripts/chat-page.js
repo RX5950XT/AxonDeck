@@ -15,11 +15,13 @@ import { renderMarkdown } from './markdown.js'
 import { createChatSidebar } from './chat-sidebar.js'
 import { openParamsDialog, countParams } from './chat-params-panel.js'
 import { openImageViewer } from './image-viewer.js'
+import { classifyModel, MODEL_TYPES } from '../../shared/cloud-model-types.mjs'
+import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 
 const DEFAULT_CHAT_API_URL = 'https://openrouter.ai/api/v1'
 /** 與 main 的 chat.MAX_PROVIDERS 對齊；這裡只是提早擋下、真正的上限在 main */
-const MAX_PROVIDERS = 10
-const MAX_PROVIDER_MODELS = 30
+const MAX_PROVIDERS = 30
+const MAX_PROVIDER_MODELS = 120
 
 /** 串流重繪節流；每次重繪整則訊息 */
 const RENDER_THROTTLE_MS = 60
@@ -85,6 +87,8 @@ let scanListEl = null
 let scanCountEl = null
 /** @type {string[]} */
 let scanResults = []
+let scanTypes = {}
+let scanProviderId = ''
 /** @type {Set<string>} */
 let scanSelected = new Set()
 /** @type {Set<string>} */
@@ -1336,18 +1340,19 @@ function appendModelRow(value, options = {}) {
   input.type = 'text'
   input.className = 'input'
   input.value = value
-  // 生圖與文字走同一個端點、同一組金鑰，差別只在請求要不要帶 modalities，
-  // 所以標記就掛在模型那一列，不另開一份「圖片模型」清單
-  const flag = document.createElement('label')
-  flag.className = 'chat-model-flag'
-  flag.title = '這顆是生圖模型（呼叫時帶 modalities: image）'
-  const flagBox = document.createElement('input')
-  flagBox.type = 'checkbox'
-  flagBox.checked = options.image === true
-  flagBox.dataset.imageFlag = '1'
-  const flagText = document.createElement('span')
-  flagText.textContent = '生圖'
-  flag.append(flagBox, flagText)
+  const type = document.createElement('select')
+  type.className = 'input cloud-model-type'
+  type.setAttribute('aria-label', '模型用途')
+  for (const [key, label] of Object.entries(MODEL_TYPES)) type.add(new Option(label, key))
+  type.value = options.type || classifyModel(value)
+  type.dataset.manual = options.type ? '1' : ''
+  type.addEventListener('change', () => { type.dataset.manual = '1' })
+  input.addEventListener('change', () => {
+    if (!type.dataset.manual || type.value === 'unknown') {
+      type.value = classifyModel(input.value)
+      syncCustomSelects()
+    }
+  })
   // placeholder 不可以是 DEFAULT_CHAT_MODEL：新增出來的空列會跟上一列文字一模一樣，
   // 只差在灰色，看起來像重複項而不是「等你填」。
   input.placeholder = '模型 ID'
@@ -1359,8 +1364,9 @@ function appendModelRow(value, options = {}) {
   remove.setAttribute('aria-label', '移除模型')
   remove.textContent = '−'
   remove.addEventListener('click', () => row.remove())
-  row.append(input, flag, remove)
+  row.append(input, type, remove)
   modelListEl.appendChild(row)
+  initCustomSelects(row)
   if (options.focus) input.focus()
 }
 
@@ -1368,21 +1374,17 @@ function appendModelRow(value, options = {}) {
  * @returns {{ models: string[], imageModels: string[], dropped: number }} dropped 是空白與重複的總數
  */
 function readModelRows() {
-  if (!modelListEl) return { models: [], imageModels: [], dropped: 0 }
-  const rows = [...modelListEl.querySelectorAll('.chat-model-row')].map((row) => ({
+  const rows = [...(modelListEl?.querySelectorAll('.chat-model-row') || [])].map((row) => ({
     id: row.querySelector('input[type="text"]')?.value.trim() || '',
-    image: row.querySelector('input[data-image-flag]')?.checked === true
+    type: row.querySelector('select')?.value || 'unknown'
   }))
   const seen = new Set()
-  const models = []
-  const imageModels = []
-  for (const row of rows) {
-    if (!row.id || seen.has(row.id)) continue
+  const models = rows.filter((row) => {
+    if (!row.id || seen.has(row.id)) return false
     seen.add(row.id)
-    models.push(row.id)
-    if (row.image) imageModels.push(row.id)
-  }
-  return { models, imageModels, dropped: rows.length - models.length }
+    return true
+  })
+  return { models, dropped: rows.length - models.length }
 }
 
 // ===== 供應商草稿 =====
@@ -1398,9 +1400,8 @@ function captureProviderFields() {
   provider.name = providerNameInput?.value.trim() || ''
   provider.apiUrl = apiUrlInput?.value.trim() || ''
   provider.apiKey = apiKeyInput?.value.trim() || ''
-  const { models, imageModels, dropped } = readModelRows()
+  const { models, dropped } = readModelRows()
   provider.models = models
-  provider.imageModels = imageModels
   return dropped
 }
 
@@ -1427,11 +1428,12 @@ function renderProviderFields() {
   if (apiUrlInput) apiUrlInput.value = provider?.apiUrl || ''
   if (apiKeyInput) apiKeyInput.value = provider?.apiKey || ''
   modelListEl?.replaceChildren()
-  const imageSet = new Set(provider?.imageModels || [])
-  for (const model of provider?.models || []) appendModelRow(model, { image: imageSet.has(model) })
+  for (const model of provider?.models || []) appendModelRow(model.id, { type: model.type })
+  if (apiKeyInput) apiKeyInput.type = 'password'
+  syncCustomSelects()
   if (providerHintEl) {
     providerHintEl.textContent = has
-      ? '以下欄位屬於目前選取的供應商，按下方「儲存設定」才會寫入。'
+      ? '以下欄位屬於目前選取的供應商，修改後會自動儲存。'
       : '還沒有供應商，按「＋ 新增」建立。'
   }
 }
@@ -1450,11 +1452,10 @@ function handleAddProvider() {
   }
   const provider = {
     id: newProviderId(),
-    name: '新供應商',
+    name: 'OpenRouter',
     apiUrl: DEFAULT_CHAT_API_URL,
     apiKey: '',
-    models: [],
-    imageModels: []
+    models: []
   }
   providerDraft.push(provider)
   draftId = provider.id
@@ -1486,17 +1487,21 @@ async function handleScanModels() {
 
   // 掃描是由 main 拿著網址與金鑰出去打的，所以草稿得先落地。
   // renderer 不能直接把網址交給 main——那等於開一個「幫你打任意網址」的代理。
-  await electronAPI.store.set('chatProviders', providerDraft)
-
   const label = scanModelsBtn.textContent
   scanModelsBtn.disabled = true
   scanModelsBtn.textContent = '掃描中…'
+  const scannedId = draftId
   try {
-    const result = await electronAPI.chat.scanModels(draftId)
+    await electronAPI.store.set('cloudProviders', providerDraft)
+    const result = await electronAPI.chat.scanModels(scannedId)
+    if (draftId !== scannedId || !providerDraft.some((p) => p.id === scannedId)) return
     if (!result?.ok) {
       showToast(result?.error || '掃描失敗', 'error')
       return
     }
+    scanTypes = result.types || {}
+    scanProviderId = scannedId
+    document.dispatchEvent(new CustomEvent('settings-changed'))
     openScanDialog(result.models, provider)
   } catch (error) {
     showToast(cleanIpcError(error), 'error')
@@ -1512,7 +1517,7 @@ async function handleScanModels() {
  */
 function openScanDialog(models, provider) {
   scanResults = models
-  scanExisting = new Set(readModelRows().models)
+  scanExisting = new Set(readModelRows().models.map((m) => m.id))
   // 預設一個都不勾：OpenRouter 一次回 300+，全勾等於幫使用者亂塞
   scanSelected = new Set()
   if (scanDescEl) {
@@ -1550,7 +1555,10 @@ function renderScanList() {
     const text = document.createElement('span')
     text.className = 'chat-scan-id'
     text.textContent = id
-    label.append(box, text)
+    const kind = document.createElement('span')
+    kind.className = 'cloud-model-kind'
+    kind.textContent = MODEL_TYPES[scanTypes[id] || classifyModel(id)]
+    label.append(box, text, kind)
     if (scanExisting.has(id)) {
       const badge = document.createElement('span')
       badge.className = 'chat-scan-badge'
@@ -1581,17 +1589,20 @@ function applyScanSelection() {
     scanDialog?.close()
     return
   }
+  if (draftId !== scanProviderId) { scanDialog?.close(); return }
   const before = readModelRows()
-  const imageSet = new Set(before.imageModels)
-  const merged = [...new Set([...before.models, ...chosen])]
+  const existing = new Set(before.models.map((m) => m.id))
+  const merged = [...before.models, ...chosen.filter((id) => !existing.has(id))
+    .map((id) => ({ id, type: scanTypes[id] || classifyModel(id) }))]
   const limited = merged.slice(0, MAX_PROVIDER_MODELS)
   modelListEl?.replaceChildren()
-  for (const model of limited) appendModelRow(model, { image: imageSet.has(model) })
+  for (const model of limited) appendModelRow(model.id, { type: model.type })
+  modelListEl?.dispatchEvent(new Event('input', { bubbles: true }))
   scanDialog?.close()
   const skipped = merged.length - limited.length
   showToast(skipped > 0
     ? `已加入模型（超過 ${MAX_PROVIDER_MODELS} 個上限，略過 ${skipped} 個）`
-    : `已加入 ${chosen.length} 個模型，記得按儲存設定`)
+    : `已加入 ${chosen.length} 個模型`)
 }
 
 /** 名稱邊打邊反映到下拉，不用等儲存 */
@@ -1610,19 +1621,12 @@ export async function loadChatSettings() {
   initChatPage()
   if (!apiUrlInput) return
   const [providers, activeId] = await Promise.all([
-    electronAPI.store.get('chatProviders', []),
+    electronAPI.store.get('cloudProviders', []),
     electronAPI.store.get('chatProviderId', '')
   ])
   // 深拷貝一份草稿：直接改 IPC 回來的物件不會有任何效果，反而容易誤以為已經存好了
-  providerDraft = (Array.isArray(providers) ? providers : []).map((p) => ({
-    id: p.id,
-    name: p.name || '',
-    apiUrl: p.apiUrl || '',
-    apiKey: p.apiKey || '',
-    models: Array.isArray(p.models) ? [...p.models] : [],
-    imageModels: Array.isArray(p.imageModels) ? [...p.imageModels] : []
-  }))
-  draftId = providerDraft.find((p) => p.id === activeId)?.id || providerDraft[0]?.id || ''
+  providerDraft = structuredClone(Array.isArray(providers) ? providers : [])
+  draftId = providerDraft.find((p) => p.chatId === activeId || p.id === activeId)?.id || providerDraft[0]?.id || ''
   renderProviderSelect()
   renderProviderFields()
 }
@@ -1637,8 +1641,7 @@ export function validateChatSettings() {
 
   const bad = providerDraft.find((p) => p.apiUrl && !/^https?:\/\//i.test(p.apiUrl))
   if (bad) {
-    showToast(`供應商「${bad.name || '未命名'}」的 API URL 要以 http:// 或 https:// 開頭`, 'error')
-    return { ok: false, dropped }
+    return { ok: false, dropped, error: '尚未儲存：API URL 要以 http:// 或 https:// 開頭' }
   }
   return { ok: true, dropped }
 }
@@ -1653,7 +1656,7 @@ export async function saveChatSettings(validation = null) {
   if (!checked.ok) return false
 
   // draftId 只是設定表單正在看哪一組，不是聊天選用的那組；選用值（含「本機模型」）由 main 收斂
-  await electronAPI.store.set('chatProviders', providerDraft)
+  await electronAPI.store.set('cloudProviders', providerDraft)
   // 空白與重複的模型列略過幾筆，由呼叫端（設定頁的 saveSettings）併進「設定已儲存」那則提示
   await refreshModelSelect()
   await refreshBanner()

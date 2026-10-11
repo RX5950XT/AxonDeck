@@ -520,10 +520,9 @@ async function main() {
         name: '視覺測試供應商',
         apiUrl: 'https://visual.test/v1',
         apiKey: '',
-        models: ['model-a'],
-        imageModels: []
+        models: [{ id: 'model-a', type: 'chat' }]
       }
-      await window.electronAPI.store.set('chatProviders', [provider])
+      await window.electronAPI.store.set('cloudProviders', [provider])
       await window.electronAPI.store.set('chatProviderId', provider.id)
       document.querySelector('[data-page="settings"]')?.click()
       await new Promise((resolve) => setTimeout(resolve, 320))
@@ -536,31 +535,23 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
       const row = document.querySelector('#chatModelList .chat-model-row')
-      const checkbox = row?.querySelector('.chat-model-flag input')
-      const flagText = row?.querySelector('.chat-model-flag > span')
       const fields = row ? [
         row.querySelector('.input'),
-        row.querySelector('.chat-model-flag'),
+        row.querySelector('.custom-select-trigger'),
         row.querySelector('.btn-icon')
       ].filter(Boolean).map((item) => {
         const rect = item.getBoundingClientRect()
         return { top: rect.top, height: rect.height }
       }) : []
-      const checkboxRect = checkbox?.getBoundingClientRect()
-      const textRect = flagText?.getBoundingClientRect()
-      await window.electronAPI.store.set('chatProviders', [])
+      await window.electronAPI.store.set('cloudProviders', [])
       return {
         count: fields.length,
         sameTop: fields.length === 3 && Math.max(...fields.map((field) => field.top)) - Math.min(...fields.map((field) => field.top)) <= 1,
         sameHeight: fields.length === 3 && fields.every((field) => Math.abs(field.height - 40) <= 1),
-        flagContentAligned: Boolean(checkboxRect && textRect) && Math.abs(
-          (checkboxRect.top + checkboxRect.height / 2) - (textRect.top + textRect.height / 2)
-        ) <= 1,
         fields
       }
     })()`)
-    if (!modelRowLayout || modelRowLayout.count !== 3 || !modelRowLayout.sameTop || !modelRowLayout.sameHeight ||
-      !modelRowLayout.flagContentAligned) {
+    if (!modelRowLayout || modelRowLayout.count !== 3 || !modelRowLayout.sameTop || !modelRowLayout.sameHeight) {
       throw new Error(`模型列對齊不符預期：${JSON.stringify(modelRowLayout)}`)
     }
     checks++

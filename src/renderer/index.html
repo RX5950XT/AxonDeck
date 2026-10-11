@@ -2005,6 +2005,22 @@
           <!-- 翻譯 -->
           <section id="page-speech" class="page" aria-label="文字轉語音">
             <div class="speech-workbench">
+              <div class="speech-backend"><label for="speechBackend">語音來源</label><select id="speechBackend" class="input"><option value="local">本機 · Breeze-TTS-2</option><option value="cloud">雲端供應商</option></select></div>
+              <div id="speechCloudPanel" hidden>
+                <header class="speech-head"><div><h2>雲端文字轉語音</h2><p class="setting-hint">選擇聲音，把文字變成可播放與下載的 MP3。</p></div></header>
+                <p id="cloudSpeechEmpty" class="speech-notice">尚未加入文字轉語音模型。到設定的雲端模型選擇「文字轉語音」用途。</p>
+                <div class="speech-form">
+                  <div class="speech-editor"><label for="cloudSpeechText">想說的話</label><textarea id="cloudSpeechText" class="input" maxlength="4096" rows="12" placeholder="寫下想讓聲音說的話…"></textarea><p class="setting-hint">最多 4096 字，文字會送到選取的供應商。</p></div>
+                  <aside class="speech-settings" aria-label="雲端聲音設定">
+                    <div><label for="cloudSpeechModel">模型</label><select id="cloudSpeechModel" class="input"></select></div>
+                    <div><label for="cloudSpeechVoice">聲音名稱</label><input id="cloudSpeechVoice" class="input" value="alloy" maxlength="120" /><p class="setting-hint">填寫供應商支援的聲音 ID，例如 alloy。</p></div>
+                    <div><label for="cloudSpeechSpeed">語速</label><input id="cloudSpeechSpeed" class="input" type="number" min="0.25" max="4" step="0.05" value="1" /><p class="setting-hint">1 是正常速度。</p></div>
+                  </aside>
+                </div>
+                <div class="speech-actions"><span id="cloudSpeechStatus" role="status" aria-live="polite">選好模型、寫下台詞，就能開始。</span><div><button id="cloudSpeechCancel" class="btn btn-secondary" hidden>取消生成</button><button id="cloudSpeechGenerate" class="btn btn-primary" disabled>生成語音</button></div></div>
+                <div class="speech-player-row"><audio id="cloudSpeechAudio" controls hidden aria-label="雲端語音試聽"></audio><button id="cloudSpeechSave" class="btn btn-secondary" disabled>匯出 MP3</button></div>
+              </div>
+              <div id="speechLocalPanel">
               <header class="speech-head">
                 <div><h1>文字轉語音</h1><p>寫下台詞，讓聲音有自己的表情。</p></div>
                 <div class="speech-model"><strong>Breeze-TTS-2 · Q8_0</strong><span id="speechModelStatus" role="status">正在確認模型…</span></div>
@@ -2056,6 +2072,7 @@
               </form>
               <div class="speech-result"><div class="speech-result-heading"><strong id="speechResultTitle">你的聲音會出現在這裡</strong><span id="speechProgress" role="status" aria-live="polite">選好聲音、寫下台詞，就能開始。</span></div><div class="speech-player-row"><audio id="speechPlayer" controls hidden aria-label="生成語音試聽"></audio><button id="speechExport" class="btn btn-secondary" disabled>匯出 WAV</button></div><p id="speechError" role="alert" hidden></p></div>
               <p class="speech-license">本機音訊不會上傳到雲端。Breeze 模型及本機生成內容限研究與非商業用途；克隆前請取得聲音使用權。<a href="https://huggingface.co/BreezeBlue/Breeze-TTS-2" target="_blank" rel="noreferrer">模型授權</a></p>
+              </div>
             </div>
           </section>
           <section id="page-translate" class="page" aria-label="翻譯">
@@ -2240,27 +2257,31 @@
             <div class="settings-shell">
               <nav class="settings-nav" id="settingsNav" aria-label="設定分類">
                 <button type="button" class="settings-nav-item active" data-section="cloud">
-                  <span class="settings-nav-icon" aria-hidden="true">☁️</span>雲端模型
+                  <span class="nav-icon" data-icon="cloud"></span>雲端模型
                 </button>
                 <button type="button" class="settings-nav-item" data-section="basic">
-                  <span class="settings-nav-icon" aria-hidden="true">🎨</span>基本
+                  <span class="nav-icon" data-icon="settings"></span>基本
+                </button>
+                <button type="button" class="settings-nav-item" data-section="appearance">
+                  <span class="nav-icon" data-icon="palette"></span>外觀
                 </button>
                 <button type="button" class="settings-nav-item" data-section="cli">
-                  <span class="settings-nav-icon" aria-hidden="true">⌨️</span>CLI 版本
+                  <span class="nav-icon" data-icon="terminal"></span>CLI 版本
                 </button>
               </nav>
 
               <div class="settings-body">
                 <div class="settings-scroll" id="settingsScroll">
-                  <!-- 雲端模型：聊天／翻譯／語音轉文字三組端點各自獨立 -->
+                  <!-- 雲端模型：統一供應商、按模型用途分流 -->
                   <section class="settings-section active" id="set-cloud" data-section="cloud">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">雲端模型</h2>
-                      <p class="settings-section-desc">聊天與翻譯共用供應商；語音轉文字另設。</p>
+                      <p class="settings-section-desc">同一組網址與金鑰，依模型用途出現在對應頁面。</p>
+                      <p id="cloudSaveStatus" class="setting-hint" role="status" aria-live="polite">修改後自動儲存</p>
                     </header>
                     <div class="settings-card">
-                      <h4 class="settings-subsection-title">供應商（聊天與翻譯共用）</h4>
-                      <p class="setting-hint">勾「生圖」的模型可生成圖片。</p>
+                      <h4 class="settings-subsection-title">供應商</h4>
+                      <p class="setting-hint">新增預設使用 OpenRouter；AGY 啟動時會自動加入 Antigravity。</p>
                       <div class="setting-group">
                         <label for="chatProviderSelect">供應商</label>
                         <div class="chat-provider-bar">
@@ -2282,7 +2303,7 @@
                           class="input"
                           placeholder="https://openrouter.ai/api/v1"
                         />
-                        <p class="setting-hint">OpenAI 相容 chat completions 端點</p>
+                        <p class="setting-hint">OpenAI 相容服務的根網址，例如 https://openrouter.ai/api/v1</p>
                       </div>
                       <div class="setting-group">
                         <label for="chatApiKeyInput">API Key</label>
@@ -2293,6 +2314,8 @@
                       </div>
                       <div class="setting-group">
                         <label>模型清單</label>
+                        <p class="setting-hint">能辨識的自動選好用途；「待選用途」請手動指定。</p>
+                        <div class="cloud-model-columns" aria-hidden="true"><span>模型 ID</span><span>用途／出現位置</span></div>
                         <div id="chatModelList" class="chat-model-list"></div>
                         <div class="chat-model-actions">
                           <button type="button" id="chatAddModelBtn" class="btn btn-secondary btn-sm">
@@ -2302,128 +2325,124 @@
                             掃描模型
                           </button>
                         </div>
-                        <p class="setting-hint">「掃描模型」會<strong>先儲存設定</strong>再抓 /models 清單。</p>
+                        <p class="setting-hint">掃描供應商模型，勾選後自動儲存並加入對應頁面的選單。</p>
                       </div>
                     </div>
 
-                    <div class="settings-card">
-                      <h4 class="settings-subsection-title">語音轉文字</h4>
-                      <p class="setting-hint">需支援 <code>/audio/transcriptions</code>。</p>
-                      <div class="setting-group">
-                        <label for="asrCloudSelect">設定</label>
-                        <div class="chat-provider-bar">
-                          <select id="asrCloudSelect" class="input"></select>
-                          <button type="button" id="asrAddCloudBtn" class="btn btn-secondary btn-sm">＋ 新增</button>
-                          <button type="button" id="asrDeleteCloudBtn" class="btn btn-secondary btn-sm">刪除</button>
-                        </div>
-                        <p id="asrCloudHint" class="setting-hint">以下欄位屬於目前選取的設定。</p>
-                      </div>
-                      <div class="setting-group">
-                        <label for="asrCloudNameInput">名稱</label>
-                        <input type="text" id="asrCloudNameInput" class="input" placeholder="例如 OpenRouter" maxlength="24" />
-                      </div>
-                      <div class="setting-group">
-                        <label for="asrApiUrlInput">API URL</label>
-                        <input
-                          type="text"
-                          id="asrApiUrlInput"
-                          class="input"
-                          placeholder="https://openrouter.ai/api/v1"
-                        />
-                      </div>
-                      <div class="setting-group">
-                        <label for="asrApiKeyInput">API Key</label>
-                        <div class="input-group">
-                          <input
-                            type="password"
-                            id="asrApiKeyInput"
-                            class="input"
-                            placeholder="sk-..."
-                          />
-                          <button type="button" id="toggleAsrApiKeyVisibility" class="btn-icon" aria-label="顯示或隱藏語音轉文字 API Key">👁️</button>
-                        </div>
-                      </div>
-                      <div class="setting-group">
-                        <label>模型清單</label>
-                        <div id="asrModelList" class="chat-model-list"></div>
-                        <div class="chat-model-actions">
-                          <button type="button" id="asrAddModelBtn" class="btn btn-secondary btn-sm">
-                            ＋ 新增模型
-                          </button>
-                        </div>
-                        <p class="setting-hint">
-                          必須是<strong>轉錄模型</strong>（不是聊天模型）；403＝這顆模型未開通，換一顆。
-                          <a href="https://openrouter.ai/collections/speech-to-text-models" target="_blank" rel="noopener">STT 模型列表</a>
-                        </p>
-                      </div>
-                    </div>
                   </section>
 
                   <!-- 基本 -->
                   <section class="settings-section" id="set-basic" data-section="basic">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">基本</h2>
-                      <p class="settings-section-desc">這一頁都即時套用，不用按儲存。</p>
+                      <p class="settings-section-desc">管理更新與啟動方式，變更會自動儲存。</p>
                     </header>
-                    <div class="settings-card">
-                      <div class="setting-group">
-                        <label>主題</label>
-                        <div id="themeSegment" class="segmented">
-                          <button type="button" class="seg-btn" data-value="dark">深色</button>
-                          <button type="button" class="seg-btn" data-value="light">淺色</button>
+                    <div class="settings-card settings-basic-card">
+                      <section class="settings-group" aria-labelledby="setUpdateTitle">
+                        <h3 id="setUpdateTitle" class="settings-group-title">應用程式更新</h3>
+                        <div class="settings-rows">
+                          <div class="setting-row">
+                            <span class="setting-row-text">
+                              <span id="updateVersion" class="setting-row-title">目前版本 …</span>
+                              <span id="updateStatus" class="setting-row-desc" role="status"></span>
+                            </span>
+                            <span class="setting-row-control">
+                              <button type="button" id="updateInstallBtn" class="btn btn-primary btn-sm hidden">重新啟動並安裝</button>
+                              <button type="button" id="updateCheckBtn" class="btn btn-secondary btn-sm">檢查更新</button>
+                            </span>
+                          </div>
+                          <label class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">自動下載新版本</span>
+                              <span class="setting-row-desc">下載完成後，結束 AxonDeck 時安裝</span>
+                            </span>
+                            <input id="autoUpdateInput" class="switch" type="checkbox" />
+                          </label>
                         </div>
-                      </div>
-                      <div class="setting-group">
-                        <label>視窗與啟動</label>
-                        <label class="setting-check">
-                          <input id="closeToTrayInput" type="checkbox" />
-                          <span>關閉視窗時繼續在背景執行</span>
-                        </label>
-                        <label class="setting-check">
-                          <input id="startAtLoginInput" type="checkbox" />
-                          <span>開機時自動啟動（直接縮在系統匣）</span>
-                        </label>
-                        <p class="setting-hint">
-                          背景執行時 AGY 反代不會中斷，token 也會自動續期。
-                          要真的結束請用系統匣圖示的「結束 AxonDeck」。
-                        </p>
+                      </section>
+                      <section class="settings-group" aria-labelledby="setStartupTitle">
+                        <h3 id="setStartupTitle" class="settings-group-title">視窗與啟動</h3>
+                        <div class="settings-rows">
+                          <label class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">關閉視窗時繼續在背景執行</span>
+                              <span class="setting-row-desc">AGY 反代不會中斷，token 也會自動續期。要結束請用系統匣圖示的「結束 AxonDeck」。</span>
+                            </span>
+                            <input id="closeToTrayInput" class="switch" type="checkbox" />
+                          </label>
+                          <label class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">開機時自動啟動</span>
+                              <span class="setting-row-desc">直接縮在系統匣，不開視窗。</span>
+                            </span>
+                            <input id="startAtLoginInput" class="switch" type="checkbox" />
+                          </label>
+                        </div>
                         <p id="startupHint" class="setting-hint hidden"></p>
-                      </div>
-                      <div class="setting-group">
-                        <label>更新</label>
-                        <label class="setting-check">
-                          <input id="autoUpdateInput" type="checkbox" />
-                          <span>自動下載新版本（結束 AxonDeck 時安裝）</span>
-                        </label>
-                        <div class="update-row">
-                          <span id="updateVersion" class="update-version">目前版本 …</span>
-                          <button type="button" id="updateCheckBtn" class="btn btn-secondary btn-sm">檢查更新</button>
-                          <button type="button" id="updateInstallBtn" class="btn btn-primary btn-sm hidden">重新啟動並安裝</button>
+                      </section>
+                    </div>
+                  </section>
+
+                  <section class="settings-section" id="set-appearance" data-section="appearance">
+                    <header class="settings-section-head">
+                      <h2 class="settings-section-title">外觀</h2>
+                      <p class="settings-section-desc">調整主題與終端機，變更會立即套用並自動儲存。</p>
+                    </header>
+                    <div class="settings-card settings-basic-card">
+                      <section class="settings-group" aria-labelledby="setThemeTitle">
+                        <h3 id="setThemeTitle" class="settings-group-title">主題</h3>
+                        <div class="settings-rows">
+                          <div class="setting-row">
+                            <span class="setting-row-text"><span class="setting-row-title">介面配色</span></span>
+                            <div id="themeSegment" class="segmented">
+                              <button type="button" class="seg-btn" data-value="dark">深色</button>
+                              <button type="button" class="seg-btn" data-value="light">淺色</button>
+                            </div>
+                          </div>
                         </div>
-                        <p id="updateStatus" class="setting-hint"></p>
-                      </div>
-                      <div class="setting-group">
-                        <label for="termThemeSelect">終端機外觀</label>
-                        <select id="termThemeSelect" class="select select-full" aria-label="終端機配色"></select>
-                        <div class="term-bg-row">
-                          <button type="button" id="termBgPickBtn" class="btn btn-secondary btn-sm">選背景圖…</button>
-                          <button type="button" id="termBgClearBtn" class="btn btn-secondary btn-sm" hidden>移除背景圖</button>
-                          <span id="termBgName" class="setting-value-label"></span>
+                      </section>
+                      <section class="settings-group" aria-labelledby="setTermTitle">
+                        <h3 id="setTermTitle" class="settings-group-title">終端機</h3>
+                        <figure class="term-preview" aria-label="終端機預覽">
+                          <div id="termAppearancePreview" class="term-preview-screen">
+                            <div class="term-preview-text">PS C:\&gt; <span class="term-preview-cursor" aria-hidden="true"> </span></div>
+                          </div>
+                          <p id="termPreviewStatus" class="setting-hint" role="status"></p>
+                        </figure>
+                        <div class="settings-rows">
+                          <div class="setting-row">
+                            <label class="setting-row-text" for="termThemeSelect"><span class="setting-row-title">配色</span></label>
+                            <span class="setting-row-control is-select">
+                              <select id="termThemeSelect" class="select select-full" aria-label="終端機配色"></select>
+                            </span>
+                          </div>
+                          <div class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">背景圖</span>
+                              <span id="termBgName" class="setting-row-desc"></span>
+                            </span>
+                            <span class="setting-row-control">
+                              <button type="button" id="termBgClearBtn" class="btn btn-secondary btn-sm" hidden>移除</button>
+                              <button type="button" id="termBgPickBtn" class="btn btn-secondary btn-sm">選擇圖片</button>
+                            </span>
+                          </div>
+                          <div class="setting-row is-stack">
+                            <label class="setting-row-head" for="termBgOpacityInput">
+                              <span class="setting-row-title">背景圖強度</span>
+                              <span id="termBgOpacityLabel" class="setting-value-label">45%</span>
+                            </label>
+                            <input
+                              type="range"
+                              id="termBgOpacityInput"
+                              class="range-input"
+                              min="10"
+                              max="100"
+                              step="5"
+                              value="45"
+                            />
+                          </div>
                         </div>
-                        <label for="termBgOpacityInput">
-                          背景圖強度 <span id="termBgOpacityLabel" class="setting-value-label">45%</span>
-                        </label>
-                        <input
-                          type="range"
-                          id="termBgOpacityInput"
-                          class="range-input"
-                          min="10"
-                          max="100"
-                          step="5"
-                          value="45"
-                        />
-                        <p class="setting-hint">數字越大圖越清楚，越小越接近配色的底色；文字不受影響。不要圖請按「移除背景圖」。</p>
-                      </div>
+                      </section>
                     </div>
                   </section>
 
@@ -2444,10 +2463,7 @@
                   </section>
                 </div>
 
-                <div class="settings-footer">
-                  <p class="settings-footer-hint">「基本」即時套用；其餘按「儲存設定」後生效。</p>
-                  <button type="button" id="saveSettingsBtn" class="btn btn-primary">儲存設定</button>
-                </div>
+
               </div>
             </div>
           </section>

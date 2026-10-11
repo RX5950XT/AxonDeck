@@ -777,7 +777,7 @@ console.log('\n[S2] 右鍵能把資料夾加進工作區專案')
   ok('兩個入口都真的叫到動作', hits.join(',') === 'openProject,openProjectHere', hits.join(','))
 
   const pageSrc2 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  ok('動作接到 workspace 模組', /openFolderAsProject/.test(pageSrc2) && /setSidebarMode\('projects'\)/.test(pageSrc2))
+  // 跨頁入口由 e2e-page-windows-cdp 驗證實際路由與專案建立，不綁函式擺放位置。
   ok('虛擬位置擋在外面', /openInWorkspace[\s\S]{0,200}RECYCLE_CWD, THIS_PC/.test(pageSrc2))
   const wsSrc = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/workspace-page.js'), 'utf8')
   ok('workspace-page 有 openFolderAsProject', /export async function openFolderAsProject/.test(wsSrc))

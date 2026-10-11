@@ -98,6 +98,8 @@ class Cdp {
     try { this.ws.close() } catch {}
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs

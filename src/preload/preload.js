@@ -4,6 +4,26 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
  * 安全地將 API 暴露給 Renderer Process
  */
 contextBridge.exposeInMainWorld('electronAPI', {
+  pages: {
+    ready: () => ipcRenderer.invoke('pages:ready'),
+    history: (delta) => ipcRenderer.invoke('pages:history', delta),
+    navigate: (request, detach = false) => ipcRenderer.invoke('pages:navigate', request, detach),
+    onNavigate: (callback) => {
+      const handler = (_event, value) => callback(value)
+      ipcRenderer.on('pages:navigate', handler)
+      return () => ipcRenderer.removeListener('pages:navigate', handler)
+    },
+    onState: (callback) => {
+      const handler = (_event, value) => callback(value)
+      ipcRenderer.on('pages:state', handler)
+      return () => ipcRenderer.removeListener('pages:state', handler)
+    },
+    onVisibility: (callback) => {
+      const handler = (_event, value) => callback(value)
+      ipcRenderer.on('pages:visibility', handler)
+      return () => ipcRenderer.removeListener('pages:visibility', handler)
+    }
+  },
   pdfTranslate: {
     pick: () => ipcRenderer.invoke('pdfTranslate:pick'),
     inspect: (filename) => ipcRenderer.invoke('pdfTranslate:inspect', filename),

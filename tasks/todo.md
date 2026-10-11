@@ -201,3 +201,16 @@
 - `npm run electron:pack` 通過（300 支 src asar 比對）；`node scripts/e2e-usage-cdp.js` 25/25，包含 80 筆混合級距的計費與拆帳。
 - `npx electron scripts/probe-code-usage-audit.js` 真實資料獨立對帳全部通過；Haiku 5.5 實際 80 次、13,627,912 tokens，手算與 App 均約 $1.01。只寫隔離暫存，不改正式統計檔。
 - 已重新開啟原有沙箱預覽；未 commit/push、未發版或覆蓋正式安裝版。
+
+# 2026-10-11 — 功能頁獨立視窗
+
+- [x] 每頁只保留一份畫面，使用 WebContentsView 在主視窗與獨立視窗間搬移。
+- [x] 導覽列右鍵彈出；最小化／關閉收回；保留輸入、執行中工作與跨頁入口。
+- [x] 驗證 IPC 邊界、生命週期、全頁彈出／收回；lint、打包與隔離 CDP。
+
+## Review（功能頁獨立視窗）
+
+- 修：原生最小化（Win+↓、工作列）在 `minimize` 事件內同步 `destroy` 會卡死主程序 → `setImmediate` 後再收回；單元測試補「事件內未 destroy」斷言。
+- smoke 兩項在同一段 eval 內先點導覽再讀畫面，新架構下讀到的是舊頁 → 切頁拆成前一步。
+- 驗證：`node scripts/run-tests.js` 133/133；`electron:pack`（含 lint）通過、asar 302 支一致；打包版 `e2e-page-windows-cdp` 全過（10 頁＋跨頁＋雙視窗＋原生最小化）、`e2e-cdp-smoke` 22/22。
+- 注意：`AXONDECK_TEST_SOURCE=1` 需要先開 vite（5173）；測試中途卡死時會留孤兒 nvidia-smi 咬住 9287。

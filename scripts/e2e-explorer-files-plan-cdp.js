@@ -173,6 +173,8 @@ class Cdp {
     try { this.ws.close() } catch { /* 已關 */ }
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(fn, ms, label) {
   const deadline = Date.now() + ms

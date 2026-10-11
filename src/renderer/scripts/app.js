@@ -17,6 +17,7 @@ import { createListReorder } from './list-reorder.js'
 import { initNavHistory, noteLocation } from './nav-history.js'
 import { refreshTermAppearancePreview } from './term-appearance-preview.js'
 import { TERM_THEMES, DEFAULT_TERM_THEME, DEFAULT_TERM_BG_OPACITY, MIN_TERM_BG_OPACITY } from './term-themes.js'
+import { initPageWindows, navigateToPage, pageOwner, isPageHost, notifyPageSettings } from './page-windows.js'
 
 /** @type {typeof import('./live-caption.js') | null} */
 let liveCaption = null
@@ -127,8 +128,16 @@ async function loadExplorerPage() {
  */
 export async function openInFilesPage(full, kind = 'dir') {
   if (!full || typeof full !== 'string') return
+  if (pageOwner && pageOwner !== 'explorer') return navigateToPage({ page: 'explorer', action: 'files', full, kind })
   const page = await loadExplorerPage()
   await page.openExplorerPath(full, kind)
+}
+
+export async function openFolderInWorkspace(full) {
+  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'project', full })
+  switchPage('chat')
+  setSidebarMode('projects')
+  await (await loadWorkspacePage()).openFolderAsProject(full)
 }
 
 /** @type {typeof import('./hf-page.js') | null} */
@@ -484,14 +493,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   initNavigation()
   await initTheme()
   initWindowControls()
+  initPageWindows({ switchPage, openSettingsPage, openInFilesPage, openFolderInWorkspace, cooldown: cooldownPage,
+    settingsChanged: () => {
+      void initTheme()
+      document.dispatchEvent(new CustomEvent('settings-changed'))
+      window.dispatchEvent(new CustomEvent('axondeck:term-appearance'))
+    } })
   bindSettingsControls()
-  initSidebarResize()
-  initSidebarModes()
-  initChatPage()
-  refreshChatPage()
+  if (!pageOwner || pageOwner === 'chat') {
+    initSidebarResize()
+    initSidebarModes()
+    initChatPage()
+    if (!pageOwner) {
+      refreshChatPage()
+      loadTerminalPage().then((m) => m.refreshTerminalPage())
+    }
+  }
   initNavHistory()
   // 終端機跟聊天共用這一頁：側欄的終端機清單啟動時就要接上（動態 import，不卡啟動）
-  loadTerminalPage().then((m) => m.refreshTerminalPage())
   document.addEventListener('stt-subtab-changed', () => {
     activateSttSubtab()
   })
@@ -499,6 +518,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   import('./dictation.js')
     .then((m) => m.initDictation())
     .catch((err) => console.warn('[語音輸入] 初始化失敗:', err))
+  if (pageOwner && !isPageHost) {
+    await electronAPI.pages.ready()
+  }
 })
 
 // ===== 主題管理 =====
@@ -527,6 +549,7 @@ async function onThemeSegmentChange(value) {
   const t = value === 'light' ? 'light' : 'dark'
   applyTheme(t)
   await electronAPI.store.set('theme', t)
+  notifyPageSettings()
 }
 
 // ===== 視窗與啟動（跟主題一樣即時套用，不用按儲存）=====
@@ -580,6 +603,7 @@ let termBgName = ''
 /** 改完就叫終端機頁重讀（它自己去跟 main 要 data: URI） */
 function notifyTermAppearance() {
   window.dispatchEvent(new CustomEvent('axondeck:term-appearance'))
+  notifyPageSettings()
   void refreshTermAppearancePreview()
 }
 
@@ -798,6 +822,12 @@ function initNavigation() {
       if (performance.now() < navSuppressClickUntil) return
       switchPage(item.dataset.page)
     })
+    item.title = `${item.getAttribute('aria-label')}（右鍵開獨立視窗）`
+    item.addEventListener('contextmenu', (event) => {
+      if (!electronAPI.pages) return
+      event.preventDefault()
+      void navigateToPage({ page: item.dataset.page }, true)
+    })
     item.addEventListener('pointerdown', navReorder.onPointerDown)
     item.addEventListener('keydown', navReorder.onKeydown)
   })
@@ -938,6 +968,10 @@ export function setChatPaneMode(mode) {
  * @param {string} pageName
  */
 export function switchPage(pageName, subtab = '') {
+  if (pageOwner && pageName !== pageOwner) {
+    void navigateToPage({ page: pageName, subtab })
+    return
+  }
   navItems.forEach(item => {
     const on = item.dataset.page === pageName
     item.classList.toggle('active', on)
@@ -983,6 +1017,11 @@ export function switchPage(pageName, subtab = '') {
     // 有沒存的修改就不重灌草稿（切頁回來、再點一次「設定」都不能把剛打的字洗掉）
     loadSettingsForm({ keepDraft: settingsDirty })
   }
+  cooldownPage(pageName)
+  noteLocation()
+}
+
+function cooldownPage(pageName = '') {
   if (pageName !== 'stt') liveCaption?.cooldownEngine()
   if (pageName !== 'translate') translatePage?.cooldownTranslatePage()
   // 取樣器常駐：離開這一頁只收壓力測試與面板，不停 probe / nvidia-smi
@@ -993,7 +1032,6 @@ export function switchPage(pageName, subtab = '') {
   // 這裡只收自己的計時器。
   if (pageName !== 'explorer') explorerPage?.cooldownExplorerPage()
   if (pageName !== 'hfmodels') hfPage?.stop()
-  noteLocation()
 }
 
 /**
@@ -1001,6 +1039,7 @@ export function switchPage(pageName, subtab = '') {
  * @param {'cloud'|'basic'|'appearance'|'cli'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
+  if (pageOwner && pageOwner !== 'settings') return navigateToPage({ page: 'settings', subtab: section })
   switchPage('settings')
   activateSettingsSection(section)
 }
@@ -1322,6 +1361,7 @@ async function saveSettings() {
       status.textContent = '已自動儲存'
     }
     document.dispatchEvent(new CustomEvent('settings-changed'))
+    notifyPageSettings()
   } catch (error) {
     status.textContent = `尚未儲存：${cleanIpcError(error)}`
   } finally {

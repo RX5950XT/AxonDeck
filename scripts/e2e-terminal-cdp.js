@@ -95,6 +95,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch { /* 已斷線 */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()

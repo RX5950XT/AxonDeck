@@ -4,7 +4,7 @@
  * DOM 一律 createElement + textContent（零 innerHTML）。路徑是外部輸入。
  */
 
-import { electronAPI, showToast, switchPage, setSidebarMode } from './app.js'
+import { electronAPI, showToast, switchPage, openFolderInWorkspace } from './app.js'
 import { askConfirm, askInput } from './app-dialog.js'
 import { editInline } from './inline-edit.js'
 import { showMenu } from './ws-menu.js'
@@ -3663,10 +3663,7 @@ async function pinEntries(items) {
  */
 async function openInWorkspace(dirPath) {
   if (!dirPath || [RECYCLE_CWD, THIS_PC].includes(pathKey(dirPath))) return
-  const workspace = await import('./workspace-page.js')
-  switchPage('chat')
-  setSidebarMode('projects')
-  await workspace.openFolderAsProject(dirPath)
+  await openFolderInWorkspace(dirPath)
 }
 
 async function pinPath(dirPath, label) {

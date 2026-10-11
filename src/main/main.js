@@ -110,7 +110,7 @@ async function loadPdfTranslate() {
   if (!store) await initStore()
   if (!pdfTranslateMod) pdfTranslateMod = require('./pdf-translate')
   pdfTranslateMod.init({ store, send: (channel, payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+    sendToPages(channel, payload)
   } })
   return pdfTranslateMod
 }
@@ -119,7 +119,7 @@ function loadBreeze() {
   if (!breezeMod) {
     breezeMod = require('./breeze-tts')
     breezeMod.init({ send: (channel, payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+      sendToPages(channel, payload)
     } })
   }
   return breezeMod
@@ -135,6 +135,12 @@ let storeReady = null
 
 // 主視窗
 let mainWindow = null
+let pageWindows = null
+
+function sendToPages(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+  pageWindows?.broadcast(channel, payload)
+}
 // 字幕視窗
 let subtitleWindow = null
 // 系統匣圖示（第一次縮到背景才建立）
@@ -395,7 +401,7 @@ async function loadDictation() {
     dictationMod.setStore(store)
     dictationMod.configure({
       emit: (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dictation:event', payload)
+        sendToPages('dictation:event', payload)
       },
       transcribe: (req) => transcribeSamples('dictation', req)
     })
@@ -411,7 +417,7 @@ function loadTerminal() {
   if (!terminalMod) {
     terminalMod = require('./terminal/service')
     terminalMod.setEmitter((channel, payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+      sendToPages(channel, payload)
     })
   }
   return terminalMod
@@ -436,7 +442,7 @@ function loadExplorer() {
     explorerMod.configure({
       userDataPath: app.getPath('userData'),
       send: (channel, payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+        sendToPages(channel, payload)
       }
     })
   }
@@ -496,7 +502,7 @@ function loadSysmon() {
   if (!sysmonMod) {
     sysmonMod = require('./sysmon').createSysmonService()
     sysmonMod.setEmitter((payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sysmon:event', payload)
+      sendToPages('sysmon:event', payload)
     })
   }
   // 每次都重帶：風扇設定要 store，而 loadSysmon 可能比 initStore 早發生
@@ -519,7 +525,7 @@ function loadHfModels() {
       userDataPath: app.getPath('userData'),
       store: store || undefined,
       onEvent: (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('hfmodels:event', payload)
+        sendToPages('hfmodels:event', payload)
       }
     })
   }
@@ -817,7 +823,8 @@ function mainBackgroundColor() {
  */
 function assertMainWindowSender(event) {
   if (!mainWindow || mainWindow.isDestroyed()) return false
-  return event.sender === mainWindow.webContents
+  return (event.sender === mainWindow.webContents || pageWindows?.owns(event.sender))
+    && event.senderFrame === event.sender.mainFrame
 }
 
 /** 關視窗要不要留在背景（反代不中斷）。預設開，隨時可在設定關掉。 */
@@ -892,6 +899,10 @@ function createMainWindow() {
 
   // 隱藏 File/Edit/View… 系統選單列
   mainWindow.setMenu(null)
+  pageWindows = require('./page-windows').createPageWindows({
+    main: mainWindow, isDev, icon: APP_ICON, background: mainBackgroundColor,
+    secure: attachWindowSecurity, hidden: startHidden
+  })
 
   mainWindow.once('ready-to-show', () => {
     bootLog('ready-to-show')
@@ -900,14 +911,15 @@ function createMainWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     bootLog('did-finish-load')
     scheduleBackgroundServices()
+    pageWindows.navigate({ page: 'chat' }).catch(() => console.error('[pages] 初始頁面載入失敗'))
   })
 
   // 載入頁面（先掛事件，避免 loadFile 太快把 ready-to-show 漏掉）
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools()
+    mainWindow.loadURL('http://localhost:5173/?host=1')
+    if (!startHidden) mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { host: '1' } })
   }
 
   const sendMaximized = () => {
@@ -926,7 +938,7 @@ function createMainWindow() {
   mainWindow.hookWindowMessage(0x0219, () => {
     clearTimeout(deviceTimer)
     deviceTimer = setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('explorer:devicesChanged')
+      sendToPages('explorer:devicesChanged')
     }, 1500)
   })
 
@@ -1076,7 +1088,7 @@ function createSubtitleWindow() {
     if (subtitleWindow !== win) return
     subtitleWindow = null
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('subtitle:closed')
+      sendToPages('subtitle:closed')
     }
   })
 }
@@ -1403,26 +1415,43 @@ ipcMain.handle('store:set', async (event, key, value) => {
 // ===== 主視窗控制（frameless）=====
 ipcMain.handle('window:minimize', (event) => {
   if (!assertMainWindowSender(event)) return false
+  if (pageWindows?.dock(event.sender)) return true
   mainWindow.minimize()
   return true
 })
 
 ipcMain.handle('window:toggleMaximize', (event) => {
   if (!assertMainWindowSender(event)) return false
-  if (mainWindow.isMaximized()) mainWindow.unmaximize()
-  else mainWindow.maximize()
-  return mainWindow.isMaximized()
+  const win = pageWindows.host(event.sender)
+  if (win.isMaximized()) win.unmaximize()
+  else win.maximize()
+  return win.isMaximized()
 })
 
 ipcMain.handle('window:close', (event) => {
   if (!assertMainWindowSender(event)) return false
+  if (pageWindows?.dock(event.sender)) return true
   mainWindow.close()
   return true
 })
 
 ipcMain.handle('window:isMaximized', (event) => {
   if (!assertMainWindowSender(event)) return false
-  return mainWindow.isMaximized()
+  return pageWindows.host(event.sender).isMaximized()
+})
+
+ipcMain.handle('pages:ready', (event) => assertMainWindowSender(event) && pageWindows.ready(event.sender))
+ipcMain.handle('pages:history', (event, delta) => {
+  if (!assertMainWindowSender(event) || ![-1, 1].includes(delta)) return false
+  return pageWindows.history(delta)
+})
+ipcMain.handle('pages:navigate', async (event, request, detach) => {
+  if (!assertMainWindowSender(event)) return { ok: false, error: { message: '無法操作功能視窗' } }
+  try {
+    return { ok: true, data: await pageWindows.navigate(request, detach === true) }
+  } catch {
+    return { ok: false, error: { message: '功能視窗開啟失敗，請稍後再試' } }
+  }
 })
 
 // ===== 開機自啟動 =====
@@ -1515,7 +1544,7 @@ ipcMain.handle('system:installCudaEnv', async (event) => {
   }
   const send = (p) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('system:cudaInstallProgress', p)
+      sendToPages('system:cudaInstallProgress', p)
     }
   }
   try {
@@ -1562,7 +1591,7 @@ ipcMain.handle('subtitle:close', () => {
   }
   // 通知主視窗字幕已關閉，讓 UI 同步更新
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('subtitle:closed')
+    sendToPages('subtitle:closed')
   }
   return true
 })
@@ -1590,7 +1619,7 @@ ipcMain.handle('models:status', () => models.status())
 ipcMain.handle('models:download', async (event, key) => {
   return models.download(key, (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('models:progress', progress)
+      sendToPages('models:progress', progress)
     }
   })
 })
@@ -1615,7 +1644,7 @@ ipcMain.handle('localAsr:transcribeFile', async (event, req) => {
   const engine = modelScope.readAsr(store, 'file').engine
   const onProgress = (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('localAsr:fileProgress', progress)
+      sendToPages('localAsr:fileProgress', progress)
     }
   }
   if (engine === 'cloud') {
@@ -1887,7 +1916,7 @@ registerTerminalIpc({
   },
   isMainSender: assertMainWindowSender,
   dialog,
-  getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
+  getWindow: (event) => (mainWindow && !mainWindow.isDestroyed() ? pageWindows.host(event?.sender || pageWindows.contents('chat')) : null)
 })
 
 // ===== 專案工作區 =====
@@ -1946,7 +1975,7 @@ registerWorkspaceIpc({
   },
   isMainSender: assertMainWindowSender,
   dialog,
-  getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
+  getWindow: (event) => (mainWindow && !mainWindow.isDestroyed() ? pageWindows.host(event?.sender || pageWindows.contents('chat')) : null)
 })
 
 // ===== 整機檔案總管 =====
@@ -2147,7 +2176,7 @@ registerSysmonIpc({
     // `scripts/probe-dictation-latency.js` 有量），所以它只能是「跑測試那幾秒」的暫時狀態。
     setGpuStress: (active) => {
       if (!mainWindow || mainWindow.isDestroyed()) return { active: false }
-      mainWindow.webContents.setBackgroundThrottling(active !== true)
+      pageWindows.contents('sysmon')?.setBackgroundThrottling(active !== true)
       return { active: active === true }
     }
   },
@@ -2364,7 +2393,7 @@ app.whenReady().then(() => {
   setImmediate(() => {
     try {
       require('./terminal/claude-hooks').start(app.getPath('userData'), (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('terminal:agent', payload)
+        sendToPages('terminal:agent', payload)
       }, { writeSettings: !userDataDir })
     } catch (err) {
       console.error('[claude-hook] start failed:', err && err.code ? err.code : 'START_FAILED')
@@ -2377,7 +2406,7 @@ app.whenReady().then(() => {
       updater.configure({
         autoUpdate: store.get('autoUpdate', true) !== false,
         onStatus: (s) => {
-          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', s)
+          sendToPages('update:status', s)
         }
       })
       setTimeout(() => updater.checkQuietly(), 20000)
@@ -2419,8 +2448,8 @@ app.whenReady().then(() => {
  */
 function flushWorkspaceDrafts() {
   return new Promise((resolve) => {
-    const win = mainWindow
-    if (!win || win.isDestroyed()) {
+    const contents = pageWindows?.contents('chat')
+    if (!contents || contents.isDestroyed()) {
       resolve(true)
       return
     }
@@ -2430,12 +2459,12 @@ function flushWorkspaceDrafts() {
       resolve(ok)
     }
     const onDone = (event, ok) => {
-      if (event.sender !== win.webContents) return
+      if (event.sender !== contents) return
       done(ok !== false)
     }
     const timer = setTimeout(() => done(true), 3000)
     ipcMain.on('workspace:draftsFlushed', onDone)
-    win.webContents.send('workspace:flushDrafts')
+    contents.send('workspace:flushDrafts')
   })
 }
 

@@ -57,6 +57,8 @@ class Cdp {
   }
   close() { for (const pending of this.pending.values()) clearTimeout(pending.timer); this.ws.close() }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function mockServer() {
   const mp3 = path.join(ARTIFACTS, 'silence.mp3')

@@ -126,6 +126,8 @@ class Cdp {
     try { this.ws.close() } catch { /* 已關閉 */ }
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 /**
  * 選單改值＋派發 change。`Runtime.evaluate` 每次都在同一個全域範圍求值，

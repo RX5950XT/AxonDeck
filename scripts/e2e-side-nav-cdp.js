@@ -85,6 +85,8 @@ class Cdp {
     try { this.ws.close() } catch {}
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()

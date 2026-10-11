@@ -132,6 +132,8 @@ class Cdp {
 
   close() { try { this.ws.close() } catch { /* ignore */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs

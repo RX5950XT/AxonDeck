@@ -103,6 +103,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch { /* 已斷 */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 /** [A] 原始碼裡不可以再有那三支——這條在修好之前一定是紅的 */
 function checkNoNativeDialogs() {

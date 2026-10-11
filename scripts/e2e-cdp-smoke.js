@@ -95,6 +95,8 @@ class Cdp {
     try { this.ws.close() } catch {}
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()
@@ -511,9 +513,10 @@ async function main() {
     )
 
     // 聊天輸入區：auto-grow、thinking 開關、圖片附件、系統提示彈窗
+    // 功能頁是獨立畫面：先切頁，下一段指令才會送到該頁。
+    await cdp.eval(`document.querySelector('[data-page="chat"]')?.click()`)
+    await new Promise((r) => setTimeout(r, 400))
     const composer = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="chat"]')?.click()
-      await new Promise((r) => setTimeout(r, 400))
       const input = document.getElementById('chatInput')
       const before = input.getBoundingClientRect().height
       input.value = ['a', 'b', 'c', 'd', 'e', 'f'].join('\\n')
@@ -575,9 +578,9 @@ async function main() {
     ok('models.status', Array.isArray(status?.keys) && status.keys.includes('qwen3asr'), JSON.stringify(status))
 
     // 模型選單改在使用現場：翻譯頁上方的下拉要列出兩顆本地翻譯模型＋一個雲端選項
+    await cdp.eval(`document.querySelector('[data-page="translate"]')?.click()`)
+    await new Promise((r) => setTimeout(r, 600))
     const lingua = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="translate"]')?.click()
-      await new Promise(r => setTimeout(r, 600))
       const sel = document.getElementById('translatePageModel')
       const values = [...(sel?.options || [])].map(o => o.value)
       return {

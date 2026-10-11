@@ -52,7 +52,10 @@ async function go(delta) {
   if (here().page === 'explorer' && (await import('./explorer-page.js')).explorerHistory(delta)) return
   noteLocation()
   const next = index + delta
-  if (next < 0 || next >= steps.length) return
+  if (next < 0 || next >= steps.length) {
+    await electronAPI.pages?.history(delta)
+    return
+  }
   index = next
   restoring = true
   try {

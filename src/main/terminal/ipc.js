@@ -96,7 +96,7 @@ function registerTerminalIpc({ ipcMain, service, isMainSender, dialog, getWindow
     invoke(event, () => service.clearBackground(name))
   ))
   ipcMain.handle('terminal:pickBackground', (event, previous) => invoke(event, async () => {
-    const win = getWindow()
+    const win = getWindow(event)
     if (!win) return ''
     const result = await dialog.showOpenDialog(win, {
       title: '選擇終端機背景圖',
@@ -109,7 +109,7 @@ function registerTerminalIpc({ ipcMain, service, isMainSender, dialog, getWindow
 
   // 工作目錄一律由系統對話框選，renderer 不自己組路徑字串
   ipcMain.handle('terminal:pickDirectory', (event) => invoke(event, async () => {
-    const win = getWindow()
+    const win = getWindow(event)
     if (!win) return ''
     const result = await dialog.showOpenDialog(win, {
       title: '選擇工作目錄',

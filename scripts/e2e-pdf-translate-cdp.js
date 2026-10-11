@@ -57,6 +57,8 @@ class Cdp {
     return result.result.value
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, label) {
   const deadline = Date.now() + 30000

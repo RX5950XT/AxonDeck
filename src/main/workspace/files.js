@@ -43,7 +43,9 @@ const IMAGE_MIME = {
   webp: 'image/webp',
   bmp: 'image/bmp',
   ico: 'image/x-icon',
-  svg: 'image/svg+xml'
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+  apng: 'image/apng'
 }
 
 const AUDIO_MIME = {
@@ -57,7 +59,11 @@ const AUDIO_MIME = {
 
 const VIDEO_MIME = {
   mp4: 'video/mp4',
-  webm: 'video/webm'
+  webm: 'video/webm',
+  // Chromium 播得了 H.264／VP9／AV1 的這幾種容器；HEVC 等解不了的分頁會顯示播放失敗
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  mkv: 'video/x-matroska'
 }
 
 /**

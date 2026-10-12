@@ -9,7 +9,7 @@
   "code": [
     "c", "cc", "cpp", "cxx", "c++", "h", "hh", "hpp", "hxx", "h++", "cs", "csx", "vb", "fs", "fsi", "fsx", "fsscript",
     "go", "rs", "java", "jav", "kt", "kts", "swift", "dart", "scala", "py", "pyi", "rb", "pl", "pm", "pl6", "pm6", "pod", "psgi",
-    "php", "phtml", "lua", "r", "rhistory", "rprofile", "sql", "js", "mjs", "cjs", "jsx", "tsx", "cts", "vue", "svelte",
+    "php", "phtml", "lua", "r", "rhistory", "rprofile", "sql", "js", "mjs", "cjs", "jsx", "ts", "tsx", "cts", "vue", "svelte",
     "coffee", "clj", "cljs", "cljx", "clojure", "edn", "groovy", "gradle", "gemspec", "ml", "mli",
     "css", "scss", "sass", "less", "ps1", "psm1", "psd1", "cmake", "mk", "makefile", "dockerfile", "containerfile",
     "bashrc", "bash_profile", "bash_login", "bash_logout", "profile", "handlebars", "hbs", "jade", "erb", "cshtml",

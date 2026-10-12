@@ -71,8 +71,8 @@ async function readFile(projectId, relPath) {
   const root = await rootOf(projectId)
   const full = files.resolveExisting(root, relPath)
   const nativeMedia = mediaPlayer.mediaKind(full)
-  // 專案支援的圖片／影片走分頁串流；其他原生媒體維持獨立播放器。
-  const inlineMedia = ['image', 'video'].includes(files.mediaKind(full))
+  // 專案裡盡量開在分頁：Chromium 播得了的圖片／影音走分頁串流；只有它解不了的（HEIC、RAW、AVI…）才交給獨立播放器
+  const inlineMedia = ['image', 'video', 'audio'].includes(files.mediaKind(full))
   if (nativeMedia && !inlineMedia) {
     const stats = await fsp.stat(full)
     return { nativeMedia, rel: relPath, size: stats.size, mtimeMs: stats.mtimeMs, binary: true }

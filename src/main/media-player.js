@@ -26,13 +26,13 @@ function fail(message) {
 function setThemeGetter(getter) { theme = getter }
 function setEditorOpener(opener) { editorOpener = opener }
 const openEditor = (file) => editorOpener(file)
-async function initializedMarker(file) {
+async function initializedMarker(file, expected = ASSOCIATION_MARKER) {
   let handle
   try {
     handle = await fs.open(file, 'r')
     const buffer = Buffer.alloc(16)
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-    return bytesRead === 1 && buffer.toString('utf8', 0, bytesRead) === ASSOCIATION_MARKER
+    return bytesRead === 1 && buffer.toString('utf8', 0, bytesRead) === expected
   } catch (error) {
     if (error.code === 'ENOENT') return false
     throw error
@@ -61,13 +61,14 @@ async function initializeAssociations(options = {}) {
 
     const exe = path.join(resourcesPath, 'media', 'axondeck-media.exe')
     // 媒體與文字／程式碼編輯器各記各的：舊版已初始化媒體的使用者，更新後仍要補一次編輯器
-    for (const [name, args] of [['media-associations-initialized', ['--initialize']], ['editor-associations-initialized', ['--editor', '--initialize']]]) {
+    // 編輯器 '3'：.ts 從媒體移交給編輯器，1.46.0 已初始化過的要再跑一次（Rust 只改還指著媒體的那幾個）
+    for (const [name, args, version] of [['media-associations-initialized', ['--initialize'], ASSOCIATION_MARKER], ['editor-associations-initialized', ['--editor', '--initialize'], '3']]) {
       const marker = path.join(userDataPath, name)
-      if (await initializedMarker(marker)) continue
+      if (await initializedMarker(marker, version)) continue
       await fs.access(exe)
       await fs.mkdir(userDataPath, { recursive: true })
       await runAssociation(exe, args)
-      await fs.writeFile(marker, ASSOCIATION_MARKER, 'utf8')
+      await fs.writeFile(marker, version, 'utf8')
     }
     return true
   })()

@@ -1720,20 +1720,21 @@ function paintPreview(tab) {
     void paintPdf(tab, box, generation)
     return
   }
-  if (tab.audio) {
-    const audio = document.createElement('audio')
-    audio.className = 'ws-editor-audio'
-    audio.controls = true
-    audio.src = tab.audio
-    box.replaceChildren(audio)
-    return
-  }
-  if (tab.video) {
-    const video = document.createElement('video')
-    video.className = 'ws-editor-video'
-    video.controls = true
-    video.src = tab.video
-    box.replaceChildren(video)
+  if (tab.audio || tab.video) {
+    const player = document.createElement(tab.audio ? 'audio' : 'video')
+    player.className = tab.audio ? 'ws-editor-audio' : 'ws-editor-video'
+    player.controls = true
+    player.src = tab.audio || tab.video
+    // 容器認得、編碼解不了（例如 HEVC 的 .mkv／.mov）：改給原生播放器，不留一個黑框
+    player.addEventListener('error', () => {
+      if (generation !== previewGeneration) return
+      const hint = document.createElement('p')
+      hint.className = 'ws-unsupported-meta'
+      hint.textContent = '分頁播不了這個檔案的編碼，已改用 AxonDeck 播放器開啟。'
+      box.replaceChildren(hint)
+      void openWithSystem(tab.projectId, tab.relPath)
+    }, { once: true })
+    box.replaceChildren(player)
     return
   }
   if (tab.image) {

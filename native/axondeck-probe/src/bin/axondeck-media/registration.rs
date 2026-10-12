@@ -27,6 +27,8 @@ pub struct Suite {
     label: fn(&str) -> &'static str,
     /// 只有媒體有改名前（VoiceInk）的狀態要搬
     legacy: bool,
+    /// 舊版接管、現在已移交別組的格式：舊備份裡出現時略過，不還原也不算不合法
+    retired: &'static [&'static str],
 }
 pub static MEDIA: Suite = Suite {
     key: "Software\\AxonDeck\\Media", name: "AxonDeck Media",
@@ -37,6 +39,7 @@ pub static MEDIA: Suite = Suite {
     icon: || format!("{},0", engine::runtime().join("icon.ico").display()),
     label: |kind| match kind { "image" => "AxonDeck Media 圖片", "video" => "AxonDeck Media 影片", "audio" => "AxonDeck Media 音樂", _ => "AxonDeck Media 播放清單" },
     legacy: true,
+    retired: &[".ts"],
 };
 /// resources\media\axondeck-media.exe → 安裝目錄的 AxonDeck.exe
 fn app_exe() -> PathBuf { engine::runtime().parent().and_then(Path::parent).map(|dir| dir.join("AxonDeck.exe")).unwrap_or_default() }
@@ -53,6 +56,7 @@ pub static EDITOR: Suite = Suite {
     icon: || format!("{},0", app_exe().display()),
     label: |kind| match kind { "markdown" => "Markdown 文件", "json" => "JSON 檔案", "config" => "設定檔", "code" => "程式碼檔案", _ => "文字檔" },
     legacy: false,
+    retired: &[],
 };
 impl Suite {
     fn capabilities(&self) -> String { format!("{}\\Capabilities", self.key) }
@@ -349,7 +353,21 @@ pub fn initialize(s: &Suite) -> Result<(), String> {
         || register(s, false).map_err(|_| "無法登記播放器".into()),
         || put(HKEY_CURRENT_USER, s.key, INITIALIZED_VALUE, "1")
             .map_err(|_| "無法儲存初始化狀態".into()),
-    )
+    )?;
+    adopt_from_media(s)
+}
+/// 從媒體移交給編輯器的格式（.ts）：還是我們當初設的媒體預設才改，使用者自己選了別的程式就不碰。
+fn adopt_from_media(s: &Suite) -> Result<(), String> {
+    if s.legacy { return Ok(()); }
+    let mut changed = false;
+    for (ext, prog) in extensions(s) {
+        if !MEDIA.retired.contains(&ext.as_str()) || !association(&ext).starts_with(MEDIA.prefix) { continue; }
+        put(HKEY_CURRENT_USER, &format!("Software\\Classes\\{ext}"), "", &prog).map_err(|_| "無法寫入預設關聯")?;
+        set_choice(&ext, &prog)?;
+        changed = true;
+    }
+    if changed { unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, None, None); } }
+    Ok(())
 }
 pub fn restore_defaults(s: &Suite, file: &Path) -> Result<usize, String> {
     let _lock = DefaultsLock::acquire()?;
@@ -362,8 +380,11 @@ fn restore_report(s: &Suite, file: &Path, rollback: bool) -> Result<usize, Strin
     let entries = report["entries"].as_array().ok_or("關聯備份格式不正確")?;
     let allowed = extensions(s);
     let mut seen = std::collections::HashSet::new();
-    if report["version"] != 1 || entries.len() != allowed.len() { return Err("關聯備份版本不正確".into()); }
-    for entry in entries {
+    if report["version"] != 1 { return Err("關聯備份版本不正確".into()); }
+    // 格式清單會增減（例如 .ts 從媒體移給編輯器）：舊備份少了新格式照常還原，已移交的略過
+    let entries: Vec<&Value> = entries.iter()
+        .filter(|entry| !entry["extension"].as_str().is_some_and(|ext| s.retired.contains(&ext))).collect();
+    for entry in entries.iter() {
         let ext = entry["extension"].as_str().ok_or("關聯備份格式不正確")?;
         let before = entry["before"].as_str().ok_or("關聯備份格式不正確")?;
         let legacy = &entry["legacyBefore"];
@@ -470,6 +491,13 @@ mod tests {
         let editor = extensions(&EDITOR);
         assert!(!editor.is_empty());
         for (ext, _) in editor { assert!(!media.contains(&ext), "{ext} 同時被媒體與編輯器接管"); }
+    }
+    #[test]
+    fn retired_media_extensions_moved_to_editor() {
+        for ext in MEDIA.retired {
+            assert!(!extensions(&MEDIA).iter().any(|(e, _)| e == ext), "{ext} 已移交，媒體不可再接管");
+            assert!(extensions(&EDITOR).iter().any(|(e, _)| e == ext), "{ext} 移交後要由編輯器接管");
+        }
     }
     #[test]
     fn invalid_backup_cannot_change_associations() {

@@ -8,5 +8,5 @@ for (const [enc, text] of [['utf8', 'a\r\n中文'], ['utf8bom', '{"a":1}'], ['ut
 const big5 = Buffer.from([0xa4, 0xa4, 0xa4, 0xe5]) // 「中文」Big5
 assert.deepEqual(decode(big5), { content: '中文', encoding: 'big5' })
 assert.throws(() => decode(Buffer.from([1, 0, 2])), (e) => e.code === 'BINARY')
-assert.ok(isEditable('C:/a/README.MD') && isEditable('x.json') && !isEditable('x.ts') && !isEditable('x.exe') && !isEditable(null))
+assert.ok(isEditable('C:/a/README.MD') && isEditable('x.json') && isEditable('x.ts') && !isEditable('x.exe') && !isEditable(null))
 console.log('editor decode/encode PASS')

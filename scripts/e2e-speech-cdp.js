@@ -113,7 +113,8 @@ async function installFixture(main) {
     const req = process.mainModule.require.bind(process.mainModule);
     const service = req(req('node:path').join(req('electron').app.getAppPath(),'src/main/breeze-tts'));
     global.__speechOriginal = {...service};
-    const win = req('electron').BrowserWindow.getAllWindows().find(w => /index\\.html/.test(w.webContents.getURL()));
+    // 功能頁各自一個 WebContentsView：跟 main 的 sendToPages 一樣廣播給每一頁，只送主視窗外殼的話功能頁收不到
+    const win = { webContents: { send: (channel, payload) => req('electron').webContents.getAllWebContents().filter(c => c.getURL().includes('index.html')).forEach(c => c.send(channel, payload)) } };
     global.__speechQA = { requests:[], voices:[], exports:[], canceled:[], behavior:'success', pending:null };
     const qa = global.__speechQA;
     service.status = async () => ({installed:true,ready:true});
@@ -200,7 +201,9 @@ async function main() {
     await cdp.send('Page.enable')
     await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true })
     await waitFor(() => cdp.eval(`document.readyState==='complete' && !!window.electronAPI?.breeze`), 'preload')
-    check('導航新增文字轉語音，全部 10 頁', await cdp.eval(`document.querySelectorAll('.nav-tab[data-page]').length===10 && !!document.querySelector('.nav-tab[data-page="speech"]')`))
+    // 頁數跟著 index.html 走（手抄的數字每次加減頁面都會過期）
+    const navCount = require('./lib/nav-pages').NAV_PAGES.length
+    check(`導航有文字轉語音，全部 ${navCount} 頁`, await cdp.eval(`document.querySelectorAll('.nav-tab[data-page]').length===${navCount} && !!document.querySelector('.nav-tab[data-page="speech"]')`))
     await cdp.click('.nav-tab[data-page="speech"]')
     await waitFor(() => cdp.eval(`document.getElementById('speechModelStatus').textContent==='尚未下載'`), '未下載狀態')
     const tags = ['[笑]', '(laugh)', '[叹气]', '(sigh)', '[咳嗽]', '(cough)', '[清嗓子]', '(clears throat)', '[低语]', '(whispering)', '[倒抽气]', '(gasp)', '[紧张地轻笑]', '(nervous chuckle)', '[打哈欠]', '(yawn)', '[耳语]', '(whispers)']
@@ -309,7 +312,7 @@ async function main() {
       for (const theme of ['dark', 'light']) {
         await cdp.eval(`document.documentElement.setAttribute('data-theme',${JSON.stringify(theme)});
           document.querySelectorAll('#page-speech,.main-content,.content').forEach(el=>el.scrollTop=0); document.documentElement.scrollTop=0; document.body.scrollTop=0;`)
-        const geometry = await cdp.eval(`({overflow:document.querySelector('.speech-workbench').scrollWidth>document.querySelector('.speech-workbench').clientWidth+1,columns:getComputedStyle(document.querySelector('.speech-form')).gridTemplateColumns.split(' ').length,color:getComputedStyle(speechText).color,background:getComputedStyle(speechText).backgroundColor})`)
+        const geometry = await cdp.eval(`({overflow:document.querySelector('.speech-workbench').scrollWidth>document.querySelector('.speech-workbench').clientWidth+1,columns:getComputedStyle(speechForm).gridTemplateColumns.split(' ').length,color:getComputedStyle(speechText).color,background:getComputedStyle(speechText).backgroundColor})`)
         check(`${width}px ${theme} 欄位無溢出，顏色有值`, !geometry.overflow && geometry.color !== geometry.background && (width > 760 || geometry.columns === 1))
         check(`${width}px ${theme} 標記分組無溢出且按鈕可點`, await cdp.eval(`speechEvents.scrollWidth<=speechEvents.clientWidth+1 && [...speechEvents.querySelectorAll('.speech-event-group,button')].every(el=>el.scrollWidth<=el.clientWidth+1) && [...speechEvents.querySelectorAll('button')].every(el=>el.getBoundingClientRect().height>=43)`))
         check(`${width}px ${theme} 中英文保持成對同列`, await cdp.eval(`[...speechEvents.querySelectorAll('.speech-event-group')].every(el=>Math.abs(el.children[0].getBoundingClientRect().top-el.children[1].getBoundingClientRect().top)<1)`))

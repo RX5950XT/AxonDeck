@@ -8,6 +8,7 @@ import {
   openEditorTab,
   openDiffTab,
   openBrowserTab,
+  openCcToolsTab,
   openAiSessionTab,
   setActiveProject,
   forgetProjectBrowsers,
@@ -597,7 +598,7 @@ async function refreshTreeKeepingScroll() {
  */
 function setPanel(next) {
   panel = next
-  document.querySelectorAll('.ws-right-tab').forEach((btn) => {
+  document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
     const on = /** @type {HTMLElement} */ (btn).dataset.panel === next
     btn.classList.toggle('active', on)
     btn.setAttribute('aria-selected', on ? 'true' : 'false')
@@ -1561,6 +1562,8 @@ async function createEntry(project, relDir, dir) {
   row.append(caret, slot)
   host.prepend(row)
   row.scrollIntoView({ block: 'nearest' })
+  // 已經在跑的重畫（監看每秒一次）醒來會把這列空白的當成多餘的刪掉：先作廢它
+  treeSeq += 1
   const name = await editInline(slot, { label: dir ? '新資料夾的名稱' : '新檔案的名稱' })
   row.remove()
   if (name === null) {
@@ -1591,6 +1594,8 @@ async function renameEntry(project, entry) {
   const slot = /** @type {HTMLElement | null} */ (row?.querySelector('.ws-tree-name') || null)
   if (!slot) return
   const seq = projectSeq
+  // 同 createEntry：作廢跑到一半的重畫，不然它醒來會把名稱格連輸入框一起換掉
+  treeSeq += 1
   const name = await editInline(slot, { value: entry.name, selectBase: !entry.dir, label: '新的名稱' })
   if (name === null) {
     await renderTree(project, seq)
@@ -1771,7 +1776,7 @@ function renderSearchHits(project, found) {
   if (found.truncated) host.appendChild(note('命中太多，只列出前面一部分。'))
 }
 
-// ===== 本機埠號 =====
+// ===== 本機 Port =====
 
 /**
  * 這台機器正在聽的本機 TCP 埠。跟專案無關，但擺在工作區最順手——
@@ -1783,7 +1788,7 @@ async function renderPorts(seq = projectSeq) {
   host.replaceChildren(note('查詢中…'))
   let ports
   try {
-    ports = await call(electronAPI.workspace.listPorts(), '查不到埠號')
+    ports = await call(electronAPI.workspace.listPorts(), '查不到 Port')
   } catch {
     if (seq === projectSeq) host.replaceChildren()
     return
@@ -1794,21 +1799,44 @@ async function renderPorts(seq = projectSeq) {
     host.appendChild(note('現在沒有本機服務在監聽。'))
     return
   }
-  for (const item of ports) {
-    const row = document.createElement('button')
-    row.type = 'button'
-    row.className = 'ws-port-row'
-    row.title = `用內建瀏覽器開 http://127.0.0.1:${item.port}`
-    const port = document.createElement('span')
-    port.className = 'ws-port-num'
-    port.textContent = String(item.port)
-    const name = document.createElement('span')
-    name.className = 'ws-port-proc'
-    name.textContent = item.process || `PID ${item.pid}`
-    row.append(port, name)
-    row.addEventListener('click', () => void openBrowserTab(`http://127.0.0.1:${item.port}`))
-    host.appendChild(row)
+  // 開得起來的網頁擺上面；其他服務（資料庫、系統服務…）只列出來，點了也開不起來
+  const groups = [
+    ['網頁', ports.filter((item) => item.web)],
+    ['其他服務', ports.filter((item) => !item.web)]
+  ]
+  for (const [title, rows] of groups) {
+    if (!rows.length) continue
+    const head = document.createElement('div')
+    head.className = 'ws-port-group'
+    head.textContent = `${title}（${rows.length}）`
+    host.appendChild(head)
+    for (const item of rows) host.appendChild(portRow(item))
   }
+}
+
+/**
+ * @param {{ port: number, pid: number, process: string, web: boolean }} item
+ * @returns {HTMLElement}
+ */
+function portRow(item) {
+  const row = document.createElement('div')
+  row.className = item.web ? 'ws-port-row' : 'ws-port-row is-static'
+  const port = document.createElement('span')
+  port.className = 'ws-port-num'
+  port.textContent = String(item.port)
+  const name = document.createElement('span')
+  name.className = 'ws-port-proc'
+  name.textContent = item.process || `PID ${item.pid}`
+  row.append(port, name)
+  if (!item.web) return row
+  const open = document.createElement('button')
+  open.type = 'button'
+  open.className = 'btn btn-secondary btn-sm ws-port-open'
+  open.textContent = '開啟'
+  open.title = `用內建瀏覽器開 http://127.0.0.1:${item.port}`
+  open.addEventListener('click', () => void openBrowserTab(`http://127.0.0.1:${item.port}`))
+  row.append(open)
+  return row
 }
 
 /** 用 App 的「檔案」頁開這個專案的根目錄。 */
@@ -2110,7 +2138,7 @@ async function renderGit() {
     el.gitHub.disabled = !status.githubUrl
     el.gitHub.title = status.githubUrl ? '開啟 GitHub 倉庫' : '沒有 GitHub 遠端倉庫'
     el.gitHub.onclick = status.githubUrl
-      ? () => void call(electronAPI.workspace.openExternal(status.githubUrl), 'GitHub 開不起來').catch(() => {})
+      ? () => void openBrowserTab(status.githubUrl)
       : null
   }
   if (!status.repo) {
@@ -3029,7 +3057,7 @@ export function initWorkspacePage() {
   document.addEventListener('ws:terminal-status', paintProjectStatuses)
   el.newBtn?.addEventListener('click', () => void addProject())
   initProjectDrop()
-  document.querySelectorAll('.ws-right-tab').forEach((btn) => {
+  document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
     btn.addEventListener('click', () => setPanel(/** @type {HTMLElement} */ (btn).dataset.panel))
   })
   document.getElementById('wsFilesRevealBtn')?.addEventListener('click', () => void revealProject())
@@ -3050,6 +3078,8 @@ export function initWorkspacePage() {
   document.getElementById('wsGitPushBtn')?.addEventListener('click', () => void pushCurrent())
   document.getElementById('wsGitPullBtn')?.addEventListener('click', () => void pullCurrent())
   document.getElementById('wsPortsRefreshBtn')?.addEventListener('click', () => void renderPorts())
+  // 第五顆不是側欄面板：MCP 與 Skills 版面要寬，開在目前專案的分頁裡
+  document.getElementById('wsCcToolsBtn')?.addEventListener('click', () => void openCcToolsTab())
   document.getElementById('wsReviewCompareBtn')?.addEventListener('click', () => void runCompare())
   document.getElementById('wsReviewRefreshBtn')?.addEventListener('click', () => void renderBranches())
   document.getElementById('wsFilesSearchBtn')?.addEventListener('click', () => {
@@ -3101,6 +3131,22 @@ export function initWorkspacePage() {
 export function refreshWorkspacePage() {
   initWorkspacePage()
   void reloadList().then(() => renderPanel()).catch(() => {})
+}
+
+/**
+ * 在專案瀏覽器開網址。還沒選專案就還原上次的，再不行用清單第一個；一個專案都沒有才交給系統瀏覽器。
+ * @param {string} url
+ */
+export async function openUrlInProject(url) {
+  if (!currentId && !(await restoreLastProject())) {
+    const first = projects.find((item) => !item.missing)
+    if (first) await selectProject(first.id)
+  }
+  if (!currentId) {
+    await call(electronAPI.workspace.openExternal(url), '開不了這個網址').catch(() => {})
+    return
+  }
+  await openBrowserTab(url)
 }
 
 /** App 重開時還原上次的專案；等待期間若使用者已切換，就以使用者為準。 */

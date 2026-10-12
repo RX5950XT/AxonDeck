@@ -214,3 +214,32 @@
 - smoke 兩項在同一段 eval 內先點導覽再讀畫面，新架構下讀到的是舊頁 → 切頁拆成前一步。
 - 驗證：`node scripts/run-tests.js` 133/133；`electron:pack`（含 lint）通過、asar 302 支一致；打包版 `e2e-page-windows-cdp` 全過（10 頁＋跨頁＋雙視窗＋原生最小化）、`e2e-cdp-smoke` 22/22。
 - 注意：`AXONDECK_TEST_SOURCE=1` 需要先開 vite（5173）；測試中途卡死時會留孤兒 nvidia-smi 咬住 9287。
+
+# 2026-10-12 — 拆掉 CC Proxy 頁
+
+- [x] 專案右側欄「埠號」→「Port」，分「網頁」在上（可點）、「其他服務」在下（main 端 HTTP 探測）
+- [x] 額度條拿掉同步診斷（按鈕、彈窗、IPC 整條）
+- [x] MCP＋Skills 與記憶合成一頁，右側欄第五顆「MCP/Skills」→ 在目前專案開分頁（tab kind `cc-tools`）
+- [x] AGY 反代搬到設定頁新分類
+- [x] 供應商、用量統計併進額度條：條左邊兩顆按鈕，點開從條上方展開抽屜；條加高到 34px
+- [x] 刪 CC Proxy nav 與頁面；app.js／agy-page／e2e／CONTEXT／AGENTS 跟著改
+- [x] 驗證：lint、單元（usage／ccswitch／workspace／mcp／skills／agy）、打包、打包版 CDP（smoke 22、ccswitch 147、agy 34、usage 25）全過；截圖看過寬窄兩種
+- Review：`e2e-usage-cdp` 原本點別頁再點回來，在功能頁多視窗模式下會把 CDP 帶到別的 renderer，改成同頁重畫；`e2e-usage.js`（打真上游）沒跑。
+
+## 追加（2026-10-12）
+
+- [x] Port：「網頁」只收真的點得開的（2xx HTML／3xx），按鈕「開啟」放每列最右邊
+- [x] 設定頁 AGY 反代圖示改用 Antigravity 標誌（原本誤用 Claude）
+- [x] 用量統計重排：兩欄固定高度（左總計＋趨勢、右分佈自己捲），分佈明細改成一種 token 一格
+- [x] 預覽開不了終端機：08c4413 的 `term-themes.js` 對已經是 `blob:` 的桌布再 `atob` 一次丟例外；有設桌布的設定才會中（測試用全新設定所以沒抓到）
+- Review：`e2e-terminal-cdp`／`e2e-chat-cdp` 原本靠點 CC Proxy 再點回聊天來「切走再回來」，功能頁多視窗下同一個 eval 點回聊天不會真的切回 → 改走 `pages.navigate`。terminal 68/68、usage 25、smoke 22 過；`e2e-chat-cdp` 剩「兩個請求都送到上游」（測試仍寫舊的 `chatProviders`，疑 08c4413 起就壞，未比對）；`e2e-workspace-cdp` 每次掛的項目不同（hover／焦點類，未處理）。
+- [x] 功能頁右鍵彈出的視窗標題帶頁名（`檔案 — AxonDeck`），工作列分得出是哪一頁（原本全叫 AxonDeck）
+- [x] 滑鼠側鍵在功能頁之間退錯頁：每個功能頁 renderer 載入時讀到 index.html 預設的 chat，多記一步假足跡 → 功能頁模式下只記自己那頁，跨頁交給 main `pages.history`
+- [x] 工作區檔案樹就地新增／改名時，跑到一半的監看重畫醒來會把正在打字的那列刪掉 → 開始打字先作廢進行中的重畫（`treeSeq`）
+- [x] e2e 跟上功能頁多視窗：`e2e-visual-cdp` 切頁拆成獨立一步；`e2e-workspace-cdp` 開焦點模擬
+- [x] 同專案多開分頁：每顆終端機右上角的對話紀錄各看各的——一筆對話只綁給一個還在跑的分頁；agy「目錄最後開過的對話」只在單一分頁時才拿來猜（`agent-resume.js`／`agent-processes.js`／`agent-live-session.js`，單元測試補一則）
+- Review（全面掃描）：單元 133/133；打包版 e2e 32 支先全跑一輪，失敗的 11 支拿 HEAD 打包重跑，失敗點完全相同＝既有問題（多半是 f9a2460 功能頁多視窗後測試沒跟上、或 08c4413／1757312 等改版後斷言過時）。本次改壞的只有 speech 寫死 10 頁、stt 的設定分區數，已修。逐支修正測試後再全跑一輪確認。
+- [x] 設定頁切走時沒存的修改當下就存：背景 renderer 計時器被節流，450ms 的存檔會延到幾秒後，拿舊草稿蓋掉這段期間別處寫進來的 `cloudProviders`（聊天頁掃描、AGY 自動加的供應商）。`e2e-chat-cdp` 時好時壞就是這個；補了回歸檢查
+- [x] 工作區檔案樹：開始就地打字先作廢進行中的監看重畫（`treeSeq`），不然打到一半那列會被刪掉
+- Review（第二輪全跑）：e2e 32 支先 30 過，剩 chat（上面那個真 bug）與 workspace（測試跟「重開專案自動展開資料夾」互相抵消）；兩個都修完單獨連跑通過，最後再全跑一輪。
+

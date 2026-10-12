@@ -26,7 +26,7 @@ import {
  * 借 Orca 的 tab 模型，適配於本機單一工作區。支援分頁持久化與 Hot Exit
  * （未存檔草稿安全網），切換專案或重新啟動後自動還原。
  *
- * 畫面上五種內容各只有一份 DOM（`#termHost` / `#wsEditor` / `#wsBrowser` / `#wsDiff` / `#wsAiSession`），
+ * 畫面上六種內容各只有一份 DOM（`#termHost` / `#wsEditor` / `#wsBrowser` / `#wsDiff` / `#wsAiSession` / `#wsCcTools`），
  * 切分頁時把狀態搬進搬出。終端機是例外：每個工作階段有自己的 `.term-pane`，
  * 那份由 `terminal-page.js` 管，這裡只負責「現在該不該顯示 `#termHost`」。
  */
@@ -37,7 +37,7 @@ const MAX_TAB_TITLE = 28
 /**
  * @typedef {{
  *   id: string,
- *   kind: 'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session',
+ *   kind: 'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'cc-tools',
  *   title: string,
  *   projectId?: string,
  *   relPath?: string,
@@ -141,7 +141,7 @@ function shortTitle(value) {
 /**
  * 哪一塊內容該顯示。**單一擁有者**——終端機那邊也走這支，
  * 不然開編輯器分頁時 `#termHost` 會留在畫面上疊著。
- * @param {'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'empty'} kind
+ * @param {'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'cc-tools' | 'empty'} kind
  */
 export function showSurface(kind) {
   if (el.termHost) el.termHost.inert = false
@@ -151,6 +151,7 @@ export function showSurface(kind) {
   if (el.browser) el.browser.hidden = kind !== 'browser'
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
+  if (el.ccTools) el.ccTools.hidden = kind !== 'cc-tools'
   if (kind !== 'ai-session') {
     closeAiSessionFind(el.aiSessionBody)
     el.aiSessionBody?.replaceChildren()
@@ -803,6 +804,9 @@ async function activate(id) {
       paint: () => { if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab) },
       body: () => el.aiSessionBody
     })
+  } else if (tab.kind === 'cc-tools') {
+    showSurface('cc-tools')
+    void import('./ccswitch-page.js').then((mod) => mod.refreshCcTools())
   } else {
     paintBrowser(tab)
     showSurface('browser')
@@ -2408,6 +2412,14 @@ export async function openBrowserTab(url = '') {
   await activate(id)
 }
 
+/** MCP 與 Skills 跟專案無關，一個專案最多一個這種分頁：已經開著就切過去 */
+export async function openCcToolsTab() {
+  const existing = tabs.find((tab) => tab.kind === 'cc-tools')
+  if (existing) return activate(existing.id)
+  tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: project?.id || '' })
+  await activate('cc-tools')
+}
+
 // ===== 內建瀏覽器（<webview>）=====
 //
 // 比照 Orca：guest 不掛 preload、`partition` 用持久 session（登入狀態留著）、
@@ -3122,6 +3134,8 @@ async function restoreProjectTabs(proj, generation) {
           url: item.url || '',
           projectId: proj.id
         })
+      } else if (item.kind === 'cc-tools' && !tabs.some((t) => t.kind === 'cc-tools')) {
+        tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: proj.id })
       } else if (item.kind === 'ai-session' && item.sessionRow) {
         try {
           const detail = await call(electronAPI.workspace.agentSessionDetail(proj.id, item.sessionRow.agent, item.sessionRow.id), '')
@@ -3254,6 +3268,7 @@ export function initWsTabs() {
 
   // AI 會話元素
   el.aiSession = document.getElementById('wsAiSession')
+  el.ccTools = document.getElementById('wsCcTools')
   el.aiSessionBar = document.getElementById('wsAiSessionBar')
   el.aiSessionTitle = document.getElementById('wsAiSessionTitle')
   el.aiSessionMeta = document.getElementById('wsAiSessionMeta')

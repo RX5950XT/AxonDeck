@@ -135,6 +135,7 @@ async function main() {
   await testLateCapture(createTracker)
   await testRejectedBind(createTracker)
   await testAgyOtherWorkspace(createTracker)
+  await testOneConversationPerTab(createTracker)
   console.log('PASS 啟動基準、新對話綁定、遺失記錄與多終端機歸屬守衛')
 }
 
@@ -209,5 +210,30 @@ async function testAgyOtherWorkspace(createTracker) {
   await tracker.capture()
   tracker.stop()
   assert.equal(saved[0], sessionId, 'AGY 工作區路徑和終端機目錄不同，仍綁定這次程序的對話')
+}
+/** 同專案開兩個同工具分頁、兩邊都被認成同一筆對話：只有一邊接得上，另一邊不可以跟著顯示同一份紀錄 */
+async function testOneConversationPerTab(createTracker) {
+  const shared = '7673a2d8-0000-4000-8000-000000000002'
+  let terms = [
+    { id: 't_tab_a', preset: 'agy', cwd: 'D:/VoiceInk', agentStartedAt: 1000 },
+    { id: 't_tab_b', preset: 'agy', cwd: 'D:/VoiceInk', agentStartedAt: 1000 }
+  ]
+  const tracker = createTracker({
+    list: async () => terms,
+    setAgentSession: async (key, agent, value) => {
+      terms = terms.map(t => t.id === key ? { ...t, agentSessionId: value } : t)
+      return true
+    }
+  }, { sessions: async () => [], resume: async () => ({}) }, () => 1000,
+  async () => terms.map(t => ({ id: t.id })), async () => new Map([['t_tab_a', shared], ['t_tab_b', shared]]), () => {})
+  await tracker.begin(terms[0], true)
+  await tracker.begin(terms[1], true)
+  await tracker.capture()
+  await tracker.capture()
+  assert.deepEqual(terms.map(t => t.agentSessionId || ''), [shared, ''], '同一筆對話只綁到一個還在跑的分頁')
+  tracker.forget('t_tab_a')
+  await tracker.capture()
+  assert.equal(terms[1].agentSessionId, shared, '原分頁不在跑之後，新分頁可以接續那筆對話')
+  tracker.stop()
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

@@ -166,10 +166,26 @@ function startFakeModels() {
  */
 async function checkConcurrentUi(cdp, fake, check) {
   console.log('\n併發對話、側欄狀態、資料夾、對話參數')
+  {
+    const list = await getJson(`http://127.0.0.1:${PORT}/json/list`)
+    const st = list.find((t) => /page=settings/.test(t.url))
+    if (st) {
+      const sc = new Cdp(st.webSocketDebuggerUrl)
+      sc.fixedPage = true
+      await sc.connect()
+      // 設定頁剛被編輯又馬上切走：沒存的修改要在切走當下就存（背景計時器被節流，延後才存會拿舊草稿
+      // 蓋掉這段期間別處寫進來的供應商——之前這裡的假上游供應商就是這樣時好時壞地被蓋掉）
+      const saved = await sc.eval(`document.getElementById('cloudSaveStatus')?.textContent || ''`)
+      check('切走設定頁時沒存的修改當下就存，不會晚幾秒蓋掉別處的設定', saved === '已自動儲存', saved)
+      sc.close?.()
+    }
+  }
   const made = await cdp.eval(`(async () => {
     const api = window.electronAPI
-    await api.store.set('chatProviders', [{ id: 'p_cdp', name: 'CDP 串流', apiUrl: ${JSON.stringify(fake.url)},
-      apiKey: 'k', models: ['fake/alpha'], imageModels: [] }])
+    // 寫統一的 cloudProviders（main 會投影出 chatProviders）。只寫舊的 chatProviders 的話，
+    // 之後任何一次存 cloudProviders 都會用投影結果蓋掉它，請求就送不到假上游（時好時壞）
+    await api.store.set('cloudProviders', [{ id: 'p_cdp', name: 'CDP 串流', apiUrl: ${JSON.stringify(fake.url)},
+      apiKey: 'k', models: [{ id: 'fake/alpha', type: 'chat' }] }])
     await api.store.set('chatProviderId', 'p_cdp')
     await api.store.set('chatModelId', 'fake/alpha')
     const a = await api.chat.create()
@@ -194,7 +210,7 @@ async function checkConcurrentUi(cdp, fake, check) {
   let autoConv = ''
   const extraFolders = []
   try {
-    await cdp.eval(`document.querySelector('.nav-tab[data-page="ccswitch"]').click()`)
+    await cdp.eval(`document.querySelector('.nav-tab[data-page="explorer"]').click()`)
     await cdp.eval(`document.querySelector('.nav-tab[data-page="chat"]').click()`)
     await waitFor(() => cdp.eval(`!!document.querySelector('${row(made.b)}')`), 15_000, '側欄出現測試對話')
     const before = fake.bodies.length
@@ -238,8 +254,8 @@ async function checkConcurrentUi(cdp, fake, check) {
     check('側欄按鈕開出命名彈窗', asked === true)
     await cdp.eval(`(async () => {
       await window.electronAPI.chat.createFolder('CDP-資料夾')
-      document.querySelector('.nav-tab[data-page="ccswitch"]').click()
-      document.querySelector('.nav-tab[data-page="chat"]').click()
+      document.querySelector('.nav-tab[data-page="explorer"]').click()
+      await window.electronAPI.pages.navigate({ page: 'chat' })
     })()`)
     folderId = await waitFor(() => cdp.eval(`(() => {
       const head = [...document.querySelectorAll('#chatList .chat-folder')]
@@ -272,8 +288,8 @@ async function checkConcurrentUi(cdp, fake, check) {
     // 資料夾拖曳排序：把後建的乙拖到甲上面
     const folderB = await cdp.eval(`(async () => {
       const f = await window.electronAPI.chat.createFolder('CDP-資料夾乙')
-      document.querySelector('.nav-tab[data-page="ccswitch"]').click()
-      document.querySelector('.nav-tab[data-page="chat"]').click()
+      document.querySelector('.nav-tab[data-page="explorer"]').click()
+      await window.electronAPI.pages.navigate({ page: 'chat' })
       return f.id
     })()`)
     extraFolders.push(folderB)
@@ -684,7 +700,7 @@ async function main() {
       return { a: a.id, b: b.id }
     })()`)
     try {
-      await cdp.eval(`document.querySelector('.nav-tab[data-page="ccswitch"]').click()`)
+      await cdp.eval(`document.querySelector('.nav-tab[data-page="explorer"]').click()`)
       await cdp.eval(`document.querySelector('.nav-tab[data-page="chat"]').click()`)
       await waitFor(() => cdp.eval(
         `!!document.querySelector('.chat-list-item[data-id="${made.b}"]')`
@@ -885,8 +901,8 @@ async function checkAiWeb(cdp, check) {
       titled.login === 'Claude' && titled.auto === '寫報告' && titled.kept === '我自己取的', JSON.stringify(titled))
 
     await cdp.eval(`(async () => {
-      document.querySelector('.nav-tab[data-page="ccswitch"]').click()
-      document.querySelector('.nav-tab[data-page="chat"]').click()
+      document.querySelector('.nav-tab[data-page="explorer"]').click()
+      await window.electronAPI.pages.navigate({ page: 'chat' })
     })()`)
     await waitFor(() => cdp.eval(`!!document.querySelector('#chatList .chat-list-item[data-id="${claude.id}"] .chat-list-open')`), 10_000, 'Claude 那則出現在側欄')
     await cdp.eval(`document.querySelector('#chatList .chat-list-item[data-id="${claude.id}"] .chat-list-open').click()`)

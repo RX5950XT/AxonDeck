@@ -59,19 +59,20 @@ async function agyLastConversation(cwd, home) {
   return new Set(ids).size === 1 ? ids[0] : ''
 }
 
-async function agySession(process, cwd, home) {
+async function agySession(process, cwd, home, peerCount = 1) {
   const started = Date.parse(process.StartedAt)
   if (!Number.isFinite(started)) return ''
   const logged = await agyLogged(process, home, started)
   if (!logged) return ''
   if (logged.id) return logged.id
-  return cwd ? agyLastConversation(cwd, home) : ''
+  // 「這個目錄最後開過的對話」只有一個分頁時才準；同專案兩顆 agy 會被接到同一筆
+  return cwd && peerCount === 1 ? agyLastConversation(cwd, home) : ''
 }
 
-async function liveSession(agent, process, cwd) {
+async function liveSession(agent, process, cwd, peerCount = 1) {
   const homes = dataPaths()
   if (agent === 'grok') return grokSession(process, cwd, homes.grok)
-  if (agent === 'agy') return agySession(process, cwd, homes.agy)
+  if (agent === 'agy') return agySession(process, cwd, homes.agy, peerCount)
   return ''
 }
 module.exports = { liveSession }

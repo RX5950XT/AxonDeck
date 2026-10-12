@@ -119,12 +119,15 @@ async function main() {
 
     // 等 renderer 掛好
     for (let i = 0; i < 40; i += 1) {
-      const ready = await cdp.eval('!!document.querySelector(\'[data-page="ccswitch"]\')')
+      const ready = await cdp.eval('!!document.getElementById(\'quotaProviderBtn\')')
       if (ready) break
       await sleep(250)
     }
 
-    await cdp.eval('document.querySelector(\'[data-page="ccswitch"]\').click()')
+    // 供應商在工作區額度條的抽屜裡：額度條只在工作區模式才綁好
+    await cdp.eval("import('./scripts/app.js').then((m) => m.setChatPaneMode('workspace'))")
+    await sleep(800)
+    await cdp.eval('document.getElementById(\'quotaProviderBtn\').click()')
     await sleep(1_500)
 
     // 供應商 tile 是「開頁面時」就該畫出來的（播種＋清單）；「＋」tile 開的是純自訂彈窗

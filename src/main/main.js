@@ -967,17 +967,37 @@ function createMainWindow() {
 }
 
 /**
- * 禁止任意導覽／開窗；外連改系統瀏覽器
+ * 外連留在 App 裡：交給 chat 頁開成專案瀏覽器分頁（放哪個專案由 renderer 決定），
+ * 把那個視窗叫到前面。功能頁還沒建好或開不起來才退回系統瀏覽器。
+ * @param {string} url 已確認是 http(s)
+ */
+function openInProjectBrowser(url) {
+  const outside = () => { shell.openExternal(url).catch(() => {}) }
+  if (!pageWindows) return outside()
+  pageWindows.navigate({ page: 'chat', action: 'browser', full: url }).then(() => {
+    const win = pageWindows.host(pageWindows.contents('chat'))
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }).catch(outside)
+}
+
+/** @param {string} url */
+function isWebUrl(url) {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' || u.protocol === 'http:'
+  } catch { return false }
+}
+
+/**
+ * 禁止任意導覽／開窗；外連改開專案瀏覽器分頁
  * @param {BrowserWindow} win
  */
 function attachWindowSecurity(win) {
   win.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const u = new URL(url)
-      if (u.protocol === 'https:' || u.protocol === 'http:') {
-        shell.openExternal(url).catch(() => {})
-      }
-    } catch { /* ignore bad url */ }
+    if (isWebUrl(url)) openInProjectBrowser(url)
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
@@ -1849,7 +1869,6 @@ registerUsageIpc({
     load: (...args) => loadUsage().load(...args),
     sync: (...args) => loadUsage().sync(...args),
     saveSettings: (...args) => loadUsage().saveSettings(...args),
-    getDiagnostics: (...args) => loadUsage().getDiagnostics(...args),
     redeemCodexReset: (...args) => loadUsage().redeemCodexReset(...args),
     publicError: (error) => loadUsage().publicError(error)
   },
@@ -2293,7 +2312,7 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 // webview guest 的 popup 走不到主視窗那條 attachWindowSecurity（那是掛在
-// 主視窗 webContents 上），一律在 app 層補上：http(s) 交給系統瀏覽器，其餘擋掉。
+// 主視窗 webContents 上），一律在 app 層補上：http(s) 開成專案瀏覽器分頁，其餘擋掉。
 // 網頁版 AI 與工作區瀏覽器的分區（whenReady 時登記）：session → partition 名稱
 const aiWebPartitions = new Map()
 app.on('web-contents-created', (_event, contents) => {
@@ -2325,12 +2344,7 @@ app.on('web-contents-created', (_event, contents) => {
         }
       }
     }
-    try {
-      const u = new URL(url)
-      if (u.protocol === 'https:' || u.protocol === 'http:') {
-        shell.openExternal(url).catch(() => {})
-      }
-    } catch { /* ignore bad url */ }
+    if (isWebUrl(url)) openInProjectBrowser(url)
     return { action: 'deny' }
   })
 })
@@ -2343,9 +2357,11 @@ app.whenReady().then(() => {
   // 網頁版 AI 的四個登入分區＋工作區瀏覽器：瀏覽器特徵補成跟 Chrome 一樣（登入、hCaptcha、Cloudflare 才不會當成
   // 內嵌瀏覽器擋掉）、權限只給用得到的、登入小視窗在 App 內開
   const aiWeb = require('./ai-web')
+  // 跟 navigator.languages 同一份（Electron 用 App 語系＋系統偏好語言排出來的）
+  const languages = [...new Set([app.getLocale(), ...app.getPreferredSystemLanguages()].filter(Boolean))].join(',')
   for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
     const ses = session.fromPartition(partition)
-    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
+    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js'), languages })
     aiWebPartitions.set(ses, partition)
   }
   // Grok 的 Cloudflare 擋 Electron：碰到驗證頁就請系統的 Edge／Chrome 過一次，把通行證帶回來（grok-clearance.js）

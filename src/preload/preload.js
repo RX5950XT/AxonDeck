@@ -219,7 +219,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('usage:load'),
     sync: () => ipcRenderer.invoke('usage:sync'),
     saveSettings: (settings) => ipcRenderer.invoke('usage:saveSettings', settings),
-    getDiagnostics: () => ipcRenderer.invoke('usage:diagnostics'),
     redeemCodexReset: (creditId) => ipcRenderer.invoke('usage:redeemCodexReset', creditId)
   },
 

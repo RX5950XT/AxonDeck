@@ -72,7 +72,7 @@ const ICONS = {
 
   // ── 頂端導覽列 ──
   // 品牌那幾顆（Telegram、Hugging Face）同上是 simple-icons 的原廠輪廓；
-  // CC Proxy 直接沿用上面的 claude。其餘是 lucide（ISC）的 24×24 描邊圖示
+  // 設定頁的 AGY 反代直接沿用上面的 agy。其餘是 lucide（ISC）的 24×24 描邊圖示
   telegram: {
     fill: true,
     box: '0 0 24 24',

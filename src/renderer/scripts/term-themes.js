@@ -88,6 +88,8 @@ const blobUrls = new Map()
  * @returns {string}
  */
 function cssImageUrl(dataUri) {
+  // 終端機頁自己已經換成 blob: 了（terminal-page.js toBlobUrl），再 atob 一次會丟例外
+  if (!dataUri.startsWith('data:')) return dataUri
   let url = blobUrls.get(dataUri)
   if (url) return url
   const comma = dataUri.indexOf(',')

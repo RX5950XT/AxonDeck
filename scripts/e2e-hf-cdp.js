@@ -252,7 +252,11 @@ async function main() {
     )
 
     console.log('\n[A2] 推薦與設定搬移')
-    await waitFor(() => cdp.eval("document.querySelectorAll('#hfRuntimeList [data-runtime]').length === 4"), 20_000, 'Local SI 模組初始化')
+    // 執行環境的數量跟著 main 走（10/10 加了 Breeze 語音那顆）：畫面上的安裝鈕要等於 main 說還沒裝的那幾個
+    await waitFor(() => cdp.eval(`window.electronAPI.hfmodels.hardware().then((r) => {
+      const missing = (r.data?.installable || []).filter((item) => !item.downloaded).length
+      return missing > 0 && document.querySelectorAll('#hfRuntimeList [data-runtime]').length === missing
+    })`), 20_000, 'Local SI 模組初始化')
     await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
     const recommend = await waitFor(() => cdp.eval(`(() => {
       const rows = [...document.querySelectorAll('#hf-recommend .model-item')]
@@ -402,7 +406,10 @@ async function main() {
       '有列出推論後端',
       JSON.stringify(runtime.rows.map((r) => r.label))
     )
-    assert(runtime.runtimeItems === 4, '執行環境列出 llama Vulkan、CUDA、Breeze 與 PDF 四種', String(runtime.runtimeItems))
+    // llama Vulkan、CUDA、Breeze、PDF、PDF GPU 加速……數量跟著 main 的清單，不手抄
+    const runtimeKinds = await cdp.eval('window.electronAPI.hfmodels.hardware().then((r) => (r.data?.installable || []).length)')
+    assert(runtimeKinds >= 5 && runtime.runtimeItems === runtimeKinds, '執行環境每一種都列出來（跟 main 一致）',
+      `${runtime.runtimeItems} / ${runtimeKinds}`)
     const inference = await waitFor(() => cdp.eval(`(() => {
       const hint = document.getElementById('hfInferHint')
       return hint?.offsetHeight > 0 && /自動：/.test(hint.textContent) ? hint.textContent : null

@@ -872,6 +872,10 @@ console.log('\n[H] 埠號解析')
   ok('本機位址認得出來', ports.parseAddress('[::1]:8080').local === true)
   ok('別人的位址不算本機', ports.parseAddress('192.168.1.9:8080').local === false)
   ok('Windows 自己的服務被過濾', ports.NOISE_PORTS.has(445))
+  ok('HTML 網頁才算點得開', ports.isWebPage(200, 'text/html; charset=utf-8') === true)
+  ok('轉址也算網頁', ports.isWebPage(302, undefined) === true)
+  ok('JSON／純文字 API 不算網頁', !ports.isWebPage(200, 'application/json') && !ports.isWebPage(200, 'text/plain'))
+  ok('4xx／5xx 不算網頁', !ports.isWebPage(404, 'text/html') && !ports.isWebPage(503, 'text/html'))
 }
 
 // ===== [J] git log 解析與檔名守衛 =====

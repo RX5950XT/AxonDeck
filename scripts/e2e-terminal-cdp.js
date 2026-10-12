@@ -766,10 +766,11 @@ async function main() {
       term._core._writeBuffer.writeSync('\\r\\n' + Array.from({ length: 100 }, (_, i) => 'latest-line-' + i).join('\\r\\n'))
       term.scrollToTop()
       const wasScrolledUp = term.buffer.active.baseY > 0 && term.buffer.active.viewportY === 0
-      document.querySelector('.nav-tab[data-page="ccswitch"]').click()
+      document.querySelector('.nav-tab[data-page="explorer"]').click()
       await new Promise((r) => setTimeout(r, 500))
-      // 終端機跟聊天同頁：點分頁切回終端機主區
-      document.querySelector('.nav-tab[data-page="chat"]').click()
+      // 終端機跟聊天同頁：切回聊天頁。功能頁各自一個 renderer，這裡是被藏起來的聊天頁，
+      // 點它自己的「聊天」不會換回來，要走 main 的 navigate
+      await window.electronAPI.pages.navigate({ page: 'chat' })
       await new Promise((r) => setTimeout(r, 400))
       document.querySelector('.ws-tab[data-id="${createdId}"] .ws-tab-open')?.click()
       await new Promise((r) => setTimeout(r, 600))

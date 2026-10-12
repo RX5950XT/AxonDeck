@@ -12,6 +12,8 @@ const { tempDir } = require('./lib/test-temp')
 const http = require('http')
 
 const PORT = 9243
+/** main 程序的 inspector：用來把 --hidden 的視窗不搶焦點地顯示出來 */
+const INSPECT_PORT = 9244
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
 // 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
@@ -97,7 +99,7 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--inspect=127.0.0.1:${INSPECT_PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let processLog = ''
   child.stdout.on('data', (c) => { processLog += c })
   child.stderr.on('data', (c) => { processLog += c })
@@ -124,6 +126,17 @@ async function main() {
     })()
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
+    // 功能頁是掛在主視窗上的 WebContentsView：--hidden 的視窗不收合成滾輪（dispatchMouseEvent 會一直等），
+    // 跟真的使用一樣不搶焦點地顯示出來
+    let inspectorTarget = null
+    await waitFor(async () => {
+      const list = await getJson(`http://127.0.0.1:${INSPECT_PORT}/json/list`).catch(() => [])
+      inspectorTarget = list[0] || null
+      return inspectorTarget
+    }, 15000, 'main inspector')
+    const mainCdp = new Cdp(inspectorTarget.webSocketDebuggerUrl)
+    await mainCdp.connect()
+    await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().find(w => /index\\.html/.test(w.webContents.getURL()))?.showInactive()`)
     await cdp.eval("window.electronAPI.store.set('sysmonSensors', false)")
     await waitFor(
       () => cdp.eval(`document.readyState === 'complete' && typeof window.electronAPI?.store?.get === 'function'`),
@@ -316,35 +329,34 @@ async function main() {
     )
 
     // ---- 翻譯與 TTS 頁是另一組（全域 key），不被子分頁的選擇帶著跑 ----
-    const translatePage = await cdp.eval(`(async () => {
+    // 功能頁各自一個 renderer：切頁要獨立一步，下一個 eval 才會落在新頁上
+    await cdp.eval(`(async () => {
       await window.electronAPI.store.set('translator', 'local')
       await window.electronAPI.store.set('localTranslateModel', 'linguaforge08q4')
-      document.querySelector('[data-page="translate"]').click()
-      await new Promise((r) => setTimeout(r, 900))
-      return document.getElementById('translatePageModel')?.value || ''
     })()`)
+    await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)
+    await sleep(900)
+    const translatePage = await cdp.eval(`document.getElementById('translatePageModel')?.value || ''`)
     ok('翻譯與 TTS 頁用自己的全域設定（不跟子分頁共用）',
       translatePage === 'local:linguaforge08q4', String(translatePage))
 
     // 回語音轉文字頁，確認重讀後畫面跟 store 對得上
-    const reread = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="stt"]').click()
-      await new Promise((r) => setTimeout(r, 900))
-      return {
-        file: document.getElementById('fileAsrModel')?.value || '',
-        dict: document.getElementById('dictationAsrModel')?.value || ''
-      }
-    })()`)
+    await cdp.eval(`document.querySelector('[data-page="stt"]').click(), 'ok'`)
+    await sleep(900)
+    const reread = await cdp.eval(`({
+      file: document.getElementById('fileAsrModel')?.value || '',
+      dict: document.getElementById('dictationAsrModel')?.value || ''
+    })`)
     ok('重新進頁時共用選單與語音輸入各自讀回自己的值',
       reread?.file === 'local:qwen3asrgpu' && reread?.dict === 'local:qwen3asr',
       JSON.stringify(reread))
 
     // ---- 未安裝的模型要標出來 ----
+    await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)
+    await sleep(700)
     const notReady = await cdp.eval(`(async () => {
       const status = await window.electronAPI.models.status()
       const missing = Object.values(status.models).filter((m) => !m.downloaded).map((m) => m.key)
-      document.querySelector('[data-page="translate"]').click()
-      await new Promise((r) => setTimeout(r, 700))
       const labels = [...document.getElementById('translatePageModel').options].map((o) => o.textContent)
       return { missing, marked: labels.filter((l) => l.includes('未安裝')).length }
     })()`)
@@ -358,10 +370,13 @@ async function main() {
     await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
     for (let i = 0; i < 50; i++) {
       await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
-      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length >= 4')) break
       await sleep(200)
     }
-    await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length === 4'), 15000, '推薦模型清單')
+    // 推薦清單會隨版本加模型（e2e-hf-cdp 驗確切的那幾顆），這裡只要載得出來
+    await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length >= 4'), 15000, '推薦模型清單')
+    // 分組標題只畫在 Local SI 那個 renderer：要在這一頁讀，切到設定頁就讀不到了
+    const recommendGroups = await cdp.eval(`[...document.querySelectorAll('#hf-recommend .model-group-title')].map((el) => el.textContent)`)
     // ---- 設定頁四分區（語音朗讀在翻譯頁）----
     await cdp.eval(`document.querySelector('[data-page="settings"]').click(), 'ok'`)
     await sleep(900)
@@ -378,8 +393,6 @@ async function main() {
         gpuInLocal: !document.getElementById('llmGpuSegment'),
         // ASR 的推論方式跟著模型走，不再有執行緒選項
         noThreads: !document.getElementById('asrThreadsSegment'),
-        // 模型清單依 kind 分組
-        groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((el) => el.textContent),
         modelListInLocal: !!document.querySelector('#hf-recommend #modelList'),
         // 三組雲端端點都在雲端模型分區
         cloudChat: !!document.querySelector('#set-cloud #chatApiUrlInput'),
@@ -390,18 +403,19 @@ async function main() {
       }
     })()`)
     ok(
-      '設定頁四個分區且順序正確',
-      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'appearance', 'cli']) &&
+      '設定頁五個分區且順序正確（AGY 反代從 CC Proxy 搬過來）',
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'cli']) &&
         settings.titles[0].includes('雲端模型') && settings.titles[1].includes('基本') &&
-        settings.titles[2].includes('外觀') && settings.titles[3].includes('CLI'),
+        settings.titles[2].includes('外觀') && settings.titles[3].includes('AGY') && settings.titles[4].includes('CLI'),
       JSON.stringify(settings?.titles)
     )
     ok('設定頁沒有手動 GPU 開關，模型清單已搬進推薦',
       settings?.removed && settings.gpuInLocal && settings.noThreads && settings.modelListInLocal,
       JSON.stringify(settings))
-    ok('推薦模型清單依語音辨識／翻譯分組',
-      JSON.stringify(settings?.groups) === JSON.stringify(['語音辨識', '翻譯']),
-      JSON.stringify(settings?.groups))
+    // 確切的分組（含語音生成、PDF）由 e2e-hf-cdp 驗；這裡只管語音轉文字用到的兩組
+    ok('推薦模型清單有語音辨識與翻譯兩組',
+      recommendGroups.includes('語音辨識') && recommendGroups.includes('翻譯'),
+      JSON.stringify(recommendGroups))
     ok('雲端翻譯併入聊天供應商（沒有第二份端點欄位）',
       settings?.noSeparateTranslate === true,
       JSON.stringify(settings))

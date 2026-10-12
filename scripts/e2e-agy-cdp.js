@@ -173,9 +173,9 @@ async function main() {
     // electronAPI 由 preload 注入，早於 app.js 的模組腳本執行完畢——
     // 所以不能拿它當「nav 已綁好」的信號，要等點擊真的生效
     await waitFor(async () => cdp.eval(`(() => {
-      document.querySelector('[data-page="ccswitch"]').click()
-      document.querySelector('#ccSubtabs .subtab[data-subtab="agy"]').click()
-      return document.getElementById('cc-agy').classList.contains('active')
+      document.querySelector('[data-page="settings"]').click()
+      document.querySelector('#settingsNav [data-section="agy"]').click()
+      return document.getElementById('set-agy').classList.contains('active')
     })()`), 15_000, 'nav 綁定完成')
 
     // 使用者上次是開著的話 App 會自動接續啟動，先記下原設定再停下來，
@@ -194,12 +194,12 @@ async function main() {
 
     // --- 分頁結構 ---
     const structure = await cdp.eval(`(() => {
-      document.querySelector('[data-page="ccswitch"]').click()
-      document.querySelector('#ccSubtabs .subtab[data-subtab="agy"]').click()
+      document.querySelector('[data-page="settings"]').click()
+      document.querySelector('#settingsNav [data-section="agy"]').click()
       return {
         order: [...document.querySelectorAll('.header-nav .nav-tab')].map((item) => item.dataset.page),
-        active: document.getElementById('cc-agy').classList.contains('active'),
-        label: document.querySelector('#ccSubtabs .subtab[data-subtab="agy"]').textContent.trim(),
+        active: document.getElementById('set-agy').classList.contains('active'),
+        label: document.querySelector('#settingsNav [data-section="agy"]').textContent.trim(),
         hasControl: !!document.getElementById('agyToggleBtn'),
         hasTable: !!document.querySelector('.agy-table'),
         hasCharts: !!document.getElementById('agyHourlyChart') && !!document.getElementById('agyModelChart')
@@ -212,7 +212,7 @@ async function main() {
       fail(`頁面結構不完整：${JSON.stringify(structure)}`)
     }
     if (structure.label !== 'AGY 反代') fail(`分頁名稱錯誤：${structure.label}`)
-    pass('CC Proxy 有 AGY 反代子分頁且三區塊齊全')
+    pass('設定頁有 AGY 反代分類且三區塊齊全')
 
     // --- 停止狀態的初始畫面 ---
     const initial = await cdp.eval(`(() => ({
@@ -572,7 +572,7 @@ async function main() {
     // --- 切走頁面要停止輪詢 ---
     await cdp.eval(`document.querySelector('[data-page="chat"]').click()`)
     await sleep(500)
-    const leftPage = await cdp.eval(`document.getElementById('page-ccswitch').classList.contains('active') === false`)
+    const leftPage = await cdp.eval(`document.getElementById('page-settings').classList.contains('active') === false`)
     if (!leftPage) fail('切換頁面失敗')
     pass('可正常切離 AGY 頁')
 

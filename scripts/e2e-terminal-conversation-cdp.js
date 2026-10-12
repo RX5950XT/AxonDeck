@@ -64,8 +64,12 @@ async function main() {
   for (const key of Object.keys(env)) if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_CODE_')) delete env[key]
   child = spawn(exe, ['--hidden', '--disable-backgrounding-occluded-windows', `--remote-debugging-port=${debug}`, `--inspect=127.0.0.1:${inspector}`, `--user-data-dir=${profile}`], { detached: true, stdio: 'ignore', env })
   const targets = p => fetch(`http://127.0.0.1:${p}/json/list`).then(r => r.json()).catch(() => [])
-  cdp = await connect((await wait(async () => (await targets(debug)).find(row => /index\.html/.test(row.url)), '主視窗未啟動')).webSocketDebuggerUrl)
+  // 主視窗外殼（?host=1）也是 index.html，但不畫任何頁面；終端機在聊天頁那個 renderer
+  cdp = await connect((await wait(async () => (await targets(debug)).find(row => /index\.html.*[?&]page=chat/.test(row.url)), '主視窗未啟動')).webSocketDebuggerUrl)
   mainCdp = await connect((await wait(async () => (await targets(inspector))[0], 'main inspector 未啟動')).webSocketDebuggerUrl)
+  // 功能頁是掛在主視窗上的 WebContentsView：--hidden 的視窗不收合成滑鼠事件（dispatchMouseEvent 會卡到逾時），
+  // 跟真的使用一樣不搶焦點地顯示出來
+  await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().find(w => /index\\.html/.test(w.webContents.getURL()))?.showInactive()`)
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
   await wait(() => cdp.eval('!!window.electronAPI?.terminal?.conversation'), '缺少 IPC')
   await cdp.eval(`(async () => {
@@ -127,6 +131,8 @@ async function main() {
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rect.x, y: rect.end, button: 'left', buttons: 1 })
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: rect.x, y: rect.end, button: 'left', clickCount: 1 })
   }
+  // 終端機在聊天頁的工作區主區；沒切過去整塊是 display:none，捲軸量不到高度
+  await cdp.eval(`import('./scripts/app.js').then(m => m.setChatPaneMode('workspace'))`)
   for (const [agent, terminalId] of Object.entries(ids)) {
     await cdp.eval(`import('./scripts/terminal-page.js').then(m => m.openTerminalSession(${JSON.stringify(terminalId)}))`)
     const selector = `.term-pane[data-id="${terminalId}"] .term-scrollbar`
@@ -244,7 +250,8 @@ async function main() {
   pass('點選同一瞬間到達指定列，沒有送逐段滾輪或 CLI 指令')
   await dragScrollbar(pane + ' .term-scrollbar', .15)
   const held = await cdp.eval(query('.term-scrollbar')+'.value')
-  await mainCdp.eval('process.mainModule.require("electron").BrowserWindow.getAllWindows().find(w=>/index\\.html/.test(w.webContents.getURL())).webContents.send("terminal:data",'+JSON.stringify({id,seq:1,data:'CLI 繼續輸出\r\n'})+')')
+  // 功能頁各自一個 WebContentsView：跟 main 一樣廣播給每一頁，只送主視窗外殼的話聊天頁收不到
+  await mainCdp.eval('process.mainModule.require("electron").webContents.getAllWebContents().filter(c=>c.getURL().includes("index.html")).forEach(c=>c.send("terminal:data",'+JSON.stringify({id,seq:1,data:'CLI 繼續輸出\r\n'})+'))')
   await wait(() => cdp.eval('(() => { const b=__navTerms.get('+JSON.stringify(id)+').buffer.active;return Array.from({length:b.length},(_,i)=>b.getLine(i)?.translateToString(true)||"").join("").includes("CLI 繼續輸出") })()'), 'CLI 原畫面沒有繼續更新')
   assert.equal(await cdp.eval(query('.term-scrollbar')+'.value'), held)
   await dragScrollbar(pane + ' .term-scrollbar', .85)
@@ -252,7 +259,7 @@ async function main() {
   await cdp.eval('__navInputSubscription.dispose()')
   pass('拖曳及持續輸出不回彈，所有動作只移動原终端機視窗')
   rows.push(message('assistant', '第六輪剛剛完成', 'final')); writeCodex()
-  await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().find(w=>/index\\.html/.test(w.webContents.getURL())).webContents.send('terminal:data',{id:${JSON.stringify(id)},seq:2,data:'新的輸出\\r\\n'})`)
+  await mainCdp.eval(`process.mainModule.require('electron').webContents.getAllWebContents().filter(c=>c.getURL().includes('index.html')).forEach(c=>c.send('terminal:data',{id:${JSON.stringify(id)},seq:2,data:'新的輸出\\r\\n'}))`)
   await wait(() => cdp.eval(`${query('.term-conversation-list')}.textContent.includes('第六輪剛剛完成')`), '新最終回答未更新')
   pass('索引直接讀取保存紀錄，新最終回答自動出現在清單')
   await mouse('.term-conversation-toggle')

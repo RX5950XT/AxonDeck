@@ -353,7 +353,10 @@ async function main() {
       await waitFor(() => cdp.eval(`!!document.querySelector('#recList .dict-empty')`), 5000, '刪掉測試錄音')
       await cdp.eval(`Promise.all(window.__recTest.contexts.splice(0).map(c=>c.close()))`)
     }
-    await cdp.eval(`document.querySelector('[data-page="settings"]').click(); document.querySelector('[data-page="stt"]').click()`)
+    // 功能頁各自一個 renderer：切走、切回要分兩步，第二下才會落在設定頁上把畫面換回來
+    await cdp.eval(`document.querySelector('[data-page="settings"]').click()`)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await cdp.eval(`document.querySelector('[data-page="stt"]').click()`)
     await waitFor(() => cdp.eval(`document.getElementById('recAudioSource').value === 'both'`), 5000, '重新進頁讀回音源')
     ok('重新進頁仍記得系統＋麥克風', true)
     await cdp.eval(`window.electronAPI.store.set('recAudioSource', 'bad-source')`)

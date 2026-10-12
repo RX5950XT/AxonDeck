@@ -3745,8 +3745,9 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 }
 
 .ws-right-tab {
-  flex: 1;
+  flex: 1 1 auto;
   padding: 6px 4px;
+  white-space: nowrap;
   border: none;
   border-radius: calc(var(--radius-control) - 2px);
   background: transparent;
@@ -3801,6 +3802,22 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 /* 分支名長起來會把這幾顆圖示鈕壓成半顆（它們沒有內容撐著） */
 .ws-right-head .btn-icon {
   flex: none;
+}
+
+/* Git 頂部四顆（GitHub logo 與 ⇗ ⇣ ⟳ 字形）同一個方框，圖示才一樣大、hover 外框一樣寬 */
+#wsPanelGit .ws-right-head .btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  line-height: 1;
+}
+
+#wsGitHubBtn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .ws-right-project,
@@ -3971,7 +3988,7 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   overflow-wrap: anywhere;
 }
 
-/* ── 本機埠號 ── */
+/* ── 本機 Port：網頁在上（可點）、其他服務在下（只列） ── */
 .ws-port-list {
   display: flex;
   flex-direction: column;
@@ -3982,19 +3999,42 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 
 .ws-port-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  width: 100%;
-  padding: 4px 8px;
-  border: none;
+  min-height: 30px;
+  padding: 2px 4px 2px 8px;
   border-radius: var(--radius-sm);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
 }
 
 .ws-port-row:hover {
   background-color: var(--surface-hover);
+}
+
+.ws-port-row.is-static:hover {
+  background: transparent;
+}
+
+.ws-port-row.is-static .ws-port-num {
+  color: var(--text-secondary);
+}
+
+/* 「開啟」靠最右邊：名稱再長也不會把它擠走 */
+.ws-port-open {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.ws-port-group {
+  padding: 10px 8px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ws-port-group:first-child {
+  padding-top: 2px;
 }
 
 .ws-port-num {
@@ -4004,6 +4044,7 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 }
 
 .ws-port-proc {
+  min-width: 0;
   color: var(--text-tertiary);
   font-size: 11px;
   overflow-wrap: anywhere;
@@ -6172,21 +6213,6 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   accent-color: var(--accent-primary);
 }
 
-.usage-diagnostics-text {
-  min-height: 240px;
-  max-height: 50vh;
-  padding: 14px;
-  overflow: auto;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background-color: var(--bg-secondary);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 @media (max-width: 780px) {
   .usage-provider-toggles {
@@ -6604,8 +6630,7 @@ h6.md-h { font-size: 14px; }
 }
 
 .usage-settings-group,
-.usage-provider-toggle,
-.usage-diagnostics-text {
+.usage-provider-toggle {
   border-color: var(--glass-border);
   border-radius: var(--radius-control);
   background: var(--surface-subtle);
@@ -10199,25 +10224,83 @@ h6.md-h { font-size: 14px; }
   .disk-filter { width: 100%; }
 }
 
-/* ===== Claude Code 工作台 ===== */
+/* ===== Claude Code：供應商（額度條抽屜）、MCP 與 Skills（專案分頁） ===== */
 /* border／radius／glass 由上面的共用 surface mapping 提供，這裡只補內距與排版 */
 
-.cc-shell {
+/* MCP 與 Skills 分頁：左欄 MCP＋Skills 清單，右欄記憶編輯器撐滿高度；窄了就疊成一欄 */
+.ws-cc-tools {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  overflow-y: auto;
 }
 
-.cc-eyebrow {
-  margin: 0 0 2px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.ws-cc-tools[hidden] {
+  display: none;
+}
+
+.cc-tools-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.cc-tools-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.cc-tools-head .cc-home-switch {
+  margin-bottom: 0;
+}
+
+.cc-tools-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.cc-tools-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 記憶編輯器貼著視窗頂住：左欄清單長、往下捲的時候還看得到正在編的那檔 */
+.cc-memory-panel {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-memory-panel .cc-memory-edit {
+  min-height: max(320px, calc(100vh - 360px));
+}
+
+@media (max-width: 1100px) {
+  .cc-tools-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cc-memory-panel {
+    position: static;
+    order: -1;
+  }
+
+  .cc-memory-panel .cc-memory-edit {
+    min-height: 240px;
+  }
 }
 
 .cc-status {
@@ -10274,7 +10357,7 @@ h6.md-h { font-size: 14px; }
   font-size: 12px;
 }
 
-/* 家切換器（MCP／Skills 共用）：跟子分頁同一套語言，小一號 */
+/* 家切換器（MCP 與 Skills 頁最上面那排、記憶檔切換）：跟子分頁同一套語言，小一號 */
 .cc-home-switch {
   display: flex;
   flex-wrap: wrap;
@@ -10301,11 +10384,6 @@ h6.md-h { font-size: 14px; }
   border-color: var(--border-color);
   color: var(--text-primary);
   font-weight: 600;
-}
-
-/* Skills 與記憶同一張卡：記憶還在時，Skills 跟記憶隔開一點 */
-#ccMemoryPanel:not(.hidden) + .cc-skill-body {
-  margin-top: 20px;
 }
 
 #ccMemoryPanel .cc-panel-desc:last-child {
@@ -10767,40 +10845,164 @@ h6.md-h { font-size: 14px; }
   .cc-icon-btn { transition-duration: 0.01ms; }
 }
 
-/* ===== 用量統計（額度頁第二個子分頁） ===== */
+/* ===== 用量統計（額度條的抽屜） ===== */
+
+.cu-dash-head {
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  flex-wrap: wrap;
+}
+
+.cu-synced {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
 
 .cu-head-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
+/* 左：總計在上、趨勢填滿剩下的高度；右：分佈。整塊固定高度，
+   分佈再長也只在自己那欄捲——不然右邊撐高、左下角空一大塊。
+   抽屜窄了（container query）改成一欄往下疊，高度跟著內容走 */
+.cu-dash {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  height: clamp(300px, 52vh, 460px);
+}
+
+#quotaDrawerStats .cu-dash > .cc-panel {
+  min-height: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+#quotaDrawerStats .cu-dash > .cu-trend {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 0 0;
+  border-top: 1px solid var(--border-light);
+}
+
+#quotaDrawerStats .cu-dash > .cu-breakdown {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  padding-left: 16px;
+  border-left: 1px solid var(--border-light);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#quotaDrawerStats .cu-chart {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 100px;
+}
+
+.cu-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.cu-section-head .cu-dist-title { margin: 0; }
+
+/* 花費在左，四種 token 在右邊排成一列（名稱在上、數字在下） */
 .cu-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  grid-template-columns: auto repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px 16px;
+  padding: 0 16px 12px 0;
 }
 
-.cu-stat {
+.cu-hero {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-tertiary);
+  margin-right: 12px;
+}
+
+.cu-hero-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.cu-hero-sub {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.cu-stat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 6px;
+  font-size: 12px;
 }
 
 .cu-stat-label {
   color: var(--text-secondary);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .cu-stat-value {
-  font-size: 20px;
-  font-weight: 700;
+  grid-column: 1 / -1;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cu-footnote {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+@container quota-drawer (max-width: 760px) {
+  .cu-dash {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    height: auto;
+  }
+
+  #quotaDrawerStats .cu-dash > .cu-trend {
+    padding-right: 0;
+  }
+
+  #quotaDrawerStats .cu-dash > .cu-breakdown {
+    grid-column: auto;
+    grid-row: auto;
+    margin-top: 14px;
+    padding: 14px 0 0;
+    border-top: 1px solid var(--border-light);
+    border-left: 0;
+    overflow: visible;
+  }
+
+  #quotaDrawerStats .cu-chart {
+    flex: none;
+    height: 150px;
+  }
+
+  .cu-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-right: 0;
+  }
+
+  .cu-hero { grid-column: 1 / -1; }
 }
 
 /* 沒有單價的模型不算進總花費，這一行要講清楚少算了什麼 */
@@ -10817,7 +11019,7 @@ h6.md-h { font-size: 14px; }
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 108px;
+  height: 150px;
   padding: 4px;
   border-radius: var(--radius-sm);
   background-color: var(--bg-tertiary);
@@ -10925,8 +11127,11 @@ h6.md-h { font-size: 14px; }
 .cu-breakdown {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-content: start;
   gap: 16px;
 }
+
+.cu-dist .cc-list { gap: 12px; }
 
 .cu-dist-title {
   margin: 0 0 8px;
@@ -10979,6 +11184,40 @@ h6.md-h { font-size: 14px; }
   font-size: 11px;
   /* 數字被截成「…」等於沒有那筆資料 */
   overflow-wrap: anywhere;
+}
+
+/* 四種 token 各一格：色點（跟長條同色）、名稱、量、錢；欄寬夠就排成一列，不夠就 2×2 */
+.cu-parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 2px 14px;
+  font-size: 11px;
+}
+
+.cu-part {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.cu-part .cu-legend-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+}
+
+.cu-part-label { color: var(--text-tertiary); }
+
+.cu-part-tokens {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cu-part-cost {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- 單價彈窗 --- */
@@ -14200,15 +14439,130 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
    以前的額度頁收成一條：一家一顆，顆上是每個視窗的小量表，點開是原本那張卡片。
    provider 色只落在那顆小圓點，狀態色只落在量表（跟卡片同一套規矩）。 */
 .quota-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  height: 26px;
+  height: 34px;
   padding: 0 4px;
   border-top: 1px solid var(--border-light);
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* 條左邊：Claude Code 供應商／用量統計，點開往上展開抽屜 */
+.quota-dash {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-right: 8px;
+  border-right: 1px solid var(--border-light);
+}
+
+.quota-dash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-out), border-color 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+.quota-dash-btn:hover {
+  border-color: var(--glass-border-strong);
+  color: var(--text-primary);
+}
+
+.quota-dash-btn:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
+.quota-dash-btn[aria-expanded='true'] {
+  border-color: var(--accent-primary);
+  background: var(--surface-solid);
+  color: var(--text-primary);
+}
+
+.quota-dash-label {
+  font-weight: 600;
+}
+
+.quota-dash-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.quota-dash-value:empty {
+  display: none;
+}
+
+/* 抽屜：疊在工作區內容上面（不推擠終端機，xterm 不必重排），貼著條往上長 */
+.quota-drawer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 30;
+  max-height: min(68vh, 720px);
+  padding: 14px;
+  overflow-y: auto;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-control);
+  /* 疊在終端機上面，要不透明：半透明的話底下的字會透出來跟抽屜內容疊在一起 */
+  background: var(--surface-solid);
+  box-shadow: 0 -10px 32px rgb(0 0 0 / 0.22);
+  color: var(--text-primary);
+  font-size: 13px;
+  overscroll-behavior: contain;
+  container: quota-drawer / inline-size;
+  animation: quota-drawer-in 180ms var(--ease-out);
+}
+
+.quota-drawer[hidden],
+.quota-drawer-panel[hidden] {
+  display: none;
+}
+
+@keyframes quota-drawer-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quota-drawer { animation: none; }
+}
+
+.quota-drawer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 抽屜本身就是一層面板：裡面的 cc-panel 攤平，用分隔線分段，不疊第二層卡片 */
+.quota-drawer .cc-panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.quota-drawer .cc-panel + .cc-panel {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
 }
 
 .quota-items {

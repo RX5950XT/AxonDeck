@@ -101,7 +101,7 @@ async function main() {
       assert.ok(fiveHour.used === 0 ? !fiveHour.resetAt : fiveHour.resetAt, 'commandcode 5h resetAt 狀態不一致')
     }
 
-    const serialized = JSON.stringify({ state, diagnostics: await usage.getDiagnostics() })
+    const serialized = JSON.stringify(state)
     for (const secret of secrets) {
       assert.ok(!serialized.includes(secret), 'credential leaked into usage state or diagnostics')
     }

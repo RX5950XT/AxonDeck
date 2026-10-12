@@ -75,7 +75,7 @@ async function loadQuotaBar() {
 }
 
 /** @returns {Promise<typeof import('./agy-page.js')>} */
-export async function loadAgyPage() {
+async function loadAgyPage() {
   if (!agyPage) agyPage = await import('./agy-page.js')
   return agyPage
 }
@@ -138,6 +138,16 @@ export async function openFolderInWorkspace(full) {
   switchPage('chat')
   setSidebarMode('projects')
   await (await loadWorkspacePage()).openFolderAsProject(full)
+}
+
+/**
+ * 網址留在 App 裡：開成專案瀏覽器分頁（main 的外連、終端機連結都走這裡）。
+ * @param {string} url http(s)
+ */
+export async function openUrlInApp(url) {
+  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url })
+  switchPage('chat')
+  await (await loadWorkspacePage()).openUrlInProject(url)
 }
 
 /** @type {typeof import('./hf-page.js') | null} */
@@ -235,8 +245,7 @@ export const electronAPI = window.electronAPI || {
       diagnostics: []
     } }),
     sync: async () => ({ ok: false, error: { code: 'ELECTRON_ONLY', message: '僅 Electron 環境可同步' } }),
-    saveSettings: async (settings) => ({ ok: true, data: { ...(await electronAPI.usage.load()).data, settings } }),
-    getDiagnostics: async () => ({ ok: true, data: [] })
+    saveSettings: async (settings) => ({ ok: true, data: { ...(await electronAPI.usage.load()).data, settings } })
   },
   agy: {
     status: async () => ({ ok: true, data: {
@@ -493,7 +502,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initNavigation()
   await initTheme()
   initWindowControls()
-  initPageWindows({ switchPage, openSettingsPage, openInFilesPage, openFolderInWorkspace, cooldown: cooldownPage,
+  initPageWindows({ switchPage, openSettingsPage, openInFilesPage, openFolderInWorkspace, openUrlInApp, cooldown: cooldownPage,
     settingsChanged: () => {
       void initTheme()
       document.dispatchEvent(new CustomEvent('settings-changed'))
@@ -864,7 +873,7 @@ export function getChatPaneEpoch() {
 
 /**
  * 切換聊天頁的主區（對話／工作區）。
- * DOM 的切換是同步的——呼叫端（點側欄項目、ccswitch 的更新按鈕）要先切再操作，
+ * DOM 的切換是同步的——呼叫端（點側欄項目、設定頁 CLI 版本的更新按鈕）要先切再操作，
  * xterm 的 fit 才量得到尺寸；模組載入與清單重讀是背景跑。
  * @param {'chat' | 'workspace' | 'web'} mode
  */
@@ -993,7 +1002,6 @@ export function switchPage(pageName, subtab = '') {
     setChatPaneMode(chatPaneMode)
   }
   if (pageName === 'telegram') import('./telegram-page.js').then((m) => m.refreshTelegramPage())
-  if (pageName === 'ccswitch') loadCcSwitchPage().then((m) => m.refreshCcSwitchPage())
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => {
     m.start()
@@ -1016,6 +1024,8 @@ export function switchPage(pageName, subtab = '') {
   if (pageName === 'settings') {
     // 有沒存的修改就不重灌草稿（切頁回來、再點一次「設定」都不能把剛打的字洗掉）
     loadSettingsForm({ keepDraft: settingsDirty })
+    // 上次停在 AGY 反代那一區，回來要接著輪詢
+    if (document.querySelector('#set-agy.active')) void loadAgyPage().then((m) => m.refreshAgyPage())
   }
   cooldownPage(pageName)
   noteLocation()
@@ -1026,8 +1036,8 @@ function cooldownPage(pageName = '') {
   if (pageName !== 'translate') translatePage?.cooldownTranslatePage()
   // 取樣器常駐：離開這一頁只收壓力測試與面板，不停 probe / nvidia-smi
   if (pageName !== 'sysmon') sysmonPage?.cooldownSysmonPage()
-  // AGY 反代現在是 CC Proxy 的子分頁：離開 CC Proxy 就收它的輪詢
-  if (pageName !== 'ccswitch') agyPage?.cooldownAgyPage()
+  // AGY 反代在設定頁裡：離開設定頁就收它的輪詢
+  if (pageName !== 'settings') agyPage?.cooldownAgyPage()
   // **離開 HF模型頁不關 router**：聊天要用它，關掉等於每次切頁都把模型卸載一次。
   // 這裡只收自己的計時器。
   if (pageName !== 'explorer') explorerPage?.cooldownExplorerPage()
@@ -1036,7 +1046,7 @@ function cooldownPage(pageName = '') {
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'cloud'|'basic'|'appearance'|'cli'} [section]
+ * @param {'cloud'|'basic'|'appearance'|'cli'|'agy'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
   if (pageOwner && pageOwner !== 'settings') return navigateToPage({ page: 'settings', subtab: section })
@@ -1045,7 +1055,7 @@ export function openSettingsPage(section = 'cloud') {
 }
 
 /**
- * 顯示指定設定分類。CLI 區的面板是 CC Proxy 搬過來的，第一次點進去才查版本。
+ * 顯示指定設定分類。CLI 版本第一次點進去才查；AGY 反代只在看得到時輪詢。
  * @param {string} target
  */
 function activateSettingsSection(target) {
@@ -1064,6 +1074,8 @@ function activateSettingsSection(target) {
   if (scroll) scroll.scrollTop = 0
   if (target === 'appearance') void refreshTermAppearancePreview()
   if (target === 'cli') void loadCcSwitchPage().then((mod) => mod.refreshVersionsSection())
+  if (target === 'agy') void loadAgyPage().then((mod) => mod.refreshAgyPage())
+  else agyPage?.cooldownAgyPage()
 }
 
 /**
@@ -1333,6 +1345,13 @@ async function loadSettingsForm({ keepDraft = false } = {}) {
     const scroll = document.getElementById('settingsScroll')
     for (const type of ['input', 'change', 'click']) scroll?.addEventListener(type, markSettingsDirty)
     scroll?.addEventListener('focusout', () => { if (settingsDirty) void saveSettings() })
+    // 功能頁切走後背景計時器會被節流好幾秒：那顆 450ms 的存檔延到之後才跑，
+    // 會拿這頁的舊草稿蓋掉這段期間別處寫進來的供應商（聊天頁掃描、AGY 自動加的那筆）。切走當下就存
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'hidden' || !settingsDirty) return
+      clearTimeout(settingsSaveTimer)
+      void saveSettings()
+    })
     segmentsInited = true
   } else if (keepDraft) {
     setSegmentValue('themeSegment', theme)

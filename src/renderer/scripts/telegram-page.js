@@ -14,10 +14,6 @@ const HOME_URL = 'https://web.telegram.org/a/'
 const STORE_KEY = 'telegramPanes'
 // ponytail: 每格就是一整份 Web A（約 200–300MB），先卡 4 格；main 的 store:set 也卡 4
 const MAX_PANES = 4
-// 前一格載完再等一下才開下一格：Web A 靠 BroadcastChannel 在 100ms 內選出唯一連線的主分頁，
-// 選不出來就「先連再說」。幾格同時開會有好幾格拿同一把金鑰一起連，Web A 本來只預期分頁一個一個開
-const SETTLE_MS = 1500
-const LOAD_TIMEOUT_MS = 10000
 // Web A 多開時只有「主分頁」連線，其他格的收發都靠它；它只在 beforeunload 交棒，沒有心跳。
 // 主分頁當掉或連線狀態卡死，其他格永遠不知道，就一直停在「等待網路連線」、收不到新訊息。
 // 救法是全部格子先卸載（各自送出交棒通知）再一格一格載回來，讓 Web A 重新選主分頁。
@@ -29,8 +25,25 @@ const RELOAD_ALL_GAP_MS = 5 * 60 * 1000
 const STUCK_PROBE = `navigator.onLine && !!(document.getElementById('ConnectionStatusOverlay') ||
   [...document.querySelectorAll('.MiddleHeader .status')].some((el) => /等待網路|等待网络|waiting for network/i.test(el.textContent)))`
 
+// 在格子裡跑：外部連結搶在 Web A 前面直接 window.open（main 轉系統瀏覽器），跳過「確定要開啟？」確認框；
+// t.me 這類 Telegram 自己的連結留給 Web A 在 App 內開聊天室
+const DIRECT_LINKS = `window.__axDirectLinks || (window.__axDirectLinks = true, window.addEventListener('click', (e) => {
+  const a = e.button === 0 && e.target.closest && e.target.closest('a[href]')
+  if (!a) return
+  let u
+  try { u = new URL(a.href) } catch { return }
+  if (!/^https?:$/.test(u.protocol) || /(^|\\.)(t\\.me|telegram\\.me|telegram\\.dog|telegram\\.org)$/i.test(u.hostname)) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  window.open(u.href, '_blank', 'noopener')
+}, true))`
+
+// 看不到 Telegram（切走、最小化）超過這麼久，就只留第一格連線收通知，其他格整個收掉（每格約 150–200MB）；
+// 切回來再照存的聊天室載回。第一格會在別格卸載時接手主分頁，所以通知不斷
+const PARK_MS = 5 * 60 * 1000
+
 let initialized = false
-let loadChain = Promise.resolve()
+let parkTimer = 0
 let stuckSince = 0
 let lastReloadAllAt = 0
 
@@ -53,8 +66,13 @@ function frame() {
   return document.getElementById('telegramFrame')
 }
 
+/** 收掉的格子沒有 webview，網址留在 pane 上 */
+function paneUrl(pane) {
+  return pane.querySelector('webview')?.dataset.src || pane.dataset.parked || HOME_URL
+}
+
 function save() {
-  const urls = [...frame().querySelectorAll('webview')].map((view) => view.dataset.src)
+  const urls = [...frame().querySelectorAll('.telegram-pane')].map(paneUrl)
   electronAPI.store.set(STORE_KEY, urls).catch((error) => {
     console.error('[telegram] 存不了格子:', error)
   })
@@ -80,25 +98,7 @@ function barButton(className, text, label, onClick) {
   return btn
 }
 
-/** 排隊一格一格載（理由見 SETTLE_MS）；start 負責真的開始載 */
-function queueLoad(view, start) {
-  loadChain = loadChain.then(() => new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer)
-      setTimeout(resolve, SETTLE_MS)
-    }
-    const timer = setTimeout(done, LOAD_TIMEOUT_MS)
-    view.addEventListener('did-finish-load', done, { once: true })
-    Promise.resolve().then(start).catch(done)
-  }))
-}
-
-/** 格子先放上去，網址排隊載 */
-function loadInTurn(view, url) {
-  queueLoad(view, () => view.setAttribute('src', url))
-}
-
-/** 全部格子先卸載再一格一格載回原本的聊天室（理由見 WATCH_EVERY_MS 上面） */
+/** 全部格子先卸載再同時載回原本的聊天室（理由見 WATCH_EVERY_MS 上面） */
 async function reloadAll(why) {
   if (Date.now() - lastReloadAllAt < RELOAD_ALL_GAP_MS) return
   lastReloadAllAt = Date.now()
@@ -107,7 +107,7 @@ async function reloadAll(why) {
   const views = [...frame().querySelectorAll('webview')]
   const urls = views.map((view) => view.dataset.src)
   await Promise.allSettled(views.map((view) => view.loadURL('about:blank')))
-  views.forEach((view, index) => queueLoad(view, () => view.loadURL(urls[index])))
+  views.forEach((view, index) => view.loadURL(urls[index]).catch(() => {}))
 }
 
 async function watchStuck() {
@@ -130,7 +130,9 @@ async function watchStuck() {
  * 直接拿掉 webview 不會觸發頁面的 beforeunload：這格若是 Web A 負責連線的主分頁，
  * 其他格收不到交棒通知、全部卡在連線中。先導到 about:blank 讓它正常卸載再拿掉。
  */
-function closePane(pane, view) {
+function closePane(pane) {
+  const view = pane.querySelector('webview')
+  if (!view) { pane.remove(); save(); paintBars(); return } // 收掉中的格子：沒有頁面要卸載
   let removed = false
   const remove = () => {
     if (removed) return
@@ -160,9 +162,46 @@ function addPane(url) {
       addPane(HOME_URL)
       save()
     }),
-    barButton('telegram-pane-close', '✕', '關掉這一格', () => closePane(pane, view))
+    barButton('telegram-pane-close', '✕', '關掉這一格', () => closePane(pane))
   )
 
+  pane.append(bar)
+  frame().appendChild(pane)
+  paintBars()
+  mountView(pane, url)
+}
+
+/** 收掉其他格前先導到 about:blank 送出交棒（理由見 closePane），正在出聲（通話、語音）的不收 */
+function parkPanes() {
+  for (const pane of [...frame().querySelectorAll('.telegram-pane')].slice(1)) {
+    const view = pane.querySelector('webview')
+    if (!view) continue
+    try { if (view.isCurrentlyAudible()) continue } catch { /* 還沒載好 */ }
+    pane.dataset.parked = view.dataset.src
+    const drop = () => { if (view.isConnected) view.remove() }
+    view.addEventListener('did-navigate', drop, { once: true })
+    setTimeout(drop, 1500)
+    try { view.loadURL('about:blank').catch(drop) } catch { drop() }
+  }
+}
+
+function unparkPanes() {
+  for (const pane of frame().querySelectorAll('.telegram-pane')) {
+    if (!pane.dataset.parked) continue
+    const url = pane.dataset.parked
+    delete pane.dataset.parked
+    pane.querySelector('webview')?.remove() // 1.5 秒內就切回來：還在卸載的那個直接換掉
+    mountView(pane, url)
+  }
+}
+
+function onVisibility() {
+  clearTimeout(parkTimer)
+  if (document.hidden) parkTimer = setTimeout(parkPanes, PARK_MS)
+  else unparkPanes()
+}
+
+function mountView(pane, url) {
   const view = document.createElement('webview')
   // partition 建了就不能改，要在插入前設好；popup（外部連結）由 main 轉系統瀏覽器
   view.setAttribute('partition', 'persist:telegram')
@@ -176,15 +215,16 @@ function addPane(url) {
   }
   view.addEventListener('did-navigate', remember)
   view.addEventListener('did-navigate-in-page', remember)
+  view.addEventListener('dom-ready', () => {
+    view.executeJavaScript(DIRECT_LINKS).catch((error) => console.error('[telegram] 連結直開掛不上:', error))
+  })
   // 當掉的若是主分頁，其他格收不到交棒通知，只重載這一格也會被它們帶回死掉的主分頁
   view.addEventListener('render-process-gone', (event) => {
     reloadAll(`格子的程序不見了（${/** @type {any} */ (event).details?.reason || 'unknown'}）`)
   })
 
-  pane.append(bar, view)
-  frame().appendChild(pane)
-  paintBars()
-  loadInTurn(view, url)
+  pane.append(view)
+  view.setAttribute('src', url) // 幾格同時載，不排隊
 }
 
 /** 第一次切進來才建：沒點過 Telegram 就不去連線 */
@@ -193,4 +233,6 @@ export async function refreshTelegramPage() {
   initialized = true
   ;(await loadSaved()).forEach(addPane)
   setInterval(watchStuck, WATCH_EVERY_MS)
+  document.addEventListener('visibilitychange', onVisibility)
+  onVisibility()
 }

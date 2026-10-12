@@ -324,7 +324,9 @@ async function writePresets() {
 
   presets.write(presetPath, entries, {
     // router 自己的全域設定：同時載入幾顆由使用者決定
-    'models-max': String(Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)))
+    'models-max': String(Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2))),
+    // 用過的 prompt 預設存 RAM 最多 8GB：翻譯每段都不同，實測每段 +73MB 一路長；512MB 仍留得住系統提示與最近幾段
+    'cache-ram': '512'
   })
   return planned
 }
@@ -832,13 +834,18 @@ function benchExePath() {
  * 儀表板一次要的東西：GPU、用量、端點、log。**不送金鑰**。
  * @returns {Promise<object>}
  */
+/** @type {{ at: number, list: Promise<Array<object>> } | null} */
+let dashDevices = null
+// `--list-devices` 每次都要初始化 CUDA／Vulkan（吃 CPU、短暫佔顯存），儀表板每 2 秒問一次太重。
+// shortcut: 卡名清單 30 秒才重抓；非 NVIDIA 卡的顯存數字因此最多慢 30 秒，要即時再改讀 DXGI。
+const DASH_DEVICES_TTL_MS = 30_000
+
 async function dashboard() {
   const status = runtime.status()
-  const [devices, nvidia, live] = await Promise.all([
-    listDevices(),
-    hardware.nvidiaDriver(),
-    occupancy.sample()
-  ])
+  if (!dashDevices || Date.now() - dashDevices.at > DASH_DEVICES_TTL_MS) {
+    dashDevices = { at: Date.now(), list: listDevices().catch(() => []) }
+  }
+  const [devices, live] = await Promise.all([dashDevices.list, occupancy.sample()])
   const models = status.running ? await runtime.listModels().catch(() => []) : []
   // 指標要指名模型（router 的 /metrics 不帶 model 會 400），拿載著的第一顆
   const loaded = models.find((row) => row.status?.value === 'loaded')
@@ -850,7 +857,6 @@ async function dashboard() {
     anthropicBaseUrl: status.running ? `http://${runtime.HOST}:${status.port}` : '',
     devices: occupancy.attachUtil(devices, live.gpus),
     occupancy: { cpu: live.cpu, memory: live.memory, gpus: live.gpus },
-    nvidia,
     metrics: stats,
     models: models.map((row) => ({
       id: String(row.id || ''),

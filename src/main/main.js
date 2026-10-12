@@ -2363,7 +2363,10 @@ app.on('web-contents-created', (_event, contents) => {
         }
       }
     }
-    if (isWebUrl(url)) openInProjectBrowser(url)
+    // Telegram 裡點的連結交給系統瀏覽器
+    if (isWebUrl(url) && contents.session === session.fromPartition('persist:telegram')) {
+      shell.openExternal(url).catch(() => {})
+    } else if (isWebUrl(url)) openInProjectBrowser(url)
     return { action: 'deny' }
   })
 })

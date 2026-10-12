@@ -142,8 +142,12 @@ function matchRest(entries, text) {
 // ===== 內建學術名詞庫（國家教育研究院，scripts/build-glossary-data.js 產生） =====
 // 整段排序好的文字＋行首位移做二分搜尋：建成 Map 要多吃約 60 MB，這樣約 30 MB。
 let builtin = null
+let builtinUsedAt = 0
+// 解開後常駐約 30 MB；翻譯停了就放掉，下次用再解（gunzip 約一百毫秒）
+const BUILTIN_IDLE_MS = 10 * 60 * 1000
 
 function loadBuiltin() {
+  builtinUsedAt = Date.now()
   if (builtin) return builtin
   const zlib = require('zlib')
   const file = require('path').join(__dirname, 'glossary-data', 'naer-terms.tsv.gz')
@@ -152,6 +156,12 @@ function loadBuiltin() {
   const starts = [0]
   for (let at = text.indexOf('\n'); at >= 0 && at + 1 < text.length; at = text.indexOf('\n', at + 1)) starts.push(at + 1)
   builtin = { text, starts: Int32Array.from(starts) }
+  const timer = setInterval(() => {
+    if (Date.now() - builtinUsedAt < BUILTIN_IDLE_MS) return
+    builtin = null
+    clearInterval(timer)
+  }, 60 * 1000)
+  timer.unref?.()
   return builtin
 }
 

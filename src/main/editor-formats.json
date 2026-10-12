@@ -1,0 +1,19 @@
+{
+  "markdown": ["md", "markdown", "mdown", "mdwn", "mkd", "mkdn", "mdtext", "mdtxt"],
+  "json": ["json", "jsonc", "json5", "jsonl"],
+  "config": [
+    "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties", "env", "editorconfig",
+    "gitattributes", "gitconfig", "gitignore", "npmignore", "bowerrc", "jshintrc", "jscsrc", "eyaml", "eyml",
+    "xml", "xaml", "plist", "dtd", "csproj", "wxi", "wxl", "wxs"
+  ],
+  "code": [
+    "c", "cc", "cpp", "cxx", "c++", "h", "hh", "hpp", "hxx", "h++", "cs", "csx", "vb", "fs", "fsi", "fsx", "fsscript",
+    "go", "rs", "java", "jav", "kt", "kts", "swift", "dart", "scala", "py", "pyi", "rb", "pl", "pm", "pl6", "pm6", "pod", "psgi",
+    "php", "phtml", "lua", "r", "rhistory", "rprofile", "sql", "js", "mjs", "cjs", "jsx", "tsx", "cts", "vue", "svelte",
+    "coffee", "clj", "cljs", "cljx", "clojure", "edn", "groovy", "gradle", "gemspec", "ml", "mli",
+    "css", "scss", "sass", "less", "ps1", "psm1", "psd1", "cmake", "mk", "makefile", "dockerfile", "containerfile",
+    "bashrc", "bash_profile", "bash_login", "bash_logout", "profile", "handlebars", "hbs", "jade", "erb", "cshtml",
+    "asp", "aspx", "ascx", "jsp", "jshtm", "ctp", "diff", "patch", "graphql", "gql", "proto", "tf", "hcl", "tex", "bib", "cls"
+  ],
+  "text": ["txt", "log", "rst"]
+}

@@ -8,6 +8,8 @@ const { shell } = require('electron')
 const { resolveProbeExe } = require('./native-probe')
 const types = new Map(Object.entries(formats).flatMap(([kind, list]) => list.map((ext) => [ext, kind])))
 let theme = () => 'dark'
+/** 文字／程式碼交給 AxonDeck 編輯器視窗（main 注入；回 true＝已接手） */
+let editorOpener = async () => false
 let associationInitPromise = null
 // 改名後要再跑一次 Rust 的狀態搬移與重新登記；舊版的 1 不能跳過它。
 const ASSOCIATION_MARKER = '2'
@@ -22,6 +24,8 @@ function fail(message) {
   return error
 }
 function setThemeGetter(getter) { theme = getter }
+function setEditorOpener(opener) { editorOpener = opener }
+const openEditor = (file) => editorOpener(file)
 async function initializedMarker(file) {
   let handle
   try {
@@ -35,6 +39,17 @@ async function initializedMarker(file) {
   } finally { if (handle) await handle.close() }
 }
 
+function runAssociation(exe, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(exe, args, { detached: true, windowsHide: true, stdio: 'ignore', shell: false })
+    child.once('error', () => reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
+    child.once('spawn', () => child.unref())
+    child.once('close', (code) => code === 0
+      ? resolve()
+      : reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
+  })
+}
+
 /** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。 */
 async function initializeAssociations(options = {}) {
   const { isPackaged, isPreview, resourcesPath, userDataPath } = options
@@ -44,22 +59,16 @@ async function initializeAssociations(options = {}) {
     const updateManifest = path.join(resourcesPath, 'app-update.yml')
     if (!await fs.access(updateManifest).then(() => true, () => false)) return false
 
-    const marker = path.join(userDataPath, 'media-associations-initialized')
-    const alreadyInitialized = await initializedMarker(marker)
-    if (alreadyInitialized) return true
-
     const exe = path.join(resourcesPath, 'media', 'axondeck-media.exe')
-    await fs.access(exe)
-    await fs.mkdir(userDataPath, { recursive: true })
-    await new Promise((resolve, reject) => {
-      const child = spawn(exe, ['--initialize'], { detached: true, windowsHide: true, stdio: 'ignore', shell: false })
-      child.once('error', () => reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
-      child.once('spawn', () => child.unref())
-      child.once('close', (code) => code === 0
-        ? resolve()
-        : reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
-    })
-    await fs.writeFile(marker, ASSOCIATION_MARKER, 'utf8')
+    // 媒體與文字／程式碼編輯器各記各的：舊版已初始化媒體的使用者，更新後仍要補一次編輯器
+    for (const [name, args] of [['media-associations-initialized', ['--initialize']], ['editor-associations-initialized', ['--editor', '--initialize']]]) {
+      const marker = path.join(userDataPath, name)
+      if (await initializedMarker(marker)) continue
+      await fs.access(exe)
+      await fs.mkdir(userDataPath, { recursive: true })
+      await runAssociation(exe, args)
+      await fs.writeFile(marker, ASSOCIATION_MARKER, 'utf8')
+    }
     return true
   })()
   try {
@@ -89,8 +98,8 @@ async function openMedia(file, options = {}) {
   })
   return true
 }
-/** 與 shell.openPath 的回傳方式相同；所有媒體入口共用這條分流。 */
+/** 與 shell.openPath 的回傳方式相同；所有開檔入口共用這條分流（媒體→播放器、文字→編輯器）。 */
 async function openPath(file) {
-  return await openMedia(file) ? '' : shell.openPath(file)
+  return await openMedia(file) || await openEditor(file) ? '' : shell.openPath(file)
 }
-module.exports = { mediaKind, openMedia, openPath, setThemeGetter, initializeAssociations }
+module.exports = { mediaKind, openMedia, openEditor, openPath, setThemeGetter, setEditorOpener, initializeAssociations }

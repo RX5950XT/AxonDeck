@@ -81,7 +81,7 @@ native/
 
 
 ### AI 頁
-- Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。
+- Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。網頁版對話列在標題左邊放該家 logo，不再顯示「XX 網頁版」小字。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。
 - 網頁版 AI 對話存 `chats.json` 的 `web: { site, url, title }`，可改名、搬資料夾、拖曳；webview 回報網址／標題由 `ai-web.js` 把關。
 - 分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`：UA 偽裝 Chrome（Grok 改用替它過驗證的 Edge／Chrome 的 UA，存在 `grok-clearance.json`）、`ai-web-shim.js` 補 `window.chrome` 與 `navigator.userAgentData` 的 Google Chrome 品牌、https 請求補 `Sec-CH-UA`（品牌順序照 Chromium 算法，跟 JS 同一份）、Accept-Language 對齊 `navigator.languages`、權限只給剪貼簿／全螢幕／純麥克風、`accounts.google.com` 走精簡版登入、登入小視窗在 App 內開。
 - 外連（App 內 `target=_blank`、各 webview 的 popup、終端機網址、Git 面板 GitHub 鈕）一律開成專案瀏覽器分頁（`openInProjectBrowser` → `pages:navigate` 的 `action: 'browser'` → `openUrlInProject`）；沒有任何專案才退回系統瀏覽器。只剩瀏覽器工具列與分頁右鍵的「用系統瀏覽器開」、OAuth 裝置碼、PawnIO 下載仍走系統瀏覽器。
@@ -108,6 +108,12 @@ native/
 - 自繪選單、播放清單（搜尋、拖入、續播）、倍速滑桿、快捷鍵表；偏好存 `%LOCALAPPDATA%/AxonDeck Media/preferences.json`。
 - 預設關聯：新安裝或首次更新背景套用（同時寫 UserChoice 與 UserChoiceLatest 有效 Hash 並回讀），備份在 `association-backups/`，之後不覆寫使用者自選；解除安裝還原。
 - `npm run build:media` 固定 runtime 版本與 SHA-256；GPL 授權見 `resources/media-NOTICE.txt`。
+
+### 獨立編輯器（取代 VS Code 的開檔）
+- `src/main/editor-window.js`＋`pages/editor.html`／`scripts/editor-window.js`／`styles/editor.css`：一檔一窗（同檔再開只叫到前面），Monaco 編輯＋Markdown 編輯／分割／預覽（預設預覽、相對圖片走 `vi-media` 的 `localBaseFor`）。路徑只由 main 決定，renderer 只能讀寫自己那個檔；存檔帶 mtime（STALE 問覆寫）、暫存檔再 rename；UTF-8／BOM／UTF-16 LE 原樣存回，其他當 Big5 唯讀；有沒存的修改關窗會問。
+- 格式清單 `src/main/editor-formats.json`（不可與 `media-formats.json` 重疊，Rust 測試擋；`.ts`／`.mts` 留給媒體、HTML／CSV／`.sh` 不接管）。
+- 關聯共用 `axondeck-media.exe` 那套有備份的預設切換：`--editor` 換成 `EDITOR` 組（ProgID `AxonDeck.Editor.*`、指令 `AxonDeck.exe "--open-file=%1"`、備份 `editor-association-backups/`）；安裝程式與 `initializeAssociations` 各跑一次（標記 `editor-associations-initialized`），解除安裝還原。
+- `--open-file=` 啟動時主視窗留在系統匣；第二實例只開編輯窗。檔案頁／工作區／ZIP／MTP 開檔共用 `mediaPlayer.openPath`（媒體→播放器、文字→編輯器、其餘→系統）。回歸 `test-media-player.js`、`test-editor-window.js`（electron-as-node）。
 
 ### 系統監控
 - 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；nvidia-smi 常駐；多 GPU 各自一卡。
@@ -188,6 +194,7 @@ native/
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| v1.46.0 | 10-12 | 自家文字／Markdown／程式碼編輯器接管 VS Code 的檔案關聯；Chat 側欄網頁版對話改放 logo |
 | v1.44.0 | 10-10 | 文字轉語音（Breeze-TTS-2 Q8 四模式、串流試聽、WAV 匯出、逐字稿自動辨識）；EdgeTTS 收進翻譯頁 |
 | v1.42.0 | 10-07 | CC Proxy：MCP 管四家 CLI、Skills 開關＋全域記憶、CLI 版本搬設定頁；Local SI 子分頁執行環境擺第一 |
 | v1.39.3 | 10-05 | Grok 改借 Edge 過 Cloudflare 驗證；刪對話等可還原操作不再跳確認框 |

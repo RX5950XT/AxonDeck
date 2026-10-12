@@ -780,6 +780,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // ===== 獨立編輯視窗（只能讀寫 main 替這扇窗開的那個檔案）=====
+  editorFile: {
+    load: () => ipcRenderer.invoke('editorFile:load'),
+    save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
+    stat: () => ipcRenderer.invoke('editorFile:stat'),
+    setDirty: (dirty) => ipcRenderer.invoke('editorFile:setDirty', dirty),
+    close: () => ipcRenderer.invoke('editorFile:close'),
+    onCloseRequest: (callback) => {
+      const handler = () => callback()
+      ipcRenderer.on('editorFile:closeRequest', handler)
+      return () => ipcRenderer.removeListener('editorFile:closeRequest', handler)
+    }
+  },
+
   // ===== 整機檔案總管（絕對路徑由 main 的 explorer/paths.js 收斂）=====
   explorer: {
     bootstrap: () => ipcRenderer.invoke('explorer:bootstrap'),

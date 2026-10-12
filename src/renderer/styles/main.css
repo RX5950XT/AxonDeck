@@ -2028,6 +2028,25 @@ option:disabled:checked {
   color: var(--text-tertiary);
 }
 
+.chat-list-meta:empty {
+  display: none;
+}
+
+/* 網頁版對話：logo＋標題同一行 */
+.chat-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-list-head .chat-list-logo {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--text-primary);
+}
+
 /* 改名輸入框就地取代標題，寬度跟著那一列 */
 .chat-list-rename {
   width: 100%;

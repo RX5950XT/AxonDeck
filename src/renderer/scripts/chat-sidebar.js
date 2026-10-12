@@ -10,11 +10,12 @@ import { mergeVisibleOrder } from './usage-reorder.js'
 import { createListReorder } from './list-reorder.js'
 import { askInput } from './app-dialog.js'
 import { openChatMenu } from './chat-menu.js'
+import { toolIcon } from './ws-tool-icons.js'
 
 /** 側欄圖示：跟 composer 的按鈕同一套線條風格 */
 const ICON_CHEVRON = ['M9 6l6 6-6 6']
 const SVG_NS = 'http://www.w3.org/2000/svg'
-const WEB_NAMES = /** @type {Record<string, string>} */ ({ chatgpt: 'ChatGPT', gemini: 'Gemini', claude: 'Claude', grok: 'Grok' })
+const WEB_ICONS = /** @type {Record<string, string>} */ ({ chatgpt: 'openai' })
 
 const STATUS_TEXT = Object.freeze({ running: '回應中', done: '已完成', error: '失敗' })
 
@@ -204,7 +205,15 @@ export function createChatSidebar(deps) {
     const meta = document.createElement('span')
     meta.className = 'chat-list-meta'
     fillMeta(meta, conv)
-    open.append(title, meta)
+    // 網頁版對話：標題左邊放該家 logo，取代底下的「XX 網頁版」小字
+    const logo = conv.web ? toolIcon(WEB_ICONS[conv.web] || conv.web) : null
+    if (logo) {
+      const head = document.createElement('span')
+      head.className = 'chat-list-head'
+      logo.classList.add('chat-list-logo')
+      head.append(logo, title)
+      open.append(head, meta)
+    } else open.append(title, meta)
     open.addEventListener('click', () => deps.onOpen(conv.id))
     item.append(open)
     item.addEventListener('pointerdown', reorder.onPointerDown)
@@ -223,10 +232,10 @@ export function createChatSidebar(deps) {
     if (state) {
       const badge = statusDot(state)
       badge.append(document.createTextNode(STATUS_TEXT[state]))
-      meta.append(badge, document.createTextNode(' · '))
+      meta.append(badge)
     }
-    // 網頁版 AI 對話的訊息在官方網站上，這裡只標是哪一家
-    meta.append(document.createTextNode(conv.web ? `${WEB_NAMES[conv.web] || conv.web} 網頁版` : `${conv.messageCount} 則`))
+    // 網頁版 AI 對話的訊息在官方網站上，不標則數；哪一家看標題左邊的 logo
+    if (!conv.web) meta.append(document.createTextNode(`${state ? ' · ' : ''}${conv.messageCount} 則`))
   }
 
   /**

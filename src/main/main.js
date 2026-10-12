@@ -149,6 +149,9 @@ let tray = null
 let store = null
 const mediaPlayer = require('./media-player')
 mediaPlayer.setThemeGetter(() => store?.get('theme') || 'dark')
+const editorWindow = require('./editor-window')
+mediaPlayer.setEditorOpener((file) => editorWindow.open(file))
+editorWindow.registerIpc()
 /** 正在執行 before-quit 卸載 */
 let isQuitting = false
 /** Windows 正在關機／重新開機／登出 */
@@ -161,7 +164,11 @@ dictationHud.configure({ isDev, preload: path.join(__dirname, '../preload/preloa
 
 // 開機自啟動時帶的旗標：靜靜地縮在系統匣，不要跳一扇窗出來
 const HIDDEN_FLAG = '--hidden'
-const startHidden = process.argv.includes(HIDDEN_FLAG)
+// Windows 檔案關聯（點兩下 .md／.json…）：`AxonDeck.exe "--open-file=<路徑>"`，只開編輯視窗、主視窗留在系統匣
+const OPEN_FILE_FLAG = '--open-file='
+const openFileArg = (argv) => argv.find((a) => typeof a === 'string' && a.startsWith(OPEN_FILE_FLAG))?.slice(OPEN_FILE_FLAG.length) || ''
+const startupFile = openFileArg(process.argv)
+const startHidden = process.argv.includes(HIDDEN_FLAG) || Boolean(startupFile)
 
 // 預覽／CDP 會帶 --user-data-dir。Chromium 有時還沒套到 app.getPath('userData')
 // 就先跑到 requestSingleInstanceLock，會跟安裝版搶同一把鎖、視窗直接自己關掉。
@@ -202,7 +209,19 @@ const hasInstanceLock = app.requestSingleInstanceLock()
 // 用 app.quit() 而不是 app.exit()：exit 是立刻砍掉自己，會來不及讓「我來過了」這個
 // 通知送達第一份，症狀是藏在系統匣時再點捷徑有時叫不出視窗（實測時好時壞）。
 if (!hasInstanceLock) app.quit()
-app.on('second-instance', () => showMainWindow())
+app.on('second-instance', (_event, argv) => {
+  const file = openFileArg(argv)
+  if (!file) return showMainWindow()
+  openFromShell(file)
+})
+
+/** 命令列帶來的檔案：編輯器不接的格式（或開失敗）退回叫出主視窗，不吞掉這次點擊 */
+function openFromShell(file) {
+  if (!app.isReady()) return
+  editorWindow.open(file)
+    .then((opened) => { if (!opened) showMainWindow() })
+    .catch((err) => { console.warn('[editor] open failed:', err?.code || 'OPEN_FAILED'); showMainWindow() })
+}
 
 /** electron-store 允許的 key（防任意讀寫／XSS 後改 apiUrl 外洩 key） */
 const STORE_ALLOWLIST = new Set([
@@ -2395,6 +2414,16 @@ app.whenReady().then(() => {
 
   createMainWindow()
   bootLog('window created')
+  editorWindow.configure({
+    isDev,
+    preload: path.join(__dirname, '../preload/preload.js'),
+    icon: APP_ICON,
+    secure: attachWindowSecurity,
+    theme: () => store?.get('theme') || 'dark',
+    imageBase: (file) => workspaceMedia.localBaseFor(file),
+    forceClose: () => sessionEnding
+  })
+  if (startupFile) openFromShell(startupFile)
   setImmediate(() => {
     mediaPlayer.initializeAssociations({
       isPackaged: app.isPackaged,

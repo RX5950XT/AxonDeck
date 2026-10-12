@@ -841,6 +841,8 @@ function initNavigation() {
     item.addEventListener('keydown', navReorder.onKeydown)
   })
   applyNavOrder()
+  // 每個功能頁各有一排導覽鈕：別頁拖過順序，這頁也跟著排，切頁才不會跳
+  window.addEventListener('storage', (event) => { if (event.key === NAV_ORDER_KEY) applyNavOrder() })
   document.querySelectorAll('.settings-nav-item .nav-icon[data-icon]').forEach((slot) => {
     const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
     if (icon) slot.appendChild(icon)

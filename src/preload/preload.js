@@ -409,6 +409,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openEntry: (id, relPath) => ipcRenderer.invoke('workspace:openEntry', id, relPath),
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
+    extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
+    extensionActions: (guestId) => ipcRenderer.invoke('workspace:extensionActions', guestId),
+    extensionActivate: (guestId, extensionId, anchor) => ipcRenderer.invoke('workspace:extensionActivate', guestId, extensionId, anchor),
+    /** 擴充功能的圖示、徽章或安裝狀態變了 */
+    onExtensionsChanged: (callback) => {
+      const handler = () => callback()
+      ipcRenderer.on('workspace:extensionsChanged', handler)
+      return () => ipcRenderer.removeListener('workspace:extensionsChanged', handler)
+    },
     gitStatus: (id) => ipcRenderer.invoke('workspace:gitStatus', id),
     gitLog: (id) => ipcRenderer.invoke('workspace:gitLog', id),
     /** 暫存／取消暫存／捨棄（捨棄救不回來，renderer 要二次確認） */

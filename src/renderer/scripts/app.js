@@ -143,11 +143,12 @@ export async function openFolderInWorkspace(full) {
 /**
  * 網址留在 App 裡：開成專案瀏覽器分頁（main 的外連、終端機連結都走這裡）。
  * @param {string} url http(s)
+ * @param {string} [project] 指定專案（專案腳本開的網址）
  */
-export async function openUrlInApp(url) {
-  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url })
+export async function openUrlInApp(url, project = '') {
+  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project })
   switchPage('chat')
-  await (await loadWorkspacePage()).openUrlInProject(url)
+  await (await loadWorkspacePage()).openUrlInProject(url, project)
 }
 
 /** @type {typeof import('./hf-page.js') | null} */

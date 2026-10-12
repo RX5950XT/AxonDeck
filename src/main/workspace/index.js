@@ -150,6 +150,8 @@ async function reveal(projectId, relPath) {
  */
 async function openEntry(projectId, relPath) {
   const full = files.resolveExisting(await rootOf(projectId), relPath)
+  // .bat／.cmd 由 App 自己跑：腳本開的瀏覽器改開在這個專案（script-launch.js）
+  if (await require('../script-launch').launchScript(full)) return { opened: true }
   // 回傳字串＝失敗原因（Electron 的 API 就是這樣設計的），空字串才是成功
   const error = await mediaPlayer.openPath(full)
   if (error) throw fail('OPEN_FAILED', '這個檔案打不開')

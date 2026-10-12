@@ -1,4 +1,5 @@
 import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
+import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
 import { renderMarkdown } from './markdown.js'
 import { showMenu } from './ws-menu.js'
 import { askInput } from './app-dialog.js'
@@ -2642,6 +2643,7 @@ function paintBrowserChrome(tab) {
     el.browserReloadBtn.setAttribute('aria-label', loading ? '停止載入' : '重新整理')
   }
   if (el.browserProgress) el.browserProgress.hidden = !loading
+  refreshBrowserActions() // 徽章跟著分頁走
   if (el.browserError) {
     const failed = Boolean(tab.loadError) && !loading
     el.browserError.hidden = !failed
@@ -2706,6 +2708,17 @@ function navigateBrowser() {
   }
   paintBrowserChrome(tab)
   renderTabs()
+}
+
+/** 目前瀏覽器分頁那顆 webview 的 webContents id；還沒 attach 回 null（擴充功能只列已裝的） */
+function activeGuestId() {
+  const tab = findTab(activeId)
+  if (!tab || tab.kind !== 'browser') return null
+  try {
+    return /** @type {any} */ (browserGuestOf(tab))?.getWebContentsId() ?? null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -3583,6 +3596,12 @@ export function initWsTabs() {
   el.browserFwdBtn?.addEventListener('click', () => browserAction('forward'))
   el.browserReloadBtn?.addEventListener('click', () => browserAction('reload'))
   document.getElementById('wsBrowserDevBtn')?.addEventListener('click', () => browserAction('devtools'))
+  document.getElementById('wsBrowserExtBtn')?.addEventListener('click', (event) => {
+    // 擴充功能的 popup 對齊這顆鈕（視窗內座標）
+    const { x, y, width, height } = /** @type {HTMLElement} */ (event.currentTarget).getBoundingClientRect()
+    void electronAPI.workspace.extensionsMenu(activeGuestId(), { x, y, width, height })
+  })
+  initBrowserActions(document.getElementById('wsBrowserActions'), activeGuestId)
   document.getElementById('wsBrowserRetryBtn')?.addEventListener('click', () => browserAction('reload'))
   document.getElementById('wsBrowserExternalBtn')?.addEventListener('click', () => {
     const href = safeUrl(/** @type {HTMLInputElement} */ (el.browserUrl)?.value || '')

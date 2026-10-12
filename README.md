@@ -359,4 +359,4 @@ graph TD
 
 架構與交接資訊見 [CONTEXT.md](./CONTEXT.md)，開發規範見 [CLAUDE.md](./CLAUDE.md) / [AGENTS.md](./AGENTS.md)，歷史教訓見 [tasks/lessons.md](./tasks/lessons.md)。
 
-MIT License.
+GPL-3.0 License（專案瀏覽器的 Chrome 擴充功能支援用到 [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell)，其開源授權為 GPL-3.0，全文見 [LICENSE](./LICENSE)）。

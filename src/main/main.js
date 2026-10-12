@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, ipcMain, session, desktopCapturer, screen, shell, dialog,
-  Menu, Tray, nativeImage, protocol, webContents
+  Menu, Tray, nativeImage, protocol, webContents, net
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -27,6 +27,7 @@ const chat = require('./chat')
 const modelScope = require('./model-scope')
 const glossary = require('./glossary')
 const chatStore = require('./chat-store')
+const scriptLaunch = require('./script-launch')
 const chatParams = require('./chat-params')
 const { sanitizeTtsVoices, DEFAULT_TTS_VOICES, VOICES_BY_LANG, listVoices } = require('./tts-voices')
 
@@ -176,6 +177,8 @@ const userDataArg = process.argv.find((a) => typeof a === 'string' && a.startsWi
 const userDataDir = (
   (userDataArg ? userDataArg.slice('--user-data-dir='.length) : '')
   || app.commandLine.getSwitchValue('user-data-dir')
+  // 專案腳本用 BROWSER 叫起來的（只帶網址、不能帶參數）：交給啟動腳本的那一份
+  || (scriptLaunch.urlArg(process.argv) && process.env[scriptLaunch.USER_DATA_ENV])
   || ''
 ).replace(/^["']|["']$/g, '')
 if (userDataDir) app.setPath('userData', userDataDir)
@@ -205,11 +208,22 @@ app.setAppUserModelId('com.voiceink.app')
  * 第二份會用同一個埠 autoStart 反代（EADDRINUSE），還會跟第一份搶
  * chats.json／usage.json／agy-logs.db。第二份改成把既有視窗叫出來就好。
  */
-const hasInstanceLock = app.requestSingleInstanceLock()
+// 專案腳本裡的 `start <網址>` 會帶 --axondeck-start 叫一份 AxonDeck 起來（script-launch.js）：
+// 不是網址回 3、App 沒在跑回 4，腳本都會改照原樣 start；是網址就照下面交給第一份
+const scriptStart = process.argv.includes(scriptLaunch.START_FLAG)
+const scriptUrl = scriptLaunch.urlArg(process.argv)
+const gotInstanceLock = scriptStart && !scriptUrl
+  ? false
+  : app.requestSingleInstanceLock({ project: process.env[scriptLaunch.PROJECT_ENV] || '' })
+const hasInstanceLock = gotInstanceLock && !scriptStart
+if (scriptStart && (!scriptUrl || gotInstanceLock)) app.exit(scriptUrl ? 4 : 3)
 // 用 app.quit() 而不是 app.exit()：exit 是立刻砍掉自己，會來不及讓「我來過了」這個
 // 通知送達第一份，症狀是藏在系統匣時再點捷徑有時叫不出視窗（實測時好時壞）。
-if (!hasInstanceLock) app.quit()
-app.on('second-instance', (_event, argv) => {
+else if (!hasInstanceLock) app.quit()
+app.on('second-instance', (_event, argv, _cwd, data) => {
+  // 專案腳本（BROWSER 或 start）開的網址：開成那個專案的瀏覽器分頁
+  const url = scriptLaunch.forwardedUrl(argv.slice(1))
+  if (url) return openInProjectBrowser(url, typeof data?.project === 'string' ? data.project : '')
   const file = openFileArg(argv)
   if (!file) return showMainWindow()
   openFromShell(file)
@@ -989,11 +1003,12 @@ function createMainWindow() {
  * 外連留在 App 裡：交給 chat 頁開成專案瀏覽器分頁（放哪個專案由 renderer 決定），
  * 把那個視窗叫到前面。功能頁還沒建好或開不起來才退回系統瀏覽器。
  * @param {string} url 已確認是 http(s)
+ * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
  */
-function openInProjectBrowser(url) {
+function openInProjectBrowser(url, project = '') {
   const outside = () => { shell.openExternal(url).catch(() => {}) }
   if (!pageWindows) return outside()
-  pageWindows.navigate({ page: 'chat', action: 'browser', full: url }).then(() => {
+  pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project }).then(() => {
     const win = pageWindows.host(pageWindows.contents('chat'))
     if (!win || win.isDestroyed()) return
     if (win.isMinimized()) win.restore()
@@ -2334,7 +2349,82 @@ app.on('child-process-gone', (_event, details) => {
 // 主視窗 webContents 上），一律在 app 層補上：http(s) 開成專案瀏覽器分頁，其餘擋掉。
 // 網頁版 AI 與工作區瀏覽器的分區（whenReady 時登記）：session → partition 名稱
 const aiWebPartitions = new Map()
+/** 工作區瀏覽器的 Chrome 擴充功能（whenReady 時建） @type {ReturnType<typeof import('./browser-extensions').createBrowserExtensions> | null} */
+let browserExtensions = null
+
+/**
+ * 「擴充功能」選單；結果用對話框告訴使用者
+ * @param {Electron.WebContents | null} tab 目前那顆瀏覽器 webview
+ * @param {Electron.BrowserWindow | null} parent
+ * @param {Electron.Rectangle} [anchor] popup 要對齊的位置（視窗內座標），沒給就靠右上
+ */
+function browserExtensionItems(tab, parent, anchor) {
+  if (!browserExtensions) return []
+  const notify = (message) => {
+    const opts = { type: 'info', title: '擴充功能', message }
+    ;(parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)).catch(() => {})
+  }
+  const width = parent && !parent.isDestroyed() ? parent.getContentBounds().width : 800
+  return browserExtensions.menuItems({ tab, parent, notify, anchor: anchor || { x: width - 48, y: 40, width: 32, height: 32 } })
+}
+
+/** 畫面傳來的瀏覽器 webview id：只認掛在這個視窗裡的 guest */
+function senderGuest(event, guestId) {
+  const guest = Number.isInteger(guestId) ? webContents.fromId(guestId) : null
+  return guest && guest.hostWebContents === event.sender ? guest : null
+}
+
+/** 畫面傳來的按鈕位置（視窗內座標）；格式不對回 undefined */
+function anchorRect(anchor) {
+  return anchor && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(anchor[k]))
+    ? { x: Math.round(anchor.x), y: Math.round(anchor.y), width: Math.round(anchor.width), height: Math.round(anchor.height) }
+    : undefined
+}
+
+ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor) => {
+  if (!assertMainWindowSender(event)) return false
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  Menu.buildFromTemplate(browserExtensionItems(senderGuest(event, guestId), parent, anchorRect(anchor))).popup(parent ? { window: parent } : {})
+  return true
+})
+
+// 工具列圖示列：圖示、標題、徽章；按下去開 popup（或送 action.onClicked）
+ipcMain.handle('workspace:extensionActions', (event, guestId) => {
+  if (!assertMainWindowSender(event) || !browserExtensions) return []
+  return browserExtensions.actions(senderGuest(event, guestId)?.id ?? -1)
+})
+
+ipcMain.handle('workspace:extensionActivate', (event, guestId, extensionId, anchor) => {
+  const tab = assertMainWindowSender(event) ? senderGuest(event, guestId) : null
+  const rect = anchorRect(anchor)
+  if (!tab || !rect || typeof extensionId !== 'string' || !browserExtensions) return false
+  browserExtensions.activate(extensionId, tab, rect)
+  return true
+})
+
 app.on('web-contents-created', (_event, contents) => {
+  // 網頁版 AI 與工作區瀏覽器：右鍵選單＋F5 重新整理（工作區瀏覽器多一組「擴充功能」，也登記成擴充功能看得到的分頁）
+  if (contents.getType() === 'webview' && aiWebPartitions.has(contents.session)) {
+    const isBrowser = aiWebPartitions.get(contents.session) === 'persist:wsbrowser'
+    const hostWindow = () => {
+      const host = contents.hostWebContents
+      return host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null
+    }
+    if (isBrowser) {
+      contents.once('did-attach', () => {
+        const win = hostWindow()
+        if (win && browserExtensions) browserExtensions.attachTab(contents, win)
+      })
+    }
+    require('./web-context-menu').attachWebContextMenu(contents, {
+      openUrl: openInProjectBrowser,
+      isWebUrl,
+      extraItems: isBrowser ? (params) => [
+        ...(browserExtensions?.contextMenuItems(contents, params) || []),
+        { label: '擴充功能', submenu: browserExtensionItems(contents, hostWindow()) }
+      ] : undefined
+    })
+  }
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
   if (contents.getType() === 'webview') {
@@ -2386,6 +2476,18 @@ app.whenReady().then(() => {
     aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js'), languages })
     aiWebPartitions.set(ses, partition)
   }
+  browserExtensions = require('./browser-extensions').createBrowserExtensions({
+    session: session.fromPartition('persist:wsbrowser'),
+    dir: path.join(app.getPath('userData'), 'browser-extensions'),
+    fetch: (url) => net.fetch(url),
+    chromeVersion: process.versions.chrome,
+    aliasPreload: path.join(__dirname, '../preload/crx-browser-alias.js'),
+    openUrl: openInProjectBrowser,
+    onActionsChanged: () => sendToPages('workspace:extensionsChanged')
+  })
+  browserExtensions.loadInstalled()
+    .catch((error) => console.warn('[browser-ext] 載入失敗:', error))
+    .finally(() => browserExtensions.startAutoUpdate())
   // Grok 的 Cloudflare 擋 Electron：碰到驗證頁就請系統的 Edge／Chrome 過一次，把通行證帶回來（grok-clearance.js）
   const grokSes = session.fromPartition('persist:ai-grok')
   require('./grok-clearance').install(grokSes, {

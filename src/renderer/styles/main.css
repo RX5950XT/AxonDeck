@@ -3400,6 +3400,50 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   white-space: nowrap;
 }
 
+/* 擴充功能圖示列（跟 Chrome 一樣：圖示＋右下角徽章） */
+.ws-browser-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ws-browser-actions[hidden] {
+  display: none;
+}
+
+.ws-browser-action {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+
+.ws-browser-action:hover {
+  background: var(--bg-hover);
+}
+
+.ws-browser-action img {
+  width: 16px;
+  height: 16px;
+}
+
+.ws-browser-action-badge {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: #5f6368;
+  color: #fff;
+  font: 600 9px/12px var(--font-sans);
+  text-align: center;
+  pointer-events: none;
+}
+
 .ws-browser-url {
   flex: 1 1 160px;
   min-width: 0;

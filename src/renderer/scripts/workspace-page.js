@@ -3134,10 +3134,17 @@ export function refreshWorkspacePage() {
 }
 
 /**
- * 在專案瀏覽器開網址。還沒選專案就還原上次的，再不行用清單第一個；一個專案都沒有才交給系統瀏覽器。
+ * 在專案瀏覽器開網址。有指定專案（專案腳本開的）就切過去；還沒選專案就還原上次的，再不行用清單第一個；
+ * 一個專案都沒有才交給系統瀏覽器。
  * @param {string} url
+ * @param {string} [projectId]
  */
-export async function openUrlInProject(url) {
+export async function openUrlInProject(url, projectId = '') {
+  if (projectId && projectId !== currentId) {
+    initWorkspacePage()
+    await reloadList()
+    if (projects.some((item) => item.id === projectId && !item.missing)) await selectProject(projectId)
+  }
   if (!currentId && !(await restoreLastProject())) {
     const first = projects.find((item) => !item.missing)
     if (first) await selectProject(first.id)

@@ -19,6 +19,14 @@
 - 文字轉語音：變聲是上游實驗功能；官方模型與本機輸出限研究及非商用。
 - 系統監控網路欄：未提權時 ETW／TCP EStats 回 Access denied，顯示「—」；提權 sidecar 真實吞吐未驗。
 
+# 2026-10-12 — 網頁版 AI 右鍵＋F5、專案瀏覽器 Chrome 擴充功能
+
+- [x] 網頁版 AI 與專案瀏覽器 webview：右鍵選單、F5／Ctrl+R（`web-context-menu.js`）。
+- [x] 擴充功能：商店頁一鍵安裝、工具列 🧩／右鍵選單開 popup／選項／移除（`browser-extensions.js`＋`electron-chrome-extensions` 4.9.0，專案改 GPL-3.0）。
+- [x] 驗證：lint、`test-browser-extensions.js`、Electron 實測（uBO Lite 背景程式／popup、F5、安裝→重裝→移除→重啟）、打包。
+- [x] 工具列圖示列＋徽章、自動更新（啟動後 1 分鐘、每 6 小時）。
+- [x] 專案 `.bat`／`.cmd` 開瀏覽器改開在該專案（`script-launch.js`）：真 cmd＋打包版沙箱實測 `start`（含 `/?`、`&`）與 Python `webbrowser`。
+
 # 2026-10-11 — 全專案死碼清理與精簡
 
 - [x] 掃描：頂層定義／export 沒人用、preload API 畫面沒呼叫、沒人 require 的檔案與套件、CSS class 全站找不到、跨檔完全相同的函式本體。

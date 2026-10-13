@@ -205,9 +205,10 @@
                   <button type="button" id="browserBackBtn" class="btn-icon" title="上一頁" aria-label="上一頁" disabled>←</button>
                   <button type="button" id="browserFwdBtn" class="btn-icon" title="下一頁" aria-label="下一頁" disabled>→</button>
                   <button type="button" id="browserReloadBtn" class="btn-icon" title="重新整理" aria-label="重新整理">⟳</button>
-                  <input type="text" id="browserUrl" class="input input-sm ws-browser-url" placeholder="輸入網址後按 Enter" aria-label="網址" />
+                  <input type="text" id="browserUrl" class="input input-sm ws-browser-url" placeholder="輸入網址或搜尋（Google AI Mode）" aria-label="網址或搜尋" />
                   <div id="browserActions" class="ws-browser-actions" role="group" aria-label="擴充功能圖示" hidden></div>
                   <button type="button" id="browserExtBtn" class="btn-icon" title="擴充功能" aria-label="擴充功能">🧩</button>
+                  <button type="button" id="browserExternalBtn" class="btn btn-secondary btn-sm">用系統瀏覽器開</button>
                 </div>
                 <div id="browserFrame" class="ws-browser-frame"></div>
               </div>
@@ -512,7 +513,6 @@
                         placeholder="http://localhost:5173"
                         aria-label="網址"
                       />
-                      <button type="button" id="wsBrowserGoBtn" class="btn btn-secondary btn-sm">前往</button>
                       <div id="wsBrowserActions" class="ws-browser-actions" role="group" aria-label="擴充功能圖示" hidden></div>
                       <button type="button" id="wsBrowserExtBtn" class="btn-icon" title="擴充功能" aria-label="擴充功能">
                         🧩
@@ -916,6 +916,7 @@
                     <option value="size">大小</option>
                   </select>
                   <button type="button" id="exSortDir" class="btn-icon" title="排序方向" aria-label="排序方向">↑</button>
+                  <button type="button" id="exFolderSizesBtn" class="btn btn-secondary btn-sm" aria-pressed="false" title="背景計算每個資料夾的大小，可依大小排序">資料夾大小</button>
                   <button type="button" id="exViewListBtn" class="btn-icon" title="清單" aria-label="清單檢視" aria-pressed="true">☰</button>
                   <button type="button" id="exViewGridBtn" class="btn-icon" title="圖示" aria-label="圖示檢視" aria-pressed="false">▦</button>
                   <button type="button" id="exDualBtn" class="btn btn-secondary btn-sm" aria-pressed="false">雙欄</button>

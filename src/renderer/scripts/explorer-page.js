@@ -250,6 +250,10 @@ let folderViews = {}
 let folderDefaults = { view: 'list', tile: DEFAULT_TILE, sort: 'name', sortDesc: false }
 /** 要不要把隱藏／系統項目也列出來（跟檔案總管的「顯示隱藏的項目」同一件事）*/
 let showHidden = true
+/** 清單裡的資料夾也算大小（背景算，算好就顯示並參與大小排序） */
+let folderSizes = false
+/** @type {Record<string, ReturnType<typeof setTimeout> | null>} 進度來時節流重讀 */
+const dirSizesTimers = { main: null, second: null }
 /** @type {string[]} */
 let history = []
 let histIndex = -1
@@ -361,6 +365,13 @@ async function call(promise, fallback) {
   if (result && result.ok) return result.data
   showToast(result?.error?.message || fallback, 'error')
   throw new Error(result?.error?.message || fallback)
+}
+
+/** 清單「大小」欄：資料夾要開了資料夾大小且算好了才有數字，沒算完的標「≥」 */
+function rowSizeText(entry) {
+  if (!entry.dir) return formatSize(entry.size)
+  if (!folderSizes || entry.sizeIncomplete === undefined) return '—'
+  return `${entry.sizeIncomplete ? '≥ ' : ''}${formatSize(entry.size)}`
 }
 
 function formatSize(bytes) {
@@ -643,6 +654,7 @@ function bindOnce() {
   $('exViewListBtn')?.addEventListener('click', () => setView('list'))
   $('exViewGridBtn')?.addEventListener('click', () => setView('grid'))
   $('exDualBtn')?.addEventListener('click', () => void toggleDualPane())
+  $('exFolderSizesBtn')?.addEventListener('click', () => void toggleFolderSizes())
   $('exDetailToggleBtn')?.addEventListener('click', toggleDetailPane)
   $('exListHead')?.addEventListener('click', onSortClick)
   $('exSort')?.addEventListener('change', (e) => applySort(String(e.target.value), sortDesc))
@@ -787,6 +799,7 @@ function bindOnce() {
     }
     if (dualPane && payload.path === secondPane.cwd) void loadSecond(secondPane.cwd, { pushHistory: false, keepSelection: true })
   })
+  electronAPI.explorer.onDirSizesProgress(onDirSizesProgress)
   electronAPI.explorer.onUffsProgress((info) => {
     if (!info) return
     const text = $('exUffsText')
@@ -1662,7 +1675,7 @@ function secondRowEl(entry) {
   name.append(icon, label)
   const size = document.createElement('div')
   size.className = 'ex-row-size'
-  size.textContent = entry.dir ? '—' : formatSize(entry.size)
+  size.textContent = rowSizeText(entry)
   const mtime = document.createElement('div')
   mtime.className = 'ex-row-mtime'
   mtime.textContent = formatTime(entry.mtimeMs)
@@ -1846,6 +1859,7 @@ async function loadSecond(dirPath, opts = {}) {
     }
     secondPane.cwd = data.path
     secondPane.archive = data.archive || ''
+    scanDirSizes('second', secondPane.cwd)
     secondPane.sortBy = pref.sort
     secondPane.sortDesc = pref.sortDesc
     secondPane.view = pref.view
@@ -2100,7 +2114,7 @@ function rowEl(entry) {
   name.append(icon, label)
   const size = document.createElement('div')
   size.className = 'ex-row-size'
-  size.textContent = entry.dir ? '—' : formatSize(entry.size)
+  size.textContent = rowSizeText(entry)
   const mtime = document.createElement('div')
   mtime.className = 'ex-row-mtime'
   mtime.textContent = formatTime(entry.mtimeMs)
@@ -2592,7 +2606,7 @@ function paintHome() {
 async function listDirectoryPage(dirPath, options, offset = 0) {
   // 舊入口契約：listDir(dirPath, { sort: sortBy, desc: sortDesc, showHidden })；分頁只在同一組選項上加 offset。
   return call(
-    electronAPI.explorer.listDir(dirPath, { ...options, offset, limit: BROWSE_PAGE_SIZE }),
+    electronAPI.explorer.listDir(dirPath, { ...options, dirSizes: folderSizes, offset, limit: BROWSE_PAGE_SIZE }),
     '讀不到這個資料夾'
   )
 }
@@ -2658,6 +2672,7 @@ async function loadDir(dirPath, opts = {}) {
   cwd = data.path
   cwdArchive = data.archive || ''
   navTarget = cwd
+  scanDirSizes('main', cwd)
   sortBy = pref.sort
   sortDesc = pref.sortDesc
   tile = pref.tile
@@ -3470,7 +3485,8 @@ function showBatchRenameResult(results, revert) {
     undo.type = 'button'
     undo.className = 'btn btn-secondary'
     undo.textContent = '復原成功項目'
-    undo.addEventListener('click', () => void revert().then(() => { dialog.close(); dialog.remove() }))
+    // 復原失敗也要收彈窗：留著的話 `dialog[open]` 會擋掉整頁快捷鍵
+    undo.addEventListener('click', () => void revert().catch((error) => showToast(error?.message || '復原失敗')).finally(() => { dialog.close(); dialog.remove() }))
     actions.appendChild(undo)
   }
   const close = document.createElement('button')
@@ -3920,6 +3936,67 @@ function onListClick(e) {
   paintLeftSelection()
 }
 
+/** 開了資料夾大小就請 main 背景算這層的子資料夾；壓縮檔／手機／回收筒 main 會拒絕，不用管 */
+function scanDirSizes(lane, dir) {
+  if (!folderSizes || !dir || pathKey(dir) === THIS_PC) return
+  void electronAPI.explorer.dirSizes(dir, lane).catch(() => {})
+}
+
+/** 算出一個就節流重讀已載入的頁：大小排序時順序會變，所以不能只改那一格 */
+function onDirSizesProgress(info) {
+  if (!folderSizes || !info) return
+  const lane = info.lane === 'second' ? 'second' : 'main'
+  const here = lane === 'second' ? secondPane.cwd : cwd
+  if (pathKey(info.path) !== pathKey(here)) return
+  if (dirSizesTimers[lane]) return
+  dirSizesTimers[lane] = setTimeout(() => {
+    dirSizesTimers[lane] = null
+    void (lane === 'second' ? reloadSecondLoadedPages() : reloadLoadedPages())
+  }, info.done ? 0 : 400)
+}
+
+/** 重拿已載入的那幾頁，捲動位置與選取不動 */
+async function refetchPages(dir, sort, desc, offsets) {
+  const pages = await Promise.all(offsets.map((offset) => (
+    listDirectoryPage(dir, { sort, desc, showHidden }, offset).catch(() => null)
+  )))
+  if (pages.some((page) => !page)) return null
+  return pages.reduce((acc, page, i) => mergeBrowsePage(acc, page, offsets[i]).entries, [])
+}
+
+async function reloadLoadedPages() {
+  if (inHome() || inSearch() || !loadedOffsets.size) return
+  const seq = ++pageRequestSeq
+  const dir = cwd
+  const next = await refetchPages(dir, sortBy, sortDesc, [...loadedOffsets])
+  if (!next || seq !== pageRequestSeq || pathKey(dir) !== pathKey(cwd)) return
+  entries = next
+  if (currentListFingerprint() !== lastListFingerprint) paintList()
+}
+
+async function reloadSecondLoadedPages() {
+  if (!dualPane || secondInSearch() || !secondPane.loadedOffsets.size) return
+  const seq = secondPane.seq
+  const dir = secondPane.cwd
+  const next = await refetchPages(dir, secondPane.sortBy, secondPane.sortDesc, [...secondPane.loadedOffsets])
+  if (!next || seq !== secondPane.seq || pathKey(dir) !== pathKey(secondPane.cwd)) return
+  secondPane.entries = next
+  if (currentSecondFingerprint() !== lastSecondFingerprint) paintSecondPane()
+}
+
+async function toggleFolderSizes() {
+  folderSizes = !folderSizes
+  $('exFolderSizesBtn')?.setAttribute('aria-pressed', folderSizes ? 'true' : 'false')
+  void electronAPI.explorer.saveState({ folderSizes })
+  if (!folderSizes) {
+    void electronAPI.explorer.dirSizesCancel('main')
+    void electronAPI.explorer.dirSizesCancel('second')
+  }
+  // 重讀時 loadDir／loadSecond 會順手開始算
+  await refreshAfterMutate()
+  showToast(folderSizes ? '開始計算資料夾大小' : '已關閉資料夾大小')
+}
+
 async function toggleHidden() {
   showHidden = !showHidden
   void electronAPI.explorer.saveState({ showHidden })
@@ -4078,7 +4155,9 @@ function onPageKey(e) {
     beginEditPath()
     return
   }
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  // 只有真的能打字的欄位才吃鍵；彈窗關掉後焦點常停在勾選框／滑桿，那種不該讓複製貼上失靈
+  const typing = tag === 'TEXTAREA' || (tag === 'INPUT' && !['checkbox', 'radio', 'range', 'button'].includes(/** @type {HTMLInputElement} */ (e.target).type))
+  if (typing) return
   if (document.querySelector('.ws-menu, dialog[open]')) return
   if (e.key === 'F5') {
     e.preventDefault()
@@ -4137,9 +4216,10 @@ function onPageKey(e) {
     e.preventDefault()
     void undoLast()
   }
-  if (e.ctrlKey && e.key === 'c') void clipboard(selectedEntries(), 'copy')
-  if (e.ctrlKey && e.key === 'x') void clipboard(selectedEntries(), 'cut')
-  if (e.ctrlKey && e.key === 'v') void pasteHere()
+  // 用小寫比：大寫鎖定或按著 Shift 時 e.key 是 'C'／'X'／'V'，原本的比法會整個失靈
+  if (e.ctrlKey && key === 'c') void clipboard(selectedEntries(), 'copy')
+  if (e.ctrlKey && key === 'x') void clipboard(selectedEntries(), 'cut')
+  if (e.ctrlKey && key === 'v') void pasteHere()
 }
 
 function paintUffs() {
@@ -4268,6 +4348,8 @@ export async function refreshExplorerPage() {
     folderDefaults = { view, tile, sort: sortBy, sortDesc }
     folderViews = boot.folderViews && typeof boot.folderViews === 'object' ? boot.folderViews : {}
     showHidden = boot.showHidden !== false
+    folderSizes = boot.folderSizes === true
+    $('exFolderSizesBtn')?.setAttribute('aria-pressed', folderSizes ? 'true' : 'false')
     dualPane = boot.dualPane === true
     places = boot.places || []
     disks = boot.drives || []

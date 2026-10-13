@@ -34,6 +34,7 @@ async function refresh() {
 async function action(actionName, key, name) {
   if (pending) return
   if (actionName === 'uninstall' && !await askConfirm(`解除安裝 ${name}？`, { desc: '將執行這個程式的解除安裝工具。程式自己的資料保留規則仍然適用。', confirmText: '解除安裝', danger: true })) return
+  if (actionName === 'cleanup' && !await askConfirm(`清除 ${name} 的失效紀錄？`, { desc: '解除安裝程式已遺失。將先備份，再移除這一筆 Windows 安裝紀錄；不刪除程式檔案或個人資料。', confirmText: '清除紀錄', danger: true })) return
   pending = true
   error()
   render()
@@ -52,11 +53,11 @@ async function upgradeAll(count) {
   finally { pending = false; render() }
 }
 // 本機程式圖示優先；常用清單沒裝的用官網 favicon；都沒有就用首字方塊
-function logo(name, site) {
+function logo(name, site, key) {
   const box = el('span', 'install-logo')
   box.setAttribute('aria-hidden', 'true')
   const letter = () => { box.replaceChildren(); box.textContent = [...name.trim()][0]?.toUpperCase() || '?' }
-  const src = icons[name] || (site ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64` : '')
+  const src = icons[key] || (site ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64` : '')
   if (!src) { letter(); return box }
   const img = document.createElement('img')
   img.alt = ''
@@ -72,9 +73,9 @@ async function loadIcons() {
   iconsAt = state.iconsStamp
   try { icons = accept(await window.electronAPI.appInstaller.icons()) || {}; iconsDrawn += 1; render() } catch { /* 圖示失敗就用首字方塊 */ }
 }
-function heading(name, site, iconName = name) {
+function heading(name, site, key) {
   const node = el('div', 'install-head')
-  node.append(logo(iconName, site), el('h3', 'install-name', name))
+  node.append(logo(name, site, key), el('h3', 'install-name', name))
   return node
 }
 function button(label, actionName, row, primary = false) {
@@ -89,11 +90,14 @@ function installedRow(row) {
   const node = el('article', 'install-row')
   node.dataset.key = row.key
   const details = el('div', 'install-details')
-  details.append(heading(row.name), el('p', 'install-meta', row.category || '其他'), el('p', 'install-version', `已安裝 ${row.version}${row.available ? ` → ${row.available}` : ''}`))
+  details.append(heading(row.name, row.site, row.key), el('p', 'install-meta', row.category || '其他'), el('p', 'install-version', `已安裝 ${row.version}${row.available ? ` → ${row.available}` : ''}`))
+  const identity = [row.architecture, row.scope === 'machine' ? '所有使用者' : row.scope === 'user' ? '目前使用者' : ''].filter(Boolean).join(' · ')
+  if (identity) details.append(el('p', 'install-meta', identity))
   if (row.note) details.append(el('p', 'install-meta', row.note))
   const actions = el('div', 'install-actions')
   if (row.canUpgrade) actions.append(button('更新', 'upgrade', row, true))
   if (row.canUninstall) actions.append(button('解除安裝', 'uninstall', row))
+  if (row.canCleanup) actions.append(button('清除失效紀錄', 'cleanup', row))
   if (!row.canUninstall && !row.note) details.append(el('p', 'install-meta', '系統識別資料不完整，無法安全操作。'))
   node.append(details, actions)
   return node
@@ -103,7 +107,7 @@ function catalogRow(entry) {
   const node = el('article', 'install-row')
   node.dataset.catalog = entry.key
   const details = el('div', 'install-details')
-  details.append(heading(entry.name, entry.site, rows.find((row) => icons[row.name])?.name || entry.name), el('p', 'install-meta', `${entry.group} · ${entry.source}`))
+  details.append(heading(entry.name, entry.site, rows.find((row) => icons[row.key])?.key), el('p', 'install-meta', `${entry.group} · ${entry.source}`))
   if (rows.length) details.append(el('p', 'install-version', `已安裝 ${rows.map((row) => row.version).join('、')}${rows.some((row) => row.available) ? ' · 有更新' : ''}`))
   else details.append(el('p', 'install-version', state.checkedAt ? '尚未安裝' : '等待查詢'))
   for (const text of [entry.note, entry.sourceError]) if (text) details.append(el('p', 'install-meta', text))
@@ -112,6 +116,7 @@ function catalogRow(entry) {
   for (const row of rows) {
     if (row.canUpgrade) actions.append(button(rows.length > 1 ? `更新 ${row.version}` : '更新', 'upgrade', row, true))
     if (row.canUninstall) actions.append(button(rows.length > 1 ? `解除安裝 ${row.version}` : '解除安裝', 'uninstall', row))
+    if (row.canCleanup) actions.append(button('清除失效紀錄', 'cleanup', row))
   }
   node.append(details, actions)
   return node
@@ -119,7 +124,8 @@ function catalogRow(entry) {
 function renderJobs() {
   const host = byId('installJobs')
   const live = state.jobs.filter((job) => !['done', 'failed'].includes(job.phase))
-  const recent = state.jobs.filter((job) => ['done', 'failed'].includes(job.phase)).reverse().slice(0, Math.max(0, 5 - live.length))
+  const finished = state.jobs.filter((job) => ['done', 'failed'].includes(job.phase)).reverse()
+  const recent = finished.filter((job, i) => finished.findIndex((x) => x.key === job.key && x.action === job.action) === i).slice(0, Math.max(0, 5 - live.length))
   host.hidden = !state.jobs.length && !state.batch
   host.replaceChildren()
   if (state.batch) {
@@ -136,7 +142,7 @@ function renderJobs() {
   for (const job of [...live, ...recent]) {
     const node = el('div', 'install-job')
     node.dataset.phase = job.phase
-    const label = { install: '安裝', upgrade: '更新', uninstall: '解除安裝' }[job.action]
+    const label = { install: '安裝', upgrade: '更新', uninstall: '解除安裝', cleanup: '清除紀錄' }[job.action]
     node.append(el('strong', '', `${label} ${job.name}${job.progress !== null && !['done', 'failed'].includes(job.phase) ? ` · ${job.progress}%` : ''}`), el('span', '', job.message))
     if (!['done', 'failed'].includes(job.phase)) {
       const progress = el('progress', 'install-progress')

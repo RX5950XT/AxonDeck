@@ -362,6 +362,9 @@ export const electronAPI = window.electronAPI || {
     uffsCancel: async () => true,
     folderSize: async () => ({ bytes: 0, files: 0, dirs: 0, incomplete: false, cancelled: false }),
     folderSizeCancel: async () => true,
+    dirSizes: async () => ({ cancelled: false }),
+    dirSizesCancel: async () => true,
+    onDirSizesProgress: () => () => {},
     onChanged: () => () => {},
     onUffsProgress: () => () => {},
     onFolderSizeProgress: () => () => {}

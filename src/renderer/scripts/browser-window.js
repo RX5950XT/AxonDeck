@@ -46,6 +46,9 @@ $('bwExt').addEventListener('click', (event) => {
 $('bwUrl').addEventListener('keydown', (event) => {
   if (event.isComposing || event.keyCode === 229 || event.key !== 'Enter') return
   event.preventDefault()
-  const href = safeUrl($('bwUrl').value)
+  // 有空白、或沒有 . : / 的字（localhost 除外）當搜尋，交給 Google AI Mode
+  const text = $('bwUrl').value.trim()
+  const isSearch = text && (/\s/.test(text) || !(/[.:/]/.test(text) || /^localhost/i.test(text)))
+  const href = isSearch ? `https://www.google.com/search?udm=50&aep=11&q=${encodeURIComponent(text)}` : safeUrl(text)
   if (href) void api.navigate('go', href)
 })

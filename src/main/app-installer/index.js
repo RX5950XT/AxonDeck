@@ -1,22 +1,19 @@
 'use strict'
 
 const crypto = require('crypto')
-const { CATALOG, CATEGORIES, catalogFor, categoryFor, newerVersion } = require('./catalog')
+const { CATALOG, CATEGORIES, catalogFor, categoryFor, newerVersion, iconSiteFor } = require('./catalog')
 const winget = require('./winget')
 const direct = require('./direct')
+const inventory = require('./inventory')
+const appIcons = require('./icons')
+const { cleanupRecord } = require('./cleanup')
 
 const MISMATCH = 0x8A15008E, IN_PROGRESS = [0x8A150102, 1618], PARALLEL = 3, STALL_MS = 10 * 60 * 1000
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// 套件 logo 是 PNG，直接讀圖；其他（exe／ico／lnk）取系統圖示
-async function readIcon(file) {
-  const { app, nativeImage } = require('electron')
-  if (/\.png$/i.test(file)) return nativeImage.createFromPath(file).resize({ width: 48, quality: 'best' })
-  return app.getFileIcon(file, { size: 'large' })
-}
-
 function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run = winget.runPty, install = direct.install, resolveSource = direct.resolveSource,
-  iconPaths = winget.displayIcons, getFileIcon = readIcon }) {
+  records = list === winget.list ? inventory.readInventory : async () => [], iconPaths = appIcons.displayIcons, getFileIcon = appIcons.readIcon,
+  runCommand = winget.run, cleanup = cleanupRecord }) {
   let installed = [], checkedAt = null, scan = null, jobs = [], sources = {}, scanError = '', batch = null, icons = {}, iconsStamp = 0
   const active = (job) => !['done', 'failed'].includes(job.phase)
   const busy = () => !!batch || jobs.some(active)
@@ -24,9 +21,15 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
   const decorate = (row) => {
     const entry = catalogFor(row)
     const available = row.available || (entry?.direct && newerVersion(sources[entry.direct]?.version || '', row.version) ? sources[entry.direct].version : '')
-    const duplicate = installed.filter((candidate) => candidate.id === row.id).length > 1
-    return { ...row, key: row.key, catalogKey: entry?.key, category: categoryFor(row), available, canUninstall: !row.truncated && !duplicate,
-      canUpgrade: !!available && !row.truncated && !duplicate, note: duplicate ? '同一套件有多筆安裝紀錄，無法安全選定；請使用 Windows 管理。' : '' }
+    const duplicate = installed.filter((candidate) => candidate.id === row.id && candidate.version === row.version).length > 1
+    const exact = !!(row.productCode || row.packageFullName) || !duplicate
+    const note = row.missingUninstaller ? '解除安裝程式已遺失；可清除失效紀錄，程式檔案不會刪除。'
+      : !exact ? '安裝紀錄缺少唯一識別，暫時無法操作。' : row.framework ? '共用執行環境；其他程式可能需要此元件。' : ''
+    return { name: row.name, id: row.id, version: row.version, source: row.source, architecture: row.architecture, scope: row.scope,
+      key: row.key, catalogKey: entry?.key, site: iconSiteFor(row), category: categoryFor(row), available,
+      canUninstall: !row.truncated && exact && !row.missingUninstaller,
+      canCleanup: !!(row.missingUninstaller && row.registryPath),
+      canUpgrade: !!available && !row.truncated && !duplicate && !row.missingUninstaller, note }
   }
   function snapshot() {
     return { categories: CATEGORIES, checkedAt, scanning: !!scan, scanError, busy: busy(), iconsStamp, batch: batch && { ...batch }, jobs: jobs.map((job) => ({ ...job })), installed: installed.map(decorate),
@@ -39,10 +42,10 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
     if (scan) return scan
     scanError = ''
     scan = (async () => {
-      const [rows, available] = await Promise.all([list(), Promise.all([...new Set(CATALOG.map((entry) => entry.direct).filter(Boolean))].map(async (kind) => {
+      const [rows, entries, available] = await Promise.all([list(), records(), Promise.all([...new Set(CATALOG.map((entry) => entry.direct).filter(Boolean))].map(async (kind) => {
         try { return [kind, await resolveSource(kind)] } catch { return [kind, { error: '官方版本查詢失敗，可重新整理重試。' }] }
       }))])
-      installed = rows.map((row) => ({ ...row, key: crypto.createHash('sha256').update(`${row.id}\0${row.version}\0${row.name}`).digest('hex').slice(0, 24) }))
+      installed = inventory.mergeInventory(rows, entries).map((row) => ({ ...row, key: crypto.createHash('sha256').update(row.identity).digest('hex').slice(0, 24) }))
       sources = Object.fromEntries(available)
       checkedAt = Date.now()
       void loadIcons()
@@ -55,17 +58,20 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
   // 圖示另走 icons()，不塞進每次進度通知；路徑與圖示都快取，失敗就留空用字母代替
   const iconCache = new Map()
   async function loadIcons() {
+    const current = installed
     let iconFor
     try { iconFor = await iconPaths() } catch { return }
     const next = {}
-    for (const row of installed) {
-      const file = iconFor(row)
-      if (!file) continue
-      if (!iconCache.has(file)) {
-        try { const image = await getFileIcon(file); iconCache.set(file, image && !image.isEmpty() ? image.toDataURL() : '') } catch { iconCache.set(file, '') }
+    for (const row of current) {
+      const candidates = iconFor(row)
+      for (const file of Array.isArray(candidates) ? candidates : [candidates].filter(Boolean)) {
+        if (!iconCache.has(file)) {
+          try { const image = await getFileIcon(file); if (image && !image.isEmpty()) iconCache.set(file, image.toDataURL()) } catch { /* 下一個候選繼續找 */ }
+        }
+        if (iconCache.get(file)) { next[row.key] = iconCache.get(file); break }
       }
-      if (iconCache.get(file)) next[row.name] = iconCache.get(file)
     }
+    if (current !== installed) return
     icons = next
     iconsStamp += 1
     emit()
@@ -78,7 +84,7 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
     if (jobs.some((job) => active(job) && (keys.has(job.key) || keys.has(job.catalogKey)))) throw winget.failure('BUSY', '這個程式正在處理中，請等待完成。')
   }
   function resolveTarget(request) {
-    if (!request || typeof request.key !== 'string' || !['install', 'upgrade', 'uninstall'].includes(request.action)) throw winget.failure('INVALID', '無效的程式操作。')
+    if (!request || typeof request.key !== 'string' || !['install', 'upgrade', 'uninstall', 'cleanup'].includes(request.action)) throw winget.failure('INVALID', '無效的程式操作。')
     assertIdle()
     const entry = CATALOG.find((item) => item.key === request.key)
     if (request.action === 'install') {
@@ -91,7 +97,8 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
     const row = installed.find((item) => item.key === request.key)
     if (!row) throw winget.failure('NOT_FOUND', '程式清單已變更，請重新整理。')
     const state = decorate(row)
-    if (request.action === 'uninstall' ? !state.canUninstall : !state.canUpgrade) throw winget.failure('UNSUPPORTED', '這筆程式目前無法執行此操作。')
+    const allowed = { uninstall: state.canUninstall, upgrade: state.canUpgrade, cleanup: state.canCleanup }
+    if (!allowed[request.action]) throw winget.failure('UNSUPPORTED', '這筆程式目前無法執行此操作。')
     const target = { ...row, entry: catalogFor(row) }
     assertFree(target)
     return target
@@ -138,6 +145,10 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
   }
   // 安裝程式（尤其 MSI）同時只能跑一個；撞到就等一下再試
   async function wingetRun(action, target, update) {
+    if (action === 'uninstall' && target.packageFullName) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(target.packageFullName)) throw winget.failure('INVALID', '套件識別資料無效。')
+      return runCommand(winget.powershellPath(), ['-NoProfile', '-NonInteractive', '-Command', `$ErrorActionPreference='Stop'; Remove-AppxPackage -Package '${target.packageFullName}'`], { timeout: 0 })
+    }
     for (let attempt = 0; ; attempt++) {
       const result = await run(winget.wingetPath(), winget.actionArgs(action, target), { stallMs: action === 'uninstall' ? 0 : STALL_MS,
         onProgress: ({ percent, size }) => update({ phase: 'running', progress: percent,
@@ -150,16 +161,23 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
   }
   async function execute(request, target, update) {
     try {
-      const result = target.entry?.direct && request.action !== 'uninstall'
+      const result = request.action === 'cleanup' ? await cleanup(target, cacheDir)
+        : target.entry?.direct && request.action !== 'uninstall'
         ? await install(target.entry.direct, cacheDir, update)
         : await wingetRun(request.action, target, update)
       if (result.code === MISMATCH && request.action === 'upgrade') return await reinstall(target, update)
-      if (![0, 3010, 1641].includes(result.code)) throw winget.failure('INSTALL_FAILED', `操作未完成（代碼 0x${result.code.toString(16).toUpperCase()}）。可能未支援靜默操作、需要授權或程式仍在使用；請重新整理後再試。`)
+      if (result.code === 0x800401F5) throw winget.failure('UNINSTALLER_MISSING', 'Windows 找不到解除安裝程式；請重新整理，確認是否為失效安裝紀錄。')
+      if (![0, 3010, 1641].includes(result.code)) throw winget.failure('INSTALL_FAILED', `操作未完成（代碼 0x${result.code.toString(16).toUpperCase()}）。程式可能拒絕背景操作或仍在使用。`)
       update({ phase: 'checking', progress: null, message: '操作已結束，正在重新確認安裝狀態…' })
       await rescan()
-      const remains = installed.some((row) => row.id === target.id && row.version === target.version)
+      const remains = installed.some((row) => row.identity === target.identity && row.version === target.version)
       const present = installed.some((row) => catalogFor(row)?.key === target.entry?.key)
-      const verified = request.action === 'uninstall' ? !remains : request.action === 'install' ? present : !remains
+      const verified = request.action === 'install' ? present : !remains
+      if (request.action === 'cleanup' && verified) {
+        update({ phase: 'done', progress: null, message: '失效紀錄已清除，備份已保存；程式檔案未刪除。' })
+        return
+      }
+      if (!verified && result.code === 0) throw winget.failure('NOT_CONFIRMED', '工具已結束，但安裝紀錄尚未變更；目前無法確認操作成功。請稍後重新整理。')
       update({ phase: 'done', progress: null, message: result.code ? '操作完成，需要重新啟動 Windows。' : verified ? '操作完成，清單已更新。' : '安裝工具已結束，系統清單尚未反映變更；請稍後重新整理。' })
     } catch (error) {
       update({ phase: 'failed', progress: null, message: error.userMessage || '操作失敗，請重新整理後重試。' })

@@ -266,6 +266,7 @@ function readState() {
       sort: sanitizeSortKey(s.get('sort', 'name')),
       sortDesc: s.get('sortDesc', false) === true,
       showHidden: s.get('showHidden', true) !== false,
+      folderSizes: s.get('folderSizes', false) === true,
       dualPane: s.get('dualPane', false) === true,
       uffsAuto: sanitizeAuto(s.get('uffsAuto', true)),
       places: places.sanitizePlaces(s.get('places', [])),
@@ -305,6 +306,9 @@ function writeState(patch) {
       showHidden: patch.showHidden !== undefined
         ? patch.showHidden !== false
         : s.get('showHidden', true) !== false,
+      folderSizes: patch.folderSizes !== undefined
+        ? patch.folderSizes === true
+        : s.get('folderSizes', false) === true,
       dualPane: patch.dualPane !== undefined
         ? patch.dualPane === true
         : s.get('dualPane', false) === true,
@@ -329,6 +333,7 @@ function writeState(patch) {
     s.set('sort', next.sort)
     s.set('sortDesc', next.sortDesc)
     s.set('showHidden', next.showHidden)
+    s.set('folderSizes', next.folderSizes)
     s.set('dualPane', next.dualPane)
     s.set('uffsAuto', next.uffsAuto)
     s.set('places', next.places)

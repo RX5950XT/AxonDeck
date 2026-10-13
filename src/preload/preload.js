@@ -428,7 +428,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
     extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
-    browserPopout: (url, title, guestId) => ipcRenderer.invoke('workspace:browserPopout', url, title, guestId),
+    browserPopout: (url, title, guestId, slot) => ipcRenderer.invoke('workspace:browserPopout', url, title, guestId, slot),
+    /** 彈出的獨立視窗被最小化或關閉：網頁收回原本的分頁位置 */
+    onBrowserDock: (callback) => {
+      const handler = (_event, info) => callback(info)
+      ipcRenderer.on('browserPopout:dock', handler)
+      return () => ipcRenderer.removeListener('browserPopout:dock', handler)
+    },
     extensionActions: (guestId) => ipcRenderer.invoke('workspace:extensionActions', guestId),
     extensionActivate: (guestId, extensionId, anchor) => ipcRenderer.invoke('workspace:extensionActivate', guestId, extensionId, anchor),
     /** 擴充功能的圖示、徽章或安裝狀態變了 */
@@ -888,6 +894,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uffsEnsure: (opts) => ipcRenderer.invoke('explorer:uffsEnsure', opts),
     folderSize: (dirPath, token) => ipcRenderer.invoke('explorer:folderSize', dirPath, token),
     folderSizeCancel: (token) => ipcRenderer.invoke('explorer:folderSizeCancel', token),
+    /** 背景算子資料夾大小；lane 'main'｜'second'，同 lane 新的取消舊的 */
+    dirSizes: (dirPath, lane) => ipcRenderer.invoke('explorer:dirSizes', dirPath, lane),
+    dirSizesCancel: (lane) => ipcRenderer.invoke('explorer:dirSizesCancel', lane),
     onChanged: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('explorer:changed', handler)
@@ -897,6 +906,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('explorer:uffsProgress', handler)
       return () => ipcRenderer.removeListener('explorer:uffsProgress', handler)
+    },
+    onDirSizesProgress: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('explorer:dirSizesProgress', handler)
+      return () => ipcRenderer.removeListener('explorer:dirSizesProgress', handler)
     },
     onFolderSizeProgress: (callback) => {
       const handler = (_event, payload) => callback(payload)

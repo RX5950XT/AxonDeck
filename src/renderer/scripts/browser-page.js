@@ -34,16 +34,29 @@ let refreshActions = () => {}
 /** @param {string} id */
 const $ = (id) => document.getElementById(id)
 
-/** 只收 http(s)；沒打協定就補 https:// */
+/** 首頁與新分頁：Infinity New Tab Pro 的新分頁（擴充功能沒裝好時會開不起來） */
+const NEWTAB_URL = 'chrome-extension://nnnkddnnlpamobajfibfdgfnbcnkgngh/newtab/index.html'
+const isNewTab = (url) => url === NEWTAB_URL
+
+/** 只收 http(s)（加上上面那個新分頁）；沒打協定就補 https:// */
 function safeUrl(value) {
   const text = String(value || '').trim()
   if (!text) return ''
+  if (isNewTab(text)) return text
   try {
     const u = new URL(/^[a-z][\w+.-]*:/i.test(text) ? text : `https://${text}`)
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : ''
   } catch {
     return ''
   }
+}
+
+/** 網址列輸入：像網址就開網址，否則丟給 Google AI Mode 搜尋 */
+function urlOrSearch(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const looksLikeUrl = /^https?:\/\//i.test(text) || (!/\s/.test(text) && /^(localhost|[\w-]+(\.[\w-]+)+|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#].*)?$/i.test(text))
+  return looksLikeUrl ? safeUrl(text) : `https://www.google.com/search?udm=50&aep=11&q=${encodeURIComponent(text)}`
 }
 
 function hostOf(url) {
@@ -186,11 +199,11 @@ function ensureGuest(tab) {
   const id = tab.id
   const onNavigate = (event) => {
     const url = String(event.url || '')
-    if (!tabOf(id) || !/^https?:/i.test(url)) return
+    if (!tabOf(id) || !(/^https?:/i.test(url) || isNewTab(url))) return
     patchTab(id, { url })
     if (id === activeId) {
       const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
-      if (input && document.activeElement !== input) input.value = url
+      if (input && document.activeElement !== input) input.value = isNewTab(url) ? '' : url
       paintChrome()
     }
     save()
@@ -560,10 +573,34 @@ async function popout(id) {
     guestId = null // 還沒 attach：只帶網址
   }
   try {
-    if (await electronAPI.workspace.browserPopout(tab.url, tab.title, guestId)) closeTab(id)
+    // 記下原本的位置與群組；視窗最小化或關閉時 main 會叫我們收回（dock）
+    const saved = { index: tabs.findIndex((item) => item.id === id), group: groupOf(tab.group) }
+    if (await electronAPI.workspace.browserPopout(tab.url, tab.title, guestId, id)) {
+      slots.set(id, saved)
+      closeTab(id)
+    }
   } catch {
     showToast('開不了獨立視窗', 'error')
   }
+}
+
+/** 彈出去的分頁原本的位置：分頁代號 → { index, group } */
+const slots = new Map()
+
+/** 獨立視窗被最小化或關閉：網頁放回原本的位置與群組 @param {{ slot: number, url: string, title: string }} info */
+function dock({ slot, url, title }) {
+  const saved = slots.get(slot)
+  slots.delete(slot)
+  const href = safeUrl(url)
+  if (!href) return
+  // 彈出時那個群組只剩這一頁就被收掉了，連群組一起放回來
+  if (saved?.group && !groupOf(saved.group.id)) groups = [...groups, saved.group]
+  const tab = { id: ++seq, url: href, title: String(title || '').slice(0, 200), icon: '', group: saved?.group ? saved.group.id : 0 }
+  const at = Math.min(saved?.index ?? tabs.length, tabs.length)
+  tabs = [...tabs.slice(0, at), tab, ...tabs.slice(at)]
+  normalize()
+  save()
+  activate(tab.id)
 }
 
 /** @param {number} id */
@@ -588,8 +625,8 @@ function activate(id) {
   }
   const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
   if (input) {
-    input.value = tab?.url || ''
-    if (!tab?.url) input.focus() // 空白分頁：游標直接落在網址列
+    input.value = isNewTab(tab?.url) ? '' : tab?.url || ''
+    if (!input.value) input.focus() // 新分頁：游標直接落在網址列
   }
   setChatPaneMode('browser')
   paintChrome()
@@ -628,7 +665,7 @@ function closeOthers(keep) {
  * @param {number} [after] 放在哪個分頁後面
  */
 function newTab(url = '', group = 0, after = 0) {
-  const tab = { id: ++seq, url: safeUrl(url), title: '', icon: '', group: groupOf(group) ? group : 0 }
+  const tab = { id: ++seq, url: safeUrl(url) || NEWTAB_URL, title: '', icon: '', group: groupOf(group) ? group : 0 }
   const block = blockOf(tab.group)
   const anchor = after || (tab.group ? block[block.length - 1] : 0)
   tabs = [...tabs, tab]
@@ -640,7 +677,7 @@ function newTab(url = '', group = 0, after = 0) {
 
 function go() {
   const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
-  const href = safeUrl(input?.value)
+  const href = urlOrSearch(input?.value)
   if (!href) {
     showToast('只支援 http 與 https 的網址', 'error')
     return
@@ -720,13 +757,19 @@ function bindHoverExpand() {
     clearTimeout(timer)
     if (collapsible()) timer = window.setTimeout(() => setOpen(true), 60)
   })
-  sidebar.addEventListener('mouseleave', () => {
+  const resizer = $('chatSidebarResizer')
+  const closeSoon = () => {
     clearTimeout(timer)
     timer = window.setTimeout(() => {
       if (document.querySelector('.chat-menu') || sidebar.querySelector('.bt-rename')) return
+      // 拖寬度時游標會跑出側欄，拖完再收
+      if (document.body.classList.contains('is-col-resizing')) return closeSoon()
       setOpen(false)
     }, 250)
-  })
+  }
+  sidebar.addEventListener('mouseleave', closeSoon)
+  resizer?.addEventListener('mouseenter', () => clearTimeout(timer))
+  resizer?.addEventListener('mouseleave', closeSoon)
   // 點在蓋子上＝想操作網頁：直接收起
   frame?.addEventListener('pointerdown', (event) => {
     if (event.target !== frame || !frame.classList.contains('bt-cover')) return
@@ -744,6 +787,7 @@ function bind() {
   refreshActions = createBrowserActions($('browserActions'), activeGuestId)
   const list = $('browserTabList')
   if (list) bindListDrop(list)
+  electronAPI.workspace.onBrowserDock(dock)
   $('browserPinBtn')?.addEventListener('click', togglePinned)
   $('browserNewTabBtn')?.addEventListener('click', () => newTab())
   $('browserBackBtn')?.addEventListener('click', () => act('back'))
@@ -752,6 +796,11 @@ function bind() {
   $('browserExtBtn')?.addEventListener('click', (event) => {
     const { x, y, width, height } = /** @type {HTMLElement} */ (event.currentTarget).getBoundingClientRect()
     void electronAPI.workspace.extensionsMenu(activeGuestId(), { x, y, width, height })
+  })
+  $('browserExternalBtn')?.addEventListener('click', () => {
+    const href = tabOf(activeId)?.url || ''
+    if (href && !isNewTab(href)) void electronAPI.workspace.openExternal(href)
+    else showToast('這個分頁還沒有網址', 'error')
   })
   $('browserUrl')?.addEventListener('keydown', (event) => {
     if (event.isComposing || event.keyCode === 229) return // 輸入法選字的 Enter 不算

@@ -106,6 +106,7 @@ native/
 - 分頁、雙欄（作用欄＋各自分頁組）、首頁「本機」（插拔即時更新）、清單／方格（Ctrl+滾輪 48～256px）、每個資料夾記自己的檢視／大小／排序（`explorer.json` 的 `folderViews`）。
 - 刪除進系統回收筒、Ctrl+Z 復原、撞名可改名／略過／覆蓋（覆蓋先把舊的丟回收筒）、操作中心在狀態列。
 - 殼層 sidecar 提供原生右鍵（7-Zip／WinRAR／傳送到）、真縮圖＋Drive 綠勾、內容視窗、詳細資訊（EXIF／影音串流／版本）、手機 MTP。ZIP 唯讀瀏覽與解壓。
+- 「資料夾大小」開關（`explorer.json` 的 `folderSizes`）：`dir-sizes.js` 每欄一條 lane 背景用原生 `dir-size` 逐個算子資料夾（單個上限 20 秒，超過顯示「≥」，5 分鐘內不重算），`listDir` 帶 `dirSizes` 才套進 size 參與排序；renderer 收進度節流重拿已載入的頁。回歸 `test-explorer-dir-sizes.js`。
 - UFFS：進頁只準備授權，搜尋時才載索引，閒置 60 秒或 App 結束時休眠。
 
 ### 原生媒體播放器
@@ -161,7 +162,7 @@ native/
 - 切走時用 `opacity:0`＋`position:absolute` 藏（`display:none` 會丟圖塊，切回來卡頓）。
 
 ### 更新與安裝
-- 設定「安裝」分頁（`app-installer/`）：WinGet 用 node-pty 跑（管線模式不出進度），讀 OSC 9;4 百分比與「X MB / Y MB」；全部更新同時 3 筆、MSI 互撞（0x8A150102／1618）等 10 秒重試；0x8A15008E（新版換安裝技術）自動先移除再安裝；下載階段 10 分鐘沒進度就放棄。圖示另走 `appInstaller:icons`（不塞進每次進度通知）：登錄檔 DisplayIcon／MSI ProductIcon／安裝資料夾主程式／移除程式、MSIX 用 PackageManager logo、開始功能表 .lnk，最後退回 msiexec 通用圖示；未安裝的常用程式用 `site` favicon。
+- 設定「安裝」分頁（`app-installer/`）：WinGet 用 node-pty 跑（管線模式不出進度），讀 OSC 9;4 百分比與「X MB / Y MB」；全部更新同時 3 筆、MSI 互撞（0x8A150102／1618）等 10 秒重試；0x8A15008E（新版換安裝技術）自動先移除再安裝；下載階段 10 分鐘沒進度就放棄。`inventory.js` 用原始登錄檔／MSIX 補齊完整名稱、版本、架構與範圍，卡片 key 依安裝實例；移除精確指定 product code＋版本／scope，MSIX 指定 PackageFullName。移除程式不存在時改顯示「清除失效紀錄」：確認後備份至 `userData/app-installers/registry-backups`，再次核對紀錄與檔案，再刪單一登錄鍵，不刪程式檔案。圖示另走 `appInstaller:icons`（依卡片 key、不塞進進度通知）：`icons.js` 依序找 DisplayIcon（保留 index）、MSI ProductIcon、捷徑實際目標、安裝資料夾主程式、MSIX logo；ICO 真解碼、EXE/DLL 用殼層 `extractIcon`。拒絕通用／透明圖後找下一個，缺圖用發行者官網 favicon，離線失敗才用首字。回歸 `test-app-installer*.js`、真唯讀 `probe-app-installer*.js`、打包版 `e2e-app-installer-cdp.js`。
 - 功能頁 view：最大化／還原時 Windows 不一定發 resize，`page-windows.js` 在 maximize／unmaximize／restore 也重設尺寸；外殼（`?host=1`）標題列關掉拖曳區，否則它的拖曳區會吃掉功能頁導覽鈕的點擊；彈窗收回時主視窗正在顯示別頁就維持原畫面。
 - 手動「重新啟動並安裝」顯示進度、裝完自己開回；結束 App 時靜默安裝；關機／登出不安裝。
 - `electron:build` 走 `pack-preview.js --release`：先 `npm run lint` → 磁碟根完整 NSIS → 驗 asar／`app-update.yml`／latest.yml 雜湊 → 同步回 dist → 清理。

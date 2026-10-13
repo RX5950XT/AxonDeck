@@ -1070,6 +1070,8 @@ function attachWindowSecurity(win) {
     try {
       const url = new URL(params.src)
       if (url.protocol === 'http:' || url.protocol === 'https:' || url.href === 'about:blank') return
+      // Browser 模式的首頁／新分頁：Infinity New Tab Pro 自己的頁面（只放行這個擴充功能、這個 partition）
+      if (url.protocol === 'chrome-extension:' && url.hostname === NEWTAB_EXTENSION_ID && params.partition === 'persist:wsbrowser') return
     } catch { /* 無效網址一律拒絕 */ }
     event.preventDefault()
   })
@@ -2111,7 +2113,9 @@ registerExplorerIpc({
     uffsCancel: (...args) => loadExplorer().uffsCancel(...args),
     uffsEnsure: (...args) => loadExplorer().uffsEnsure(...args),
     folderSize: (...args) => loadExplorer().folderSize(...args),
-    folderSizeCancel: (...args) => loadExplorer().folderSizeCancel(...args)
+    folderSizeCancel: (...args) => loadExplorer().folderSizeCancel(...args),
+    dirSizesScan: (...args) => loadExplorer().dirSizesScan(...args),
+    dirSizesCancel: (...args) => loadExplorer().dirSizesCancel(...args)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2397,6 +2401,8 @@ app.on('child-process-gone', (_event, details) => {
 // 主視窗 webContents 上），一律在 app 層補上：http(s) 開成專案瀏覽器分頁，其餘擋掉。
 // 網頁版 AI 與工作區瀏覽器的分區（whenReady 時登記）：session → partition 名稱
 const aiWebPartitions = new Map()
+/** Browser 模式首頁／新分頁用的擴充功能（Infinity New Tab Pro）；renderer 的 browser-page.js 也寫了同一個 ID */
+const NEWTAB_EXTENSION_ID = 'nnnkddnnlpamobajfibfdgfnbcnkgngh'
 /** 工作區瀏覽器的 Chrome 擴充功能（whenReady 時建） @type {ReturnType<typeof import('./browser-extensions').createBrowserExtensions> | null} */
 let browserExtensions = null
 
@@ -2437,9 +2443,10 @@ ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor) => {
 })
 
 // Browser 模式的分頁彈出成獨立視窗（工作列顯示網頁標題）；給了 guestId 就連歷史、捲動、表單一起搬
-ipcMain.handle('workspace:browserPopout', async (event, url, title, guestId) => {
+ipcMain.handle('workspace:browserPopout', async (event, url, title, guestId, slot) => {
   if (!assertMainWindowSender(event) || typeof url !== 'string' || !isWebUrl(url)) return false
-  await browserWindow.open(url, typeof title === 'string' ? title.slice(0, 200) : '', senderGuest(event, guestId))
+  await browserWindow.open(url, typeof title === 'string' ? title.slice(0, 200) : '', senderGuest(event, guestId),
+    Number.isInteger(slot) && slot > 0 ? slot : 0)
   return true
 })
 
@@ -2572,8 +2579,14 @@ app.whenReady().then(() => {
       browserWindow.broadcast('browserWindow:extensionsChanged')
     }
   })
+  // uBlock Origin Lite、Raindrop.io、Infinity New Tab Pro、ScriptCat、Read Frog
+  const DEFAULT_EXTENSIONS = [
+    'ddkjiahejlhfcafbddmgiahcphecmpfh', 'ldgfbffkinooeloadekpmfoklnobpien', NEWTAB_EXTENSION_ID,
+    'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb'
+  ]
   browserExtensions.loadInstalled()
     .catch((error) => console.warn('[browser-ext] 載入失敗:', error))
+    .then(() => browserExtensions.ensureDefaults(DEFAULT_EXTENSIONS))
     .finally(() => browserExtensions.startAutoUpdate())
   // Grok 的 Cloudflare 擋 Electron：碰到驗證頁就請系統的 Edge／Chrome 過一次，把通行證帶回來（grok-clearance.js）
   const grokSes = session.fromPartition('persist:ai-grok')
@@ -2621,6 +2634,12 @@ app.whenReady().then(() => {
     preload: path.join(__dirname, '../preload/browser-window-preload.js'),
     secure: attachWindowSecurity,
     theme: () => store?.get('theme') || 'dark',
+    isQuitting: () => isQuitting || sessionEnding,
+    onDock: (info) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      sendToPages('browserPopout:dock', info)
+      showMainWindow()
+    },
     attach: (contents, win) => {
       browserExtensions?.attachTab(contents, win)
       attachWebMenu(contents, () => (win.isDestroyed() ? null : win), true)

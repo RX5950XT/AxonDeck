@@ -3444,6 +3444,13 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   background: var(--bg-hover);
 }
 
+.ws-browser-action.dragging {
+  background: var(--bg-hover);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.35);
+  transform-origin: center;
+  user-select: none;
+}
+
 .ws-browser-action img {
   width: 16px;
   height: 16px;
@@ -4077,6 +4084,29 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
 
 .chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) :is(.sidebar-modes, .bt-head) {
   visibility: hidden;
+}
+
+/* 展開時才露出拖曳把手，移到展開後側欄的右緣；拖的時候關掉寬度動畫才跟手 */
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar.bt-open + #chatSidebarResizer {
+  display: block;
+  position: relative;
+  z-index: 31;
+  transform: translateX(calc(var(--chat-sidebar-w, 240px) - 48px));
+}
+
+/* 要壓過上面沒固定時那條 transition（權重比它高才生效） */
+body.is-col-resizing .chat-layout.is-browser.sidebar-browser .chat-sidebar.chat-sidebar {
+  transition: none;
+}
+
+/* Browser 的把手不上色，只靠游標變形提示 */
+.chat-layout.is-browser #chatSidebarResizer {
+  background: transparent;
+}
+
+/* 拖過網頁時 webview 會把游標事件吃掉，拖到一半就卡住；拖的時候先讓它不收事件 */
+body.is-col-resizing webview {
+  pointer-events: none;
 }
 
 /* 展開時蓋在網頁上的透明層（見 browser-page.js 的 bindHoverExpand） */
@@ -13733,7 +13763,8 @@ h6.md-h { font-size: 14px; }
 .ex-search-filter-popover .input,
 .ex-search-filter-popover .select { width: 100%; min-width: 0; }
 
-.ex-toolbar-actions #exDualBtn[aria-pressed="true"] {
+.ex-toolbar-actions #exDualBtn[aria-pressed="true"],
+.ex-toolbar-actions #exFolderSizesBtn[aria-pressed="true"] {
   border-color: var(--accent-primary);
   background: var(--accent-soft);
   color: var(--text-primary);

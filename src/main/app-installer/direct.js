@@ -46,7 +46,8 @@ async function resolveSource(kind) {
     const config = NVIDIA[kind]
     const match = (await metadata(config.page)).match(config.pattern)
     if (!match) throw failure('SOURCE_CHANGED', 'NVIDIA 下載頁已變更，目前無法取得安裝檔。')
-    return { version: match[1], url: match[0], publisher: 'NVIDIA Corporation', args: ['-s', '-noreboot'], elevate: true }
+    const mirrors = ['us', 'international', 'uk'].map((host) => match[0].replace(/^https:\/\/[a-z]+\.download/, `https://${host}.download`))
+    return { version: match[1], url: match[0], mirrors, publisher: 'NVIDIA Corporation', args: ['-s', '-noreboot'], elevate: true }
   }
   if (kind === 'rustdesk') {
     const release = JSON.parse(await metadata('https://api.github.com/repos/rustdesk/rustdesk/releases/latest'))
@@ -76,40 +77,116 @@ async function resolveZlibrary() {
     mirrors: [`https://s3proxy.cdn-zlib.sk/te_public_files/soft/desktop/${file}`], args: ['/S'], elevate: false }
 }
 
+const MAX_SIZE = 2 * 1024 ** 3, PROBE = 1024 ** 2, SEGMENT_MIN = 16 * 1024 ** 2, CHUNK = 8 * 1024 ** 2, WORKERS = 16, CHUNK_ATTEMPTS = 3
+
 async function download(source, filename, progress) {
-  const urls = [...new Set([source.url, ...(source.mirrors || [])])]
-  for (let i = 0; i < urls.length; i++) {
-    try { return await downloadOne({ ...source, url: urls[i] }, filename, progress) }
-    catch (error) {
-      if (i === urls.length - 1 || error.code === 'EEXIST') throw error
+  const nodes = await rankNodes([...new Set([source.url, ...(source.mirrors || [])])])
+  for (let i = 0; i < nodes.length; i++) {
+    try {
+      const node = nodes[i]
+      if (node.total > SEGMENT_MIN) await downloadSegments(node, filename, progress)
+      else await downloadOne(node.url, filename, progress)
+      await verifyChecksum(filename, source)
+      if (source.publisher) await verifyPublisher(filename, source.publisher)
+      return
+    } catch (error) {
+      if (i === nodes.length - 1 || error.code === 'EEXIST') throw error
       await fs.promises.unlink(filename).catch((err) => { if (err.code !== 'ENOENT') throw err })
     }
   }
 }
 
-async function downloadOne(source, filename, progress) {
-  const response = await fetch(source.url, { signal: AbortSignal.timeout(30 * 60 * 1000) })
+// 每個節點同時抓開頭 1 MB 測速，最快的先用；測不到的排最後當備援。
+async function rankNodes(urls) {
+  const probes = await Promise.all(urls.map(async (url) => {
+    const started = Date.now()
+    try {
+      const response = await fetch(url, { headers: { Range: `bytes=0-${PROBE - 1}` }, signal: AbortSignal.timeout(8000) })
+      if (!response.ok || !response.url.startsWith('https:')) { await response.body?.cancel(); return { url, speed: -1 } }
+      const total = response.status === 206 ? Number(response.headers.get('content-range')?.match(/\/(\d+)$/)?.[1]) || 0 : 0
+      let bytes = 0
+      for await (const chunk of response.body) { bytes += chunk.length; if (bytes >= PROBE) break }
+      return { url, final: response.url, total, speed: bytes / Math.max(1, Date.now() - started) }
+    } catch { return { url, speed: -1 } }
+  }))
+  return probes.sort((a, b) => b.speed - a.speed)
+}
+
+// 支援分段的伺服器：切成 8 MB 小塊，最多 16 條連線輪流領取；單塊失敗重抓，不拖累整體（GitHub 這類單線限速的來源可快數倍）。
+async function downloadSegments(node, filename, progress) {
+  const { final: url, total } = node
+  if (total > MAX_SIZE) throw failure('DOWNLOAD_LIMIT', '安裝檔超過下載大小上限。')
+  const chunks = []
+  for (let start = 0; start < total; start += CHUNK) chunks.push([start, Math.min(total, start + CHUNK) - 1])
+  const controller = new AbortController(), file = await fs.promises.open(filename, 'wx')
+  const state = { received: 0, last: 0, total, progress }
+  let firstError
+  const worker = async () => {
+    while (chunks.length && !firstError) {
+      const [start, end] = chunks.shift()
+      for (let attempt = 1; ; attempt++) {
+        try { await fetchChunk(url, start, end, file, state, controller.signal); break }
+        catch (error) {
+          if (attempt >= CHUNK_ATTEMPTS || controller.signal.aborted) { firstError ??= error; controller.abort(); return }
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(WORKERS, chunks.length) }, worker))
+  await file.close()
+  if (firstError) throw firstError
+}
+
+async function fetchChunk(url, start, end, file, state, abort) {
+  const signal = AbortSignal.any([abort, AbortSignal.timeout(10 * 60 * 1000)])
+  const response = await fetch(url, { headers: { Range: `bytes=${start}-${end}` }, signal })
+  if (response.status !== 206 || response.headers.get('content-range') !== `bytes ${start}-${end}/${state.total}`) {
+    await response.body?.cancel()
+    throw failure('DOWNLOAD_FAILED', '安裝檔下載失敗，請稍後重試。')
+  }
+  let position = start
+  try {
+    for await (const chunk of response.body) {
+      if (position + chunk.length > end + 1) throw failure('DOWNLOAD_FAILED', '安裝檔下載失敗，請稍後重試。')
+      await file.write(chunk, 0, chunk.length, position)
+      position += chunk.length
+      state.received += chunk.length
+      if (Date.now() - state.last > 400) { state.progress(Math.min(99, Math.floor(state.received / state.total * 100))); state.last = Date.now() }
+    }
+    if (position !== end + 1) throw failure('DOWNLOAD_FAILED', '安裝檔下載不完整，請稍後重試。')
+  } catch (error) {
+    state.received -= position - start // 重抓時進度不重複計算
+    throw error
+  }
+}
+
+async function downloadOne(url, filename, progress) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(30 * 60 * 1000) })
   if (!response.ok || !response.url.startsWith('https:')) throw failure('DOWNLOAD_FAILED', '安裝檔下載失敗，請稍後重試。')
   const total = Number(response.headers.get('content-length')) || 0
   let received = 0, last = 0
-  const hash = crypto.createHash(source.sha512 ? 'sha512' : 'sha256')
   const meter = new Transform({ transform(chunk, _encoding, done) {
     received += chunk.length
-    if (received > 2 * 1024 ** 3) return done(failure('DOWNLOAD_LIMIT', '安裝檔超過下載大小上限。'))
-    hash.update(chunk)
+    if (received > MAX_SIZE) return done(failure('DOWNLOAD_LIMIT', '安裝檔超過下載大小上限。'))
     if (Date.now() - last > 400) { progress(total ? Math.min(99, Math.floor(received / total * 100)) : null); last = Date.now() }
     done(null, chunk)
   } })
   await pipeline(Readable.fromWeb(response.body), meter, fs.createWriteStream(filename, { flags: 'wx' }))
+}
+
+async function verifyChecksum(filename, source) {
   const expected = source.sha512 || source.sha256
-  if (expected && hash.digest(source.sha512 ? 'base64' : 'hex') !== expected) throw failure('CHECKSUM', '安裝檔校驗失敗，未執行安裝。請重新下載。')
-  if (source.publisher) await verifyPublisher(filename, source.publisher)
+  if (!expected) return
+  const hash = crypto.createHash(source.sha512 ? 'sha512' : 'sha256')
+  for await (const chunk of fs.createReadStream(filename)) hash.update(chunk)
+  if (hash.digest(source.sha512 ? 'base64' : 'hex') !== expected) throw failure('CHECKSUM', '安裝檔校驗失敗，未執行安裝。請重新下載。')
 }
 
 async function verifyPublisher(filename, publisher) {
   const script = "$s=Get-AuthenticodeSignature -LiteralPath $env:AXON_INSTALL_FILE; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch ('(^|, )CN='+[regex]::Escape($env:AXON_INSTALL_PUBLISHER)+'(,|$)')) {exit 1}"
   const result = await run(powershellPath(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
-    env: { ...process.env, AXON_INSTALL_FILE: filename, AXON_INSTALL_PUBLISHER: publisher }
+    // 不繼承 pwsh 7 的 PSModulePath，否則 Windows PowerShell 載不到 Get-AuthenticodeSignature。
+    env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH')), AXON_INSTALL_FILE: filename, AXON_INSTALL_PUBLISHER: publisher }
   })
   if (result.code !== 0) throw failure('SIGNATURE', '安裝檔的官方數位簽章無法驗證，未執行安裝。')
 }

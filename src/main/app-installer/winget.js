@@ -1,6 +1,5 @@
 'use strict'
 
-const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -103,125 +102,14 @@ async function list() {
 
 function actionArgs(action, target) {
   if (!['install', 'upgrade', 'uninstall'].includes(action)) throw failure('INVALID', '不支援的操作。')
-  const args = [action, '--id', target.id, '--exact', '--silent', '--disable-interactivity', '--accept-source-agreements']
+  const selector = action === 'uninstall' && target.productCode ? ['--product-code', target.productCode] : ['--id', target.id]
+  const args = [action, ...selector, '--exact', '--silent', '--disable-interactivity', '--accept-source-agreements']
+  if (action === 'uninstall' && target.version && !/^(Unknown|<)/i.test(target.version)) args.push('--version', target.version)
+  if (target.scope) args.push('--scope', target.scope)
+  if (action === 'upgrade' && /^(x86|x64|arm64)$/.test(target.architecture)) args.push('--architecture', target.architecture)
   if (action !== 'uninstall') args.push('--accept-package-agreements')
   if (target.source) args.push('--source', target.source)
   return args
 }
 
-// 已安裝程式的圖示：登錄檔 DisplayIcon／MSI ProductIcon／安裝資料夾主程式／移除程式，
-// Store／MSIX 套件用套件 logo；都沒有就用 Windows Installer 的通用圖示。
-const ICON_SCRIPT = String.raw`[Console]::OutputEncoding=[Text.Encoding]::UTF8
-$keys = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
-Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | ForEach-Object { 'R',$_.DisplayName,$_.PSChildName,$_.DisplayIcon,$_.InstallLocation,$_.UninstallString -join [char]9 }
-Get-ItemProperty 'HKLM:\Software\Classes\Installer\Products\*' -ErrorAction SilentlyContinue | Where-Object { $_.ProductName -and $_.ProductIcon } | ForEach-Object { 'R',$_.ProductName,'',$_.ProductIcon,'','' -join [char]9 }
-try {
-  $null = [Windows.Management.Deployment.PackageManager, Windows.Management.Deployment, ContentType = WindowsRuntime]
-  foreach ($p in (New-Object Windows.Management.Deployment.PackageManager).FindPackagesForUser('')) {
-    $name = ''; $logo = ''
-    try { $name = $p.DisplayName } catch {}
-    try { $logo = $p.Logo.LocalPath } catch {}
-    'A',$name,$p.Id.FullName,$logo -join [char]9
-  }
-} catch {}`
-const GENERIC_ICON = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'msiexec.exe')
-
-const fileOf = (raw) => (raw || '').trim().replace(/^"([^"]+)".*$/, '$1').replace(/,\s*-?\d+$/, '')
-const isIconFile = (file) => /^[a-z]:\\.+\.(?:exe|ico|dll)$/i.test(file)
-
-// 沒有 DisplayIcon（常見於 MSI）時，從安裝資料夾挑名稱最像的主程式。
-function mainExe(location, name) {
-  if (!/^[a-z]:\\/i.test(location)) return ''
-  const word = name.toLowerCase().split(/\s+/)[0]
-  for (const dir of [location, path.join(location, 'bin')]) {
-    let files
-    try { files = fs.readdirSync(dir).filter((file) => /\.exe$/i.test(file) && !/unins|setup|update|crash|helper/i.test(file)) } catch { continue }
-    const pick = files.find((file) => file.toLowerCase().startsWith(word)) || (files.length === 1 ? files[0] : '')
-    if (pick) return path.join(dir, pick)
-  }
-  return ''
-}
-
-// 套件 logo 常只寫基本名，實際檔案帶 scale-100／targetsize-48 等後綴
-function packageLogo(file) {
-  if (!/^[a-z]:\\.+\.png$/i.test(file)) return ''
-  if (fs.existsSync(file)) return file
-  const dir = path.dirname(file), base = path.basename(file, '.png').toLowerCase()
-  let files
-  try { files = fs.readdirSync(dir) } catch { return '' }
-  const variants = files.filter((name) => name.toLowerCase().startsWith(`${base}.`) && name.toLowerCase().endsWith('.png') && !/contrast|altform-unplated_contrast/i.test(name))
-  const pick = variants.find((name) => /scale-200|targetsize-48\b/i.test(name)) || variants.find((name) => /scale-100|targetsize-32\b/i.test(name)) || variants[0]
-  return pick ? path.join(dir, pick) : ''
-}
-
-// 開始功能表捷徑（.lnk 的圖示就是目標程式的圖示），補 MSI 沒寫圖示的工具，例如 Node.js
-function startMenuLinks() {
-  const roots = [path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
-    path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs')]
-  const links = []
-  const walk = (dir, depth) => {
-    let items
-    try { items = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
-    for (const item of items) {
-      if (item.isDirectory() && depth < 2) walk(path.join(dir, item.name), depth + 1)
-      else if (/\.lnk$/i.test(item.name) && !/uninstall|解除安裝|readme|documentation|website|help/i.test(item.name)) {
-        links.push({ name: item.name.slice(0, -4).toLowerCase(), folder: path.basename(dir).toLowerCase(), file: path.join(dir, item.name) })
-      }
-    }
-  }
-  for (const root of roots) walk(root, 0)
-  return links
-}
-
-function linkFor(links, name) {
-  const lower = name.toLowerCase().replace(/[…\u2026]$/, '').trim()
-  const short = lower.split(/\s+/).slice(0, 2).join(' ')
-  if (short.length < 3) return ''
-  return (links.find((link) => link.name === lower) || links.find((link) => link.name.startsWith(short)) ||
-    links.find((link) => link.folder.startsWith(short) && link.name.startsWith(short.split(' ')[0])))?.file || ''
-}
-
-function registryIcon(entry) {
-  const icon = fileOf(entry.icon)
-  if (isIconFile(icon)) return icon
-  const exe = mainExe(entry.location, entry.name)
-  if (exe) return exe
-  const uninstaller = fileOf(entry.uninstall)
-  return isIconFile(uninstaller) && !/msiexec/i.test(uninstaller) ? uninstaller : ''
-}
-
-function parseIcons(text) {
-  const byName = new Map(), byKey = new Map(), packages = new Map(), packageNames = new Map(), names = []
-  for (const line of text.split(/\r?\n/)) {
-    const [kind, name = '', key = '', icon = '', location = '', uninstall = ''] = line.split('\t').map((part) => part.trim())
-    if (kind === 'A') {
-      const logo = packageLogo(icon)
-      if (!logo) continue
-      packages.set(key.toLowerCase(), logo)
-      if (name && !/^ms-resource:/i.test(name) && !packageNames.has(name)) packageNames.set(name, logo)
-      continue
-    }
-    if (kind !== 'R' || !name) continue
-    const file = registryIcon({ name, icon, location, uninstall })
-    if (key && file) byKey.set(key.toLowerCase(), file)
-    if (!file || byName.has(name)) continue
-    byName.set(name, file)
-    names.push(name)
-  }
-  const links = startMenuLinks()
-  return (row) => {
-    const id = String(row.id || '')
-    const name = String(row.name || '')
-    const key = /^ARP\\/i.test(id) ? id.split('\\').pop().toLowerCase() : ''
-    const prefix = String(row.name || '').replace(/[…\u2026]$/, '').trim()
-    return (/^MSIX\\/i.test(id) && packages.get(id.slice(5).toLowerCase())) || (key && byKey.get(key)) || byName.get(name) || packageNames.get(name) ||
-      (prefix.length >= 4 && byName.get(names.find((item) => item.startsWith(prefix)))) || linkFor(links, name) || GENERIC_ICON
-  }
-}
-
-async function displayIcons() {
-  const result = await run(powershellPath(), ['-NoProfile', '-NonInteractive', '-Command', ICON_SCRIPT], { timeout: 60000 })
-  return parseIcons(result.output)
-}
-
-module.exports = { failure, run, runPty, displayIcons, parseIcons, wingetPath, powershellPath, parseList, list, actionArgs }
+module.exports = { failure, run, runPty, wingetPath, powershellPath, parseList, list, actionArgs }

@@ -221,6 +221,26 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     }
   }
 
+  /**
+   * 預設擴充功能：每個 ID 只自動裝一次（記在 `.defaults-seeded`），使用者之後移除就不再裝回來。
+   * 下載失敗（沒網路）不記，下次啟動再試。
+   * @param {string[]} ids
+   */
+  async function ensureDefaults(ids) {
+    const file = path.join(dir, '.defaults-seeded')
+    let seeded = []
+    try { seeded = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { /* 第一次 */ }
+    for (const id of ids.filter((x) => !seeded.includes(x))) {
+      try {
+        if (!exts.getExtension(id)) await install(id)
+        seeded = [...seeded, id]
+        fs.writeFileSync(file, JSON.stringify(seeded))
+      } catch (error) {
+        console.warn('[browser-ext] 預設擴充功能安裝失敗:', id, error?.message || error)
+      }
+    }
+  }
+
   /** @param {string} id */
   function remove(id) {
     if (!ID_RE.test(id)) return
@@ -349,7 +369,7 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     try { return crx.getContextMenuItems(contents, params) } catch { return [] }
   }
 
-  return { loadInstalled, install, remove, list, attachTab, menuItems, contextMenuItems, activate, actions, checkUpdates, startAutoUpdate }
+  return { loadInstalled, ensureDefaults, install, remove, list, attachTab, menuItems, contextMenuItems, activate, actions, checkUpdates, startAutoUpdate }
 }
 
 module.exports = { createBrowserExtensions, storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml, STORE_HOME }

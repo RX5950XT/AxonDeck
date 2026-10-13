@@ -103,6 +103,12 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('explorer:folderSizeCancel', (event, token) => (
     invoke(event, () => service.folderSizeCancel(token))
   ))
+  ipcMain.handle('explorer:dirSizes', (event, dirPath, lane) => (
+    invoke(event, () => service.dirSizesScan(dirPath, lane))
+  ))
+  ipcMain.handle('explorer:dirSizesCancel', (event, lane) => (
+    invoke(event, () => service.dirSizesCancel(lane))
+  ))
 }
 
 module.exports = { registerExplorerIpc }

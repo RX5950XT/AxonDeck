@@ -56,6 +56,10 @@ let options = {
   preload: '',
   secure: (_win) => {},
   theme: () => 'dark',
+  /** App 正在結束：關視窗不要收回 */
+  isQuitting: () => false,
+  /** 最小化或關閉時把網頁收回 Browser 模式 @type {(info: { slot: number, url: string, title: string }) => void} */
+  onDock: (_info) => {},
   /** 掛右鍵選單、擴充功能 @type {(contents: Electron.WebContents, win: BrowserWindow) => void} */
   attach: (_contents, _win) => {}
 }
@@ -94,8 +98,9 @@ async function snapshot(guest) {
  * @param {string} url 已確認是 http(s)
  * @param {string} [title]
  * @param {Electron.WebContents | null} [guest] 原分頁的 webview：有給就把歷史與狀態一起搬過去
+ * @param {number} [slot] 原分頁在 Browser 模式的位置代號：收回時 renderer 靠它放回原處
  */
-async function open(url, title = '', guest = null) {
+async function open(url, title = '', guest = null, slot = 0) {
   const state = await snapshot(guest)
   const light = options.theme() === 'light'
   const win = new BrowserWindow({
@@ -152,6 +157,15 @@ async function open(url, title = '', guest = null) {
   bar.on('did-finish-load', push)
   // 工具列頁自己的 <title> 不可以蓋掉視窗標題（工作列要顯示網頁名稱）
   bar.on('page-title-updated', (event) => event.preventDefault())
+  // 最小化或關閉＝收回原本的分頁位置（最小化是把視窗關掉，不留一扇縮在工作列的窗）
+  let docked = false
+  win.on('minimize', () => win.close())
+  win.on('close', () => {
+    if (docked || options.isQuitting() || !slot || page.isDestroyed()) return
+    docked = true
+    const current = page.getURL()
+    options.onDock({ slot, url: isWebUrl(current) ? current : url, title: win.getTitle() })
+  })
   win.on('closed', () => {
     entries.delete(barId)
     if (!page.isDestroyed()) page.close()

@@ -21,6 +21,7 @@ const recycle = require('./recycle')
 const places = require('./places')
 const shellExt = require('./shell')
 const size = require('./size')
+const dirSizes = require('./dir-sizes')
 const nativeProbe = require('../native-probe')
 const operations = require('./operations')
 const zipOps = require('./zip-ops')
@@ -555,8 +556,21 @@ function folderSizeCancel(token) {
   return size.folderSizeCancel(token)
 }
 
+function dirSizesScan(dirPath, lane) {
+  return dirSizes.scan(dirPath, lane, {
+    exe: nativeProbe.resolveProbeExe(),
+    onProgress: (info) => emit('explorer:dirSizesProgress', info)
+  })
+}
+
+function dirSizesCancel(lane) {
+  return dirSizes.cancel(lane)
+}
+
 function shutdown() {
   size.folderSizeCancel()
+  dirSizes.cancel('main')
+  dirSizes.cancel('second')
   watch.stop()
   shellExt.shutdown()
   return uffs.shutdown()
@@ -843,5 +857,7 @@ module.exports = {
   uffsCancel,
   uffsEnsure,
   folderSize,
-  folderSizeCancel
+  folderSizeCancel,
+  dirSizesScan,
+  dirSizesCancel
 }

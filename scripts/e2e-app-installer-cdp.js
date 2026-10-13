@@ -69,12 +69,25 @@ async function main() {
     await waitFor(() => ui.eval('!!window.electronAPI?.pages'), 'preload')
     const navigation = await ui.eval("window.electronAPI.pages.navigate({page:'settings',subtab:'install'})")
     assert.equal(navigation.ok, true)
-    await waitFor(() => ui.eval("document.querySelector('#set-install.active') && document.querySelectorAll('[data-catalog]').length===18"), 'catalog')
+    await waitFor(() => ui.eval("document.querySelector('#set-install.active') && document.querySelectorAll('[data-catalog]').length===20"), 'catalog')
     await waitFor(() => ui.eval("window.electronAPI.appInstaller.status().then(r=>r.ok && r.data.checkedAt && !r.data.scanning)"), 'real scan')
     const live = await ui.eval('window.electronAPI.appInstaller.status().then(r=>({count:r.data.installed.length,catalog:r.data.catalog.length,errors:r.data.catalog.filter(x=>x.sourceError).map(x=>x.name)}))')
-    assert.equal(live.catalog, 18); assert.ok(live.count > 0); assert.deepEqual(live.errors, [])
+    assert.equal(live.catalog, 20); assert.ok(live.count > 0); assert.deepEqual(live.errors, [])
     console.log('PASS real packaged IPC inventory', JSON.stringify(live))
     const realState = await ui.eval('window.electronAPI.appInstaller.status().then(r=>r.data)')
+    assert.equal(new Set(realState.installed.map((row) => row.key)).size, realState.installed.length)
+    assert.ok(!realState.installed.some((row) => /同一套件有多筆/.test(row.note)))
+    const directx = realState.installed.filter((row) => row.name === 'DirectX')
+    if (directx.length > 1) assert.equal(new Set(directx.map((row) => row.architecture)).size, directx.length)
+    const missing = realState.installed.filter((row) => row.canCleanup)
+    assert.ok(missing.every((row) => !row.canUninstall && /遺失/.test(row.note)))
+    await waitFor(() => ui.eval('window.electronAPI.appInstaller.status().then(r=>r.data.iconsStamp>0)'), 'real icons')
+    const realIcons = await ui.eval('window.electronAPI.appInstaller.icons().then(r=>r.data)')
+    for (const name of ['Git', 'Epic Games Launcher', 'Corsair iCUE5 Software', 'Bambu Studio', 'Meta Horizon Link', 'RustDesk']) {
+      const row = realState.installed.find((item) => item.name === name)
+      if (row) assert.ok(realIcons[row.key]?.startsWith('data:image/'), `${name} local logo`)
+    }
+    console.log('PASS unique install identities, architecture, missing-uninstaller state, real decoded logos', Object.keys(realIcons).length)
     const invalid = await ui.eval("window.electronAPI.appInstaller.start({action:'install',key:'not-a-package'})")
     assert.equal(invalid.ok, false)
     await ui.eval("document.querySelector('[data-filter=installed]').click(); document.querySelector('#installSearch').value='NVIDIA'; document.querySelector('#installSearch').dispatchEvent(new Event('input'))")
@@ -84,6 +97,9 @@ async function main() {
     await ui.eval("document.querySelector('[data-filter=installed]').click(); document.querySelector('[data-category=\"開發工具\"]').click()")
     assert.ok(await ui.eval("[...document.querySelectorAll('#installList .install-row')].every(x=>x.querySelector('.install-meta').textContent==='開發工具')"))
     await ui.eval("document.querySelector('[data-category=\"\"]').click()")
+    assert.ok(realState.installed.every((row) => realIcons[row.key] || row.site), 'every real row has a local logo or publisher logo')
+    await ui.eval("document.querySelectorAll('#installList img').forEach(img=>img.loading='eager')")
+    await waitFor(() => ui.eval("[...document.querySelectorAll('#installList .install-logo')].every(box=>box.querySelector('img')?.naturalWidth>0)"), 'all local and publisher logos loaded')
     console.log('PASS installed search, available updates, category filter, invalid request rejected')
 
     // 替換的只有測試程序的 IPC；production module 另有真執行邏輯測試。
@@ -96,7 +112,7 @@ async function main() {
       ipcMain.handle('appInstaller:upgradeAll',()=>{globalThis.installerCalls.push({action:'upgradeAll'});return {ok:true,data:{count:1}}});
       ipcMain.handle('appInstaller:status',()=>({ok:true,data:globalThis.installerState}));
       ipcMain.handle('appInstaller:refresh',()=>({ok:true,data:globalThis.installerState}));
-      ipcMain.handle('appInstaller:start',(_e,r)=>{globalThis.installerCalls.push(r); globalThis.installerState={...globalThis.installerState,busy:true,jobs:[{id:'qa-job',name:'QA 測試程式',action:r.action,phase:'running',message:'測試背景進度',progress:42}]};globalThis.emitInstaller();return {ok:true,data:{id:'qa-job'}}});
+      ipcMain.handle('appInstaller:start',(_e,r)=>{globalThis.installerCalls.push(r); globalThis.installerState={...globalThis.installerState,busy:true,jobs:[{id:'qa-job',key:r.key,name:'QA 測試程式',action:r.action,phase:'running',message:'測試背景進度',progress:42}]};globalThis.emitInstaller();return {ok:true,data:{id:'qa-job'}}});
       globalThis.emitInstaller(); return true;
     })()`)
     await ui.eval("document.querySelector('[data-filter=catalog]').click(); document.querySelector('#installList button').click()")
@@ -121,7 +137,17 @@ async function main() {
     await waitFor(() => mainCdp.eval("globalThis.installerCalls.at(-1)?.action==='upgradeAll'"), 'upgrade all')
     console.log('PASS install/update controls, cancellation, background progress, failure UI, repeat-click lock, upgrade all')
 
-    await mainCdp.eval(`globalThis.installerState=${JSON.stringify(realState)};globalThis.emitInstaller();process.mainModule.require('electron').BrowserWindow.getAllWindows().filter(w=>w.webContents.getURL().includes('host=1')).forEach(w=>w.showInactive())`)
+    await mainCdp.eval("globalThis.installerState={...globalThis.installerState,checkedAt:Date.now(),jobs:[],installed:[{key:'qa-stale',name:'QA 遺失移除程式',version:'1',canCleanup:true,note:'解除安裝程式已遺失'}]};globalThis.emitInstaller()")
+    await ui.eval("document.querySelector('[data-filter=installed]').click()")
+    await waitFor(() => ui.eval("document.querySelector('#installList button')?.textContent==='清除失效紀錄'"), 'cleanup control')
+    await ui.eval("document.querySelector('#installList button').click()")
+    await waitFor(() => ui.eval("document.querySelector('dialog[open]')?.textContent.includes('不刪除程式檔案')"), 'cleanup confirmation')
+    await ui.eval("document.querySelector('dialog[open] .btn-danger').click()")
+    await waitFor(() => mainCdp.eval("globalThis.installerCalls.at(-1)?.action==='cleanup'"), 'cleanup selected identity')
+    assert.equal(await mainCdp.eval('globalThis.installerCalls.at(-1).key'), 'qa-stale')
+    console.log('PASS cleanup confirmation and precise selected key (mock only)')
+
+    await mainCdp.eval(`globalThis.installerState=${JSON.stringify({ ...realState, iconsStamp: 999 })};globalThis.emitInstaller();process.mainModule.require('electron').BrowserWindow.getAllWindows().filter(w=>w.webContents.getURL().includes('host=1')).forEach(w=>w.showInactive())`)
     await ui.eval("document.querySelector('[data-filter=catalog]').click()")
     await ui.send('Emulation.setFocusEmulationEnabled', { enabled: true })
     for (const width of [1200, 650]) {
@@ -131,6 +157,16 @@ async function main() {
       if (process.env.INSTALLER_SCREENSHOTS) {
         const capture = await ui.send('Page.captureScreenshot', { format: 'png' })
         fs.writeFileSync(path.join(process.env.INSTALLER_SCREENSHOTS, `installer-${width}.png`), capture.data, 'base64')
+      }
+    }
+    await ui.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false })
+    for (const [filter, query, label] of [['updates', '', 'updates'], ['installed', 'DirectX', 'directx'], ['installed', '.NET SDK', 'sdk'], ['installed', '雷電', 'missing']]) {
+      await ui.eval(`document.querySelector('[data-filter=${filter}]').click();document.querySelector('#installSearch').value=${JSON.stringify(query)};document.querySelector('#installSearch').dispatchEvent(new Event('input'));document.querySelector('#settingsScroll').scrollTop=0`)
+      await waitFor(() => ui.eval("[...document.querySelectorAll('#installList img')].every(img=>img.naturalWidth>0)"), label + ' logos')
+      assert.ok(await ui.eval("[...document.querySelectorAll('#installList h3')].every(title=>title.scrollHeight<=title.clientHeight+1)"), 'full names visible')
+      if (process.env.INSTALLER_SCREENSHOTS) {
+        const capture = await ui.send('Page.captureScreenshot', { format: 'png' })
+        fs.writeFileSync(path.join(process.env.INSTALLER_SCREENSHOTS, `installer-${label}.png`), capture.data, 'base64')
       }
     }
     assert.deepEqual(ui.exceptions, [])

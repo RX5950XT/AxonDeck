@@ -20,7 +20,7 @@
 .install-logo { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--surface-hover); color: var(--text-secondary); font-size: 14px; font-weight: 600; overflow: hidden; }
 .install-logo img { width: 28px; height: 28px; object-fit: contain; }
 .install-batch strong { font-variant-numeric: tabular-nums; }
-.install-name { font-size: 14px; font-weight: 600; margin: 0 0 4px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.install-name { font-size: 14px; font-weight: 600; margin: 0 0 4px; line-height: 1.4; overflow-wrap: anywhere; }
 .install-meta, .install-version { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); overflow-wrap: anywhere; }
 .install-version { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .install-actions { display: flex; flex-wrap: wrap; gap: 6px; }

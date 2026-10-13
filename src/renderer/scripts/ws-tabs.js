@@ -2691,7 +2691,10 @@ function navigateBrowser() {
   if (!tab || tab.kind !== 'browser' || !input) return
   const guest = ensureBrowserGuest(tab)
   if (!guest) return
-  const href = safeUrl(input.value)
+  // 有空白、或沒有 . : / 的字（localhost 除外）當搜尋，交給 Google AI Mode
+  const text = input.value.trim()
+  const isSearch = text && (/\s/.test(text) || !(/[.:/]/.test(text) || /^localhost/i.test(text)))
+  const href = isSearch ? `https://www.google.com/search?udm=50&aep=11&q=${encodeURIComponent(text)}` : safeUrl(text)
   if (!href) {
     showToast('只支援 http 與 https 的網址', 'error')
     return
@@ -3591,7 +3594,6 @@ export function initWsTabs() {
     }
   })
 
-  document.getElementById('wsBrowserGoBtn')?.addEventListener('click', navigateBrowser)
   el.browserBackBtn?.addEventListener('click', () => browserAction('back'))
   el.browserFwdBtn?.addEventListener('click', () => browserAction('forward'))
   el.browserReloadBtn?.addEventListener('click', () => browserAction('reload'))

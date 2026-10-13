@@ -69,7 +69,7 @@ async function main() {
   await assert.rejects(service.refresh())
   assert.ok(!service.snapshot().scanError.includes('private'))
   failScan = false
-  rows = [1, 2].map((version) => ({ name: 'Library', id: 'Same.Id', version: String(version) }))
+  rows = [1, 2].map(() => ({ name: 'Library', id: 'Same.Id', version: '1' }))
   await service.refresh()
   assert.equal(service.snapshot().installed[0].canUninstall, false)
   assert.throws(() => service.start({ action: 'uninstall', key: service.snapshot().installed[0].key }), /無法/)

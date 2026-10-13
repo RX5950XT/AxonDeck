@@ -2179,7 +2179,8 @@ registerAppInstallerIpc({
     snapshot: () => loadAppInstaller().snapshot(),
     refresh: () => loadAppInstaller().refresh(),
     start: (request) => loadAppInstaller().start(request),
-    upgradeAll: () => loadAppInstaller().upgradeAll()
+    upgradeAll: () => loadAppInstaller().upgradeAll(),
+    icons: () => loadAppInstaller().icons()
   },
   isMainSender: assertMainWindowSender
 })

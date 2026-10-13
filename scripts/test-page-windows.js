@@ -95,13 +95,17 @@ async function test() {
   let prevented = false
   secondPopup.emit('close', { preventDefault: () => { prevented = true } })
   assert.equal(prevented, true)
-  assert.equal(main.children.has(first), false)
-  assert.equal(first.visible, false)
-  assert.equal(main.children.has(second), true)
+  // 收回時主視窗維持原本那頁，收回的頁先藏著
+  assert.equal(main.children.has(first), true)
+  assert.equal(first.visible, true)
+  assert.equal(main.children.has(second), false)
+  assert.equal(second.visible, false)
   main.size = [1600, 1000]
   main.emit('resize')
-  assert.equal(second.bounds.height, 1000)
+  assert.equal(first.bounds.height, 1000)
   assert.equal(pages.dock(second.webContents), false)
+  await open(NAV_PAGES[1])
+  assert.equal(main.children.has(second), true)
   assert.equal(await pages.history(-1), true)
   assert.equal(main.children.has(first), true)
   const slow = pages.navigate({ page: NAV_PAGES[2] })

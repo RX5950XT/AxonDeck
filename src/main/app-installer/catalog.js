@@ -2,24 +2,24 @@
 
 // 安裝來源只由 main 維護；renderer 只能送清單 key，不能指定網址或參數。
 const CATALOG = [
-  { key: 'nvidia-broadcast', name: 'NVIDIA Broadcast', group: '影音與硬體', match: '^NVIDIA Broadcast(?: |$)', direct: 'broadcast', note: '需要支援的 NVIDIA RTX 顯示卡。' },
-  { key: 'nvidia-app', name: 'NVIDIA App', group: '影音與硬體', match: '^NVIDIA App(?: |$)', direct: 'nvidia' },
-  { key: 'epic', name: 'Epic Games Launcher', group: '遊戲', id: 'EpicGames.EpicGamesLauncher' },
-  { key: 'ubisoft', name: 'Ubisoft Connect', group: '遊戲', id: 'Ubisoft.Connect' },
-  { key: 'gog', name: 'GOG GALAXY', group: '遊戲', id: 'GOG.Galaxy' },
-  { key: 'rockstar', name: 'Rockstar Games Launcher', group: '遊戲', id: 'RockstarGames.Launcher' },
-  { key: 'steam', name: 'Steam', group: '遊戲', id: 'Valve.Steam' },
-  { key: 'line', name: 'LINE', group: '通訊與 AI', id: 'XPFCC4CD725961', source: 'msstore', match: '^LINE(?: Desktop)?$' },
-  { key: 'discord', name: 'Discord', group: '通訊與 AI', id: 'Discord.Discord', match: '^Discord$' },
-  { key: 'chatgpt', name: 'ChatGPT', group: '通訊與 AI', id: '9PLM9XGG6VKS', source: 'msstore', match: '^ChatGPT$' },
-  { key: 'claude', name: 'Claude', group: '通訊與 AI', id: 'Anthropic.Claude' },
-  { key: 'grok-bot', name: 'Grok Bot', group: '通訊與 AI', id: 'xAI.GrokBot', match: '^Grok Bot(?: |$)' },
-  { key: 'rustdesk', name: 'RustDesk', group: '網路與遠端', match: '^RustDesk$', direct: 'rustdesk' },
-  { key: 'bambu', name: 'Bambu Studio', group: '設計與工具', id: 'Bambulab.Bambustudio' },
-  { key: 'zlibrary', name: 'Z-Library', group: '辦公與閱讀', match: '^Z-Library(?: |$)', direct: 'zlibrary' },
-  { key: 'meta', name: 'Meta Horizon Link', group: '影音與硬體', id: 'Meta.Oculus', match: '^(Meta Horizon Link|Oculus)$' },
-  { key: 'google-drive', name: 'Google Drive', group: '網路與遠端', id: 'Google.GoogleDrive' },
-  { key: 'freecad-tw', name: 'FreeCAD-TW', group: '設計與工具', match: '^FreeCAD-TW(?: |$)', direct: 'freecad', note: '指定版本 tw-20260904-0408，含 AgentCAD。' }
+  { key: 'nvidia-broadcast', site: 'nvidia.com', name: 'NVIDIA Broadcast', group: '影音與硬體', match: '^NVIDIA Broadcast(?: |$)', direct: 'broadcast', note: '需要支援的 NVIDIA RTX 顯示卡。' },
+  { key: 'nvidia-app', site: 'nvidia.com', name: 'NVIDIA App', group: '影音與硬體', match: '^NVIDIA App(?: |$)', direct: 'nvidia' },
+  { key: 'epic', site: 'epicgames.com', name: 'Epic Games Launcher', group: '遊戲', id: 'EpicGames.EpicGamesLauncher' },
+  { key: 'ubisoft', site: 'ubisoft.com', name: 'Ubisoft Connect', group: '遊戲', id: 'Ubisoft.Connect' },
+  { key: 'gog', site: 'gog.com', name: 'GOG GALAXY', group: '遊戲', id: 'GOG.Galaxy' },
+  { key: 'rockstar', site: 'rockstargames.com', name: 'Rockstar Games Launcher', group: '遊戲', id: 'RockstarGames.Launcher' },
+  { key: 'steam', site: 'steampowered.com', name: 'Steam', group: '遊戲', id: 'Valve.Steam' },
+  { key: 'line', site: 'line.me', name: 'LINE', group: '通訊與 AI', id: 'XPFCC4CD725961', source: 'msstore', match: '^LINE(?: Desktop)?$' },
+  { key: 'discord', site: 'discord.com', name: 'Discord', group: '通訊與 AI', id: 'Discord.Discord', match: '^Discord$' },
+  { key: 'chatgpt', site: 'chatgpt.com', name: 'ChatGPT', group: '通訊與 AI', id: '9PLM9XGG6VKS', source: 'msstore', match: '^ChatGPT$' },
+  { key: 'claude', site: 'claude.ai', name: 'Claude', group: '通訊與 AI', id: 'Anthropic.Claude' },
+  { key: 'grok-bot', site: 'grok.com', name: 'Grok Bot', group: '通訊與 AI', id: 'xAI.GrokBot', match: '^Grok Bot(?: |$)' },
+  { key: 'rustdesk', site: 'rustdesk.com', name: 'RustDesk', group: '網路與遠端', match: '^RustDesk$', direct: 'rustdesk' },
+  { key: 'bambu', site: 'bambulab.com', name: 'Bambu Studio', group: '設計與工具', id: 'Bambulab.Bambustudio' },
+  { key: 'zlibrary', site: 'z-lib.fm', name: 'Z-Library', group: '辦公與閱讀', match: '^Z-Library(?: |$)', direct: 'zlibrary' },
+  { key: 'meta', site: 'meta.com', name: 'Meta Horizon Link', group: '影音與硬體', id: 'Meta.Oculus', match: '^(Meta Horizon Link|Oculus)$' },
+  { key: 'google-drive', site: 'drive.google.com', name: 'Google Drive', group: '網路與遠端', id: 'Google.GoogleDrive' },
+  { key: 'freecad-tw', site: 'freecad.org', name: 'FreeCAD-TW', group: '設計與工具', match: '^FreeCAD-TW(?: |$)', direct: 'freecad', note: '指定版本 tw-20260904-0408，含 AgentCAD。' }
 ]
 
 function catalogFor(row) {

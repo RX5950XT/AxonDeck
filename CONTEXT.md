@@ -161,6 +161,8 @@ native/
 - 切走時用 `opacity:0`＋`position:absolute` 藏（`display:none` 會丟圖塊，切回來卡頓）。
 
 ### 更新與安裝
+- 設定「安裝」分頁（`app-installer/`）：WinGet 用 node-pty 跑（管線模式不出進度），讀 OSC 9;4 百分比與「X MB / Y MB」；全部更新同時 3 筆、MSI 互撞（0x8A150102／1618）等 10 秒重試；0x8A15008E（新版換安裝技術）自動先移除再安裝；下載階段 10 分鐘沒進度就放棄。圖示另走 `appInstaller:icons`（不塞進每次進度通知）：登錄檔 DisplayIcon／MSI ProductIcon／安裝資料夾主程式／移除程式、MSIX 用 PackageManager logo、開始功能表 .lnk，最後退回 msiexec 通用圖示；未安裝的常用程式用 `site` favicon。
+- 功能頁 view：最大化／還原時 Windows 不一定發 resize，`page-windows.js` 在 maximize／unmaximize／restore 也重設尺寸；外殼（`?host=1`）標題列關掉拖曳區，否則它的拖曳區會吃掉功能頁導覽鈕的點擊；彈窗收回時主視窗正在顯示別頁就維持原畫面。
 - 手動「重新啟動並安裝」顯示進度、裝完自己開回；結束 App 時靜默安裝；關機／登出不安裝。
 - `electron:build` 走 `pack-preview.js --release`：先 `npm run lint` → 磁碟根完整 NSIS → 驗 asar／`app-update.yml`／latest.yml 雜湊 → 同步回 dist → 清理。
 

@@ -33,7 +33,7 @@ async function main() {
 
   let rows = [{ name: 'Steam', id: 'Valve.Steam', version: '1.0', available: '2.0', source: 'winget' }]
   let calls = [], release, failScan = false
-  const service = createInstaller({ cacheDir: 'unused', list: async () => {
+  const service = createInstaller({ cacheDir: 'unused', iconPaths: async () => () => '', list: async () => {
     if (failScan) throw new Error('private diagnostic')
     return rows
   }, resolveSource: async () => ({ version: '1.0' }), run: async (_file, options) => {
@@ -50,7 +50,7 @@ async function main() {
   assert.throws(() => service.start({ action: 'uninstall', key: 'Valve.Steam' }), /清單/)
   service.start({ action: 'upgrade', key: steam.key })
   assert.equal(service.busy(), true)
-  assert.throws(() => service.start({ action: 'uninstall', key: steam.key }), /進行中/)
+  assert.throws(() => service.start({ action: 'uninstall', key: steam.key }), /處理中/)
   rows = [{ ...rows[0], version: '2.0', available: '' }]
   release()
   assert.equal((await settle(service)).phase, 'done')
@@ -75,7 +75,7 @@ async function main() {
   assert.throws(() => service.start({ action: 'uninstall', key: service.snapshot().installed[0].key }), /無法/)
   let pack = ['A', 'B', 'C'].map((id) => ({ name: id, id: `X.${id}`, version: '1', available: id === 'C' ? '' : '2' }))
   const upgraded = []
-  const batch = createInstaller({ cacheDir: 'unused', list: async () => pack, resolveSource: async () => ({}), run: async (_file, args) => {
+  const batch = createInstaller({ cacheDir: 'unused', iconPaths: async () => () => '', list: async () => pack, resolveSource: async () => ({}), run: async (_file, args) => {
     const id = args[args.indexOf('--id') + 1]
     upgraded.push(id)
     pack = pack.map((row) => row.id === id ? { ...row, version: '2', available: '' } : row)
@@ -84,11 +84,30 @@ async function main() {
   assert.throws(() => batch.upgradeAll(), /查詢/)
   await batch.refresh()
   assert.equal(batch.upgradeAll().count, 2)
-  assert.throws(() => batch.start({ action: 'uninstall', key: batch.snapshot().installed[2].key }), /進行中/)
+  assert.deepEqual(batch.snapshot().batch, { total: 2, done: 0, failed: 0 })
+  assert.throws(() => batch.upgradeAll(), /進行中/)
+  assert.throws(() => batch.start({ action: 'uninstall', key: batch.snapshot().installed[0].key }), /處理中/)
   while (batch.busy()) await new Promise((resolve) => setTimeout(resolve, 5))
   assert.deepEqual(upgraded, ['X.A', 'X.B'])
   assert.ok(batch.snapshot().jobs.every((job) => job.phase === 'done'))
   assert.throws(() => batch.upgradeAll(), /沒有/)
-  console.log('PASS app-installer: multilingual parsing, arguments, source allowlist, job lock, refresh, failure hygiene, duplicate guard, upgrade all')
+  assert.equal(batch.snapshot().batch, null)
+
+  // 安裝技術不同（0x8A15008E）：改成先移除再安裝
+  let apps = [{ name: 'Audacity', id: 'Audacity.Audacity', version: '3', available: '4', source: 'winget' }]
+  const steps = []
+  const mismatch = createInstaller({ cacheDir: 'unused', list: async () => apps, resolveSource: async () => ({}), iconPaths: async () => () => '', run: async (_file, args) => {
+    steps.push(args[0])
+    if (args[0] === 'upgrade') return { code: 0x8A15008E }
+    if (args[0] === 'install') apps = [{ ...apps[0], version: '4', available: '' }]
+    return { code: 0 }
+  } })
+  await mismatch.refresh()
+  mismatch.start({ action: 'upgrade', key: mismatch.snapshot().installed[0].key })
+  const reinstalled = await settle(mismatch)
+  assert.deepEqual(steps, ['upgrade', 'uninstall', 'install'])
+  assert.equal(reinstalled.phase, 'done')
+  assert.equal(mismatch.snapshot().installed[0].version, '4')
+  console.log('PASS app-installer: multilingual parsing, arguments, source allowlist, job lock, refresh, failure hygiene, duplicate guard, parallel upgrade all, technology mismatch reinstall')
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

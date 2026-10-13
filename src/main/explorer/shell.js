@@ -259,6 +259,8 @@ async function thumbOf(full, size, folderPreview = false) {
   const edge = Number.isInteger(px) && px >= 16 ? Math.min(px, 256) : 96
   try {
     const result = await s.send({ op: 'thumb', path: full, size: edge, ...(folderPreview ? { folderPreview: true } : {}) })
+    // 逾時不等於沒有縮圖（NAS 上的影片常要好幾秒）：標 pending 讓 renderer 晚點再問，不要把類型圖示當成最終結果快取起來
+    if (result.error === 'SHELL_TIMEOUT') return { url: '', pending: true }
     if (!result.ok || !result.data) return { url: '' }
     const url = toPng(result.data.thumb)
     if (!url) return { url: '' }

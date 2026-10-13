@@ -1,6 +1,8 @@
 /* ===== 全域樣式 ===== */
 
 .page-host .page { display: none !important; }
+/* 外殼的標題列被功能頁蓋住、排版也不同；它的拖曳區仍會吃掉功能頁導覽鈕的點擊，拖曳交給功能頁自己的標題列 */
+.page-host .header { -webkit-app-region: no-drag; }
 .page-host-message { margin: auto; padding: 32px; color: var(--text-secondary); text-align: center; }
 .page-floating .header-nav .nav-tab:not(.is-owner) { display: none; }
 .nav-tab.is-detached .nav-icon::after { content: '↗'; font-size: 12px; color: var(--accent-primary); }

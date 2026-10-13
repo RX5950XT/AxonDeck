@@ -420,7 +420,7 @@ async function electronIcon(target) {
 
 async function folderThumb(full, size) {
   const { entries = [], ...thumb } = await shellExt.thumbOf(full, size, true)
-  if (!thumb.url) return { folder: true }
+  if (!thumb.url) return { folder: true, ...(thumb.pending ? { pending: true } : {}) }
   const previews = (await Promise.all(entries.map(async entry => {
     try {
       // 子資料夾／資料夾捷徑只拿圖示，不繼續往內展開。
@@ -451,6 +451,8 @@ async function fileIcon(target, opts) {
         if (thumb.pending !== true) return { ...thumb }
         pendingThumb = thumb
         interim = { ...interim, pending: true }
+      } else if (thumb && thumb.pending === true) {
+        interim = { pending: true }
       }
     } catch (error) {
       console.error('[explorer] 殼層縮圖失敗:', error?.message || error)

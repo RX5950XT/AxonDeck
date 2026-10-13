@@ -253,7 +253,7 @@ export function paintFileIcons(host, readIcon) {
 }
 
 function pump() {
-  while (running < 4 && queue.length) {
+  while (running < 6 && queue.length) {
     const job = queue.shift()
     if (cache.has(job.key) || !budgetOk(job.key)) continue
     const flying = inflight.get(job.key)
@@ -285,7 +285,7 @@ function pump() {
       retryState.delete(job.key)
       cancelRetryTimer(job.key)
       cache.set(job.key, result.data)
-      if (cache.size > 256) cache.delete(cache.keys().next().value)
+      if (cache.size > 512) cache.delete(cache.keys().next().value)
       paintCurrent(hosts, job.key, result.data)
     }).catch(() => {
       // 檔案可能剛被刪除，保留原本的類型圖示。

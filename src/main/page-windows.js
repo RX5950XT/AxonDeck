@@ -144,10 +144,14 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
     const popup = entry.popup
     popup.contentView.removeChildView(entry.view)
     entry.popup = null
-    mount(entry)
-    if (history[historyIndex] !== entry.page) {
-      history = [...history.slice(0, historyIndex + 1), entry.page].slice(-50)
-      historyIndex = history.length - 1
+    // 主視窗正在顯示別頁就維持原畫面，收回的頁先藏著；主視窗沒頁可顯示才換過去
+    if (current) visibility(entry, false)
+    else {
+      mount(entry)
+      if (history[historyIndex] !== entry.page) {
+        history = [...history.slice(0, historyIndex + 1), entry.page].slice(-50)
+        historyIndex = history.length - 1
+      }
     }
     popup.destroy()
     if (!hidden) { if (main.isMinimized()) main.restore(); main.show(); main.focus() }
@@ -174,7 +178,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
     visibility(entry, true)
     send(entry, 'window:maximized', false)
     popup.on('resize', () => resize(entry))
-    for (const event of ['maximize', 'unmaximize']) popup.on(event, () => send(entry, 'window:maximized', popup.isMaximized()))
+    for (const event of ['maximize', 'unmaximize', 'restore']) popup.on(event, () => { resize(entry); send(entry, 'window:maximized', popup.isMaximized()) })
     // 在原生最小化事件內同步 destroy 會卡住主程序，等事件結束再收回。
     popup.on('minimize', () => setImmediate(() => dock(entry)))
     popup.on('close', (event) => { if (!disposed) { event.preventDefault(); dock(entry) } })
@@ -182,8 +186,11 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
   }
 
   main.on('resize', () => { if (current) resize(current) })
-  for (const event of ['maximize', 'unmaximize']) main.on(event, () => {
-    if (current) send(current, 'window:maximized', main.isMaximized())
+  // 無邊框視窗最大化／還原時 Windows 不一定發 resize，沒跟著調會讓頁面停在舊尺寸、右側按鈕跑到視窗外
+  for (const event of ['maximize', 'unmaximize', 'restore']) main.on(event, () => {
+    if (!current) return
+    resize(current)
+    send(current, 'window:maximized', main.isMaximized())
   })
   main.once('closed', () => {
     disposed = true

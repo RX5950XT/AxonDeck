@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     refresh: () => ipcRenderer.invoke('appInstaller:refresh'),
     start: (request) => ipcRenderer.invoke('appInstaller:start', request),
     upgradeAll: () => ipcRenderer.invoke('appInstaller:upgradeAll'),
+    icons: () => ipcRenderer.invoke('appInstaller:icons'),
     onState: (callback) => {
       const handler = (_event, state) => callback(state)
       ipcRenderer.on('appInstaller:state', handler)

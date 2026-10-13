@@ -5,6 +5,7 @@ function registerAppInstallerIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('appInstaller:status', (event) => invoke(event, () => service.snapshot()))
   ipcMain.handle('appInstaller:refresh', (event) => invoke(event, () => service.refresh()))
   ipcMain.handle('appInstaller:start', (event, request) => invoke(event, () => service.start(request)))
+  ipcMain.handle('appInstaller:icons', (event) => invoke(event, () => service.icons()))
   ipcMain.handle('appInstaller:upgradeAll', (event) => invoke(event, () => service.upgradeAll()))
 }
 module.exports = { registerAppInstallerIpc }

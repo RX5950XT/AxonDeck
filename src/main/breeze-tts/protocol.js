@@ -84,11 +84,8 @@ function wavInfo(bytes) {
   return { sampleRate: format.sampleRate, duration: dataBytes / format.byteRate }
 }
 
-/**
- * WAV → 本地 ASR 吃的 16kHz 單聲道 Float32。只取前 120 秒（跟 ASR 上限對齊），
- * 太長的參考音本來就不適合拿來克隆。丟進來的格式不支援就拋錯，由呼叫端退回手動填寫。
- */
-function wavToMono16k(bytes, maxSeconds = ASR_MAX_SECONDS) {
+/** 拆出 WAV 的格式與 PCM 資料；只收 16-bit 整數或 32-bit 浮點（ASR 與波形共用）。 */
+function parseWav(bytes) {
   if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes)
   if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') {
     throw fail('INVALID_AUDIO', '請選擇完整的 WAV 錄音')
@@ -111,20 +108,31 @@ function wavToMono16k(bytes, maxSeconds = ASR_MAX_SECONDS) {
   if (!channels || !sampleRate || ![16, 32].includes(bits) || ![1, 3, 65534].includes(encoding) || !parts.length) {
     throw fail('INVALID_AUDIO', '參考音訊須是 16-bit 或 32-bit WAV')
   }
-  const data = Buffer.concat(parts)
+  const data = parts.length === 1 ? parts[0] : Buffer.concat(parts)
   const stride = (bits / 8) * channels
   const frames = Math.floor(data.length / stride)
-  const take = Math.min(frames, Math.floor(sampleRate * maxSeconds))
-  const mono = new Float32Array(take)
-  for (let i = 0; i < take; i++) {
+  // 第 i 幀的單聲道值（各聲道平均）
+  const sample = (i) => {
     let sum = 0
     for (let ch = 0; ch < channels; ch++) {
       const at = (i * channels + ch) * (bits / 8)
       const value = bits === 16 ? data.readInt16LE(at) / 32768 : data.readFloatLE(at)
       sum += Math.max(-1, Math.min(1, value))
     }
-    mono[i] = sum / channels
+    return sum / channels
   }
+  return { sampleRate, frames, sample }
+}
+
+/**
+ * WAV → 本地 ASR 吃的 16kHz 單聲道 Float32。只取前 120 秒（跟 ASR 上限對齊），
+ * 太長的參考音本來就不適合拿來克隆。丟進來的格式不支援就拋錯，由呼叫端退回手動填寫。
+ */
+function wavToMono16k(bytes, maxSeconds = ASR_MAX_SECONDS) {
+  const { sampleRate, frames, sample } = parseWav(bytes)
+  const take = Math.min(frames, Math.floor(sampleRate * maxSeconds))
+  const mono = new Float32Array(take)
+  for (let i = 0; i < take; i++) mono[i] = sample(i)
   if (sampleRate === ASR_SAMPLE_RATE) return mono
   const outLength = Math.floor((take * ASR_SAMPLE_RATE) / sampleRate)
   const out = new Float32Array(outLength)
@@ -134,6 +142,21 @@ function wavToMono16k(bytes, maxSeconds = ASR_MAX_SECONDS) {
     out[i] = mono[lo] + (mono[hi] - mono[lo]) * (pos - lo)
   }
   return out
+}
+
+/** 波形用的峰值（0～1，四捨五入到兩位），每格取跳著抽樣的最大振幅，長錄音也不用整段解碼。 */
+function wavPeaks(bytes, buckets = 600) {
+  const { frames, sample } = parseWav(bytes)
+  const count = Math.max(1, Math.min(buckets, frames))
+  const peaks = new Array(count).fill(0)
+  const per = frames / count
+  const step = Math.max(1, Math.floor(per / 64))
+  for (let b = 0; b < count; b++) {
+    let max = 0
+    for (let i = Math.floor(b * per); i < Math.floor((b + 1) * per); i += step) max = Math.max(max, Math.abs(sample(i)))
+    peaks[b] = Math.round(max * 100) / 100
+  }
+  return peaks
 }
 
 function wavHeader(byteLength, sampleRate) {
@@ -159,4 +182,4 @@ function savedVoice(bytes, id) {
     refText: text(bytes.toString('utf8', 24, 24 + length), '逐字稿', 10000) }
 }
 
-module.exports = { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, savedVoice, MAX_AUDIO_BYTES }
+module.exports = { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, wavPeaks, savedVoice, MAX_AUDIO_BYTES }

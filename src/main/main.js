@@ -52,6 +52,7 @@ protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
+const { registerAppInstallerIpc } = require('./app-installer/ipc')
 const { registerBreezeIpc } = require('./breeze-tts/ipc')
 const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
@@ -151,6 +152,7 @@ let store = null
 const mediaPlayer = require('./media-player')
 mediaPlayer.setThemeGetter(() => store?.get('theme') || 'dark')
 const editorWindow = require('./editor-window')
+const browserWindow = require('./browser-window')
 mediaPlayer.setEditorOpener((file) => editorWindow.open(file))
 editorWindow.registerIpc()
 /** 正在執行 before-quit 卸載 */
@@ -242,6 +244,8 @@ const STORE_ALLOWLIST = new Set([
   'translator',
   'translateGlossary',
   'translateGlossaryBuiltin',
+  // 文字轉語音的讀音字典：[{ word, sound }]
+  'speechPronunciations',
   'captionDisplayMode',
   'asrEngine',
   'asrApiUrl',
@@ -1004,17 +1008,28 @@ function createMainWindow() {
  * 把那個視窗叫到前面。功能頁還沒建好或開不起來才退回系統瀏覽器。
  * @param {string} url 已確認是 http(s)
  * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
+ * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的（Telegram 等），開在 Browser 模式
  */
-function openInProjectBrowser(url, project = '') {
+function openInProjectBrowser(url, project = '', target = '') {
   const outside = () => { shell.openExternal(url).catch(() => {}) }
   if (!pageWindows) return outside()
-  pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project }).then(() => {
+  pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target }).then(() => {
     const win = pageWindows.host(pageWindows.contents('chat'))
     if (!win || win.isDestroyed()) return
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
   }).catch(outside)
+}
+
+/**
+ * 在哪裡點就開在哪裡：AI 頁自己（含裡面的 webview）交給它依主區決定，其他頁一律開在 Browser 模式
+ * @param {Electron.WebContents} contents
+ * @returns {'' | 'browser'}
+ */
+function linkTarget(contents) {
+  const chat = pageWindows?.contents('chat')
+  return chat && (contents === chat || contents.hostWebContents === chat) ? '' : 'browser'
 }
 
 /** @param {string} url */
@@ -1031,7 +1046,7 @@ function isWebUrl(url) {
  */
 function attachWindowSecurity(win) {
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isWebUrl(url)) openInProjectBrowser(url)
+    if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(win.webContents))
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
@@ -1249,6 +1264,12 @@ ipcMain.handle('store:set', async (event, key, value) => {
   // ttsVoices 深度校驗（五語 + allowlist shortName）
   if (key === 'ttsVoices') {
     store.set(key, sanitizeTtsVoices(value))
+    return true
+  }
+  if (key === 'speechPronunciations') {
+    const clean = (v) => typeof v === 'string' ? v.trim().slice(0, 50) : ''
+    const list = Array.isArray(value) ? value.slice(0, 200).map((item) => ({ word: clean(item?.word), sound: clean(item?.sound) })) : []
+    store.set(key, list.filter((item) => item.word && item.sound))
     return true
   }
   if (key === 'ttsRate') {
@@ -2061,6 +2082,7 @@ registerExplorerIpc({
     createEntry: (...args) => loadExplorer().createEntry(...args),
     renameEntry: (...args) => loadExplorer().renameEntry(...args),
     removeEntry: (...args) => loadExplorer().removeEntry(...args),
+    removeEntries: (...args) => loadExplorer().removeEntries(...args),
     restoreEntry: (...args) => loadExplorer().restoreEntry(...args),
     purgeEntry: (...args) => loadExplorer().purgeEntry(...args),
     emptyRecycle: (...args) => loadExplorer().emptyRecycle(...args),
@@ -2143,6 +2165,25 @@ registerHfModelsIpc({
   isMainSender: assertMainWindowSender
 })
 
+let appInstaller = null
+function loadAppInstaller() {
+  if (!appInstaller) appInstaller = require('./app-installer').createInstaller({
+    cacheDir: path.join(app.getPath('userData'), 'app-installers'),
+    notify: (state) => sendToPages('appInstaller:state', state)
+  })
+  return appInstaller
+}
+registerAppInstallerIpc({
+  ipcMain,
+  service: {
+    snapshot: () => loadAppInstaller().snapshot(),
+    refresh: () => loadAppInstaller().refresh(),
+    start: (request) => loadAppInstaller().start(request),
+    upgradeAll: () => loadAppInstaller().upgradeAll()
+  },
+  isMainSender: assertMainWindowSender
+})
+
 registerCloudTtsIpc({
   ipcMain,
   service: {
@@ -2164,7 +2205,13 @@ registerBreezeIpc({
     voices: () => loadBreeze().voices(),
     saveVoice: (options) => loadBreeze().saveVoice(options),
     removeVoice: (options) => loadBreeze().removeVoice(options),
-    saveAudio: (options) => loadBreeze().saveAudio(options)
+    saveAudio: (options) => loadBreeze().saveAudio(options),
+    importRecording: (options) => loadBreeze().importRecording(options),
+    trimAudio: (options) => loadBreeze().trimAudio(options),
+    saveTake: (options) => loadBreeze().saveTake(options),
+    loadTake: (options) => loadBreeze().loadTake(options),
+    listTakes: () => loadBreeze().listTakes(),
+    removeTake: (options) => loadBreeze().removeTake(options)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2388,6 +2435,34 @@ ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor) => {
   return true
 })
 
+// Browser 模式的分頁彈出成獨立視窗（工作列顯示網頁標題）；給了 guestId 就連歷史、捲動、表單一起搬
+ipcMain.handle('workspace:browserPopout', async (event, url, title, guestId) => {
+  if (!assertMainWindowSender(event) || typeof url !== 'string' || !isWebUrl(url)) return false
+  await browserWindow.open(url, typeof title === 'string' ? title.slice(0, 200) : '', senderGuest(event, guestId))
+  return true
+})
+
+// 彈出視窗的工具列：只能操作自己那扇窗的網頁
+ipcMain.handle('browserWindow:navigate', (event, action, url) => browserWindow.navigate(event.sender, action, url))
+ipcMain.handle('browserWindow:extensionActions', (event) => {
+  const page = browserWindow.pageOf(event.sender)
+  return page && browserExtensions ? browserExtensions.actions(page.id) : []
+})
+ipcMain.handle('browserWindow:extensionActivate', (event, extensionId, anchor) => {
+  const page = browserWindow.pageOf(event.sender)
+  const rect = anchorRect(anchor)
+  if (!page || !rect || typeof extensionId !== 'string' || !browserExtensions) return false
+  browserExtensions.activate(extensionId, page, rect)
+  return true
+})
+ipcMain.handle('browserWindow:extensionsMenu', (event, anchor) => {
+  const page = browserWindow.pageOf(event.sender)
+  const win = browserWindow.windowOf(event.sender)
+  if (!page || !win) return false
+  Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor))).popup({ window: win })
+  return true
+})
+
 // 工具列圖示列：圖示、標題、徽章；按下去開 popup（或送 action.onClicked）
 ipcMain.handle('workspace:extensionActions', (event, guestId) => {
   if (!assertMainWindowSender(event) || !browserExtensions) return []
@@ -2401,6 +2476,23 @@ ipcMain.handle('workspace:extensionActivate', (event, guestId, extensionId, anch
   browserExtensions.activate(extensionId, tab, rect)
   return true
 })
+
+/**
+ * 網頁的右鍵選單＋F5（瀏覽器分頁多一組「擴充功能」）。webview 與彈出視窗的網頁共用。
+ * @param {Electron.WebContents} contents
+ * @param {() => BrowserWindow | null} hostWindow
+ * @param {boolean} isBrowser
+ */
+function attachWebMenu(contents, hostWindow, isBrowser) {
+  require('./web-context-menu').attachWebContextMenu(contents, {
+    openUrl: openInProjectBrowser,
+    isWebUrl,
+    extraItems: isBrowser ? (params) => [
+      ...(browserExtensions?.contextMenuItems(contents, params) || []),
+      { label: '擴充功能', submenu: browserExtensionItems(contents, hostWindow()) }
+    ] : undefined
+  })
+}
 
 app.on('web-contents-created', (_event, contents) => {
   // 網頁版 AI 與工作區瀏覽器：右鍵選單＋F5 重新整理（工作區瀏覽器多一組「擴充功能」，也登記成擴充功能看得到的分頁）
@@ -2416,14 +2508,7 @@ app.on('web-contents-created', (_event, contents) => {
         if (win && browserExtensions) browserExtensions.attachTab(contents, win)
       })
     }
-    require('./web-context-menu').attachWebContextMenu(contents, {
-      openUrl: openInProjectBrowser,
-      isWebUrl,
-      extraItems: isBrowser ? (params) => [
-        ...(browserExtensions?.contextMenuItems(contents, params) || []),
-        { label: '擴充功能', submenu: browserExtensionItems(contents, hostWindow()) }
-      ] : undefined
-    })
+    attachWebMenu(contents, hostWindow, isBrowser)
   }
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
@@ -2453,10 +2538,8 @@ app.on('web-contents-created', (_event, contents) => {
         }
       }
     }
-    // Telegram 裡點的連結交給系統瀏覽器
-    if (isWebUrl(url) && contents.session === session.fromPartition('persist:telegram')) {
-      shell.openExternal(url).catch(() => {})
-    } else if (isWebUrl(url)) openInProjectBrowser(url)
+    // Telegram 等 AI 頁以外的 webview 點的連結開在 Browser 模式
+    if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(contents))
     return { action: 'deny' }
   })
 })
@@ -2483,7 +2566,10 @@ app.whenReady().then(() => {
     chromeVersion: process.versions.chrome,
     aliasPreload: path.join(__dirname, '../preload/crx-browser-alias.js'),
     openUrl: openInProjectBrowser,
-    onActionsChanged: () => sendToPages('workspace:extensionsChanged')
+    onActionsChanged: () => {
+      sendToPages('workspace:extensionsChanged')
+      browserWindow.broadcast('browserWindow:extensionsChanged')
+    }
   })
   browserExtensions.loadInstalled()
     .catch((error) => console.warn('[browser-ext] 載入失敗:', error))
@@ -2527,6 +2613,17 @@ app.whenReady().then(() => {
     theme: () => store?.get('theme') || 'dark',
     imageBase: (file) => workspaceMedia.localBaseFor(file),
     forceClose: () => sessionEnding
+  })
+  browserWindow.configure({
+    isDev,
+    icon: APP_ICON,
+    preload: path.join(__dirname, '../preload/browser-window-preload.js'),
+    secure: attachWindowSecurity,
+    theme: () => store?.get('theme') || 'dark',
+    attach: (contents, win) => {
+      browserExtensions?.attachTab(contents, win)
+      attachWebMenu(contents, () => (win.isDestroyed() ? null : win), true)
+    }
   })
   if (startupFile) openFromShell(startupFile)
   setImmediate(() => {

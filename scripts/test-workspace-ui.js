@@ -432,7 +432,7 @@ async function runFileChecks() {
   check('openEntry 走 resolveExisting（只收專案內的路徑）',
     /function openEntry[\s\S]{0,200}files\.resolveExisting/.test(service))
   check('openPath 回字串＝失敗，要當錯誤處理',
-    /function openEntry[\s\S]{0,320}if \(error\) throw fail/.test(service))
+    /function openEntry[\s\S]{0,600}if \(error\) throw fail/.test(service))
   check('IPC 有 workspace:openEntry', /ipcMain\.handle\('workspace:openEntry'/.test(ipc))
   check('main.js 的白名單有 openEntry', /openEntry: \(\.\.\.args\) => loadWorkspace\(\)\.openEntry/.test(mainJs))
   check('preload 接得到 openEntry', /openEntry: \(id, relPath\) =>/.test(preload))

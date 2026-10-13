@@ -101,14 +101,15 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
 
   function validateRequest(request) {
     if (!request || !pageNames.includes(request.page)) throw new Error('無效功能頁')
-    const { page, subtab = '', action = '', full = '', kind = 'dir', project = '' } = request
-    if (!['', 'recommend', 'cloud', 'basic', 'appearance', 'cli'].includes(subtab)) throw new Error('無效子頁')
+    const { page, subtab = '', action = '', full = '', kind = 'dir', project = '', target = '' } = request
+    if (!['', 'recommend', 'cloud', 'basic', 'appearance', 'cli', 'install'].includes(subtab)) throw new Error('無效子頁')
     if (!['', 'files', 'project', 'browser'].includes(action) || typeof full !== 'string' || full.length > 32768
+      || !['', 'browser'].includes(target)
       || !['dir', 'file'].includes(kind) || (action === 'files' && page !== 'explorer')
       || ((action === 'project' || action === 'browser') && page !== 'chat')
       || (action === 'browser' && !/^https?:\/\//i.test(full))
       || typeof project !== 'string' || !/^[\w.-]{0,128}$/.test(project)) throw new Error('無效頁面操作')
-    return { page, subtab, action, full, kind, project }
+    return { page, subtab, action, full, kind, project, target }
   }
 
   async function navigate(request, detach = false, record = true) {

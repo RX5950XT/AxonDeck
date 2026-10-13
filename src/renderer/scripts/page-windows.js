@@ -50,12 +50,12 @@ export function initPageWindows({ switchPage, openSettingsPage, openInFilesPage,
     }
   })
   electronAPI.pages.onVisibility((visible) => { if (visible) switchPage(pageOwner); else cooldown() })
-  electronAPI.pages.onNavigate(async ({ page, subtab, action, full, kind, project }) => {
+  electronAPI.pages.onNavigate(async ({ page, subtab, action, full, kind, project, target }) => {
     if (page !== pageOwner) return
     try {
       if (action === 'files') await openInFilesPage(full, kind)
       else if (action === 'project') await openFolderInWorkspace(full)
-      else if (action === 'browser') await openUrlInApp(full, project)
+      else if (action === 'browser') await openUrlInApp(full, project, target)
       else if (page === 'settings' && subtab) openSettingsPage(subtab)
       else if (subtab) switchPage(page, subtab)
     } catch { showToast('無法開啟指定內容', 'error') }

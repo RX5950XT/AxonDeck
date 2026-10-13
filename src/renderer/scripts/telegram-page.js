@@ -25,7 +25,7 @@ const RELOAD_ALL_GAP_MS = 5 * 60 * 1000
 const STUCK_PROBE = `navigator.onLine && !!(document.getElementById('ConnectionStatusOverlay') ||
   [...document.querySelectorAll('.MiddleHeader .status')].some((el) => /等待網路|等待网络|waiting for network/i.test(el.textContent)))`
 
-// 在格子裡跑：外部連結搶在 Web A 前面直接 window.open（main 轉系統瀏覽器），跳過「確定要開啟？」確認框；
+// 在格子裡跑：外部連結搶在 Web A 前面直接 window.open（main 轉到 AI 頁的 Browser 模式），跳過「確定要開啟？」確認框；
 // t.me 這類 Telegram 自己的連結留給 Web A 在 App 內開聊天室
 const DIRECT_LINKS = `window.__axDirectLinks || (window.__axDirectLinks = true, window.addEventListener('click', (e) => {
   const a = e.button === 0 && e.target.closest && e.target.closest('a[href]')

@@ -22,7 +22,7 @@ function here() {
   const page = owned || /** @type {HTMLElement | null} */ (document.querySelector('.nav-tab.active'))?.dataset.page || ''
   if (page !== 'chat') return { page, pane: '', chatId: '' }
   const pane = getChatPaneMode()
-  return { page, pane, chatId: pane === 'workspace' ? '' : currentChatId() }
+  return { page, pane, chatId: pane === 'workspace' || pane === 'browser' ? '' : currentChatId() }
 }
 
 /** 切頁、切主區、開對話之後叫；跟目前這一步一樣就不記 */
@@ -46,7 +46,7 @@ async function restore(loc) {
   switchPage(loc.page)
   if (loc.page !== 'chat') return
   if (loc.chatId) await openChatById(loc.chatId)
-  else setChatPaneMode(/** @type {'chat' | 'workspace' | 'web'} */ (loc.pane))
+  else setChatPaneMode(/** @type {'chat' | 'workspace' | 'web' | 'browser'} */ (loc.pane))
 }
 
 /** @param {number} delta -1 上一頁、1 下一頁 */

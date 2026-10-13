@@ -8,9 +8,13 @@ const { app, dialog, BrowserWindow } = require('electron')
 const fs = require('../raw-fs').promises
 const models = require('../models')
 const { detectGpuCapability } = require('../gpu-capability')
-const { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, savedVoice, MAX_AUDIO_BYTES } = require('./protocol')
+const { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, wavPeaks, savedVoice, MAX_AUDIO_BYTES } = require('./protocol')
+const { createTakes } = require('./takes')
 
 const MAX_RESULT_BYTES = 128 * 1024 * 1024
+// 逐句生成時各句先留在記憶體等合併，總量超過就丟最舊的
+const MAX_KEPT_RESULT_BYTES = 256 * 1024 * 1024
+const PREVIEW_MAX_BYTES = 8 * 1024 * 1024
 const TRANSCRIBE_TIMEOUT_MS = 180000
 const START_TIMEOUT_MS = 180000
 const GENERATE_TIMEOUT_MS = 30 * 60 * 1000
@@ -25,6 +29,7 @@ let backend = ''
 let closing = null
 const inputs = new Map()
 const results = new Map()
+const takes = createTakes({ root: () => app.getPath('userData') })
 
 function init(options = {}) {
   if (typeof options.send === 'function') send = options.send
@@ -207,6 +212,42 @@ async function readWav(filename) {
   } finally { await handle.close() }
 }
 
+const AUDIO_EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'webm', 'mp4', 'mov', 'mkv']
+// 24kHz 單聲道 16-bit 的 64 MB 約 1398 秒，取整避免輸出超過上限
+const MAX_CONVERT_SECONDS = 1390
+
+/** 非 WAV 錄音交給 ffmpeg 轉成 24kHz 單聲道 WAV（跟 Breeze 輸出同規格），只讀本機檔、不連網。 */
+function convertToWav(origin, range = {}) {
+  const ffmpeg = require('../ffmpeg-path').resolveFfmpegPath()
+  const seek = range.start ? ['-ss', String(range.start)] : []
+  const length = Math.min(MAX_CONVERT_SECONDS, range.duration || MAX_CONVERT_SECONDS)
+  const args = ['-v', 'error', '-protocol_whitelist', 'file,pipe', ...seek, '-i', origin.path || 'pipe:0', '-map', '0:a:0', '-vn',
+    '-t', String(length), '-ac', '1', '-ar', '24000', '-c:a', 'pcm_s16le', '-map_metadata', '-1',
+    '-f', 's16le', 'pipe:1']
+  if (origin.path) args.unshift('-nostdin')
+  return new Promise((resolve, reject) => {
+    const child = execFile(ffmpeg, args, { encoding: 'buffer', maxBuffer: MAX_AUDIO_BYTES, windowsHide: true, timeout: 60000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('[breeze-tts] 錄音轉檔失敗:', String(stderr || error.message).slice(0, 500))
+        return reject(fail('INVALID_AUDIO', '無法讀取這個錄音檔，請換成 WAV、MP3 或 M4A'))
+      }
+      // 管線寫不回 WAV 檔頭長度，所以拿原始 PCM 自己包
+      const pcm = stdout.subarray(0, stdout.length - (stdout.length % 2))
+      if (!pcm.length) return reject(fail('INVALID_AUDIO', '錄音裡沒有可用的聲音'))
+      const bytes = Buffer.concat([wavHeader(pcm.length, 24000), pcm])
+      resolve({ bytes, meta: wavInfo(bytes) })
+    })
+    if (origin.data) child.stdin.on('error', () => {}).end(origin.data)
+  })
+}
+
+async function readAudio(filename) {
+  if (path.extname(filename).toLowerCase() === '.wav') return readWav(filename)
+  const info = await fileInfo(filename)
+  if (!info || info.size > 512 * 1024 * 1024) throw fail('AUDIO_TOO_LARGE', '錄音檔須小於 512 MB')
+  return convertToWav({ path: filename })
+}
+
 function formWithReference(options, fields) {
   const form = new FormData()
   for (const [key, value] of Object.entries(fields)) form.set(key, value)
@@ -278,13 +319,23 @@ async function collectAudio(response, reqId, signal) {
     }
   } catch (error) { await reader.cancel().catch(() => {}); throw error }
   if (!size || tail.length) throw fail('INVALID_AUDIO', '生成音訊不完整')
-  const bytes = Buffer.concat([wavHeader(size, rate), ...chunks])
+  const pcm = Buffer.concat(chunks)
+  const bytes = Buffer.concat([wavHeader(size, rate), pcm])
   const resultId = randomUUID()
-  results.clear()
-  results.set(resultId, bytes)
+  keepResult(resultId, pcm)
   emit('breeze:progress', { reqId, phase: 'done', seconds: size / (rate * 2) })
   return { resultId, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', sampleRate: rate,
     duration: size / (rate * 2), bytes: bytes.length }
+}
+
+function keepResult(id, pcm) {
+  results.set(id, pcm)
+  let total = 0
+  for (const value of results.values()) total += value.length
+  for (const [key, value] of results) {
+    if (total <= MAX_KEPT_RESULT_BYTES || key === id) break
+    results.delete(key); total -= value.length
+  }
 }
 
 async function cancel(options = {}) {
@@ -298,15 +349,46 @@ async function cancel(options = {}) {
 async function pickAudio(options = {}) {
   if (!['reference', 'source'].includes(options.kind)) throw fail('INVALID_INPUT', '錄音用途不符')
   const selected = await dialog.showOpenDialog(parentWindow(), { title: options.kind === 'source' ? '選擇要轉換的錄音' : '選擇參考錄音',
-    properties: ['openFile'], filters: [{ name: 'WAV 錄音', extensions: ['wav'] }] })
+    properties: ['openFile'], filters: [{ name: '錄音', extensions: AUDIO_EXTENSIONS }] })
   if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true }
-  const { bytes, meta } = await withTimeout(readWav(selected.filePaths[0]), '讀取錄音逾時')
-  for (const [id, previous] of inputs) if (previous.kind === options.kind) inputs.delete(id)
+  const filename = selected.filePaths[0]
+  const audio = await withTimeout(readAudio(filename), '讀取錄音逾時')
+  return registerInput(options.kind, path.basename(filename), { path: filename }, audio)
+}
+
+/** 收下一段錄音：同用途的舊錄音作廢，參考音順便自動辨識逐字稿。 */
+async function registerInput(kind, name, origin, { bytes, meta }) {
+  for (const [id, previous] of inputs) if (previous.kind === kind) inputs.delete(id)
   const audioId = randomUUID()
-  const name = path.basename(selected.filePaths[0])
-  inputs.set(audioId, { bytes, kind: options.kind })
-  const transcript = options.kind === 'reference' ? await describeReference(bytes) : ''
-  return { audioId, name, bytes: bytes.length, ...meta, transcript }
+  inputs.set(audioId, { bytes, kind, name, origin })
+  const transcript = kind === 'reference' ? await describeReference(bytes) : ''
+  let peaks = []
+  try { peaks = wavPeaks(bytes) } catch (error) { console.error('[breeze-tts] 波形計算失敗:', error.message) }
+  const preview = bytes.length <= PREVIEW_MAX_BYTES ? bytes.toString('base64') : ''
+  return { audioId, name, bytes: bytes.length, ...meta, transcript, peaks, previewBase64: preview }
+}
+
+/** 麥克風錄的 webm／ogg 交給 ffmpeg 轉檔，之後跟選檔一樣。 */
+async function importRecording(options = {}) {
+  if (!['reference', 'source'].includes(options.kind)) throw fail('INVALID_INPUT', '錄音用途不符')
+  const data = options.data
+  if (!(data instanceof Uint8Array) || !data.length || data.length > MAX_AUDIO_BYTES) throw fail('INVALID_AUDIO', '錄音是空的或超過 64 MB')
+  const origin = { data: Buffer.from(data) }
+  const audio = await withTimeout(convertToWav(origin), '處理錄音逾時')
+  const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, '')
+  return registerInput(options.kind, `錄音-${stamp}`, origin, audio)
+}
+
+/** 只留錄音的一段（秒）。從原始檔重新解碼，不會越裁越糊。 */
+async function trimAudio(options = {}) {
+  const audio = inputs.get(options.audioId)
+  if (!audio) throw fail('AUDIO_MISSING', '錄音已失效，請重新選擇')
+  const { start, end } = options
+  if (![start, end].every((v) => typeof v === 'number' && Number.isFinite(v)) || start < 0 || end - start < 0.3 || end > MAX_CONVERT_SECONDS) {
+    throw fail('INVALID_INPUT', '選取範圍至少要 0.3 秒')
+  }
+  const trimmed = await withTimeout(convertToWav(audio.origin, { start, duration: end - start }), '裁切錄音逾時')
+  return registerInput(audio.kind, audio.name, audio.origin, trimmed)
 }
 
 /**
@@ -395,14 +477,47 @@ async function removeVoice(options = {}) {
 }
 
 async function saveAudio(options = {}) {
-  const bytes = results.get(options.resultId)
-  if (!bytes) throw fail('AUDIO_MISSING', '語音結果已失效，請重新生成')
-  const selected = await dialog.showSaveDialog(parentWindow(), { title: '儲存語音', defaultPath: 'Breeze-TTS.wav',
+  const { take, bytes } = await takes.read(options.takeId)
+  const name = (take.title || 'Breeze-TTS').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40)
+  const selected = await dialog.showSaveDialog(parentWindow(), { title: '儲存語音', defaultPath: `${name}.wav`,
     filters: [{ name: 'WAV 音訊', extensions: ['wav'] }] })
   if (selected.canceled || !selected.filePath) return { canceled: true }
   await fs.writeFile(selected.filePath, bytes)
   return { saved: true }
 }
+
+/**
+ * 把這次生成（或重做）的各句合成一個新版本。parts 每項是剛生成的 resultId，
+ * 或沿用舊版本的某一句 { takeId, index }。
+ */
+async function saveTake(options = {}) {
+  if (!Array.isArray(options.parts)) throw fail('INVALID_INPUT', '沒有可以合併的語音')
+  const parts = []
+  const used = []
+  for (const part of options.parts) {
+    if (!part || typeof part !== 'object') throw fail('INVALID_INPUT', '句子格式不符')
+    let pcm
+    if (typeof part.resultId === 'string') {
+      pcm = results.get(part.resultId)
+      if (!pcm) throw fail('AUDIO_MISSING', '語音結果已失效，請重新生成')
+      used.push(part.resultId)
+    } else pcm = await takes.segmentPcm(part.takeId, part.index)
+    parts.push({ pcm, text: part.text, speaker: part.speaker, at: part.at, gap: part.gap })
+  }
+  const take = await takes.save({ parts, placement: options.placement, title: options.title, mode: options.mode, voice: options.voice })
+  for (const id of used) results.delete(id)
+  return take
+}
+
+async function loadTake(options = {}) {
+  const { take, bytes } = await takes.read(options.id)
+  let peaks = []
+  try { peaks = wavPeaks(bytes, 1200) } catch (error) { console.error('[breeze-tts] 波形計算失敗:', error.message) }
+  return { take, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', peaks }
+}
+
+function listTakes() { return takes.list() }
+function removeTake(options = {}) { return takes.remove(options.id) }
 
 async function shutdown() {
   active?.controller.abort(fail('CANCELED', '已停止語音生成'))
@@ -410,4 +525,5 @@ async function shutdown() {
   inputs.clear(); results.clear()
 }
 
-module.exports = { init, status, generate, cancel, pickAudio, voices, saveVoice, removeVoice, saveAudio, shutdown }
+module.exports = { init, status, generate, cancel, pickAudio, importRecording, trimAudio, voices, saveVoice, removeVoice, saveAudio,
+  saveTake, loadTake, listTakes, removeTake, shutdown }

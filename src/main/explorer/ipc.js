@@ -48,6 +48,9 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('explorer:removeEntry', (event, target, opts) => (
     invoke(event, () => service.removeEntry(target, opts))
   ))
+  ipcMain.handle('explorer:removeEntries', (event, items, opts) => (
+    invoke(event, () => service.removeEntries(items, opts))
+  ))
   ipcMain.handle('explorer:restoreEntry', (event, key) => invoke(event, () => service.restoreEntry(key)))
   ipcMain.handle('explorer:purgeEntry', (event, key) => invoke(event, () => service.purgeEntry(key)))
   ipcMain.handle('explorer:emptyRecycle', (event) => invoke(event, () => service.emptyRecycle()))

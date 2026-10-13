@@ -14,6 +14,8 @@ import { toolIcon } from './ws-tool-icons.js'
 
 /** 側欄圖示：跟 composer 的按鈕同一套線條風格 */
 const ICON_CHEVRON = ['M9 6l6 6-6 6']
+const ICON_RENAME = ['M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z']
+const ICON_DELETE = ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3']
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const WEB_ICONS = /** @type {Record<string, string>} */ ({ chatgpt: 'openai' })
 
@@ -188,7 +190,7 @@ export function createChatSidebar(deps) {
   }
 
   /**
-   * 側欄的一列：開啟鈕，右鍵叫出選單，整列可拖曳排序
+   * 側欄的一列：開啟鈕，滑鼠移上去出現改名／刪除，右鍵叫出搬移／匯出選單，整列可拖曳排序
    * @param {ConvSummary} conv
    */
   function buildListItem(conv) {
@@ -215,10 +217,17 @@ export function createChatSidebar(deps) {
       open.append(head, meta)
     } else open.append(title, meta)
     open.addEventListener('click', () => deps.onOpen(conv.id))
-    item.append(open)
+    // 滑鼠移上去才出現：改名、刪除
+    const actions = document.createElement('span')
+    actions.className = 'chat-list-actions'
+    actions.append(
+      rowButton('重新命名', ICON_RENAME, () => renameConversation(conv, title)),
+      rowButton('刪除對話', ICON_DELETE, () => void deleteConversation(conv))
+    )
+    item.append(open, actions)
     item.addEventListener('pointerdown', reorder.onPointerDown)
     item.addEventListener('keydown', reorder.onKeydown)
-    bindRowMenu(item, (point) => openConversationMenu(item, conv, title, point))
+    bindRowMenu(item, (point) => openConversationMenu(item, conv, point))
     return item
   }
 
@@ -266,20 +275,10 @@ export function createChatSidebar(deps) {
   /**
    * @param {HTMLElement} anchor
    * @param {ConvSummary} conv
-   * @param {HTMLElement} titleEl
    * @param {{ x: number, y: number }} point
    */
-  function openConversationMenu(anchor, conv, titleEl, point) {
+  function openConversationMenu(anchor, conv, point) {
     openChatMenu(anchor, [
-      {
-        label: '重新命名',
-        onSelect: () => startRename(titleEl, conv.title, 60, async (next) => {
-          await electronAPI.chat.rename(conv.id, next)
-          await reload()
-        })
-      },
-      { label: '刪除對話', danger: true, onSelect: () => void deleteConversation(conv) },
-      { separator: true },
       ...(conv.web ? [] : [{ label: '匯出 Markdown…', onSelect: () => void exportConversation(conv) }, { separator: true }]),
       { label: '未分類', checked: !conv.folderId, onSelect: () => void moveTo(conv, '') },
       ...folders.map((f) => ({ label: f.name, checked: conv.folderId === f.id, onSelect: () => void moveTo(conv, f.id) })),
@@ -401,6 +400,17 @@ export function createChatSidebar(deps) {
   }
 
   /**
+   * @param {ConvSummary} conv
+   * @param {HTMLElement} titleEl
+   */
+  function renameConversation(conv, titleEl) {
+    startRename(titleEl, conv.title, 60, async (next) => {
+      await electronAPI.chat.rename(conv.id, next)
+      await reload()
+    })
+  }
+
+  /**
    * 直接刪，不再跳確認。回應中的對話也可以刪：main 會先把那條串流停掉。
    * @param {ConvSummary} conv
    */
@@ -466,6 +476,23 @@ function setIconPaths(el, paths) {
   }
   el.querySelector('svg')?.remove()
   el.appendChild(svg)
+}
+
+/**
+ * 列尾的小圖示鈕
+ * @param {string} label
+ * @param {string[]} icon
+ * @param {() => void} onClick
+ */
+function rowButton(label, icon, onClick) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'chat-list-btn'
+  btn.title = label
+  btn.setAttribute('aria-label', label)
+  setIconPaths(btn, icon)
+  btn.addEventListener('click', onClick)
+  return btn
 }
 
 /**

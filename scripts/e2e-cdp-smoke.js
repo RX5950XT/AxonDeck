@@ -396,7 +396,7 @@ async function main() {
         settingsUi?.translateNav === '翻譯' &&
         settingsUi?.hasModelList &&
         JSON.stringify(settingsUi?.navSections) ===
-          JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'cli']) &&
+          JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'install', 'cli']) &&
         settingsUi?.activeSections === 1 &&
         settingsUi?.noFooterSave,
       JSON.stringify(settingsUi)

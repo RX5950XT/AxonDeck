@@ -24,6 +24,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * @type {Record<string, { d: string[], fill?: boolean, box?: string }>}
  */
 const ICONS = {
+  download: { d: ['M8 2v8', 'M5 7l3 3 3-3', 'M3 11v3h10v-3'] },
   // 終端機：提示字元的 `>` 與游標底線
   shell: { d: ['M3.6 5 6.9 8l-3.3 3', 'M8.8 11.2h3.6'] },
 

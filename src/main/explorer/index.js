@@ -735,6 +735,17 @@ function operationResult(result, extra = {}) {
   }
 }
 
+/**
+ * 一次刪多個（丟回收筒或永久刪除），走操作中心才有進度條、能取消。
+ * @param {unknown} items
+ * @param {unknown} opts
+ */
+async function removeEntries(items, opts) {
+  if (!Array.isArray(items) || !items.length) throw paths.fail('BAD_PATH', '路徑不合法')
+  const permanent = Boolean(opts && typeof opts === 'object' && opts.permanent === true)
+  return operationResult(await operations.run({ mode: permanent ? 'delete' : 'trash', sources: items.slice(0, 50) }))
+}
+
 const operationCancel = (id) => operations.cancel(id)
 const operationRetry = (id) => operations.retry(id)
 const operationUndo = (id) => operations.undo(id)
@@ -800,6 +811,7 @@ module.exports = {
   createEntry,
   renameEntry,
   removeEntry,
+  removeEntries,
   restoreEntry,
   purgeEntry,
   emptyRecycle,

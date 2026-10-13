@@ -404,7 +404,7 @@ async function main() {
     })()`)
     ok(
       '設定頁五個分區且順序正確（AGY 反代從 CC Proxy 搬過來）',
-      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'cli']) &&
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'install', 'cli']) &&
         settings.titles[0].includes('雲端模型') && settings.titles[1].includes('基本') &&
         settings.titles[2].includes('外觀') && settings.titles[3].includes('AGY') && settings.titles[4].includes('CLI'),
       JSON.stringify(settings?.titles)

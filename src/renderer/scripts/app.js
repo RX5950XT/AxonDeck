@@ -141,12 +141,24 @@ export async function openFolderInWorkspace(full) {
 }
 
 /**
- * 網址留在 App 裡：開成專案瀏覽器分頁（main 的外連、終端機連結都走這裡）。
+ * 網址留在 App 裡，在哪裡點就開在哪裡（main 的外連、終端機連結都走這裡）：
+ * Agent（工作區）→ 專案瀏覽器分頁；對話／網頁版 AI → 右側瀏覽器；
+ * Browser 模式、其他功能頁（Telegram 等）→ Browser 模式的新分頁。三處同一個 partition。
  * @param {string} url http(s)
  * @param {string} [project] 指定專案（專案腳本開的網址）
+ * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的，一律開在 Browser 模式
  */
-export async function openUrlInApp(url, project = '') {
-  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project })
+export async function openUrlInApp(url, project = '', target = '') {
+  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project, target: 'browser' })
+  const onChatPage = document.getElementById('page-chat')?.classList.contains('active')
+  if (!project && (target === 'browser' || !onChatPage || chatPaneMode === 'browser')) {
+    switchPage('chat')
+    setSidebarMode('browser')
+    return (await import('./browser-page.js')).openInBrowserPage(url)
+  }
+  if (!project && chatPaneMode !== 'workspace') {
+    return (await import('./chat-browser.js')).openChatBrowser(url)
+  }
   switchPage('chat')
   await (await loadWorkspacePage()).openUrlInProject(url, project)
 }
@@ -858,9 +870,9 @@ function initNavigation() {
 /**
  * 聊天與工作區共用同一頁：主區要顯示哪一個由最後點選的側欄項目決定。
  * 'chat'＝對話主區、'workspace'＝工作區主區（分頁列＋終端機／編輯器／瀏覽器）、
- * 'web'＝AI 網頁版（ChatGPT／Gemini／Claude／Grok，見 ai-web-page.js）。
+ * 'web'＝AI 網頁版（ChatGPT／Gemini／Claude／Grok，見 ai-web-page.js）、'browser'＝獨立瀏覽器（browser-page.js）。
  * 切分頁時保持原樣，不重置。
- * @type {'chat' | 'workspace' | 'web'}
+ * @type {'chat' | 'workspace' | 'web' | 'browser'}
  */
 let chatPaneMode = 'chat'
 /** 主區真的換過一次就加一。晚回來的對話載入用這個判斷自己是不是舊的。 */
@@ -905,11 +917,12 @@ function initSidebarResize() {
  */
 const SIDEBAR_PANELS = {
   projects: 'projPanel',
+  browser: 'browserPanel',
   chats: 'chatPanel'
 }
 
 /**
- * @param {'projects' | 'chats'} mode
+ * @param {'projects' | 'browser' | 'chats'} mode
  */
 export function setSidebarMode(mode) {
   if (!SIDEBAR_PANELS[mode]) return
@@ -922,20 +935,24 @@ export function setSidebarMode(mode) {
     const panel = document.getElementById(id)
     if (panel) panel.hidden = key !== mode
   }
+  // Browser 側欄收合的 CSS 認這個 class（不用 :has()，Chromium 不一定會重算）
+  document.querySelector('#page-chat .chat-layout')?.classList.toggle('sidebar-browser', mode === 'browser')
   try {
     localStorage.setItem('chatSidebarMode', mode)
   } catch {
     // 沒有 storage 就只是這次有效
   }
   if (mode === 'projects') loadWorkspacePage().then((m) => m.refreshWorkspacePage())
+  if (mode === 'browser') import('./browser-page.js').then((m) => m.initBrowserPage())
 }
 
 function initSidebarModes() {
   document.querySelectorAll('.sidebar-mode').forEach((btn) => {
     btn.addEventListener('click', () => {
-      setSidebarMode(/** @type {'projects'|'chats'} */ (
-        /** @type {HTMLElement} */ (btn).dataset.mode
-      ))
+      const mode = /** @type {'projects'|'browser'|'chats'} */ (/** @type {HTMLElement} */ (btn).dataset.mode)
+      setSidebarMode(mode)
+      // Browser 沒有別的項目可點：按下去就顯示瀏覽器
+      if (mode === 'browser') import('./browser-page.js').then((m) => m.showBrowserPage())
     })
   })
   let saved = ''
@@ -946,16 +963,18 @@ function initSidebarModes() {
   }
   // 舊版存過 'terminals'：終端機已併進專案面板
   if (saved === 'terminals') saved = 'projects'
-  setSidebarMode(/** @type {'projects'|'chats'} */ (
+  setSidebarMode(/** @type {'projects'|'browser'|'chats'} */ (
     SIDEBAR_PANELS[saved] ? saved : 'chats'
   ))
 }
 
 export function setChatPaneMode(mode) {
-  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web') return
+  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser') return
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
+  document.getElementById('browserMain')?.classList.toggle('hidden', mode !== 'browser')
+  document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
   const chatMain = document.getElementById('chatMain')
   const termMain = document.getElementById('termMain')
@@ -1049,7 +1068,7 @@ function cooldownPage(pageName = '') {
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'cloud'|'basic'|'appearance'|'cli'|'agy'} [section]
+ * @param {'cloud'|'basic'|'appearance'|'cli'|'agy'|'install'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
   if (pageOwner && pageOwner !== 'settings') return navigateToPage({ page: 'settings', subtab: section })
@@ -1076,6 +1095,7 @@ function activateSettingsSection(target) {
   const scroll = document.getElementById('settingsScroll')
   if (scroll) scroll.scrollTop = 0
   if (target === 'appearance') void refreshTermAppearancePreview()
+  if (target === 'install') void import('./app-installer-page.js').then((mod) => mod.openInstallerPage())
   if (target === 'cli') void loadCcSwitchPage().then((mod) => mod.refreshVersionsSection())
   if (target === 'agy') void loadAgyPage().then((mod) => mod.refreshAgyPage())
   else agyPage?.cooldownAgyPage()

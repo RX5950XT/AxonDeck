@@ -128,7 +128,13 @@ async function main() {
       assert.equal(fs.lstatSync(linkedCopy.items[0].destination).isSymbolicLink(), true)
       assert.equal(fs.existsSync(path.join(linkedCopy.items[0].destination, 'outside.txt')), true)
     }
-    console.log('PASS: operation center copy progress, collision policy, cancellation, retry, cross-device move, undo')
+    const doomed = path.join(sourceDir, 'delete-me.txt')
+    fs.writeFileSync(doomed, 'bye')
+    const deleted = await operations.run({ mode: 'delete', sources: [doomed] })
+    assert.equal(deleted.status, 'completed')
+    assert.equal(deleted.canUndo, false)
+    assert.equal(fs.existsSync(doomed), false)
+    console.log('PASS: operation center copy progress, collision policy, cancellation, retry, cross-device move, undo, permanent delete')
   } finally {
     await removeTree(root)
   }

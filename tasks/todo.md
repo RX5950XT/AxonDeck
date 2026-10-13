@@ -19,6 +19,22 @@
 - 文字轉語音：變聲是上游實驗功能；官方模型與本機輸出限研究及非商用。
 - 系統監控網路欄：未提權時 ETW／TCP EStats 回 Access denied，顯示「—」；提權 sidecar 真實吞吐未驗。
 
+# 2026-10-13 — 設定「安裝」分頁
+
+- [x] 常用程式 18 個（WinGet＋官方直連：NVIDIA App／Broadcast、RustDesk、Z-Library 更新 API＋SHA-512、FreeCAD-TW 指定 release＋SHA-256）、已安裝／可更新清單、安裝／更新／解除安裝背景工作與進度（`src/main/app-installer/`、`app-installer-page.js`）。
+- [x] 子頁 `install` 加進功能視窗允許清單；分頁按鈕不折行、標頭撐滿寬度。
+- [x] 清單改緊湊方格卡片；「全部更新（N）」逐一更新（`upgradeAll`，期間鎖住其他操作）。
+- [x] 自動分類（`categoryFor`：常用清單用指定類別，其餘依名稱＋ID 關鍵字）＋分類篩選 chip；實機 278 筆約 18% 落「其他」（銀行元件、小工具）。
+- Review：`test-app-installer`／`-download`、真實唯讀 `probe-app-installer`（18 個來源都解析成功）、Z-Library 實際下載 222MB 校驗通過（未執行）、lint、打包版 `e2e-app-installer-cdp` 4/4、`e2e-page-windows-cdp` 全過。未實際安裝／解除安裝真程式（e2e 用 mock）。
+
+# 2026-10-13 — 文字轉語音參考 yovoice 改進
+
+- [x] 參考音／原錄音支援 MP3、M4A 等（ffmpeg 轉 24kHz 單聲道）、麥克風錄音、波形拖曳裁切。
+- [x] 版本保留（切換、匯出、刪除）、逐句生成與單句修改重做、停止時保留完成的句子。
+- [x] 字幕配音（SRT／VTT／ASS、角色指定聲音、依時間放置）、讀音字典。
+- [x] 版面改左稿右設定＋下方結果區；e2e 支援 `AXONDECK_DEV=1` 跑原始碼。
+- Review：單元測試＋e2e 165 項全過（fixture，不含真模型推論）；未打包驗證、未用真 Q8 跑逐句／字幕。
+
 # 2026-10-12 — 網頁版 AI 右鍵＋F5、專案瀏覽器 Chrome 擴充功能
 
 - [x] 網頁版 AI 與專案瀏覽器 webview：右鍵選單、F5／Ctrl+R（`web-context-menu.js`）。
@@ -251,3 +267,9 @@
 - [x] 工作區檔案樹：開始就地打字先作廢進行中的監看重畫（`treeSeq`），不然打到一半那列會被刪掉
 - Review（第二輪全跑）：e2e 32 支先 30 過，剩 chat（上面那個真 bug）與 workspace（測試跟「重開專案自動展開資料夾」互相抵消）；兩個都修完單獨連跑通過，最後再全跑一輪。
 
+
+# 2026-10-13 — 設定「安裝」
+
+- [ ] 查證常用程式來源與靜默參數，建立已安裝／更新查詢及背景工作。
+- [ ] 串接 main／IPC／preload／設定分頁，呈現搜尋、狀態、安裝／更新／解除安裝。
+- [ ] 驗證真實唯讀盤點、操作邊界與 UI，跑 lint、打包及隔離 CDP。

@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="./styles/main.css" />
     <link rel="stylesheet" href="./styles/explorer-operations.css" />
     <link rel="stylesheet" href="./styles/speech.css" />
+    <link rel="stylesheet" href="./styles/app-installer.css" />
   </head>
   <body>
     <div id="app" class="app-container">
@@ -97,6 +98,17 @@
                   </button>
                   <button
                     type="button"
+                    class="sidebar-mode"
+                    id="sidebarModeBrowser"
+                    role="tab"
+                    data-mode="browser"
+                    aria-controls="browserPanel"
+                    aria-selected="false"
+                  >
+                    Browser
+                  </button>
+                  <button
+                    type="button"
                     class="sidebar-mode active"
                     id="sidebarModeChats"
                     role="tab"
@@ -117,6 +129,19 @@
                   <div class="proj-unified-list">
                     <div id="projList" class="chat-list proj-list" aria-label="專案清單"></div>
                   </div>
+                </section>
+
+                <!-- Browser 模式的分頁清單（browser-page.js）；網頁在 #browserMain -->
+                <section class="sidebar-panel browser-panel" id="browserPanel" role="tabpanel" hidden>
+                  <div class="bt-head">
+                    <button type="button" id="browserPinBtn" class="btn-icon bt-pin" title="固定側欄（不自動收起）" aria-label="固定側欄" aria-pressed="false">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z" /><path d="M12 14v6" /></svg>
+                    </button>
+                  </div>
+                  <div id="browserTabList" class="bt-list" role="list" aria-label="瀏覽器分頁"></div>
+                  <button type="button" id="browserNewTabBtn" class="bt-new" title="新分頁 (Ctrl+T)">
+                    <span class="bt-icon" aria-hidden="true">＋</span><span class="bt-label">新分頁</span><kbd class="bt-label">Ctrl+T</kbd>
+                  </button>
                 </section>
 
                 <section class="sidebar-panel" id="chatPanel" role="tabpanel">
@@ -173,6 +198,19 @@
 
               <!-- 網頁版 AI 對話：webview 第一次打開才建，久沒看會收掉（網址存在那則對話，下次接著開） -->
               <div class="ai-web-main hidden" id="aiWebMain"></div>
+
+              <!-- Browser 模式：跟專案瀏覽器同一個 partition（登入狀態、擴充功能共用） -->
+              <div class="ws-browser browser-main hidden" id="browserMain">
+                <div class="ws-browser-bar">
+                  <button type="button" id="browserBackBtn" class="btn-icon" title="上一頁" aria-label="上一頁" disabled>←</button>
+                  <button type="button" id="browserFwdBtn" class="btn-icon" title="下一頁" aria-label="下一頁" disabled>→</button>
+                  <button type="button" id="browserReloadBtn" class="btn-icon" title="重新整理" aria-label="重新整理">⟳</button>
+                  <input type="text" id="browserUrl" class="input input-sm ws-browser-url" placeholder="輸入網址後按 Enter" aria-label="網址" />
+                  <div id="browserActions" class="ws-browser-actions" role="group" aria-label="擴充功能圖示" hidden></div>
+                  <button type="button" id="browserExtBtn" class="btn-icon" title="擴充功能" aria-label="擴充功能">🧩</button>
+                </div>
+                <div id="browserFrame" class="ws-browser-frame"></div>
+              </div>
 
               <div class="chat-main" id="chatMain">
                 <div id="chatBanner" class="translate-banner hidden" role="status">
@@ -258,6 +296,26 @@
                 </div>
                 <p id="chatError" class="live-error hidden" role="alert"></p>
               </div>
+
+              <!-- 對話／網頁版 AI 裡點的連結開在這裡；跟專案瀏覽器同一個 partition（登入狀態、擴充功能共用） -->
+              <div
+                id="chatBrowserResizer"
+                class="sidebar-resizer sidebar-resizer-right chat-browser-part"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="調整瀏覽器寬度"
+                tabindex="0"
+                hidden
+              ></div>
+              <aside id="chatBrowser" class="chat-browser chat-browser-part" aria-label="瀏覽器" hidden>
+                <div class="ws-browser-bar">
+                  <button type="button" id="chatBrowserBackBtn" class="btn-icon" title="上一頁" aria-label="上一頁">←</button>
+                  <button type="button" id="chatBrowserReloadBtn" class="btn-icon" title="重新整理" aria-label="重新整理">⟳</button>
+                  <span id="chatBrowserUrl" class="chat-browser-url"></span>
+                  <button type="button" id="chatBrowserCloseBtn" class="btn-icon" title="關閉" aria-label="關閉瀏覽器">✕</button>
+                </div>
+                <div id="chatBrowserFrame" class="ws-browser-frame"></div>
+              </aside>
 
               <!--
                 工作區主區：跟聊天共用這一頁（`#chatMain` ⇄ `#termMain` 二選一）。
@@ -1814,17 +1872,33 @@
                 <div class="speech-model"><strong>Breeze-TTS-2 · Q8_0</strong><span id="speechModelStatus" role="status">正在確認模型…</span></div>
               </header>
               <div id="speechInstallNotice" class="speech-notice" hidden><span>先下載語音模型，就能在這台電腦生成聲音。</span><button id="speechModelsBtn" class="btn btn-secondary btn-sm">前往 Local SI 推薦</button></div>
-              <div class="speech-modes" role="tablist" aria-label="語音生成模式">
-                <button id="speechModeDesign" class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechForm"><span class="speech-mode-title">聲音設計</span><span class="speech-mode-description">文字描述聲音</span></button>
-                <button id="speechModeClone" class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語音克隆</span><span class="speech-mode-description">用原聲讀新台詞</span></button>
-                <button id="speechModeDirection" class="speech-mode" type="button" role="tab" data-mode="direction" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語氣指導</span><span class="speech-mode-description">原聲加上新語氣</span></button>
-                <button id="speechModeConvert" class="speech-mode" type="button" role="tab" data-mode="convert" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">變聲<small>實驗性</small></span><span class="speech-mode-description">替錄音換個聲音</span></button>
-              </div>
-              <form id="speechForm" class="speech-form" role="tabpanel" aria-labelledby="speechModeDesign" data-mode="design">
-                <div id="speechEditor" class="speech-editor">
-                  <div id="speechSource" class="speech-source" hidden><label for="speechPickSource">原錄音</label><button id="speechPickSource" type="button" class="btn btn-secondary">選擇原錄音 WAV</button><span id="speechSourceName">尚未選擇</span></div>
-                  <div class="speech-editor-label"><label for="speechText" id="speechTextLabel">想說的話</label><span id="speechCount">0 / 100000</span></div>
+              <form id="speechForm" class="speech-studio" data-mode="design" data-script="whole">
+                <div id="speechEditor" class="speech-doc">
+                  <div class="speech-doc-bar">
+                    <div class="speech-script-modes" role="radiogroup" aria-label="怎麼生成">
+                      <button type="button" class="speech-script-mode active" data-script="whole" role="radio" aria-checked="true" title="整段一次生成">整段</button>
+                      <button type="button" class="speech-script-mode" data-script="sentences" role="radio" aria-checked="false" tabindex="-1" title="一句一句生成，可以只重做念不好的那句">逐句</button>
+                      <button type="button" class="speech-script-mode" data-script="subtitle" role="radio" aria-checked="false" tabindex="-1" title="匯入字幕，每個角色配不同聲音，依字幕時間排好">字幕配音</button>
+                    </div>
+                    <div class="speech-doc-tools">
+                      <button id="speechImportSubtitle" type="button" class="btn btn-secondary btn-sm" hidden><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15h4"/><path d="M15 15h2"/><path d="M7 11h2"/><path d="M13 11h4"/></svg>匯入字幕</button><input id="speechSubtitleFile" type="file" accept=".srt,.vtt,.ass,.ssa" hidden />
+                      <button id="speechPronounceBtn" type="button" class="btn btn-secondary btn-sm" aria-expanded="false" aria-controls="speechPronounce" title="指定破音字或專有名詞怎麼念"><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>讀音<span id="speechPronounceCount" class="speech-badge" hidden></span></button>
+                      <span id="speechCount" class="speech-count">0 / 100000</span>
+                    </div>
+                  </div>
+                  <div id="speechPronounce" class="speech-pronounce" hidden>
+                    <p class="speech-hint">生成前會把左邊的字換成右邊的念法，原稿不變。選取文字後按「讀音」可直接帶入。</p>
+                    <ul id="speechPronounceList" class="speech-pronounce-list"></ul>
+                    <div class="speech-pronounce-add"><input id="speechPronounceWord" class="input" maxlength="50" placeholder="原字，例如 重慶" aria-label="原字" /><span aria-hidden="true">念成</span><input id="speechPronounceSound" class="input" maxlength="50" placeholder="同音字，例如 崇慶" aria-label="念成" /><button id="speechPronounceAdd" type="button" class="btn btn-secondary btn-sm">加入</button></div>
+                  </div>
+                  <div id="speechSource" class="speech-source" hidden><label>原錄音</label><div id="speechSourceInput"></div></div>
+                  <label for="speechText" id="speechTextLabel" class="visually-hidden">想說的話</label>
                   <textarea id="speechText" maxlength="100000" placeholder="你好，今天想用什麼聲音說故事？" aria-describedby="speechTextHint"></textarea>
+                  <div id="speechCues" class="speech-cues" hidden>
+                    <p id="speechCuesEmpty" class="speech-cues-empty">匯入 SRT、VTT 或 ASS 字幕。台詞前寫「名字：」或字幕本身有角色欄，就能替每個角色配不同的聲音。</p>
+                    <p id="speechCuesInfo" class="speech-hint" hidden></p>
+                    <ol id="speechCueList" class="speech-cue-list"></ol>
+                  </div>
                   <div id="speechEvents" class="speech-events" role="group" aria-label="插入語音標記">
                     <div class="speech-event-group" role="group" aria-label="笑聲"><button type="button" data-event="[笑]">笑</button><button type="button" data-event="(laugh)">laugh</button></div>
                     <div class="speech-event-group" role="group" aria-label="嘆氣"><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="(sigh)">sigh</button></div>
@@ -1838,10 +1912,26 @@
                   </div>
                   <p id="speechTextHint" class="speech-hint" hidden>支援中文與英文。點選標記插入游標位置，也能直接在台詞寫 [中文描述] 或 (English description)。</p>
                 </div>
-                <aside class="speech-settings" aria-label="聲音設定">
+                <aside class="speech-inspector" aria-label="聲音設定">
+                  <div class="speech-run">
+                    <button id="speechGenerate" class="btn btn-primary speech-generate" type="submit" disabled>生成語音</button>
+                    <button id="speechCancel" class="btn btn-secondary" type="button" hidden>停止</button>
+                  </div>
+                  <label id="speechStreamLabel" class="speech-stream"><input id="speechStream" type="checkbox" checked />邊生成邊播放</label>
+                  <div class="speech-modes" role="tablist" aria-label="語音生成模式">
+                    <button id="speechModeDesign" class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechForm"><span class="speech-mode-title">聲音設計</span><span class="speech-mode-description">文字描述聲音</span></button>
+                    <button id="speechModeClone" class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語音克隆</span><span class="speech-mode-description">用原聲讀新台詞</span></button>
+                    <button id="speechModeDirection" class="speech-mode" type="button" role="tab" data-mode="direction" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語氣指導</span><span class="speech-mode-description">原聲加上新語氣</span></button>
+                    <button id="speechModeConvert" class="speech-mode" type="button" role="tab" data-mode="convert" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">變聲<small>實驗性</small></span><span class="speech-mode-description">替錄音換個聲音</span></button>
+                  </div>
+                  <div id="speechSpeakers" class="speech-speakers" hidden>
+                    <h3>角色聲音</h3>
+                    <p class="speech-hint">沒指定的角色用下方設定。指定保存的聲音後，該角色一律用語音克隆。</p>
+                    <ul id="speechSpeakerList"></ul>
+                  </div>
                   <div id="speechReference" hidden>
                     <label for="speechVoice" id="speechVoiceLabel">參考聲音</label><div class="speech-voice-row"><select id="speechVoice" class="input"><option value="">新的參考音訊</option></select><button id="speechDeleteVoice" type="button" class="btn btn-secondary btn-sm" disabled>刪除</button></div>
-                    <div id="speechNewReference"><button id="speechPickReference" type="button" class="btn btn-secondary">選擇參考 WAV</button><p id="speechReferenceName" class="speech-file-name">尚未選擇</p><label for="speechRefText">參考音訊的逐字稿（選檔自動辨識）</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="選檔後自動辨識，可再手動修改；要和錄音裡說的一字不差。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">用乾淨、少雜音的錄音；保存後不用每次重新上傳。</p></div>
+                    <div id="speechNewReference"><div id="speechReferenceInput"></div><label for="speechRefText">參考音訊的逐字稿（自動辨識）</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="選檔或錄音後自動辨識，可再手動修改；要和錄音裡說的一字不差。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">5～20 秒、乾淨少雜音最好；保存後不用每次重新上傳。</p></div>
                   </div>
                   <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
                   <details class="speech-advanced"><summary>進階設定</summary><div class="speech-params">
@@ -1854,11 +1944,28 @@
                     <label>每段字數<input id="speechSplit" class="input" type="number" min="0" max="10000" value="200" /></label>
                     <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="30000" /></label>
                     <label id="speechAcousticGroup" hidden>保留旋律<input id="speechAcoustic" class="input" type="number" min="0" max="15" value="0" /></label>
-                  </div><p class="speech-hint">CFG 越高越遵循指令，也可能讓聲音變粗糙。笑聲等表情可試 2～3；變聲的保留旋律只建議用於歌聲，超過 2 可能失真。</p></details>
+                  </div><p class="speech-hint">CFG 越高越遵循指令，也可能讓聲音變粗糙。笑聲等表情可試 2～3；變聲的保留旋律只建議用於歌聲，超過 2 可能失真。重做單句時會自動換一個隨機種子。</p></details>
                 </aside>
-                <footer class="speech-actions"><label id="speechStreamLabel" class="speech-stream"><input id="speechStream" type="checkbox" checked />邊生成邊播放</label><div><button id="speechCancel" class="btn btn-secondary" type="button" hidden>取消生成</button><button id="speechGenerate" class="btn btn-primary" type="submit" disabled>生成語音</button></div></footer>
               </form>
-              <div class="speech-result"><div class="speech-result-heading"><strong id="speechResultTitle">你的聲音會出現在這裡</strong><span id="speechProgress" role="status" aria-live="polite">選好聲音、寫下台詞，就能開始。</span></div><div class="speech-player-row"><audio id="speechPlayer" controls hidden aria-label="生成語音試聽"></audio><button id="speechExport" class="btn btn-secondary" disabled>匯出 WAV</button></div><p id="speechError" role="alert" hidden></p></div>
+              <section class="speech-dock" aria-labelledby="speechResultTitle">
+                <div class="speech-dock-head"><h2 id="speechResultTitle">你的聲音會出現在這裡</h2><span id="speechProgress" role="status" aria-live="polite">選好聲音、寫下台詞，就能開始。</span></div>
+                <p id="speechDockEmpty" class="speech-dock-empty">每次生成都會留一個版本，可以切換比較、挑最好的匯出。</p>
+                <div id="speechDockBody" hidden>
+                  <div class="speech-dock-bar">
+                    <button id="speechPlay" class="speech-play" type="button" aria-label="播放" disabled></button>
+                    <span id="speechTime" class="speech-time">00:00 / 00:00</span>
+                    <div class="speech-take-pick"><label for="speechTakes" class="visually-hidden">版本</label><select id="speechTakes" class="input"></select></div>
+                    <div class="speech-dock-tools">
+                      <button id="speechExport" class="btn btn-secondary btn-sm" type="button" disabled><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>匯出 WAV</button>
+                      <button id="speechDeleteTake" class="btn-icon" type="button" aria-label="刪除這個版本" title="刪除這個版本" disabled><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                    </div>
+                  </div>
+                  <canvas id="speechWave" class="speech-wave-canvas speech-dock-wave" tabindex="0" aria-label="語音波形：點一下跳到該位置，空白鍵播放，左右鍵快轉 5 秒"></canvas>
+                  <ol id="speechSegments" class="speech-segments" aria-label="分句" hidden></ol>
+                </div>
+                <audio id="speechPlayer" hidden></audio>
+                <p id="speechError" role="alert" hidden></p>
+              </section>
               <p class="speech-license">本機音訊不會上傳到雲端。Breeze 模型及本機生成內容限研究與非商業用途；克隆前請取得聲音使用權。<a href="https://huggingface.co/BreezeBlue/Breeze-TTS-2" target="_blank" rel="noreferrer">模型授權</a></p>
               </div>
             </div>
@@ -2056,6 +2163,9 @@
                 <button type="button" class="settings-nav-item" data-section="agy">
                   <span class="nav-icon" data-icon="agy"></span>AGY 反代
                 </button>
+                <button type="button" class="settings-nav-item" data-section="install">
+                  <span class="nav-icon" data-icon="download"></span>安裝
+                </button>
                 <button type="button" class="settings-nav-item" data-section="cli">
                   <span class="nav-icon" data-icon="terminal"></span>CLI 版本
                 </button>
@@ -2238,6 +2348,30 @@
                   </section>
 
                   <!-- CLI 版本（從 CC Proxy 搬過來，跟設定表單無關：按鈕不觸發未儲存提示） -->
+                  <section class="settings-section" id="set-install" data-section="install">
+                    <header class="settings-section-head install-heading">
+                      <div><h2 class="settings-section-title">安裝</h2>
+                        <p class="settings-section-desc">常用程式與這台電腦的應用程式，在這裡一起管理。</p></div>
+                      <button type="button" class="btn btn-secondary btn-sm" id="installRefresh">重新整理</button>
+                    </header>
+                    <div class="install-toolbar">
+                      <div class="segmented" id="installFilters" role="group" aria-label="程式清單">
+                        <button type="button" class="seg-btn active" data-filter="catalog" aria-pressed="true">常用程式</button>
+                        <button type="button" class="seg-btn" data-filter="installed" aria-pressed="false">已安裝</button>
+                        <button type="button" class="seg-btn" data-filter="updates" aria-pressed="false">可更新</button>
+                      </div>
+                      <div class="install-tools">
+                        <input type="search" class="input" id="installSearch" placeholder="搜尋程式名稱" aria-label="搜尋程式名稱" />
+                        <button type="button" class="btn btn-primary btn-sm" id="installUpgradeAll" hidden>全部更新</button>
+                      </div>
+                    </div>
+                    <div class="install-categories" id="installCategories" role="group" aria-label="分類"></div>
+                    <p class="install-summary" id="installSummary" role="status">尚未讀取程式清單。</p>
+                    <p class="install-error" id="installError" role="alert" hidden></p>
+                    <div id="installJobs" class="install-jobs" aria-label="安裝工作" hidden></div>
+                    <div id="installList" class="install-list" aria-label="應用程式"></div>
+                    <p class="setting-hint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
+                  </section>
                   <section class="settings-section" id="set-cli" data-section="cli">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">CLI 版本</h2>

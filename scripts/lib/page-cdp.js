@@ -12,7 +12,7 @@ function followMainPage(Cdp) {
     const targets = await list()
     const initial = targets.find((target) => target.webSocketDebuggerUrl === this.ws.url)
     const host = targets.find((target) => target.url.includes('host=1'))
-    if (!host || !initial || !/index\.html|[?&]page=/.test(initial.url)) return
+    if (!host || !initial || !/index\.html|localhost:5173|[?&]page=/.test(initial.url)) return
     const originalSend = this.send.bind(this)
     const sessions = new Map([[initial.id, { send: originalSend }]])
     const settings = new Map()

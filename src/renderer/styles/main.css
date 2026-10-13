@@ -2101,6 +2101,23 @@ option:disabled:checked {
   color: var(--text-primary);
 }
 
+/* 對話列尾的改名／刪除：滑鼠移上去或鍵盤焦點在列上才出現 */
+.chat-list-actions {
+  display: none;
+  flex: none;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.chat-list-item:hover .chat-list-actions,
+.chat-list-item:focus-within .chat-list-actions {
+  display: flex;
+}
+
+.chat-list-actions .chat-list-btn:last-child:hover {
+  color: var(--danger);
+}
+
 /* ── 側欄：Local／資料夾＋四家 AI 網頁版，兩欄三列 ── */
 .chat-panel-actions {
   display: grid;
@@ -3796,6 +3813,308 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   border-left: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
   min-height: 0;
+}
+
+/* 聊天頁右側瀏覽器：對話／網頁版 AI 時才顯示，切到專案就藏起來（webview 留著） */
+.chat-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: var(--chat-browser-w, 560px);
+  flex-shrink: 0;
+  min-height: 0;
+  padding: 6px;
+  border-left: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.chat-browser[hidden],
+.chat-layout.is-workspace .chat-browser-part,
+.chat-layout.is-browser .chat-browser-part {
+  display: none;
+}
+
+.browser-main {
+  min-width: 0;
+}
+
+/* ── Browser 模式（比照 Edge 垂直分頁）：分頁直排、群組、＋新分頁在最下面 ── */
+.chat-layout.is-browser {
+  gap: 2px;
+  padding: 2px;
+}
+
+.chat-layout.is-browser .browser-main {
+  padding: 0;
+  gap: 4px;
+}
+
+.browser-panel {
+  gap: 4px;
+}
+
+.bt-head {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bt-pin svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.bt-pin.active {
+  color: var(--accent-primary);
+}
+
+/* ＋新分頁緊跟在最後一個分頁下面：清單只長到內容那麼高，多了才捲 */
+.bt-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.bt-tab,
+.bt-new {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 4px 0 10px;
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bt-tab:hover,
+.bt-new:hover {
+  background-color: var(--surface-hover);
+}
+
+.bt-tab.active {
+  background-color: var(--surface-hover);
+  font-weight: 600;
+}
+
+.bt-tab.in-group {
+  box-shadow: inset 3px 0 0 var(--bt-group);
+}
+
+.bt-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+}
+
+.bt-letter {
+  display: grid;
+  place-items: center;
+  background-color: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.bt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-btn {
+  flex: none;
+  display: none;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bt-btn:hover {
+  background-color: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.bt-tab:hover .bt-btn,
+.bt-tab.active .bt-btn,
+.bt-group:hover .bt-btn {
+  display: grid;
+  place-items: center;
+}
+
+.bt-group {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.bt-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-right: auto;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background-color: var(--bt-group);
+  color: #111;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bt-chip .bt-label {
+  flex: 0 1 auto;
+}
+
+.bt-caret {
+  flex: none;
+  font-size: 9px;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.bt-group.collapsed .bt-caret {
+  transform: none;
+}
+
+.bt-new {
+  width: 100%;
+  margin-bottom: auto;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.bt-new .bt-icon {
+  font-size: 16px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.bt-new kbd {
+  flex: none;
+  color: var(--text-tertiary);
+  font: 11px var(--font-sans);
+}
+
+.bt-tab.is-dragging,
+.bt-group.is-dragging {
+  opacity: 0.4;
+}
+
+.bt-list .bt-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent-primary);
+}
+
+.bt-list .bt-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent-primary);
+}
+
+.bt-drop-into .bt-chip {
+  outline: 2px solid var(--accent-primary);
+}
+
+.bt-rename {
+  width: 120px;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--accent-primary);
+  border-radius: 4px;
+  background-color: var(--surface-solid);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+/* 沒固定時：側欄只佔一條圖示寬，滑鼠移上去展開、離開收起。
+   展開時用負的 margin-right 蓋在網頁上，網頁不跟著縮放。
+   側欄在不在 Browser 用 class（sidebar-browser）判斷：:has() 的樣式 Chromium 不一定會重算。
+   不可以給 .chat-layout 加 position（實測 webview 會整塊畫不出來），所以不用 absolute。 */
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) #chatSidebarResizer {
+  display: none;
+}
+
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar {
+  position: relative;
+  z-index: 30;
+  width: 48px;
+  margin-right: 0;
+  overflow: hidden;
+  background-color: var(--surface-solid);
+  transition: width 0.16s ease, margin-right 0.16s ease, box-shadow 0.16s ease;
+}
+
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar.bt-open {
+  width: var(--chat-sidebar-w, 240px);
+  margin-right: calc(48px - var(--chat-sidebar-w, 240px));
+  box-shadow: var(--shadow-card);
+}
+
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) :is(.sidebar-modes, .bt-head) {
+  visibility: hidden;
+}
+
+/* 展開時蓋在網頁上的透明層（見 browser-page.js 的 bindHoverExpand） */
+.ws-browser-frame.bt-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+
+/* 收起時只留圖示：字與按鈕整個拿掉（只藏起來的話群組色塊會被字撐高） */
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) :is(.bt-label, .bt-btn) {
+  display: none;
+}
+
+/* 彈出成獨立視窗的瀏覽器分頁（pages/browser-window.html） */
+.bw-body {
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--surface-solid);
+}
+
+/* 高度要跟 main/browser-window.js 的 BAR_HEIGHT 一致：網頁從這條下面開始疊 */
+.bw-bar {
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 8px;
+  flex-wrap: nowrap;
+}
+
+.chat-browser-url {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ws-right-tabs {

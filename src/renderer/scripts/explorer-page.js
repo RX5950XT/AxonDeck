@@ -3496,12 +3496,20 @@ async function deleteItems(items, opts = {}) {
     if (!await askConfirm('永久刪除？無法還原', { desc, confirmText: '永久刪除', danger: true })) return
   }
   try {
+    // 一般檔案整批交給操作中心（狀態列有進度條、可取消）；回收筒裡的與手機的照舊逐個處理
+    const batch = []
     for (const item of items) {
       if (recycle && item.recycleKey) {
         await call(electronAPI.explorer.purgeEntry(item.recycleKey), '刪不掉')
-      } else {
+      } else if (item.phone) {
         await call(electronAPI.explorer.removeEntry(item.path, { permanent }), '刪不掉')
+      } else {
+        batch.push(item.path)
       }
+    }
+    // 操作中心一筆最多 50 個
+    for (let i = 0; i < batch.length; i += 50) {
+      await call(electronAPI.explorer.removeEntries(batch.slice(i, i + 50), { permanent }), '刪不掉')
     }
     selected = new Set()
     await refreshAfterMutate()

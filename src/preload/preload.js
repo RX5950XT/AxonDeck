@@ -38,6 +38,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('pdfTranslate:progress', handler)
     }
   },
+  appInstaller: {
+    status: () => ipcRenderer.invoke('appInstaller:status'),
+    refresh: () => ipcRenderer.invoke('appInstaller:refresh'),
+    start: (request) => ipcRenderer.invoke('appInstaller:start', request),
+    upgradeAll: () => ipcRenderer.invoke('appInstaller:upgradeAll'),
+    onState: (callback) => {
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('appInstaller:state', handler)
+      return () => ipcRenderer.removeListener('appInstaller:state', handler)
+    }
+  },
   cloudTts: {
     status: () => ipcRenderer.invoke('cloudTts:status'),
     generate: (options) => ipcRenderer.invoke('cloudTts:generate', options),
@@ -53,6 +64,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveVoice: (options) => ipcRenderer.invoke('breeze:saveVoice', options),
     removeVoice: (options) => ipcRenderer.invoke('breeze:removeVoice', options),
     saveAudio: (options) => ipcRenderer.invoke('breeze:saveAudio', options),
+    importRecording: (options) => ipcRenderer.invoke('breeze:importRecording', options),
+    trimAudio: (options) => ipcRenderer.invoke('breeze:trimAudio', options),
+    saveTake: (options) => ipcRenderer.invoke('breeze:saveTake', options),
+    loadTake: (options) => ipcRenderer.invoke('breeze:loadTake', options),
+    listTakes: () => ipcRenderer.invoke('breeze:listTakes'),
+    removeTake: (options) => ipcRenderer.invoke('breeze:removeTake', options),
     onChunk: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('breeze:chunk', handler)
@@ -410,6 +427,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
     extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
+    browserPopout: (url, title, guestId) => ipcRenderer.invoke('workspace:browserPopout', url, title, guestId),
     extensionActions: (guestId) => ipcRenderer.invoke('workspace:extensionActions', guestId),
     extensionActivate: (guestId, extensionId, anchor) => ipcRenderer.invoke('workspace:extensionActivate', guestId, extensionId, anchor),
     /** 擴充功能的圖示、徽章或安裝狀態變了 */
@@ -835,6 +853,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createEntry: (dirPath, name, dir) => ipcRenderer.invoke('explorer:createEntry', dirPath, name, dir),
     renameEntry: (target, name) => ipcRenderer.invoke('explorer:renameEntry', target, name),
     removeEntry: (target, opts) => ipcRenderer.invoke('explorer:removeEntry', target, opts),
+    removeEntries: (items, opts) => ipcRenderer.invoke('explorer:removeEntries', items, opts),
     restoreEntry: (key) => ipcRenderer.invoke('explorer:restoreEntry', key),
     purgeEntry: (key) => ipcRenderer.invoke('explorer:purgeEntry', key),
     emptyRecycle: () => ipcRenderer.invoke('explorer:emptyRecycle'),

@@ -59,6 +59,15 @@ function runPty(file, args, { onProgress, stallMs = 0 } = {}) {
   })
 }
 
+// 以系統管理員身分重跑 WinGet，只拿結束代碼（沒有進度）；互動模式保留視窗，確保原廠安裝畫面看得到。
+function runElevated(args, { interactive = false } = {}) {
+  const line = args.map((arg) => /[\s"]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg).join(' ')
+  const script = `$ErrorActionPreference='Stop'; try {$p=Start-Process -FilePath $env:AXON_WINGET -ArgumentList $env:AXON_WINGET_ARGS -Verb RunAs -WindowStyle ${interactive ? 'Normal' : 'Hidden'} -Wait -PassThru; exit $p.ExitCode} catch {exit 1}`
+  return run(powershellPath(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+    timeout: 0, env: { ...process.env, AXON_WINGET: wingetPath(), AXON_WINGET_ARGS: line }
+  })
+}
+
 const wingetPath = () => path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'winget.exe')
 const powershellPath = () => path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 
@@ -107,9 +116,11 @@ function actionArgs(action, target) {
   if (action === 'uninstall' && target.version && !/^(Unknown|<)/i.test(target.version)) args.push('--version', target.version)
   if (target.scope) args.push('--scope', target.scope)
   if (action === 'upgrade' && /^(x86|x64|arm64)$/.test(target.architecture)) args.push('--architecture', target.architecture)
+  // 版本顯示 Unknown 的程式，不加這個 WinGet 會回「沒有適用的更新」
+  if (action === 'upgrade') args.push('--include-unknown')
   if (action !== 'uninstall') args.push('--accept-package-agreements')
   if (target.source) args.push('--source', target.source)
   return args
 }
 
-module.exports = { failure, run, runPty, wingetPath, powershellPath, parseList, list, actionArgs }
+module.exports = { failure, run, runPty, runElevated, wingetPath, powershellPath, parseList, list, actionArgs }

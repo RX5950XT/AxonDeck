@@ -2534,9 +2534,12 @@ app.on('web-contents-created', (_event, contents) => {
       if (host && !host.isDestroyed()) host.send('nav:side', back ? -1 : 1)
     })
   }
-  contents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url, disposition }) => {
     const partition = aiWebPartitions.get(contents.session)
-    if (partition && require('./ai-web').isLoginPopup(url)) {
+    // 比照 Chrome 開成小視窗、保留 opener，第三方登入才收得到 postMessage 回傳的結果（Infinity 新分頁的 Google 登入等）：
+    // 帶視窗大小的 window.open（new-window）、先開空白頁再導過去的寫法、登入／授權頁。其餘連結才轉成分頁
+    const popup = (disposition === 'new-window' && isWebUrl(url)) || url === 'about:blank'
+    if (partition && (popup || require('./ai-web').isLoginPopup(url))) {
       // 登入小視窗留在 App 裡、同一個分區，登完網站才收得到結果；一樣沙箱、沒有 preload
       return {
         action: 'allow',
@@ -2573,6 +2576,7 @@ app.whenReady().then(() => {
     fetch: (url) => net.fetch(url),
     chromeVersion: process.versions.chrome,
     aliasPreload: path.join(__dirname, '../preload/crx-browser-alias.js'),
+    identityPreload: path.join(__dirname, '../preload/crx-identity.js'),
     openUrl: openInProjectBrowser,
     onActionsChanged: () => {
       sendToPages('workspace:extensionsChanged')

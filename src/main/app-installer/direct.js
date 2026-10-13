@@ -57,6 +57,12 @@ async function resolveSource(kind) {
     }
     return { version: String(release.tag_name).replace(/^v/, ''), url: asset.browser_download_url, sha256: asset.digest.slice(7), args: ['--silent-install'], elevate: true }
   }
+  if (kind === 'google-app') return {
+    // 桌機版 Google App 不在 WinGet；官方固定短網址永遠給最新版（安裝參數由伺服器下發時寫進檔內）。
+    // 內嵌 needsadmin=False（使用者層級、免 UAC）；/silent 由安裝檔內字串確認支援；裝完由 Omaha 自己更新，故不追版本號。
+    version: '', args: ['/silent'], elevate: false, publisher: 'Google LLC',
+    url: 'https://dl.google.com/tag/s/appguid%3D%7B06A8089E-0B65-445D-B5C4-10B0D1B540F2%7D%26appname%3DGoogle%2520App%26needsadmin%3DFalse%26ap%3Dga%26referral%3Dgoogle.search%26lang%3Den/windows-google-app/GoogleAppInstaller.exe'
+  }
   throw failure('NO_SOURCE', '此程式尚無可驗證的自動安裝來源。')
 }
 
@@ -211,4 +217,51 @@ async function install(kind, cacheDir, update) {
   }
 }
 
-module.exports = { resolveSource, download, install }
+// 有內建更新程式、WinGet 卻更新不了的軟體，改用它自己的更新程式。
+// iCUE：WinGet 安裝檔在已安裝時不支援靜默更新（會直接當掉），改用 cuepkg；一次 UAC 跑完 update＋upgrade。
+const ICUE_SCRIPT = String.raw`$ErrorActionPreference='Stop'
+try {
+  $dir = $env:AXON_APP_DIR
+  $pkg = Get-ChildItem -LiteralPath $dir -Directory -Filter 'cuepkg*' | ForEach-Object { Join-Path $_.FullName 'cuepkg.exe' } | Where-Object { Test-Path -LiteralPath $_ } | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTime } | Select-Object -Last 1
+  if (!$pkg) { exit 2 }
+  $q = { param($s) "'" + $s.Replace("'", "''") + "'" }
+  $base = "& $(& $q $pkg) --installdir $(& $q $dir)"
+  $inner = "$base update" + '; if ($LASTEXITCODE) { exit $LASTEXITCODE }; ' + "$base upgrade --locked-files-action terminate" + '; exit $LASTEXITCODE'
+  $running = Get-Process iCUE -ErrorAction SilentlyContinue
+  $p = Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand',([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))) -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+  if ($p.ExitCode -eq 0 -and $running -and !(Get-Process iCUE -ErrorAction SilentlyContinue)) { Start-Process -FilePath (Join-Path $dir 'iCUE.exe') -ArgumentList '--autorun' }
+  exit $p.ExitCode
+} catch { exit 1 }`
+
+// Google Cloud SDK：安裝紀錄沒有版本號，WinGet 永遠回「沒有適用的更新」；改用 gcloud components update。
+const GCLOUD_SCRIPT = String.raw`$ErrorActionPreference='Stop'
+try {
+  $exe = Join-Path $env:AXON_APP_DIR 'google-cloud-sdk\bin\gcloud.cmd'
+  if (!(Test-Path -LiteralPath $exe)) { exit 2 }
+  $env:CLOUDSDK_CORE_DISABLE_PROMPTS = '1'
+  # 官方規定：非互動更新不能用正在用的內建 Python，先複製一份到暫存區再更新
+  $py = & $exe components copy-bundled-python | Select-Object -Last 1
+  if ($LASTEXITCODE) { exit $LASTEXITCODE }
+  if ($py) { $env:CLOUDSDK_PYTHON = $py.Trim() }
+  & $exe components update --quiet
+  exit $LASTEXITCODE
+} catch { exit 1 }`
+
+const SELF_UPDATERS = {
+  'Corsair.iCUE.5': { name: 'iCUE', script: ICUE_SCRIPT, dir: () => path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Corsair', 'Corsair iCUE5 Software') },
+  'Google.CloudSDK': { name: 'Google Cloud SDK', script: GCLOUD_SCRIPT, dir: () => path.join(process.env.LOCALAPPDATA || '', 'Google', 'Cloud SDK') }
+}
+
+async function selfUpgrade(target, update) {
+  const updater = SELF_UPDATERS[target.id]
+  const dir = String(target.location || '').replace(/^"|"$/g, '') || updater.dir()
+  if (!/^[a-z]:\\/i.test(dir)) throw failure('INVALID', `${updater.name} 安裝位置無效。`)
+  update({ phase: 'installing', message: `正在用 ${updater.name} 內建更新程式更新；若 Windows 要求授權，請確認系統提示。`, progress: null })
+  const result = await run(powershellPath(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(updater.script, 'utf16le').toString('base64')], {
+    timeout: 0, env: { ...process.env, AXON_APP_DIR: dir }
+  })
+  if (result.code === 2) throw failure('INSTALL_FAILED', `找不到 ${updater.name} 內建更新程式，請在程式裡手動更新。`)
+  return result
+}
+
+module.exports = { resolveSource, download, install, selfUpgrade, SELF_UPDATERS }

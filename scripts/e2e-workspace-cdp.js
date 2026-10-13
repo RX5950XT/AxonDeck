@@ -594,9 +594,9 @@ async function main() {
       return ${guestSrc()}
     })()`)
     // 只斷言「開頭不是 file:」不夠：補成 http://file/// 也通得過，但那是去查一個叫 file 的主機。
-    // webview 版被拒時**不動**（留在上一個網址），fresh tab 就是初始的 about:blank
+    // webview 版被拒時**不動**（留在上一個網址），fresh tab 就是初始的 Infinity 新分頁
     ok('[F] file: 整個被拒（不是硬轉成 http）',
-      fileUrl === 'about:blank' || fileUrl === '' || String(fileUrl).startsWith('http://localhost:5173'),
+      fileUrl === 'about:blank' || fileUrl === '' || String(fileUrl).startsWith('chrome-extension://') || String(fileUrl).startsWith('http://localhost:5173'),
       JSON.stringify(fileUrl))
     const httpUrl = await cdp.eval(`(async () => {
       const input = document.getElementById('wsBrowserUrl')

@@ -3,7 +3,8 @@
 const assert = require('assert/strict')
 const { parseList, actionArgs } = require('../src/main/app-installer/winget')
 const { createInstaller } = require('../src/main/app-installer')
-const { newerVersion } = require('../src/main/app-installer/catalog')
+const { newerVersion, catalogFor } = require('../src/main/app-installer/catalog')
+const { resolveSource } = require('../src/main/app-installer/direct')
 
 const turn = () => new Promise((resolve) => setImmediate(resolve))
 async function settle(service) {
@@ -108,6 +109,33 @@ async function main() {
   assert.deepEqual(steps, ['upgrade', 'uninstall', 'install'])
   assert.equal(reinstalled.phase, 'done')
   assert.equal(mismatch.snapshot().installed[0].version, '4')
-  console.log('PASS app-installer: multilingual parsing, arguments, source allowlist, job lock, refresh, failure hygiene, duplicate guard, parallel upgrade all, technology mismatch reinstall')
+
+  // 背景失敗：先系統管理員靜默重試，再開原廠畫面；Unknown 版本要帶 --include-unknown
+  let git = [{ name: 'Git', id: 'Git.Git', version: 'Unknown', available: '2', source: 'winget' }]
+  const tries = []
+  const retry = createInstaller({ cacheDir: 'unused', list: async () => git, resolveSource: async () => ({}), iconPaths: async () => () => '',
+    run: async () => ({ code: 0x8A150006 }),
+    runElevated: async (args, options = {}) => {
+      tries.push({ args, interactive: !!options.interactive })
+      if (!options.interactive) return { code: 0x8A150006 }
+      git = [{ ...git[0], version: '2', available: '' }]
+      return { code: 0 }
+    } })
+  await retry.refresh()
+  retry.start({ action: 'upgrade', key: retry.snapshot().installed[0].key })
+  assert.equal((await settle(retry)).phase, 'done')
+  assert.deepEqual(tries.map((t) => t.interactive), [false, true])
+  assert.ok(tries[0].args.includes('--silent') && tries[0].args.includes('--include-unknown'))
+  assert.ok(tries[1].args.includes('--interactive') && !tries[1].args.includes('--silent'))
+
+  // 常用：iCUE 走 WinGet 識別、Google App 走官方 stub（純靜態，不碰網路）
+  assert.equal(catalogFor({ id: 'Corsair.iCUE.5', name: 'Corsair iCUE5 Software' }).key, 'icue')
+  assert.equal(catalogFor({ id: 'ARP\\Machine\\X64\\x', name: 'Google App' }).key, 'google-app')
+  const google = await resolveSource('google-app')
+  assert.ok(google.url.startsWith('https://dl.google.com/'))
+  assert.equal(google.publisher, 'Google LLC')
+  assert.deepEqual(google.args, ['/silent'])
+  assert.equal(google.elevate, false)
+  console.log('PASS app-installer: multilingual parsing, arguments, source allowlist, job lock, refresh, failure hygiene, duplicate guard, parallel upgrade all, technology mismatch reinstall, elevated/interactive fallback, icue/google-app catalog')
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

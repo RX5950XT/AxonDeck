@@ -2440,10 +2440,14 @@ function browserProjectId(tab) {
   return (tab && tab.projectId) || project?.id || ''
 }
 
+/** 空白分頁開 Infinity New Tab Pro 的新分頁（跟 Browser 頁同一個；main 只放行這個擴充功能、這個 partition） */
+const NEWTAB_URL = 'chrome-extension://nnnkddnnlpamobajfibfdgfnbcnkgngh/newtab/index.html'
+const isBlankPage = (url) => !url || url === 'about:blank' || url === NEWTAB_URL
+
 function liveBrowserUrl(tab) {
   const guest = browserGuestOf(tab)
   const fromGuest = guest?.dataset.src || ''
-  if (fromGuest && fromGuest !== 'about:blank') return fromGuest
+  if (!isBlankPage(fromGuest)) return fromGuest
   return ''
 }
 
@@ -2487,8 +2491,8 @@ function ensureBrowserGuest(tab) {
   guest.setAttribute('partition', 'persist:wsbrowser')
   guest.setAttribute('allowpopups', '')
   const href = safeUrl(tab.url || '')
-  guest.setAttribute('src', href || 'about:blank')
-  guest.dataset.src = href || 'about:blank'
+  guest.setAttribute('src', href || NEWTAB_URL)
+  guest.dataset.src = href || NEWTAB_URL
   guest.dataset.tabId = tab.id
   guest.dataset.projectId = pid
   // 事件處理一律從 guest 自己的 `data-tab-id` 找回分頁：背景分頁也會導航
@@ -2589,6 +2593,16 @@ function syncBrowserLocation(tab, url) {
   if (!tab || tab.kind !== 'browser' || !url || url === 'about:blank') return
   const guest = browserGuestOf(tab)
   if (guest) guest.dataset.src = url
+  if (url === NEWTAB_URL) {
+    // 上一頁退回新分頁：網址列留空、分頁不記這個擴充功能網址
+    tab.url = ''
+    tab.title = '新分頁'
+    const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
+    if (activeId === tab.id && input && document.activeElement !== input) input.value = ''
+    if (activeId === tab.id) paintBrowserChrome(tab)
+    renderTabs()
+    return
+  }
   tab.url = url
   tab.loadError = ''
   try {
@@ -2668,11 +2682,11 @@ function paintBrowser(tab) {
   if (!guest) return
   const href = safeUrl(tab.url || '')
   const current = guest.dataset.src || ''
-  const loaded = current !== '' && current !== 'about:blank'
+  const loaded = !isBlankPage(current)
   if (!href) {
-    if (!loaded && current !== 'about:blank') {
-      guest.dataset.src = 'about:blank'
-      guest.setAttribute('src', 'about:blank')
+    if (!loaded && current !== NEWTAB_URL) {
+      guest.dataset.src = NEWTAB_URL
+      guest.setAttribute('src', NEWTAB_URL)
     }
     // 空白分頁：游標直接落在網址列（不然使用者得自己去點那一格）
     input?.focus()

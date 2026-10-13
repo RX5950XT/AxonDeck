@@ -8,12 +8,15 @@ const inventory = require('./inventory')
 const appIcons = require('./icons')
 const { cleanupRecord } = require('./cleanup')
 
-const MISMATCH = 0x8A15008E, IN_PROGRESS = [0x8A150102, 1618], PARALLEL = 3, STALL_MS = 10 * 60 * 1000
+const MISMATCH = 0x8A15008E, NOT_APPLICABLE = 0x8A15002B, IN_PROGRESS = [0x8A150102, 1618], PARALLEL = 3, STALL_MS = 10 * 60 * 1000
+// 成功（含需重新開機才完成）；重試也救不了的：類型不同另走 reinstall、找不到解除安裝程式、使用者取消、沒網路、磁碟滿、政策封鎖、系統不支援
+const OK = [0, 3010, 1641, 0x8A150109, 0x8A15010B]
+const NO_RETRY = [MISMATCH, 0x800401F5, 0x8A15010C, 0x8A150107, 0x8A150105, 0x8A15010F, 0x8A150113, NOT_APPLICABLE]
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run = winget.runPty, install = direct.install, resolveSource = direct.resolveSource,
   records = list === winget.list ? inventory.readInventory : async () => [], iconPaths = appIcons.displayIcons, getFileIcon = appIcons.readIcon,
-  runCommand = winget.run, cleanup = cleanupRecord }) {
+  runCommand = winget.run, cleanup = cleanupRecord, selfUpgrade = direct.selfUpgrade, runElevated = winget.runElevated }) {
   let installed = [], checkedAt = null, scan = null, jobs = [], sources = {}, scanError = '', batch = null, icons = {}, iconsStamp = 0
   const active = (job) => !['done', 'failed'].includes(job.phase)
   const busy = () => !!batch || jobs.some(active)
@@ -154,20 +157,33 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
         onProgress: ({ percent, size }) => update({ phase: 'running', progress: percent,
           message: action === 'uninstall' ? '正在解除安裝…' : size ? `正在下載 ${size}` : percent !== null ? '正在安裝…' : '正在下載／安裝；需要時 Windows 會要求授權。' }) })
       if (result.stalled) throw winget.failure('STALLED', '下載超過 10 分鐘沒有進度，已放棄；可稍後重新整理再試。')
-      if (!IN_PROGRESS.includes(result.code) || attempt >= 30) return result
+      if (!IN_PROGRESS.includes(result.code) || attempt >= 30) return fallback(action, target, update, result)
       update({ phase: 'waiting', progress: null, message: '另一個程式正在安裝，等待後自動重試…' })
       await sleep(10000)
     }
   }
+  // 背景操作失敗時：先用系統管理員權限重試（移除舊版 MSI 常需要），仍失敗就開原廠安裝畫面（程式使用中、不支援靜默模式）
+  async function fallback(action, target, update, result) {
+    if (OK.includes(result.code) || NO_RETRY.includes(result.code) || IN_PROGRESS.includes(result.code)) return result
+    const args = winget.actionArgs(action, target)
+    update({ phase: 'running', progress: null, message: '背景操作失敗，改用系統管理員權限重試…' })
+    const elevated = await runElevated(args)
+    if (OK.includes(elevated.code) || NO_RETRY.includes(elevated.code)) return elevated
+    update({ phase: 'running', progress: null, message: '自動操作仍失敗，已開啟原廠安裝畫面，請依畫面完成（必要時先關閉該程式）。' })
+    return runElevated(args.map((arg) => arg === '--silent' ? '--interactive' : arg), { interactive: true })
+  }
   async function execute(request, target, update) {
+    const selfUpdate = request.action === 'upgrade' && !!direct.SELF_UPDATERS[target.id]
     try {
       const result = request.action === 'cleanup' ? await cleanup(target, cacheDir)
         : target.entry?.direct && request.action !== 'uninstall'
         ? await install(target.entry.direct, cacheDir, update)
+        : selfUpdate ? await selfUpgrade(target, update)
         : await wingetRun(request.action, target, update)
       if (result.code === MISMATCH && request.action === 'upgrade') return await reinstall(target, update)
       if (result.code === 0x800401F5) throw winget.failure('UNINSTALLER_MISSING', 'Windows 找不到解除安裝程式；請重新整理，確認是否為失效安裝紀錄。')
-      if (![0, 3010, 1641].includes(result.code)) throw winget.failure('INSTALL_FAILED', `操作未完成（代碼 0x${result.code.toString(16).toUpperCase()}）。程式可能拒絕背景操作或仍在使用。`)
+      if (result.code === NOT_APPLICABLE) throw winget.failure('NOT_APPLICABLE', 'WinGet 找不到適用這份安裝的更新檔；請用程式內建的更新功能。')
+      if (!OK.includes(result.code)) throw winget.failure('INSTALL_FAILED', `操作未完成（代碼 0x${result.code.toString(16).toUpperCase()}）。若程式仍在執行，請先關閉後再試。`)
       update({ phase: 'checking', progress: null, message: '操作已結束，正在重新確認安裝狀態…' })
       await rescan()
       const remains = installed.some((row) => row.identity === target.identity && row.version === target.version)
@@ -177,8 +193,8 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
         update({ phase: 'done', progress: null, message: '失效紀錄已清除，備份已保存；程式檔案未刪除。' })
         return
       }
-      if (!verified && result.code === 0) throw winget.failure('NOT_CONFIRMED', '工具已結束，但安裝紀錄尚未變更；目前無法確認操作成功。請稍後重新整理。')
-      update({ phase: 'done', progress: null, message: result.code ? '操作完成，需要重新啟動 Windows。' : verified ? '操作完成，清單已更新。' : '安裝工具已結束，系統清單尚未反映變更；請稍後重新整理。' })
+      if (!verified && result.code === 0 && !selfUpdate) throw winget.failure('NOT_CONFIRMED', '工具已結束，但安裝紀錄尚未變更；目前無法確認操作成功。請稍後重新整理。')
+      update({ phase: 'done', progress: null, message: result.code ? '操作完成，需要重新啟動 Windows。' : verified ? '操作完成，清單已更新。' : selfUpdate ? '已用內建更新程式更新完成。' : '安裝工具已結束，系統清單尚未反映變更；請稍後重新整理。' })
     } catch (error) {
       update({ phase: 'failed', progress: null, message: error.userMessage || '操作失敗，請重新整理後重試。' })
     }
@@ -192,11 +208,11 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
   async function reinstall(target, update) {
     update({ phase: 'running', progress: null, message: '新版安裝方式不同，先移除舊版…' })
     const removed = await wingetRun('uninstall', target, update)
-    if (![0, 3010, 1641].includes(removed.code)) throw winget.failure('INSTALL_FAILED', `新版安裝方式不同，需先移除舊版，但移除未完成（代碼 0x${removed.code.toString(16).toUpperCase()}）；舊版仍保留。`)
+    if (!OK.includes(removed.code)) throw winget.failure('INSTALL_FAILED', `新版安裝方式不同，需先移除舊版，但移除未完成（代碼 0x${removed.code.toString(16).toUpperCase()}）；舊版仍保留。`)
     const result = await wingetRun('install', target, update).catch((error) => {
       throw winget.failure('INSTALL_FAILED', `舊版已移除，但新版安裝未完成（${error.userMessage || '安裝工具異常'}）；請重新整理後到「常用程式」或用 WinGet 重新安裝。`)
     })
-    if (![0, 3010, 1641].includes(result.code)) throw winget.failure('INSTALL_FAILED', `舊版已移除，但新版安裝未完成（代碼 0x${result.code.toString(16).toUpperCase()}）；請重新整理後到「常用程式」或用 WinGet 重新安裝。`)
+    if (!OK.includes(result.code)) throw winget.failure('INSTALL_FAILED', `舊版已移除，但新版安裝未完成（代碼 0x${result.code.toString(16).toUpperCase()}）；請重新整理後到「常用程式」或用 WinGet 重新安裝。`)
     update({ phase: 'checking', progress: null, message: '操作已結束，正在重新確認安裝狀態…' })
     await rescan()
     update({ phase: 'done', progress: null, message: result.code ? '已改用新版安裝，需要重新啟動 Windows。' : '已移除舊版並安裝新版。' })

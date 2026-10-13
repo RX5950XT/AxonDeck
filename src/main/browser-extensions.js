@@ -111,14 +111,18 @@ function parseUpdateXml(xml) {
 
 /**
  * @param {{ session: import('electron').Session, dir: string, fetch: typeof fetch, chromeVersion: string,
- *   aliasPreload: string, openUrl: (url: string) => void, onActionsChanged?: () => void }} opts
+ *   aliasPreload: string, identityPreload: string, openUrl: (url: string) => void, onActionsChanged?: () => void }} opts
  */
-function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPreload, openUrl, onActionsChanged }) {
+function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPreload, identityPreload, openUrl, onActionsChanged }) {
   const exts = session.extensions
   /** 擴充功能叫 chrome.tabs.create 時開成專案瀏覽器分頁，等那顆 webview 接上再交回去 */
   const waitingTabs = []
   // 用到才載：單元測試在純 Node 跑，套件一載入就要 Electron
   const { ElectronChromeExtensions } = require('electron-chrome-extensions')
+  // chrome.identity 要排在套件的 preload 之前（套件最後會凍結 chrome），所以在建構套件前登記
+  require('./crx-identity').registerIdentity(session)
+  session.registerPreloadScript({ id: 'axondeck-crx-identity', type: 'frame', filePath: identityPreload })
+  session.registerPreloadScript({ id: 'axondeck-crx-identity-sw', type: 'service-worker', filePath: identityPreload })
   const crx = new ElectronChromeExtensions({
     license: 'GPL-3.0',
     session,

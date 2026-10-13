@@ -120,10 +120,13 @@ const LOGIN_POPUPS = new Map([
   ['x.com', /^\/i\/(oauth2|flow\/login)/], ['api.x.com', /^\/oauth/], ['github.com', /^\/login/]
 ])
 
+// 第三方網站常先開自己的 /login/google、/oauth/authorize 再轉去 Google；路徑某一段是這些字就當登入頁
+const AUTH_PATH = /(^|\/)(oauth2?|authorize|auth|log-?in|sign-?in|sso)(\/|$)/i
+
 function isLoginPopup(value) {
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' && !!LOGIN_POPUPS.get(url.hostname)?.test(url.pathname)
+    return url.protocol === 'https:' && (!!LOGIN_POPUPS.get(url.hostname)?.test(url.pathname) || AUTH_PATH.test(url.pathname))
   } catch { return false }
 }
 

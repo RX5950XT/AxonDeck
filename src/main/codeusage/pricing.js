@@ -55,7 +55,8 @@ const PER_TOKENS = 1_000_000
  *    （CLI 自附的 `docs/user-guide/14-headless-mode.md` 明寫，範例用的就是 4.6），
  *    v7 那條「4.6 是 1e9」是拿實收價去反推單價表推錯的，會把 4.6 灌水 10 倍。
  */
-const RULES_VERSION = 10
+// v11：Haiku 5.5 依逐請求輸入長度分桶，舊桶需要重掃才能分開兩級單價。
+const RULES_VERSION = 11
 
 /**
  * @typedef {object} Price
@@ -64,6 +65,7 @@ const RULES_VERSION = 10
  * @property {number} [cacheWrite] 5 分鐘快取寫入；省略時用 input × 1.25（Anthropic 的公開規則）
  * @property {number} [cacheWrite1h] 1 小時快取寫入；省略時用 cacheWrite × 1.6（＝input × 2）
  * @property {number} [cacheRead] 快取讀取；省略時用 input × 0.1
+ * @property {Price & { threshold: number }} [longContext] 超過輸入門檻時的單價
  */
 
 /**
@@ -89,6 +91,11 @@ const BUILTIN_PRICES = {
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, cacheWrite1h: 4 },
   'claude-sonnet-4.6': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
   'claude-sonnet-4.5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
+  // https://platform.claude.com/docs/en/models/haiku-5-5/overview（2026-10-11 查證）
+  'claude-haiku-5.5': {
+    input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWrite1h: 0.2,
+    longContext: { threshold: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWrite1h: 1 }
+  },
   'claude-haiku-4.5': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, cacheWrite1h: 2 },
   'claude-3.7-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
   'claude-3.5-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
@@ -240,7 +247,7 @@ function priceFor(model, custom = {}) {
  * 使用者看到的總花費就會少一截而且完全看不出來。
  *
  * @param {{ input: number, output: number, cacheRead?: number, cacheWrite?: number,
- *           cacheWrite1h?: number }} usage
+ *           cacheWrite1h?: number, longContext?: boolean }} usage
  * @param {Price | null} price
  * @returns {number | null}
  */
@@ -257,12 +264,13 @@ function costOf(usage, price) {
  * 只給一個總額會讓人以為「Opus 單價算錯了」。沒有單價回 null。
  *
  * @param {{ input?: number, output?: number, cacheRead?: number, cacheWrite?: number,
- *           cacheWrite1h?: number }} usage
+ *           cacheWrite1h?: number, longContext?: boolean }} usage
  * @param {Price | null} price
  * @returns {{ input: number, output: number, cacheRead: number, cacheWrite: number } | null}
  */
 function costParts(usage, price) {
   if (!price) return null
+  if (usage?.longContext === true && price.longContext) price = price.longContext
   const cacheWrite = Number.isFinite(price.cacheWrite) ? price.cacheWrite : price.input * 1.25
   // 1h 快取是 5m 的 1.6 倍（input × 2 ÷ input × 1.25）。使用者只填得起一格 5m 價時用它推
   const cacheWrite1h = Number.isFinite(price.cacheWrite1h) ? price.cacheWrite1h : cacheWrite * 1.6

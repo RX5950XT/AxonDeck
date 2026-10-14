@@ -48,6 +48,9 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('explorer:removeEntry', (event, target, opts) => (
     invoke(event, () => service.removeEntry(target, opts))
   ))
+  ipcMain.handle('explorer:removeEntries', (event, items, opts) => (
+    invoke(event, () => service.removeEntries(items, opts))
+  ))
   ipcMain.handle('explorer:restoreEntry', (event, key) => invoke(event, () => service.restoreEntry(key)))
   ipcMain.handle('explorer:purgeEntry', (event, key) => invoke(event, () => service.purgeEntry(key)))
   ipcMain.handle('explorer:emptyRecycle', (event) => invoke(event, () => service.emptyRecycle()))
@@ -93,15 +96,18 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
     invoke(event, () => service.uffsSearch(pattern, filters))
   ))
   ipcMain.handle('explorer:uffsCancel', (event) => invoke(event, () => service.uffsCancel()))
-  ipcMain.handle('explorer:uffsInstall', (event) => invoke(event, () => service.uffsInstall()))
-  ipcMain.handle('explorer:uffsCancelInstall', (event) => invoke(event, () => service.uffsCancelInstall()))
-  ipcMain.handle('explorer:uffsInstallBroker', (event) => invoke(event, () => service.uffsInstallBroker()))
   ipcMain.handle('explorer:uffsEnsure', (event, opts) => invoke(event, () => service.uffsEnsure(opts)))
   ipcMain.handle('explorer:folderSize', (event, dirPath, token) => (
     invoke(event, () => service.folderSize(dirPath, token))
   ))
   ipcMain.handle('explorer:folderSizeCancel', (event, token) => (
     invoke(event, () => service.folderSizeCancel(token))
+  ))
+  ipcMain.handle('explorer:dirSizes', (event, dirPath, lane) => (
+    invoke(event, () => service.dirSizesScan(dirPath, lane))
+  ))
+  ipcMain.handle('explorer:dirSizesCancel', (event, lane) => (
+    invoke(event, () => service.dirSizesCancel(lane))
   ))
 }
 

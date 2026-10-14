@@ -52,13 +52,6 @@ const renameProject = (id, name) => store.rename(id, name)
 const removeProject = (id) => store.remove(id)
 const reorderProjects = (ids) => store.reorder(ids)
 
-/**
- * 終端機要用的工作目錄。renderer 拿它去 `terminal:create` 的 `cwd`——
- * 那一端自己還會再 `statSync().isDirectory()` 驗一次。
- * @param {unknown} projectId
- */
-const projectPath = (projectId) => rootOf(projectId)
-
 // ===== 檔案 =====
 
 async function listDir(projectId, relPath) {
@@ -78,8 +71,8 @@ async function readFile(projectId, relPath) {
   const root = await rootOf(projectId)
   const full = files.resolveExisting(root, relPath)
   const nativeMedia = mediaPlayer.mediaKind(full)
-  // 專案支援的圖片／影片走分頁串流；其他原生媒體維持獨立播放器。
-  const inlineMedia = ['image', 'video'].includes(files.mediaKind(full))
+  // 專案裡盡量開在分頁：Chromium 播得了的圖片／影音走分頁串流；只有它解不了的（HEIC、RAW、AVI…）才交給獨立播放器
+  const inlineMedia = ['image', 'video', 'audio'].includes(files.mediaKind(full))
   if (nativeMedia && !inlineMedia) {
     const stats = await fsp.stat(full)
     return { nativeMedia, rel: relPath, size: stats.size, mtimeMs: stats.mtimeMs, binary: true }
@@ -157,6 +150,8 @@ async function reveal(projectId, relPath) {
  */
 async function openEntry(projectId, relPath) {
   const full = files.resolveExisting(await rootOf(projectId), relPath)
+  // .bat／.cmd 由 App 自己跑：腳本開的瀏覽器改開在這個專案（script-launch.js）
+  if (await require('../script-launch').launchScript(full)) return { opened: true }
   // 回傳字串＝失敗原因（Electron 的 API 就是這樣設計的），空字串才是成功
   const error = await mediaPlayer.openPath(full)
   if (error) throw fail('OPEN_FAILED', '這個檔案打不開')
@@ -250,7 +245,6 @@ async function getFileMtime(projectId, relPath) {
 }
 
 const gitStageAll = (projectId) => git.stageAll(projectId)
-const gitUnstageAll = (projectId) => git.unstageAll(projectId)
 
 /**
  * 接續：**先確認這段對話真的屬於這個專案**再組指令。只驗 id 格式的話，
@@ -276,7 +270,6 @@ module.exports = {
   renameProject,
   removeProject,
   reorderProjects,
-  projectPath,
   saveTabsState,
   getTabsState,
   listDir,
@@ -299,7 +292,6 @@ module.exports = {
   gitStage,
   gitUnstage,
   gitStageAll,
-  gitUnstageAll,
   gitDiscard,
   gitCommit,
   gitPush,

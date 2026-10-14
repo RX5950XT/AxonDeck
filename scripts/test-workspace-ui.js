@@ -15,7 +15,6 @@ const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8')
 const app = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/app.js'), 'utf8')
 const tabs = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/ws-tabs.js'), 'utf8')
 const workspacePage = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/workspace-page.js'), 'utf8')
-const diff = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/ws-diff.js'), 'utf8')
 const css = fs.readFileSync(path.join(ROOT, 'src/renderer/styles/main.css'), 'utf8')
 const agents = require(path.join(ROOT, 'src/main/workspace/agents.js'))
 const browserPainter = tabs.slice(tabs.indexOf('function paintBrowser'), tabs.indexOf('function navigateBrowser'))
@@ -433,7 +432,7 @@ async function runFileChecks() {
   check('openEntry 走 resolveExisting（只收專案內的路徑）',
     /function openEntry[\s\S]{0,200}files\.resolveExisting/.test(service))
   check('openPath 回字串＝失敗，要當錯誤處理',
-    /function openEntry[\s\S]{0,320}if \(error\) throw fail/.test(service))
+    /function openEntry[\s\S]{0,600}if \(error\) throw fail/.test(service))
   check('IPC 有 workspace:openEntry', /ipcMain\.handle\('workspace:openEntry'/.test(ipc))
   check('main.js 的白名單有 openEntry', /openEntry: \(\.\.\.args\) => loadWorkspace\(\)\.openEntry/.test(mainJs))
   check('preload 接得到 openEntry', /openEntry: \(id, relPath\) =>/.test(preload))

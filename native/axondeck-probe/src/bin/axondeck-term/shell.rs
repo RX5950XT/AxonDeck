@@ -26,7 +26,7 @@ pub const PS_INTEGRATION: &str = concat!(
 const SHELLS: [(&str, &str); 3] = [("pwsh", "pwsh.exe"), ("powershell", "powershell.exe"), ("cmd", "cmd.exe")];
 // ponytail: Codex 的 Windows 背景 daemon 會彈出工具視窗；上游修好後可恢復共用 daemon。
 const PRESETS: [(&str, &str); 6] =
-    [("shell", ""), ("claude", "claude"), ("codex", "codex --no-daemon"), ("opencode", "opencode"), ("agy", "agy"), ("grok", "grok")];
+    [("shell", ""), ("claude", "claude"), ("codex", "codex --no-daemon --no-alt-screen"), ("opencode", "opencode"), ("agy", "agy"), ("grok", "grok --minimal --no-alt-screen")];
 
 static EXE_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
@@ -104,9 +104,9 @@ pub fn startup_command(key: Option<&str>, session_id: &str, agent_session_id: &s
     if valid {
         let command = match key {
             Some("claude") => "claude --resume",
-            Some("codex") => "codex resume --no-daemon",
+            Some("codex") => "codex resume --no-daemon --no-alt-screen",
             Some("agy") => "agy --conversation",
-            Some("grok") => "grok --resume",
+            Some("grok") => "grok --minimal --no-alt-screen --resume",
             Some("opencode") => "opencode --session",
             _ => "",
         };
@@ -120,13 +120,27 @@ pub fn startup_command(key: Option<&str>, session_id: &str, agent_session_id: &s
 
 /// home 由 main 按對話記錄查得，只覆寫兩家 CLI 官方支援的環境鍵。
 pub fn agent_environment(mut env: Vec<(String, String)>, agent: &str, home: &str) -> Vec<(String, String)> {
+    if agent == "opencode" && !env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_TUI_CONFIG") && !value.is_empty()) {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let config = dir.join("opencode/tui.json");
+                if config.is_file() { set_var(&mut env, "OPENCODE_TUI_CONFIG", &config.to_string_lossy()); }
+            }
+        }
+    }
+    if agent == "claude" {
+        env.retain(|(name, _)| !name.eq_ignore_ascii_case("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"));
+        env.push(("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN".into(), "1".into()));
+    }
     let key = match agent { "claude" => "CLAUDE_CONFIG_DIR", "codex" => "CODEX_HOME", _ => "" };
     let bytes = home.as_bytes();
     if key.is_empty() || !(3..=1024).contains(&bytes.len()) || !bytes[0].is_ascii_alphabetic()
         || bytes[1] != b':' || !matches!(bytes[2], b'\\' | b'/') || home.chars().any(|c| c < ' ')
         || home.replace('\\', "/").split('/').any(|p| p == "..") { return env; }
     env.retain(|(name, _)| !name.eq_ignore_ascii_case(key));
-    env.push((key.to_string(), home.to_string()));
+    let default_claude = agent == "claude"
+        && home.replace('/', "\\").trim_end_matches('\\').eq_ignore_ascii_case(&format!("{}\\.claude", home_dir()));
+    if !default_claude { env.push((key.to_string(), home.to_string())); }
     env
 }
 
@@ -197,7 +211,43 @@ pub fn shell_environment(editor: &str, editor_dir: &str, terminal_id: &str) -> V
     } else {
         env.retain(|(k, _)| !k.eq_ignore_ascii_case("AXONDECK_TERMINAL_ID"));
     }
+    let jump = nav_jump_file(terminal_id);
+    if jump.is_empty() {
+        env.retain(|(key, _)| !key.eq_ignore_ascii_case("AXONDECK_NAV_JUMP"));
+    } else {
+        set_var(&mut env, "AXONDECK_NAV_JUMP", &jump);
+    }
+    let config = opencode_config();
+    if !config.is_empty() && !env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_TUI_CONFIG") && !value.is_empty()) {
+        set_var(&mut env, "OPENCODE_TUI_CONFIG", &config);
+    }
     env
+}
+
+/// `{userData}/terminal-host/runtime-…/AxonDeckTerminalHost.exe` 才對得回 userData。
+fn nav_jump_file(terminal_id: &str) -> String {
+    if !valid_terminal_id(terminal_id) {
+        return String::new();
+    }
+    let Ok(exe) = std::env::current_exe() else { return String::new() };
+    let Some(runtime) = exe.parent() else { return String::new() };
+    let Some(host) = runtime.parent() else { return String::new() };
+    if host.file_name().and_then(|name| name.to_str()) != Some("terminal-host") {
+        return String::new();
+    }
+    let Some(name) = runtime.file_name().and_then(|name| name.to_str()) else { return String::new() };
+    if !name.starts_with("runtime-") {
+        return String::new();
+    }
+    let Some(user_data) = host.parent() else { return String::new() };
+    user_data.join("terminal-nav").join(format!("{terminal_id}.json")).to_string_lossy().into_owned()
+}
+
+fn opencode_config() -> String {
+    let Ok(exe) = std::env::current_exe() else { return String::new() };
+    let Some(dir) = exe.parent() else { return String::new() };
+    let config = dir.join("opencode/tui.json");
+    if config.is_file() { config.to_string_lossy().into_owned() } else { String::new() }
 }
 
 /// 使用者「現在」的環境：跟從檔案總管開的一樣（登錄檔裡的系統＋使用者變數，Windows Terminal 也這樣做）。
@@ -340,9 +390,15 @@ mod tests {
 
     #[test]
     fn terminal_id_and_resume() {
+        let render_env = agent_environment(vec![("claude_code_disable_alternate_screen".into(), "0".into())], "claude", "");
+        assert_eq!(render_env, vec![("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN".into(), "1".into())]);
+        let default_home = format!("{}\\.claude", home_dir());
+        let env = agent_environment(vec![("CLAUDE_CONFIG_DIR".into(), "old".into())], "claude", &default_home);
+        assert!(!env.iter().any(|(key, _)| key == "CLAUDE_CONFIG_DIR"));
         let env = shell_environment("", "", "t_abc-1");
         let hit = env.iter().find(|(k, _)| k == "AXONDECK_TERMINAL_ID").map(|(_, v)| v.as_str());
         assert_eq!(hit, Some("t_abc-1"));
+        assert!(env.iter().all(|(key, _)| !key.eq_ignore_ascii_case("AXONDECK_NAV_JUMP")));
         let bad = shell_environment("", "", "../x");
         assert!(bad.iter().all(|(k, _)| !k.eq_ignore_ascii_case("AXONDECK_TERMINAL_ID")));
         let id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -352,10 +408,10 @@ mod tests {
         assert_eq!(startup_command(Some("claude"), id, ""), format!("claude --resume {id}"));
         assert_eq!(startup_command(Some("claude"), "not-a-uuid", ""), "claude");
         assert_eq!(startup_command(Some("claude"), "", ""), "claude");
-        assert_eq!(startup_command(Some("codex"), id, ""), "codex --no-daemon");
+        assert_eq!(startup_command(Some("codex"), id, ""), "codex --no-daemon --no-alt-screen");
         assert_eq!(startup_command(Some("nope"), id, ""), "");
-        for (agent, prefix) in [("claude", "claude --resume"), ("codex", "codex resume --no-daemon"),
-            ("agy", "agy --conversation"), ("grok", "grok --resume"), ("opencode", "opencode --session")] {
+        for (agent, prefix) in [("claude", "claude --resume"), ("codex", "codex resume --no-daemon --no-alt-screen"),
+            ("agy", "agy --conversation"), ("grok", "grok --minimal --no-alt-screen --resume"), ("opencode", "opencode --session")] {
             assert_eq!(startup_command(Some(agent), "", id), format!("{prefix} {id}"));
             assert_eq!(startup_command(Some(agent), "", &format!("{id};calc")), preset_command(Some(agent)));
         }

@@ -1,5 +1,5 @@
 /**
- * AxonDeck - 語音輸入子分頁（設定、狀態、轉錄紀錄、個人字典）
+ * AxonDeck - 語音輸入（跟轉錄、字幕同一頁：設定、狀態、轉錄紀錄、個人字典）
  *
  * 錄音與整條管線在 `dictation.js`（renderer 常駐）與 main 那一側；
  * 這一支只管畫面：開關、兩個選單、目前狀態、紀錄與字典的增刪。
@@ -16,8 +16,6 @@ import { askConfirm } from './app-dialog.js'
 import { cloudSetupHint } from './model-picker.js'
 
 let bound = false
-/** @type {{ ok: boolean, text?: string, raw?: string } | null} */
-let lastResult = null
 
 /**
  * @param {string} id
@@ -36,6 +34,7 @@ function cleanupOptions(settings) {
   for (const provider of providers) {
     const ready = Boolean(provider?.apiUrl && provider?.apiKey)
     for (const model of provider?.models || []) {
+      if (provider.imageModels?.includes(model)) continue
       options.push({
         value: `cloud:${provider.id}:${model}`,
         label: `雲端 · ${provider.name || '未命名'} / ${model}${cloudSetupHint(provider)}`,
@@ -115,21 +114,6 @@ function renderState(detail) {
   box.classList.toggle('is-active', detail.state === 'recording' || detail.state === 'processing')
   box.classList.toggle('is-error', detail.state === 'error')
   if (level && detail.state !== 'level') level.style.width = detail.state === 'recording' ? level.style.width : '0%'
-}
-
-/**
- * @param {{ text?: string, raw?: string, inserted?: boolean }} data
- */
-function renderResult(data) {
-  lastResult = data
-  const textEl = $('dictationResultText')
-  const rawEl = $('dictationResultRaw')
-  if (textEl) textEl.textContent = data?.text || '（空）'
-  if (rawEl) {
-    const changed = data?.raw && data.raw !== data.text
-    rawEl.textContent = changed ? `原文：${data.raw}` : ''
-    rawEl.classList.toggle('hidden', !changed)
-  }
 }
 
 async function refreshRecords() {
@@ -262,12 +246,6 @@ function bindOnce() {
     await electronAPI.store.set('dictationLang', langSelect.value)
   })
 
-  $('dictationCopyBtn')?.addEventListener('click', async () => {
-    if (!lastResult?.text) return
-    await navigator.clipboard.writeText(lastResult.text)
-    showToast('已複製')
-  })
-
   $('dictationClearBtn')?.addEventListener('click', async () => {
     const ok = await askConfirm('清空所有語音輸入紀錄？', { desc: '刪了就找不回來。', confirmText: '清空', danger: true })
     if (!ok) return
@@ -337,7 +315,6 @@ function bindOnce() {
     }
     renderState(detail)
     if (detail.state === 'result') {
-      renderResult(detail)
       refreshRecords()
       refreshTerms()
     }

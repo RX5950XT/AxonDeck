@@ -15,7 +15,6 @@
 'use strict'
 
 const http = require('http')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const fs = require('fs')
@@ -369,7 +368,6 @@ async function testHfHub() {
   hub.setToken(KEY)
   const BODY = `<<upstream-secret-echo ${KEY}>>`
   for (const status of [401, 403, 500]) {
-    let logged = ''
     const original = globalThis.fetch
     try {
       globalThis.fetch = async () => new Response(BODY, { status })

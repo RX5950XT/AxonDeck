@@ -6,7 +6,7 @@
  */
 
 import { showToast, getSettings, electronAPI, cleanIpcError, ASR_MODEL_KEY, resolveTranslateModelKey } from './app.js'
-import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions } from './model-picker.js'
+import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions, hasLlamaRuntime } from './model-picker.js'
 
 // ===== DOM 元素 =====
 let dropZone
@@ -15,7 +15,6 @@ let selectFileBtn
 let fileInfo
 let clearFileBtn
 let transcribeOptions
-let outputLanguage
 let startTranscribeBtn
 let transcribeProgress
 let progressBar
@@ -74,7 +73,6 @@ export function initTranscribe() {
   fileInfo = document.getElementById('fileInfo')
   clearFileBtn = document.getElementById('clearFileBtn')
   transcribeOptions = document.getElementById('transcribeOptions')
-  outputLanguage = document.getElementById('outputLanguage')
   startTranscribeBtn = document.getElementById('startTranscribeBtn')
   transcribeProgress = document.getElementById('transcribeProgress')
   // 限定在進度面板內，避免日後其他 .progress-fill 搶到
@@ -237,6 +235,7 @@ function handleFileSelect(file) {
   fileInfo.classList.remove('hidden')
   transcribeOptions.classList.remove('hidden')
   transcribeResult.classList.add('hidden')
+  showTxEmpty(true)
 }
 
 /**
@@ -254,6 +253,7 @@ function clearFile() {
   transcribeOptions.classList.add('hidden')
   transcribeProgress.classList.add('hidden')
   transcribeResult.classList.add('hidden')
+  showTxEmpty(true)
   if (resultWarning) {
     resultWarning.textContent = ''
     resultWarning.classList.add('hidden')
@@ -349,6 +349,7 @@ async function startTranscription() {
   transcribeOptions.classList.add('hidden')
   transcribeResult.classList.add('hidden')
   transcribeProgress.classList.remove('hidden')
+  showTxEmpty(false)
   updateProgress(1, '準備中…')
   await waitForPaint()
 
@@ -361,7 +362,7 @@ async function startTranscription() {
     updateProgress(2, '讀取設定…')
     const settings = await getSettings()
     const status = await electronAPI.models.status()
-    // 這一頁自己的模型選擇（即時字幕與語音輸入各有各的）
+    // 辨識／翻譯跟即時字幕共用（main 把 file 與 live 收成同一份）
     const scope = await readScope('file')
     const asrChoice = parseAsrValue(scope.asr)
     const llmChoice = parseLlmValue(scope.llm)
@@ -373,17 +374,15 @@ async function startTranscription() {
       if (!asrDef?.downloaded) {
         throw new Error(`本地語音模型（${asrDef?.label || asrKey}）尚未下載，請到 Local SI → 推薦下載`)
       }
-      // GPU 那顆要搭 llama.cpp 執行環境，缺了會在 warm 才失敗，這裡先講清楚
-      if (asrDef.requires && !status.models?.[asrDef.requires]?.downloaded) {
-        const runtimeLabel = status.models?.[asrDef.requires]?.label || asrDef.requires
-        throw new Error(`還缺「${runtimeLabel}」，請到 Local SI → 執行環境安裝`)
+      if (asrDef.requires && !hasLlamaRuntime(status.models)) {
+        throw new Error('還缺執行環境，請到 Local SI → 執行環境安裝')
       }
     }
     if (useCloudAsr && !asrOptions(status.models, settings).find((o) => o.value === scope.asr)?.ready) {
       throw new Error('目前選用的雲端轉錄設定缺少 API URL 或 API Key，請到設定 → 雲端模型確認')
     }
 
-    const language = outputLanguage.value
+    const language = sharedLanguage()
     const willTranslate = language !== 'auto'
     if (willTranslate && llmChoice.mode === 'local') {
       const llmKey = resolveTranslateModelKey({ localTranslateModel: llmChoice.modelKey }, status.models)
@@ -467,6 +466,7 @@ async function startTranscription() {
       }
       transcribeProgress.classList.add('hidden')
       transcribeOptions.classList.remove('hidden')
+      showTxEmpty(true)
     }
   } finally {
     unsubscribeFileProgress()
@@ -480,13 +480,13 @@ async function startTranscription() {
 }
 
 /**
- * 長文翻譯：按行分組（每組 ≤1200 字）逐組翻譯
+ * 長文翻譯：按行分組（每組 ≤2000 字，對齊 8192 ctx）逐組翻譯
  */
 async function translateLong(text, targetLang) {
   const groups = []
   let current = ''
   for (const line of text.split('\n')) {
-    if (current && current.length + line.length > 1200) {
+    if (current && current.length + line.length > 2000) {
       groups.push(current)
       current = ''
     }
@@ -524,8 +524,20 @@ async function translateLong(text, targetLang) {
  * @param {string} text
  * @param {string} [warning]
  */
+function showTxEmpty(on) {
+  const empty = document.getElementById('sttTxEmpty')
+  if (empty) empty.classList.toggle('hidden', !on)
+}
+
+/** 轉錄和即時字幕共用右邊那顆目標語言 */
+function sharedLanguage() {
+  const sel = /** @type {HTMLSelectElement|null} */ (document.getElementById('liveLanguage'))
+  return sel?.value || 'zh-TW'
+}
+
 function showTranscript(text, warning) {
   transcribeProgress.classList.add('hidden')
+  showTxEmpty(false)
   transcribeResult.classList.remove('hidden')
   resultText.textContent = text || '（未辨識到語音內容）'
   if (!resultWarning) return

@@ -14,8 +14,6 @@ const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
-const fs = require('fs')
 
 const PORT = 9271
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
@@ -72,6 +70,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch { /* 已斷線 */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()
@@ -195,6 +195,8 @@ async function main() {
     // 右鍵貼上：剪貼簿放一段字，右鍵後應該出現在提示字元後面
     const marker = 'ponytail_paste_ok'
     await cdp.eval(`navigator.clipboard.writeText('${marker}')`)
+    // 上面拖出來的選取還在：有選取時右鍵＝複製（見 e2e-terminal-copy-cdp [D]），先清掉才是「貼上」
+    await cdp.eval(`window.__uxTerm?.clearSelection()`)
     await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x + 20, y: box.y + 20, button: 'right', buttons: 2, clickCount: 1 })
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x + 20, y: box.y + 20, button: 'right', buttons: 0, clickCount: 1 })
     // 畫面內容要從緩衝區讀不是從 DOM：WebGL renderer 把字畫在 canvas 上，

@@ -1,14 +1,12 @@
 /**
- * AxonDeck - 語音轉文字頁（檔案與錄音／即時字幕／語音輸入）
+ * AxonDeck - 語音轉文字頁
  *
- * 這一頁只負責兩件事：子分頁切換、**每個子分頁各自的模型選單**。
+ * 轉錄、錄音、即時字幕、語音輸入在同一頁。辨識模型、翻譯模型兩邊共用同一組選單
+ * （寫 `fileAsr`／`fileLlm`，main 會抄到 `liveAsr`／`liveLlm`）。
+ * 目標語言是同一個 `<select id="liveLanguage">`。語音輸入的辨識、整理、輸出語言各自選。
  *
- * 檔案轉入與錄音機在同一個子分頁（左右兩欄）。三個用途各存一份模型選擇
- * （`fileAsr`/`fileLlm`、`liveAsr`/`liveLlm`、`dictationAsr`/`dictationLlm`），
- * 選單放在各自的內容裡、不擺在標題旁。
- *
- * 檔案轉入與即時字幕的邏輯留在 `transcribe.js`／`live-caption.js`，
- * 錄音機在 `recorder.js`，語音輸入留在 `dictation-page.js`。
+ * 檔案轉入在 `transcribe.js`，即時字幕在 `live-caption.js`，
+ * 錄音機在 `recorder.js`，語音輸入在 `dictation-page.js`。
  */
 
 import { electronAPI, getSettings } from './app.js'
@@ -23,17 +21,15 @@ import {
 } from './model-picker.js'
 import { syncCustomSelects } from './custom-select.js'
 
-/** 子分頁：檔案與錄音／即時字幕／語音輸入（錄音機跟檔案轉入同一頁，沒有自己的模型選單） */
-const SUBTABS = new Set(['file', 'live', 'dictation'])
+/** 子分頁：轉錄與字幕／語音輸入。舊的 `live` 併進 `file` */
+const SUBTABS = new Set(['file', 'dictation'])
 
 /**
- * 每個 scope 的選單 DOM id。語音輸入的整理模型選單與提示列由 `dictation-page.js`
- * 自己畫（它還要處理「不整理」與啟用狀態），所以這裡只接手它的 ASR 那一格。
- * @type {Record<'file'|'live'|'dictation', { asr: string, llm: string|null, hint: string|null }>}
+ * 共用選單寫 file scope（main 同步到 live）。語音輸入的整理模型由 `dictation-page.js` 畫。
+ * @type {Record<'file'|'dictation', { asr: string, llm: string|null, hint: string|null }>}
  */
 const PICKERS = {
   file: { asr: 'fileAsrModel', llm: 'fileLlmModel', hint: 'fileModelHint' },
-  live: { asr: 'liveAsrModel', llm: 'liveLlmModel', hint: 'liveModelHint' },
   dictation: { asr: 'dictationAsrModel', llm: null, hint: null }
 }
 
@@ -44,7 +40,6 @@ let bound = false
 /** 各 scope 目前的選項清單（給「選到還沒裝好的東西」提示用） */
 const opts = {
   file: { asr: [], llm: [] },
-  live: { asr: [], llm: [] },
   dictation: { asr: [], llm: [] }
 }
 
@@ -59,7 +54,8 @@ export function currentSubtab() {
  * @param {'file'|'live'|'dictation'} name
  */
 export function showSubtab(name) {
-  activeSubtab = SUBTABS.has(name) ? name : 'file'
+  const asked = name === 'live' ? 'file' : name
+  activeSubtab = SUBTABS.has(asked) ? asked : 'file'
   document.querySelectorAll('#sttSubtabs .subtab').forEach((btn) => {
     const on = btn.dataset.subtab === activeSubtab
     btn.classList.toggle('active', on)
@@ -71,7 +67,7 @@ export function showSubtab(name) {
 }
 
 /**
- * @param {'file'|'live'|'dictation'} scope
+ * @param {'file'|'dictation'} scope
  * @param {'asr'|'llm'} kind
  */
 function bindPicker(scope, kind) {
@@ -98,14 +94,14 @@ function bindOnce() {
     })
   })
 
-  for (const scope of /** @type {const} */ (['file', 'live', 'dictation'])) {
+  for (const scope of /** @type {const} */ (['file', 'dictation'])) {
     bindPicker(scope, 'asr')
     bindPicker(scope, 'llm')
   }
 }
 
 /**
- * @param {'file'|'live'|'dictation'} scope
+ * @param {'file'|'dictation'} scope
  */
 function updateHint(scope) {
   const hintId = PICKERS[scope].hint
@@ -133,7 +129,7 @@ export async function refreshSttPage() {
   const [settings, status] = await Promise.all([getSettings(), electronAPI.models.status()])
   const map = status.models || {}
 
-  for (const scope of /** @type {const} */ (['file', 'live', 'dictation'])) {
+  for (const scope of /** @type {const} */ (['file', 'dictation'])) {
     const chosen = await readScope(scope)
     opts[scope].asr = asrOptions(map, settings)
     fillSelect(document.getElementById(PICKERS[scope].asr), opts[scope].asr, chosen.asr)

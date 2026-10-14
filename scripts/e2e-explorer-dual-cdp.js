@@ -124,6 +124,8 @@ class Cdp {
     try { this.ws.close() } catch { /* 已關 */ }
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(fn, ms, label) {
   const deadline = Date.now() + ms
@@ -495,8 +497,12 @@ let child
     return { found: true, drop: row.classList.contains('is-drop'), path: row.dataset.path }
   })()`)
   assert(hover.found && hover.drop, '資料夾列是放置目標', json(hover))
-  await sleep(1_200)
-  const entered = await cdp.eval(`(document.getElementById('exSecondCrumbs') || {}).dataset.path || ''`)
+  // 停 0.7 秒才進去，再加上讀資料夾；背景頁的計時器會被節流，固定睡 1.2 秒時好時壞
+  const want = String(hover.path).toLowerCase()
+  const entered = await waitFor(async () => {
+    const now = await cdp.eval(`(document.getElementById('exSecondCrumbs') || {}).dataset.path || ''`)
+    return now.toLowerCase() === want ? now : null
+  }, 5_000, '拖著停在資料夾上會進去').catch(async () => cdp.eval(`(document.getElementById('exSecondCrumbs') || {}).dataset.path || ''`))
   assert(entered.toLowerCase() === String(hover.path).toLowerCase(), '拖著停在資料夾上會進去', json({ entered, hover }))
 
   console.log('\n[7] 右欄自己的指令列與篩選面板')

@@ -218,13 +218,6 @@ function emitAgent(id, state) {
   try { emit({ id, state }) } catch { /* renderer 已經走了 */ }
 }
 
-/** @param {string} id */
-function clearAgent(id) {
-  if (!tracks.has(id)) return
-  tracks.delete(id)
-  emitAgent(id, null)
-}
-
 /** @param {string} id @param {string} data */
 function noteInput(id, data) {
   if (!store.isSessionId(id)) return

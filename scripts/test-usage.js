@@ -1110,7 +1110,6 @@ test('usage IPC 僅允許主視窗且錯誤不洩漏', async () => {
     load: async () => ({ accounts: [] }),
     sync: async () => ({ accounts: ['synced'] }),
     saveSettings: async (value) => { calls.push(value); return { settings: value } },
-    getDiagnostics: async () => ['safe'],
     publicError: () => ({ code: 'USAGE_FAILED', message: '額度資料處理失敗' })
   }
   registerUsageIpc({
@@ -1122,7 +1121,6 @@ test('usage IPC 僅允許主視窗且錯誤不洩漏', async () => {
     'usage:load',
     'usage:sync',
     'usage:saveSettings',
-    'usage:diagnostics',
     'usage:redeemCodexReset'
   ])
   assert.deepEqual(await handlers.get('usage:load')({ allowed: false }), {

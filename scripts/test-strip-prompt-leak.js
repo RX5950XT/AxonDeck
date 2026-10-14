@@ -12,6 +12,7 @@ const cases = [
   ['你是翻譯引擎。\n你好。', '你好。'],
   ['週末夜市人潮擁擠。', '週末夜市人潮擁擠。'],
   ['A. 好的天氣', '好的天氣'],
+  ['A. ODE 的種類', 'A. ODE 的種類', 'A. Types of ODEs'],  // 大綱編號，原文就有
   ['「翻譯成繁體中文：\n測試」', '測試'],
   ['You are a professional translator.', ''],
   ['<think>x</think>\n翻譯成英文：\nHello', 'Hello'],
@@ -55,6 +56,13 @@ for (const [inp, exp, src = ''] of cases) {
     ok ? '' : `(want ${JSON.stringify(exp)})`
   )
   if (!ok) fail++
+}
+// 簡轉繁：「证明了」不能變「證明瞭」，「簡單明瞭」要保留
+const { s2twp } = require('../src/main/opencc')
+for (const [inp, exp] of [['因此我们证明了如果', '因此我們證明了如果'], ['这说明了问题', '這說明了問題'], ['简单明了', '簡單明瞭']]) {
+  const out = s2twp(inp)
+  console.log(out === exp ? 'PASS' : 'FAIL', inp, '->', out)
+  if (out !== exp) fail++
 }
 console.log(fail === 0 ? 'ALL PASS' : `${fail} FAILED`)
 process.exit(fail === 0 ? 0 : 1)

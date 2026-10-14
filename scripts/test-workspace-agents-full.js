@@ -28,6 +28,10 @@ const agents = require('../src/main/workspace/agents')
       if (agent === 'claude') assert(turns > 60)
       assert(pages > 1)
       await assert.rejects(agents.sessionDetail(path.join(home, 'other'), agent, fixture.ids[agent]), e => e.code === 'SESSION_NOT_FOUND')
+      if (agent === 'agy') {
+        const moved = await agents.sessionConversation(path.join(home, 'other'), agent, fixture.ids[agent])
+        assert(moved.turns.some(turn => turn.role === 'user' && turn.text.includes('提問')), '終端機目錄和 AGY 工作區不同仍讀得到這次程序的對話')
+      }
       assert((await agents.resume(project, agent, fixture.ids[agent])).command.includes(fixture.ids[agent]))
       const first = await agents.sessionDetail(project, agent, fixture.ids[agent])
       const again = await agents.sessionDetail(project, agent, fixture.ids[agent], first.pageCursor)

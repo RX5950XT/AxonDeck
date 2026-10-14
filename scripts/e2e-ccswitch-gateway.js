@@ -76,6 +76,13 @@ function startUpstream() {
           res.end(JSON.stringify({ error: { message: FAKE_UPSTREAM_SECRET } }))
           return
         }
+        const transientStatus = Number(upstreamMode.split('-')[1])
+        if (upstreamMode.startsWith('transient-') &&
+          (upstreamCalls === 1 || upstreamMode.endsWith('-always'))) {
+          res.writeHead(transientStatus, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: { message: FAKE_UPSTREAM_SECRET } }))
+          return
+        }
         if (upstreamMode === 'rate-limited') {
           res.writeHead(429, { 'Content-Type': 'application/json', 'retry-after': '42' })
           res.end(JSON.stringify({ error: { message: FAKE_UPSTREAM_SECRET } }))
@@ -83,7 +90,23 @@ function startUpstream() {
         }
 
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        if (upstreamMode === 'failed-terminal') {
+          res.end(sseFrame({ type: 'response.completed', response: {
+            status: 'failed', error: { message: FAKE_UPSTREAM_SECRET }
+          } }))
+          return
+        }
+        if (upstreamMode === 'empty-stream') { res.end(); return }
+        if (req.url === '/commandcode') {
+          res.write(sseFrame({ choices: [{ delta: { content: '你好' } }] }))
+          if (upstreamMode !== 'truncated-stream') {
+            res.write(sseFrame({ choices: [{ delta: {}, finish_reason: 'stop' }] }))
+          }
+          res.end()
+          return
+        }
         res.write(sseFrame({ type: 'response.output_text.delta', delta: '你好' }))
+        if (upstreamMode === 'truncated-stream') { res.end(); return }
         res.write(sseFrame({ type: 'response.output_text.delta', delta: '，世界' }))
         res.write(sseFrame({
           type: 'response.completed',
@@ -147,7 +170,7 @@ async function main() {
     port: 0,
     apiKey: 'gateway-key',
     getProviderKey: async (key) => (
-      { 'ollama-cloud': 'ollama-key', 'opencode-go': 'opencode-key', p_custom1: 'custom-key' }[key] || ''
+      { 'ollama-cloud': 'ollama-key', 'opencode-go': 'opencode-key', commandcode: 'command-key', p_custom1: 'custom-key' }[key] || ''
     ),
     // 自訂供應商不在 ROUTES 固定表裡，位址由 main 從 store 查回來（這裡模擬那一步）
     resolveRoute: async (key) => (key === 'p_custom1'
@@ -284,8 +307,49 @@ async function main() {
     ok('429 原樣回', limited.status === 429)
     ok('429 帶 retry-after', limited.headers['retry-after'] === '42')
     ok('429 也不外洩上游 body', !limited.text.includes(FAKE_UPSTREAM_SECRET))
+    ok('429 不自動重試', upstreamCalls === 1)
 
-    console.log('\n[F] 上游 401 會換 token 重試一次')
+    console.log('\n[F] 暫時性錯誤只重試一次，且不更換憑證')
+    for (const status of [502, 503, 504]) {
+      for (const route of ['codex', 'ollama-cloud']) {
+        upstreamMode = `transient-${status}`
+        upstreamCalls = 0
+        credentialCalls.length = 0
+        const recovered = await request(port, `/${route}/v1/messages`, { ...anthropicBody, stream: false })
+        ok(`${route} ${status} 重試後成功`, recovered.status === 200 && upstreamCalls === 2)
+        ok(`${route} ${status} 不強制續期登入`, !credentialCalls.some(call => call.force || call.invalidated))
+      }
+    }
+    upstreamMode = 'transient-503-always'
+    upstreamCalls = 0
+    const exhausted = await request(port, '/codex/v1/messages', { ...anthropicBody, stream: false })
+    ok('持續 503 最多兩次且回安全 502', upstreamCalls === 2 && exhausted.status === 502 &&
+      !exhausted.text.includes(FAKE_UPSTREAM_SECRET))
+
+    console.log('\n[G] 不完整串流不能回成功')
+    for (const mode of ['empty-stream', 'truncated-stream', 'failed-terminal']) {
+      upstreamMode = mode
+      upstreamCalls = 0
+      const json = await request(port, '/codex/v1/messages', { ...anthropicBody, stream: false })
+      ok(`${mode} 非串流回 502，不假裝成功`, json.status === 502)
+      const sse = await request(port, '/codex/v1/messages', anthropicBody)
+      ok(`${mode} 串流回錯誤且不送 message_stop`, sse.text.includes('event: error') &&
+        !sse.text.includes('event: message_stop'))
+      ok(`${mode} 不外洩上游錯誤`, !json.text.includes(FAKE_UPSTREAM_SECRET) &&
+        !sse.text.includes(FAKE_UPSTREAM_SECRET))
+      ok(`${mode} 不重播已開始的回應`, upstreamCalls === 2)
+    }
+    for (const stream of [true, false]) {
+      upstreamMode = 'ok'
+      const chat = await request(port, '/commandcode/v1/messages', { ...anthropicBody, stream })
+      ok(`Chat stream=${stream} 正常完成`, chat.status === 200 && (stream
+        ? chat.text.includes('event: message_stop') : JSON.parse(chat.text).content[0].text === '你好'))
+      upstreamMode = 'truncated-stream'
+      const chatCut = await request(port, '/commandcode/v1/messages', { ...anthropicBody, stream })
+      ok(`Chat stream=${stream} 偵測截斷`, stream
+        ? chatCut.text.includes('event: error') && !chatCut.text.includes('event: message_stop') : chatCut.status === 502)
+    }
+    console.log('\n[H] 上游 401 會換 token 重試一次')
     upstreamMode = 'unauthorized-once'
     upstreamCalls = 0
     credentialCalls.length = 0

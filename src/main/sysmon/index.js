@@ -425,7 +425,6 @@ function createSysmonService(deps = {}) {
     fanResetAll: () => fans.resetAll(),
     fanTaskStatus: () => sensors.taskStatus(),
     fanTaskInstall: () => sensors.taskInstall(),
-    fanTaskRemove: () => sensors.taskRemove(),
 
     ocStatus: () => withOcFeed(oc.status()),
     ocSetDraft: (patch) => withOcFeed(oc.setDraft(patch)),

@@ -32,16 +32,24 @@ export function initResizer(options) {
   const panel = /** @type {HTMLElement | null} */ (document.querySelector(panelSelector))
   if (!handle || !panel) return () => {}
 
+  let current = 0
   /** @param {number} width */
-  function apply(width) {
-    const px = Math.round(Math.min(max, Math.max(min, width)))
-    document.documentElement.style.setProperty(cssVar, `${px}px`)
+  function set(width) {
+    current = Math.round(Math.min(max, Math.max(min, width)))
+    document.documentElement.style.setProperty(cssVar, `${current}px`)
+    onResize?.(current)
+  }
+  function save() {
     try {
-      localStorage.setItem(storageKey, String(px))
+      localStorage.setItem(storageKey, String(current))
     } catch {
       // 沒有 storage 就只是這次有效，不值得為它中斷拖曳
     }
-    onResize?.(px)
+  }
+  /** @param {number} width */
+  function apply(width) {
+    set(width)
+    save()
   }
 
   let saved = 0
@@ -52,12 +60,28 @@ export function initResizer(options) {
   }
   if (saved) apply(saved)
 
+  // 一格畫面只改一次寬度：pointermove 比畫面更新還密，每次都改會整頁重算樣式而一頓一頓
+  let frame = 0
+  let lastX = 0
   /** @param {PointerEvent} event */
   const onMove = (event) => {
-    const rect = panel.getBoundingClientRect()
-    apply(invert ? rect.right - event.clientX : event.clientX - rect.left)
+    lastX = event.clientX
+    if (frame) return
+    frame = requestAnimationFrame(() => {
+      frame = 0
+      const rect = panel.getBoundingClientRect()
+      set(invert ? rect.right - lastX : lastX - rect.left)
+    })
   }
   const stop = () => {
+    if (frame) {
+      // 放開前最後一格還沒畫：直接補上，不要少跟最後一段
+      cancelAnimationFrame(frame)
+      frame = 0
+      const rect = panel.getBoundingClientRect()
+      set(invert ? rect.right - lastX : lastX - rect.left)
+    }
+    if (handle.classList.contains('is-dragging') && current) save()
     handle.classList.remove('is-dragging')
     document.body.classList.remove('is-col-resizing')
     window.removeEventListener('pointermove', onMove)

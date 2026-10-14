@@ -10,7 +10,6 @@
  *
  * 只留一張：選了新的就把舊的刪掉（這是「桌布」不是「相簿」）。
  */
-const fs = require('fs')
 const fsp = require('fs/promises')
 const path = require('path')
 
@@ -124,10 +123,4 @@ async function remove(value) {
   }
 }
 
-/** 給測試用：確認資料夾存不存在，不建立 */
-function dirExists() {
-  const dir = dirOf()
-  return Boolean(dir) && fs.existsSync(dir)
-}
-
-module.exports = { MAX_BYTES, TYPES, sanitizeName, adopt, dataUri, remove, dirExists }
+module.exports = { MAX_BYTES, TYPES, sanitizeName, adopt, dataUri, remove }

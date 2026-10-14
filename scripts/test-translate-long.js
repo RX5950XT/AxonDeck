@@ -23,21 +23,31 @@ const box = {
   }
 }
 vm.createContext(box)
-vm.runInContext(source + '\nthis.run = translateCloud', box)
+vm.runInContext(source + '\nthis.run = translateCloud; this.pack = packLinguaforge; this.tokens = resolveMaxTokens', box)
 const cfg = { apiUrl: 'http://127.0.0.1/v1', apiKey: 'test', modelId: 'test' }
 async function main() {
+  assert.equal(box.pack('A single paragraph.'), null)
+  const packed = box.pack(`${'a'.repeat(1200)}\n${'b'.repeat(1200)}\n- first item\n2. second item`)
+  assert.deepEqual(Array.from(packed, (job) => ({ ...job })), [
+    { prefix: '', text: 'a'.repeat(1200) }, { prefix: '', text: 'b'.repeat(1200) },
+    { prefix: '- ', text: 'first item' }, { prefix: '2. ', text: 'second item' }
+  ], '長文不能丟字，清單標記要留在模型輸入外面')
+  assert.equal(box.pack('first line\n\nsecond line'), null, '未超段長的段落應保留原文與空行')
+  assert.equal(box.tokens('a'.repeat(2000), 'file', true), 4000)
+  assert.equal(box.tokens('a'.repeat(5000), 'file', true), 4096)
+  assert.equal(box.tokens('a'.repeat(2000), 'live', true), 256)
   const page = fs.readFileSync(path.join(root, 'src/renderer/scripts/translate-page.js'), 'utf8')
   const chunkFn = page.match(/function resolveChunkChars\(\) \{[\s\S]*?\n\}/)[0]
   const chunks = vm.runInNewContext(chunkFn + '\nresolveChunkChars()', {
     settings: { translator: 'cloud', localTranslateModel: 'linguaforge08q4' },
-    CHUNK_CHARS_GENERIC: 600, CHUNK_CHARS_LINGUAFORGE: 280
+    LOCAL_CHUNK_CHARS: 2000
   })
-  assert.equal(chunks, Infinity, '雲端不應沿用本地的 280 字分段')
-  for (const [key, expected] of [['linguaforge08q4', 280], ['indextranslate2b', 600]]) {
+  assert.equal(chunks, Infinity, '雲端不應沿用本地分段')
+  for (const key of ['linguaforge08q4', 'indextranslate2b']) {
     assert.equal(vm.runInNewContext(chunkFn + '\nresolveChunkChars()', {
       settings: { translator: 'local', localTranslateModel: key },
-      CHUNK_CHARS_GENERIC: 600, CHUNK_CHARS_LINGUAFORGE: 280
-    }), expected, '本地保留模型容量上限')
+      LOCAL_CHUNK_CHARS: 2000
+    }), 2000, '本地兩顆同一段長')
   }
   const article = 'This is a long article.\n\n'.repeat(1000)
   const mainSource = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')
@@ -46,7 +56,7 @@ async function main() {
     ipcMain: { handle: (_name, fn) => { handler = fn } },
     store: { get: () => translator },
     modelScope: { isScope: () => false },
-    MAX_TRANSLATE_CHARS: 1500, MAX_CLOUD_TRANSLATE_CHARS: 200000,
+    MAX_TRANSLATE_CHARS: 2000, MAX_CLOUD_TRANSLATE_CHARS: 200000,
     TRANSLATE_TARGET_LANGS: new Set(['en']),
     loadLocalLlm: () => ({ translate: (_store, text) => text })
   })

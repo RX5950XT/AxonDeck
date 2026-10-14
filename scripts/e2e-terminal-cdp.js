@@ -12,7 +12,6 @@ const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
 const fs = require('fs')
 
 const PORT = 9247
@@ -96,6 +95,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch { /* 已斷線 */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()
@@ -191,8 +192,8 @@ async function main() {
       termNewBtn: !!document.getElementById('termNewBtn')
     }))()`)
     // 終端機已併入聊天頁：nav 不再有 terminal 分頁，終端機在主區的分頁列上
-    ok('nav 十個分頁、聊天排第一、Telegram 與檔案在後、沒有 terminal 分頁',
-      nav.order.length === 10 && nav.order[0] === 'chat' && nav.order[1] === 'telegram' && nav.order[2] === 'explorer' &&
+    ok('nav 與 index.html 一致、沒有 terminal 分頁',
+      JSON.stringify(nav.order) === JSON.stringify(require('./lib/nav-pages').NAV_PAGES) &&
         !nav.order.includes('terminal'), JSON.stringify(nav.order))
     ok('分頁列有「＋」按鈕', nav.newBtn)
     ok('側欄沒有終端機清單，也沒有「＋ 終端機」', !nav.termList && !nav.termNewBtn, JSON.stringify(nav))
@@ -260,6 +261,19 @@ async function main() {
     createdId = created.id
     ok('建立後彈窗關閉、畫布顯示', created.dialogClosed && created.hostVisible, JSON.stringify(created))
     ok('xterm 真的掛上去了', created.panes === 1 && created.rows === 1, JSON.stringify(created))
+    const redraw = await cdp.eval(`(async () => {
+      const term = window.__testTerminal
+      const before = { cols: term.cols, rows: term.rows, viewport: term.buffer.active.viewportY }
+      const refresh = term.refresh
+      let paints = 0
+      term.refresh = function (...args) { paints++; return refresh.apply(this, args) }
+      try {
+        await import('./scripts/terminal-page.js').then(m => m.openTerminalSession(${JSON.stringify(createdId)}))
+        return { paints, same: window.__testTerminal === term,
+          stable: before.cols === term.cols && before.rows === term.rows && before.viewport === term.buffer.active.viewportY }
+      } finally { term.refresh = refresh }
+    })()`)
+    ok('點回同尺寸終端機仍重畫，保留原畫面與捲動位置', redraw.paints > 0 && redraw.same && redraw.stable, JSON.stringify(redraw))
     const keyboard = await cdp.eval(`(() => {
       const term = window.__testTerminal
       const sent = []
@@ -305,7 +319,10 @@ async function main() {
         await mainCdp.connect()
         const clip = `process.mainModule.require('electron').clipboard`
         // 這支跑在使用者自己的機器上：測完要把剪貼簿原樣放回去
-        savedClipboard = await mainCdp.eval(`${clip}.readText()`)
+        await mainCdp.eval(`globalThis.__savedClipboard = {
+          text: ${clip}.readText(), html: ${clip}.readHTML(), rtf: ${clip}.readRTF(), image: ${clip}.readImage()
+        }`)
+        savedClipboard = true
 
         const needle = `VI-PASTE-${Date.now()}`
         await mainCdp.eval(`${clip}.writeText(${JSON.stringify(needle)})`)
@@ -491,11 +508,19 @@ async function main() {
             process.mainModule.require(process.mainModule.require('electron').app.getAppPath() + '/src/main/terminal/service.js').clipboardText = globalThis.__originalClipboardText
             delete globalThis.__originalClipboardText
           })()`).catch(() => {})
-          if (typeof savedClipboard === 'string') {
+          if (savedClipboard) {
             try {
-              await mainCdp.eval(savedClipboard
-                ? `process.mainModule.require('electron').clipboard.writeText(${JSON.stringify(savedClipboard)})`
-                : `process.mainModule.require('electron').clipboard.clear()`)
+              const restoredClipboard = await mainCdp.eval(`(() => {
+                const clipboard = process.mainModule.require('electron').clipboard
+                const saved = globalThis.__savedClipboard
+                clipboard.write(saved)
+                const restored = clipboard.readText() === saved.text &&
+                  clipboard.readHTML() === saved.html && clipboard.readRTF() === saved.rtf &&
+                  clipboard.readImage().toPNG().equals(saved.image.toPNG())
+                delete globalThis.__savedClipboard
+                return restored
+              })()`)
+              ok('還原剪貼簿原有文字、格式與圖片', restoredClipboard)
             } catch { /* App 可能已經關了 */ }
           }
           mainCdp.close()
@@ -566,12 +591,14 @@ async function main() {
       `document.querySelector('.ws-tab.is-active .ws-tab-state')?.classList.contains('ws-tab-state-running') === true`,
       6000
     ), await cdp.eval(`document.querySelector('.ws-tab.is-active .ws-tab-open')?.title || '(無)'`))
-    ok('分頁顯示運行文字，側欄那顆晶片轉圈圈（側欄只放圖示，名稱在 title 裡）', await cdp.eval(`(() => {
+    ok('分頁顯示運行文字，側欄那顆晶片轉圈圈（側欄只放圖示，名稱在 title 裡）', await cdp.eval(`(async () => {
       const tab = document.querySelector('.ws-tab.is-active .ws-tab-status-label')
       const row = document.querySelector('#projList .proj-session-status[data-id="${createdId}"]')
+      const result = await window.electronAPI.terminal.list()
+      const item = result.data?.find(item => item.id === ${JSON.stringify(createdId)})
       return tab?.textContent === '運行中' && row?.dataset.state === 'running'
         && !!row.querySelector('.ws-status-icon.state-running.is-spin')
-        && row.textContent === '' && row.title.includes(${JSON.stringify(created.title)})
+        && row.textContent === '' && !!item && row.title.includes(item.osTitle || item.title)
     })()`))
     if (process.env.AXONDECK_STATUS_SCREENSHOT) {
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
@@ -632,8 +659,9 @@ async function main() {
     ok('跨專案切回沿用同一個終端機畫面，不重建 xterm', await cdp.eval(`
       document.querySelector('.term-pane[data-id="${createdId}"]') === window.__retainedPane
       && window.__testTerminals.get(${JSON.stringify(createdId)}) === window.__retainedTerm`))
-    ok('切回專案直接顯示最下面的最新訊息', await cdp.eval(`
-      window.__retainedTerm.buffer.active.viewportY === window.__retainedTerm.buffer.active.baseY`))
+    // 對話跳轉後換專案再回來，要留在原本那一列。
+    ok('切回專案保留原本的捲動位置', await cdp.eval(`
+      window.__retainedTerm.buffer.active.viewportY === 0 && window.__retainedTerm.buffer.active.baseY > 0`))
 
     // ===== 未讀點之一：人在別的主區（對話）時跑完 =====
     // 合頁後沒有「別的分頁」：切到某個對話＝使用者離開終端機主區。
@@ -738,18 +766,23 @@ async function main() {
       term._core._writeBuffer.writeSync('\\r\\n' + Array.from({ length: 100 }, (_, i) => 'latest-line-' + i).join('\\r\\n'))
       term.scrollToTop()
       const wasScrolledUp = term.buffer.active.baseY > 0 && term.buffer.active.viewportY === 0
-      document.querySelector('.nav-tab[data-page="ccswitch"]').click()
+      document.querySelector('.nav-tab[data-page="explorer"]').click()
       await new Promise((r) => setTimeout(r, 500))
-      // 終端機跟聊天同頁：點分頁切回終端機主區
-      document.querySelector('.nav-tab[data-page="chat"]').click()
+      // 終端機跟聊天同頁：切回聊天頁。功能頁各自一個 renderer，這裡是被藏起來的聊天頁，
+      // 點它自己的「聊天」不會換回來，要走 main 的 navigate
+      await window.electronAPI.pages.navigate({ page: 'chat' })
       await new Promise((r) => setTimeout(r, 400))
       document.querySelector('.ws-tab[data-id="${createdId}"] .ws-tab-open')?.click()
       await new Promise((r) => setTimeout(r, 600))
       const pane = document.querySelector('.term-pane[data-id="${createdId}"]')
-      return { before, after: rows().textContent.length, active: pane.classList.contains('is-active'), bottom: wasScrolledUp && term.buffer.active.viewportY === term.buffer.active.baseY }
+      return {
+        before, after: rows().textContent.length, active: pane.classList.contains('is-active'),
+        kept: wasScrolledUp && term.buffer.active.viewportY === 0,
+        y: term.buffer.active.viewportY, base: term.buffer.active.baseY
+      }
     })()`)
     ok('切走再切回來畫面沒被重畫', kept.after >= kept.before && kept.active, JSON.stringify(kept))
-    ok('離開其他頁再回終端機直接捲到底部', kept.bottom, JSON.stringify(kept))
+    ok('離開其他頁再回終端機仍留在原本的捲動位置', kept.kept, JSON.stringify(kept))
 
     // ===== 改名（分頁右鍵 → 就地改名）=====
     const renamed = await cdp.eval(`(async () => {

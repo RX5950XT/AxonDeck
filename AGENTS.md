@@ -5,8 +5,8 @@
 
 ## 專案
 
-Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.4.1（內建 Node 24）、腳本用系統 Node 22。
-nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜CC Proxy｜語音轉文字｜翻譯與 TTS｜系統監控｜Local SI（`hfmodels`）｜設定。額度是工作區底下那條；AGY 反代與用量統計是 CC Proxy 的子分頁。
+Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
+nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第五顆）、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
 
@@ -21,6 +21,12 @@ npm run build:sensors / build:hook / build:media   # 感測器 sidecar／熱鍵�
 ```
 
 `resources/{sensors,hook,shell,probe,media}/` 不進版控；沒建也打得起來，只是對應功能降級。打包前關掉 `dist/win-unpacked/AxonDeck.exe`。
+
+### 開預覽給使用者看（唯一正確做法）
+- 一律 `node scripts/dev-sandbox.js --packed`（背景執行）：沙箱 `%APPDATA%\axondeck-dev` 複製設定與專案清單，`models`／`hf-models` 以 junction 接回真資料，並關掉 AGY／語音輸入熱鍵／感測器等會影響整機的功能。
+- 不要直接開 `dist/win-unpacked/AxonDeck.exe`：跟安裝版搶同一把單一實例鎖，會自己關掉。
+- 不要自己帶空的 `--user-data-dir`（例如 `dist/win-unpacked/user-data`）：拿不到設定，還會把執行環境／模型重新下載一份（實際發生過，平白下載約 800 MB）。
+- 重新打包前先關掉沙箱預覽（`CommandLine` 含 `axondeck-dev` 的 AxonDeck.exe）。
 
 ### 發行流程（漏一步舊版就永遠檢查不到更新，而且不報錯）
 ```bash
@@ -39,8 +45,8 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 
 1. 動手前讀 CONTEXT.md 找模組、讀本檔該模組地雷；追完整條資料流與所有 caller，修根因。
 2. 改動最小。非簡單任務先把可勾選計畫寫進 `tasks/todo.md`。
-3. 完成前附驗證指令與實際輸出；新回歸測試要先在修復前紅過一次。同一修法失敗兩次就換方法。
-4. mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。
+3. 完成前附驗證指令與實際輸出（至少 `npm run lint`）。同一修法失敗兩次就換方法。
+4. mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。能靜態擋的（未定義名字、死變數、IPC 對不上）進 `npm run lint`，不寫單元測試；不新增「讀原始碼字串比對」的測試（改了名字就壞、不跑程式碼）。
 5. 刪功能時一起掃「定義／exports／IPC 白名單／preload／renderer 呼叫點」。
 6. Commit：`<type>: <繁中描述>`（feat／fix／refactor／docs／test／chore／perf／ci）；**只在使用者要求時** commit／push。
 
@@ -66,7 +72,7 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 系統工具指名 `%SystemRoot%\System32`（PATH 上的 MSYS `whoami`／`icacls` 會被抓到）。改 PATH 要就地改原鍵名並把大小寫不同的同名鍵收成一個。
 
 ### 打包／建置
-- 保留 `asar.smartUnpack: false`；`asarUnpack` 含 sherpa-onnx*、`@node-llama-cpp/win-x64`、`@reflink`、`.ps1`、`uiohook-napi`、`@lydell/node-pty*`。新增產物資料夾要排除（漏排 `native/` 曾讓打包失敗）。
+- 保留 `asar.smartUnpack: false`；`asarUnpack` 含 `.ps1`、`uiohook-napi`、`@lydell/node-pty*`。新增產物資料夾要排除（漏排 `native/` 曾讓打包失敗）。
 - asar 被別的程式抓著（Orca 連 `%TEMP%` 都監看）或打包中動到被打包的檔案（含把 log 導進專案）→ asar 安靜錯位、exit 0。`electron:pack` 已處理（打到磁碟根、逐檔比對）；不要手動 `--config.directories.output`。
 - `electron:pack` 中途失敗會留下壞 `dist/win-unpacked`：整個刪掉重打。worktree 打包要實體 `node_modules`（junction 會漏 node-pty 原生檔）。
 - NSIS warning 會被當錯誤（`installer.nsh` 安裝／解除安裝各編譯一次，只在 `customInstall` 用的 `Var` 會報 6001）；別把 `tail` 的 exit code 當建置成功。
@@ -89,7 +95,7 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。
 
 ### 專案工作區
-- 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload；`module.exports` 列未定義名字＝載入期 ReferenceError 而單元測試全綠。回歸 `test-workspace.js` [Q]（explorer／AGY／sysmon／usage 同一條）。
+- 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload。`npm run lint` 的 `scripts/lint-ipc.js` 擋這三條（全模組，不只工作區）；`module.exports` 列未定義名字由 ESLint `no-undef` 擋（＝載入期 ReferenceError，單元測試抓不到）。
 - 存檔帶開檔 mtime（`STALE` 提示條，草稿不動）；同檔寫入排隊；草稿上限 4MB、讀寫上限 50MB；存檔後重讀現在內容。
 - 開分頁每次 await 後核對 `projectSwitch` 並重新 `findTab`；改名／搬檔要 `retargetTabs`；切專案要 `disposeModelsExcept`。
 - 大檔：Monaco 停手 300ms 才 `getValue()`、`stash()` 先 `flushChange()`；`showTab` 用 `modelText` 比對不 `getValue()`。Monaco 只能走 AMD `min/vs`。
@@ -121,16 +127,17 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 忙碌判定 OSC 133（帶 history id 比大小）＋靜默雙軌；無標記的 cmd 不套「送出後一直算運行中」。
 - 輸入法：組字期間用 CSS 變數＋`!important` 釘錨點（`term-ime.js`），不要改回每幀 JS 擺位；textarea 用透明色藏不用 `opacity: 0`；`.term-host` 用 `overflow: clip`。
 - 用 WebGL renderer（DOM 版游標會亂閃）；`onContextLoss` 要 dispose 重掛；Unicode 11 要 load 後再 `activeVersion = '11'`；`.xterm-viewport` 要 `background-color: transparent` 與 `scrollbar-width: none`。
-- CLI 滑鼠回報在 parser 擋掉（`term-mouse.js`），備用畫面的滾輪自己送 SGR；必須給 `linkHandler`（OSC 8）。
+- 不要攔截 CLI 滑鼠模式（`term-mouse.js` 只把 Ctrl+滾輪留給字級）；Shift+拖曳仍是本地選取；必須給 `linkHandler`（OSC 8）。
 - 剪貼簿一律跟 main 要（`navigator.clipboard` 沒焦點會 reject）；截圖落檔貼路徑；有選取 Ctrl+C／右鍵＝複製。Shift+Enter 送 `\x1b\r`。
 - 切回終端機走 `fitAndSync`；分割不搬 DOM、每格各自 fit；狀態變動就地改那一列不 `renderList()`。標題／cwd 欄位叫 `osTitle`／`liveCwd`；連結：`provideLinks` 是整份緩衝區 1-based 列號、x 是 cell 欄位；路徑先問 main 存不存在再畫底線。
 - Ctrl+G 橋接：batch 只能 ASCII、路徑不出 batch；`EDITOR=notepad` 不算使用者選過；`EDITOR`／`VISUAL` 都要蓋；存檔不收分頁、關分頁才放走；放走過的請求進忽略名單。
 - 桌布：store 只存檔名、renderer 轉 `blob:`（CSS 塞 data URI 超過約 2M 字元會安靜失效）；強度下限 10；管理員終端機用 `Start-Process -Verb RunAs` 開 host；host 模式 userData 指到暫存。
 
 ### HF模型／本地 LLM／翻譯
+- Breeze-TTS-2 Q8 走獨立 `breeze-server`，不可送進 llama router／preset。模型下載連帶安裝 `breezeruntime`，兩者以固定 SHA-256 校驗；移除任一者前先停 Breeze。參考音訊由 main 對話框選取，renderer 只持 token；聲音收藏在 `userData/breeze-tts/voices`，不隨模型移除。
 - 推論一律 llama-server router 模式；關思考明寫 `reasoning = off`；`/metrics` 要 `--metrics` 且帶 `?model=`。
 - 記憶體配置交給 `llama-fit-params`（主動寫死 `gpu-layers` 等於關掉它）；KV 用 GGUF 的 `key_length／value_length`；`safeValue` 不准清中括號；`readConfig` 不在清單的 modelId 回空字串不退回第一顆。關思考用 `reasoning: { exclude: true }`。
-- LinguaForge 單輪逐行 ≤280 字、zhtw `repeatPenalty: false`、重試前還原 history；不要用 regex 剝前綴當修復。
+- LinguaForge 一段約 2000 字（ctx 8192）；清單標記仍逐行剝掉再貼回。zhtw `repeatPenalty: false`、重試前還原 history；不要用 regex 剝前綴當修復。
 
 ### ASR／語音輸入／錄音
 - `asr-select.js` 是本地 ASR 唯一選擇點；`model-scope.js` 是三子分頁模型唯一解析點。本地 GPU ASR 只能走 llama-server 且要帶 `--device`；三支 ASR 都套 `s2twp`。
@@ -175,12 +182,14 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 在這個 App 裡開發這個 App 一律 `npm run dev:sandbox`（寫沙箱前先 `rm` 目的地，免得跟著連結寫回真資料）。
 - 暫存一律 `scripts/lib/test-temp.js`；CDP 用暫存 `--user-data-dir`，只 `taskkill /PID /T` 自己 spawn 的 pid（先 taskkill 再 `child.kill()`），**禁止 `/IM AxonDeck.exe`**。
 - 只用 `[data-id]` 指涉自己建的東西；同時只跑一支 CDP；主視窗用 `/index\.html/` 挑；開頭關 `sysmonSensors`。
+- nav 頁面清單／數量不准手抄，一律 `scripts/lib/nav-pages.js`（讀 index.html；手抄的清單在加 `speech`、拆 AGY 時各壞過一次）。
 - 用 node `spawn({ detached: true })` 開測試實例（PowerShell `Start-Process` 會被連帶收掉）；`npx electron <script>` 要補 `app.setPath('userData', ...)`；UI 斷言等「量得到尺寸」不睡固定時間；批次 sed 改識別字後逐條看 `git diff`。
 
 ## 驗證方式
 
+靜態檢查（先跑，秒級）：`npm run lint`＝ESLint（`eslint.config.mjs`：`no-undef`、`no-unused-vars`、`import/no-unresolved`，只這三類）＋`node scripts/lint-ipc.js`（preload channel 有 main 註冊、`electronAPI.<ns>.<fn>` 有定義、`service.X` 有轉發）。`electron:pack` 打包前會先跑，失敗就不打包。ESLint 版本鎖定，升級前先查發佈日。
 純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `AXONDECK_EXE`）。
-全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。
+全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。單元測試只留要守的純邏輯與 vm 執行 renderer 的行為測試；刪 `test-` 時先確認它不是唯一守住某條行為的測試。
 
 | 範圍 | 主要腳本 |
 |---|---|

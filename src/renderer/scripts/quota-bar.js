@@ -9,6 +9,9 @@
  * 或切到聊天時不打。Claude 的 token 快過期時 main 會自己續（`usage/claude-auth.js`），
  * 不用再去終端機開一次 claude。
  *
+ * **抽屜**：條左邊「供應商」「用量統計」兩顆按鈕，點開從條上方展開（原本 CC Proxy 頁的兩塊，
+ * 內容與邏輯照舊在 ccswitch-page.js／code-usage-page.js，這裡只管開關）。
+ *
  * DOM 全程 `createElement` ＋ `textContent`，零 innerHTML（備註、方案名是外部字串）。
  */
 
@@ -430,7 +433,9 @@ function placePopover(pop, anchor) {
   const width = pop.offsetWidth
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
   pop.style.left = `${Math.round(left)}px`
-  pop.style.bottom = `${Math.round(window.innerHeight - rect.top + 6)}px`
+  // 貼著整條的上緣（條比顆高），不要蓋到條本身
+  const top = byId('quotaBar')?.getBoundingClientRect().top ?? rect.top
+  pop.style.bottom = `${Math.round(window.innerHeight - top + 4)}px`
 }
 
 function fillPopover(provider) {
@@ -558,7 +563,52 @@ function startTimers() {
   }
 }
 
-// ===== 設定與診斷 =====
+// ===== 抽屜：供應商／用量統計 =====
+
+const DRAWERS = {
+  providers: { button: 'quotaProviderBtn', panel: 'quotaDrawerProviders' },
+  stats: { button: 'quotaStatsBtn', panel: 'quotaDrawerStats' }
+}
+/** @type {'' | 'providers' | 'stats'} */
+let drawerOpen = ''
+
+/** @param {'' | 'providers' | 'stats'} name 空字串＝收起來 */
+function setDrawer(name) {
+  drawerOpen = name
+  const drawer = byId('quotaDrawer')
+  if (drawer) drawer.hidden = !name
+  for (const [key, ids] of Object.entries(DRAWERS)) {
+    const panel = byId(ids.panel)
+    if (panel) panel.hidden = key !== name
+    byId(ids.button)?.setAttribute('aria-expanded', String(key === name))
+  }
+  // 兩塊都是第一次打開才載模組；用量統計會掃本機記錄，不開就不碰
+  if (name === 'providers') void import('./ccswitch-page.js').then((mod) => mod.refreshProviders())
+  if (name === 'stats') void import('./code-usage-page.js').then((mod) => mod.refreshCodeUsagePage())
+}
+
+/** 點條以外的地方就收起來；彈窗、選單裡的點擊不算（編輯供應商、改單價都會開彈窗） */
+function onOutsidePointer(event) {
+  if (!drawerOpen) return
+  const target = event.target instanceof Element ? event.target : null
+  if (!target || target.closest('#quotaBar, dialog, [popover], .ws-menu, .custom-select-menu')) return
+  setDrawer('')
+}
+
+function bindDrawer() {
+  for (const [key, ids] of Object.entries(DRAWERS)) {
+    byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {'providers'|'stats'} */ (key)))
+  }
+  document.addEventListener('pointerdown', onOutsidePointer, true)
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !drawerOpen || document.querySelector('dialog[open]')) return
+    const { button } = DRAWERS[drawerOpen]
+    setDrawer('')
+    byId(button)?.focus()
+  })
+}
+
+// ===== 設定 =====
 
 function populateSettingsDialog() {
   const visible = new Set(state.settings.visibleProviders)
@@ -614,19 +664,6 @@ async function saveUsageSettings(settings) {
   }
 }
 
-async function openDiagnostics() {
-  const dialog = byId('usageDiagnosticsDialog')
-  const text = byId('usageDiagnosticsText')
-  text.textContent = '讀取中…'
-  dialog.showModal()
-  try {
-    const lines = unwrap(await electronAPI.usage.getDiagnostics())
-    text.textContent = Array.isArray(lines) && lines.length ? lines.join('\n') : '尚無診斷資料'
-  } catch (error) {
-    text.textContent = error.message || '診斷資料讀取失敗'
-  }
-}
-
 function bindControls() {
   byId('quotaSyncBtn')?.addEventListener('click', () => void runSync({ manual: true }))
   const settingsDialog = byId('usageSettingsDialog')
@@ -639,17 +676,6 @@ function bindControls() {
     if (await saveUsageSettings(readDialogSettings())) settingsDialog.close()
   })
 
-  const diagnosticsDialog = byId('usageDiagnosticsDialog')
-  byId('quotaDiagnosticsBtn')?.addEventListener('click', openDiagnostics)
-  byId('usageDiagnosticsClose')?.addEventListener('click', () => diagnosticsDialog.close())
-  byId('usageDiagnosticsCopy')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(byId('usageDiagnosticsText').textContent)
-      showToast('診斷已複製', 'success')
-    } catch {
-      showToast('無法複製診斷', 'error')
-    }
-  })
   // 條很窄、顆數多時會超出去：直向滾輪也拿來左右捲
   byId('quotaItems')?.addEventListener('wheel', (event) => {
     const host = event.currentTarget
@@ -675,7 +701,10 @@ export async function initQuotaBar() {
   initialized = true
   state = initialState()
   bindControls()
+  bindDrawer()
   render()
+  // 條上的「供應商」按鈕要顯示目前用哪家：先讀一次清單（不掃模型，很輕）
+  void import('./ccswitch-page.js').then((mod) => mod.refreshProviders())
   try {
     state = unwrap(await electronAPI.usage.load())
   } catch (error) {

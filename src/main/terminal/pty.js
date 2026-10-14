@@ -389,6 +389,54 @@ const CLAUDE_SESSION_VARS = [
  * @param {string} [editorDir]
  * @param {string} [terminalId] 工作階段 id，給 Claude hook 的 `AXONDECK_TERMINAL_ID`
  */
+/** 只有 staged 宿主才知道 userData。原始碼與測試執行檔不猜路徑。 */
+function stagedNavFile(terminalId) {
+  if (!store.isSessionId(terminalId)) return ''
+  const hostDir = path.dirname(__dirname)
+  if (path.basename(hostDir) !== 'terminal-host' || !path.basename(__dirname).startsWith('runtime-')) return ''
+  return path.join(hostDir, '..', 'terminal-nav', `${terminalId}.json`)
+}
+
+/**
+ * Linux／macOS 的終端機在 App 自己的程序裡跑（沒有 staged 宿主），userData 拿得到：
+ * 跳轉檔放 `<userData>/terminal-nav`（跟 service.navJump 寫的同一處），OpenCode 外掛從 app.asar
+ * 複製一份到 `<userData>/terminal-opencode`（外部的 opencode 讀不到 asar 裡的檔案）。
+ * 不在 Electron 主程序（測試、Windows 宿主）時回空，行為照舊。
+ */
+let inProcessDirs
+function inProcessUserData() {
+  if (inProcessDirs !== undefined) return inProcessDirs
+  inProcessDirs = ''
+  if (platform.isWindows || process.type !== 'browser') return inProcessDirs
+  try { inProcessDirs = require('electron').app.getPath('userData') || '' } catch { inProcessDirs = '' }
+  return inProcessDirs
+}
+
+function inProcessNavFile(terminalId) {
+  const userData = inProcessUserData()
+  if (!userData || !store.isSessionId(terminalId)) return ''
+  return path.join(userData, 'terminal-nav', `${terminalId}.json`)
+}
+
+let inProcessTui
+function inProcessTuiConfig() {
+  if (inProcessTui !== undefined) return inProcessTui
+  inProcessTui = ''
+  const userData = inProcessUserData()
+  if (!userData) return inProcessTui
+  try {
+    const fsx = require('node:fs')
+    const dir = path.join(userData, 'terminal-opencode')
+    fsx.mkdirSync(dir, { recursive: true })
+    const plugin = path.join(dir, 'navigation.mjs')
+    fsx.writeFileSync(plugin, fsx.readFileSync(path.join(__dirname, 'opencode/navigation.mjs')))
+    const config = path.join(dir, 'tui.json')
+    fsx.writeFileSync(config, JSON.stringify({ plugin: [require('node:url').pathToFileURL(plugin).href] }))
+    inProcessTui = config
+  } catch { inProcessTui = '' }
+  return inProcessTui
+}
+
 function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   const env = { ...process.env, TERM: 'xterm-256color' }
   delete env.ELECTRON_RUN_AS_NODE
@@ -405,6 +453,19 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   // 不合法就連繼承來的也拿掉，免得子程序沿用別的分頁的 id。
   if (store.isSessionId(terminalId)) env.AXONDECK_TERMINAL_ID = terminalId
   else delete env.AXONDECK_TERMINAL_ID
+  const jump = stagedNavFile(terminalId) || inProcessNavFile(terminalId)
+  if (jump) env.AXONDECK_NAV_JUMP = jump
+  else delete env.AXONDECK_NAV_JUMP
+  if (agent === 'claude') {
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN') delete env[key]
+    env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN = '1'
+  }
+  // 純 shell 裡再打 opencode 也要繼承外掛，否則側欄點列找不到全螢幕裡的訊息。
+  const staged = path.join(__dirname, 'opencode/tui.json')
+  const config = require('node:fs').existsSync(staged) ? staged : inProcessTuiConfig()
+  if (config && !Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_TUI_CONFIG' && env[key])) {
+    env.OPENCODE_TUI_CONFIG = config
+  }
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
   const homeAbsOk = typeof agentHome === 'string' && (
     platform.isWindows ? /^[A-Za-z]:[\\/]/.test(agentHome) : agentHome.startsWith('/')
@@ -412,7 +473,8 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   if (homeKey && homeAbsOk
     && agentHome.length <= 1024 && !/[\u0000-\u001f]/.test(agentHome) && !agentHome.replace(/\\/g, '/').split('/').includes('..')) {
     for (const key of Object.keys(env)) if (key.toUpperCase() === homeKey) delete env[key]
-    env[homeKey] = agentHome
+    const defaultClaude = agent === 'claude' && path.resolve(agentHome).toLowerCase() === path.join(require('os').homedir(), '.claude').toLowerCase()
+    if (!defaultClaude) env[homeKey] = agentHome
   }
   return env
 }

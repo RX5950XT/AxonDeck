@@ -27,8 +27,12 @@
   ${if} ${FileExists} "$INSTDIR\resources\media\axondeck-media.exe"
     ${if} $installMode == "all"
       nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --register --machine'
+      Pop $0
+      nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --editor --register --machine'
     ${else}
       nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --initialize'
+      Pop $0
+      nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --editor --initialize'
     ${endIf}
     Pop $0
   ${endIf}
@@ -50,8 +54,12 @@
     ${if} ${FileExists} "$INSTDIR\resources\media\axondeck-media.exe"
       ${if} $installMode == "all"
         nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --unregister --machine'
+        Pop $0
+        nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --editor --unregister --machine'
       ${else}
         nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --unregister'
+        Pop $0
+        nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --editor --unregister'
       ${endIf}
       Pop $0
     ${endIf}

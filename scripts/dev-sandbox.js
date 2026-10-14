@@ -139,6 +139,13 @@ function seed() {
     JSON.stringify({ ...explorer, uffsAuto: false }, null, 2)
   )
 
+  // 終端機桌布：config 裡只存檔名，沒有這張圖沙箱的外觀預覽會找不到檔；只有一張、會被覆寫，所以複製不接
+  const bgFrom = path.join(REAL, 'terminal-bg')
+  if (fs.existsSync(bgFrom)) {
+    unlinkDest('terminal-bg')
+    fs.cpSync(bgFrom, path.join(SANDBOX, 'terminal-bg'), { recursive: true })
+    done.push('複製 terminal-bg/')
+  }
   if (copyFile('workspaces.json')) done.push('複製專案清單')
   if (has('--with-chats')) {
     if (copyFile('chats.json')) done.push('複製對話')

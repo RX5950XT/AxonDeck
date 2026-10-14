@@ -34,5 +34,33 @@ contextBridge.executeInMainWorld({
         }
       }
     }
+    // Electron 的 userAgentData 只有 Chromium、沒有 Google Chrome。補成跟 main 送的 Sec-CH-UA 同一份
+    // （算法同 ai-web.js 的 brandList：假品牌與順序由主版號決定）
+    const uad = navigator.userAgentData
+    const chromium = uad?.brands?.find((b) => b.brand === 'Chromium')
+    const major = Number(chromium?.version)
+    if (!major || uad.brands.some((b) => b.brand === 'Google Chrome')) return
+    const brandList = (version) => {
+      const order = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]][major % 6]
+      const chars = ' (:-./);=?_'
+      const grease = ['8', '99', '24'][major % 3]
+      const out = []
+      out[order[0]] = { brand: `Not${chars[major % 11]}A${chars[(major + 1) % 11]}Brand`, version: version.includes('.') ? `${grease}.0.0.0` : grease }
+      out[order[1]] = { brand: 'Chromium', version }
+      out[order[2]] = { brand: 'Google Chrome', version }
+      return out
+    }
+    const proto = Object.getPrototypeOf(uad)
+    const high = proto.getHighEntropyValues
+    const json = proto.toJSON
+    const fix = (values) => {
+      const out = { ...values, brands: brandList(String(major)) }
+      const full = values?.fullVersionList?.find((b) => b.brand === 'Chromium')?.version
+      if (full) out.fullVersionList = brandList(full)
+      return out
+    }
+    Object.defineProperty(proto, 'brands', { configurable: true, enumerable: true, get: () => brandList(String(major)) })
+    proto.getHighEntropyValues = function getHighEntropyValues(hints) { return high.call(this, hints).then(fix) }
+    proto.toJSON = function toJSON() { return fix(json.call(this)) }
   }
 })

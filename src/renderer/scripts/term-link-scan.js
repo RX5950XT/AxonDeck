@@ -195,20 +195,48 @@ function appendRow(line, y, trim, map) {
   return text.slice(0, kept - base)
 }
 
+/** CLI 自己折行時右邊留的空欄上限（Claude Code／Codex 的訊息不會貼齊最右欄） */
+const WRAP_MARGIN = 8
+/** 估 CLI 折行寬度時往上下各看幾列 */
+const WIDTH_PROBE_ROWS = 3
+
 /**
- * CLI 自己印了換行（沒設 isWrapped）時，斜線結尾或剛好滿列的網址／路徑要接下一列。
+ * CLI 自己印了換行（沒設 isWrapped）時，網址／路徑要不要接下一列。
+ * 斜線結尾一定接；不然上一列要寫到 CLI 的折行寬度（`width`，附近最長的那列），
+ * 才算被硬切斷——單純剛好排到行尾的網址，下一列的字不能黏上去。
+ * 下一列的縮排（Claude Code 的接續列前面有兩格）不算進去。
  * @param {string} prev
  * @param {string} next
  * @param {number} cols
+ * @param {number} [width] 附近內容列最長的字數
  */
-function hardWrapCont(prev, next, cols) {
+function hardWrapCont(prev, next, cols, width = cols) {
   const a = prev.replace(/\s+$/, '')
   const b = next.replace(/^\s+/, '')
   if (!a || !b) return false
   if (/^[A-Za-z]:[\\/]/.test(b) || /^https?:\/\//i.test(b) || /^file:/i.test(b)) return false
-  if (!/[\\/]|https?:\/\//i.test(a)) return false
+  // 上一列要有網址／路徑，或整列只有一段沒空白的字（三列以上的網址，中間那列）
+  if (!/[\\/]|https?:\/\//i.test(a) && /\s/.test(a.trim())) return false
   if (/[\\/]$/.test(a) && CONT_HEAD.test(b)) return true
-  return Boolean(cols && a.length >= cols && /^[A-Za-z0-9._~/?#&=%+\-\\]/.test(b))
+  if (!cols || a.length < Math.max(width, cols - WRAP_MARGIN)) return false
+  return /^[A-Za-z0-9._~/?#&=%+\-\\]/.test(b)
+}
+
+/**
+ * 第 i 列附近（上下各幾列）有字的列最長幾個字，當成 CLI 的折行寬度。
+ * 只有框線、沒有英數字的列（輸入框的 `╭────╮`）不算。
+ * @param {{ getLine: (i: number) => ({ translateToString: (trim: boolean) => string } | undefined) }} buf
+ * @param {number} i
+ */
+function wrapWidth(buf, i) {
+  let width = 0
+  for (let k = i - WIDTH_PROBE_ROWS; k <= i + WIDTH_PROBE_ROWS; k += 1) {
+    const line = k >= 0 ? buf.getLine(k) : undefined
+    if (!line) continue
+    const text = line.translateToString(true)
+    if (/[A-Za-z0-9]/.test(text)) width = Math.max(width, text.length)
+  }
+  return width
 }
 
 /**
@@ -238,14 +266,14 @@ export function logicalLine(buf, lineNumber) {
     const prev = buf.getLine(start - 1)
     const cur = buf.getLine(start)
     if (!prev || !cur || prev.isWrapped) break
-    if (!hardWrapCont(rowText(prev, false), rowText(cur, true), cols)) break
+    if (!hardWrapCont(rowText(prev, false), rowText(cur, true), cols, wrapWidth(buf, start - 1))) break
     start -= 1
   }
   while (end - start < MAX_WRAP_ROWS) {
     const cur = buf.getLine(end)
     const next = buf.getLine(end + 1)
     if (!cur || !next || next.isWrapped) break
-    if (!hardWrapCont(rowText(cur, false), rowText(next, true), cols)) break
+    if (!hardWrapCont(rowText(cur, false), rowText(next, true), cols, wrapWidth(buf, end))) break
     end += 1
   }
 
@@ -253,8 +281,17 @@ export function logicalLine(buf, lineNumber) {
   /** @type {Array<{ x: number, y: number, width: number }>} */
   const map = []
   for (let i = start; i <= end; i += 1) {
+    const row = buf.getLine(i)
     const xtermCont = i < end && buf.getLine(i + 1)?.isWrapped
-    text += appendRow(buf.getLine(i), i + 1, !xtermCont, map)
+    const base = map.length
+    let chunk = appendRow(row, i + 1, !xtermCont, map)
+    // CLI 自己換行的接續列：前面的縮排不是網址的一部分，字與欄位對照一起拿掉
+    if (i > start && !row.isWrapped) {
+      const lead = chunk.length - chunk.trimStart().length
+      chunk = chunk.slice(lead)
+      map.splice(base, lead)
+    }
+    text += chunk
   }
 
   const startY = start + 1

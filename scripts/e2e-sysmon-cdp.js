@@ -17,7 +17,6 @@
 const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 
@@ -92,6 +91,8 @@ class Cdp {
 
   close() { try { this.ws.close() } catch { /* ignore */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs

@@ -13,6 +13,13 @@
  */
 
 import { electronAPI, showToast } from './app.js'
+import { pageOwner, isPageHost } from './page-windows.js'
+
+const dictationChannel = new BroadcastChannel('axondeck-dictation')
+dictationChannel.onmessage = ({ data }) => {
+  if (data?.type === 'refresh' && isPageHost) void refreshDictationRuntime()
+  if (data?.type === 'state' && !isPageHost) document.dispatchEvent(new CustomEvent('dictation-state', { detail: data.detail }))
+}
 
 /** ASR 要 16kHz mono */
 const SAMPLE_RATE = 16000
@@ -60,6 +67,7 @@ const HUD_STATE = {
  */
 function emit(state, detail = {}) {
   document.dispatchEvent(new CustomEvent('dictation-state', { detail: { state, ...detail } }))
+  dictationChannel.postMessage({ type: 'state', detail: { state, ...detail } })
   // 使用者按下右 Alt 的時候多半正在別的程式裡，看不到主視窗的 Toast；
   // 錯誤與降級提示要送到指示器上，否則等於什麼都沒說
   electronAPI.dictation?.hudState({
@@ -289,6 +297,7 @@ function cancelRecording() {
  * main 那邊的熱鍵由 `store:set` 直接觸發，不必在這裡管。
  */
 export async function refreshDictationRuntime() {
+  if (pageOwner && !isPageHost) { dictationChannel.postMessage({ type: 'refresh' }); return }
   const want = (await electronAPI.store.get('dictationEnabled', false)) === true
   if (want === enabled) {
     if (want && !graph) await ensureMic()
@@ -356,6 +365,7 @@ export async function initDictation() {
   bound = true
   // main 用 `executeJavaScript` 叫這支（要拿回傳值，不是單向事件）
   window.__viInsertText = insertAtCaret
+  if (pageOwner && !isPageHost) return
   electronAPI.dictation?.onEvent((payload) => {
     const type = payload?.type
     if (type === 'start') startRecording()

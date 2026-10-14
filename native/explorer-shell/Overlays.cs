@@ -151,6 +151,22 @@ namespace AxonDeckShell
             }
         }
 
+        public static Bgra ExtractFile(string file, int index)
+        {
+            if (string.IsNullOrEmpty(file) || !System.IO.File.Exists(file)) return null;
+            IntPtr large = IntPtr.Zero, small = IntPtr.Zero;
+            try
+            {
+                if (Native.SHDefExtractIconW(file, index, 0, out large, out small, 48u | (16u << 16)) != 0 || large == IntPtr.Zero) return null;
+                return Pixels.FromIcon(large);
+            }
+            finally
+            {
+                if (small != IntPtr.Zero) Native.DestroyIcon(small);
+                if (large != IntPtr.Zero) Native.DestroyIcon(large);
+            }
+        }
+
         /// <summary>這個路徑在檔案總管裡實際長的樣子（32×32，含疊上去的同步標記）。</summary>
         public static Bgra IconOf(string path, bool generic = false, bool overlays = true)
         {

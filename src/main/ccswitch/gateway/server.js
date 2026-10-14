@@ -14,15 +14,14 @@
  */
 
 const http = require('http')
-const { timingSafeEqual } = require('crypto')
+const { setTimeout: delay } = require('timers/promises')
+const { safeEqual, hostAllowed, presentedKey, sendJson } = require('../../local-proxy-http')
 const convert = require('./convert')
 const credential = require('./credential')
 const clientHeaders = require('./client-headers')
 
 const HOST = '127.0.0.1'
 const MAX_BODY_BYTES = 32 * 1024 * 1024
-/** 只接受指向本機的 Host */
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 /** cli-chat-proxy 只驗「有沒有帶、夠不夠新」，不比對本機真的裝了哪一版 */
 const GROK_CLI_VERSION = '1.0.13'
 /** 首個 token 的等待上限；之後改看閒置 */
@@ -98,55 +97,6 @@ function configure(options = {}) {
 }
 
 // ===== 共用小工具 =====
-
-/**
- * @param {string} a
- * @param {string} b
- * @returns {boolean}
- */
-function safeEqual(a, b) {
-  const left = Buffer.from(String(a))
-  const right = Buffer.from(String(b))
-  if (left.length !== right.length) return false
-  return timingSafeEqual(left, right)
-}
-
-/**
- * @param {import('http').IncomingMessage} req
- * @returns {boolean}
- */
-function hostAllowed(req) {
-  const host = String(req.headers.host || '')
-  const name = host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.split(':')[0]
-  return ALLOWED_HOSTS.has(name)
-}
-
-/**
- * Claude Code 送 `x-api-key`；有些客戶端送 Bearer。
- * @param {import('http').IncomingMessage} req
- * @returns {string}
- */
-function presentedKey(req) {
-  const header = String(req.headers.authorization || '')
-  if (header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
-  const apiKey = req.headers['x-api-key']
-  return typeof apiKey === 'string' ? apiKey.trim() : ''
-}
-
-/**
- * @param {import('http').ServerResponse} res
- * @param {number} status
- * @param {object} payload
- */
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store'
-  })
-  res.end(body)
-}
 
 /**
  * 錯誤要長成 Anthropic 的形狀，否則 Claude Code 解析不了。
@@ -260,7 +210,7 @@ async function readSse(response, onPayload, onActivity) {
 }
 
 /**
- * 一次上游請求。401 會強制換 token 重試一次。
+ * 上游最多兩次：401 續期；502／503／504 等半秒重試，不重播已開始的串流。
  * @param {object} route
  * @param {string} presetId
  * @param {object} upstreamBody
@@ -269,9 +219,9 @@ async function readSse(response, onPayload, onActivity) {
 async function callUpstream(route, presetId, upstreamBody, signal, headers) {
   const fetchImpl = deps.fetchImpl || globalThis.fetch
   const url = deps.baseUrl ? `${deps.baseUrl}/${presetId}` : route.url
-
+  let force = false
   for (let attempt = 0; attempt < 2; attempt++) {
-    const auth = await authFor(route, presetId, attempt > 0)
+    const auth = await authFor(route, presetId, force)
     const response = await fetchImpl(url, {
       method: 'POST',
       headers: {
@@ -284,15 +234,17 @@ async function callUpstream(route, presetId, upstreamBody, signal, headers) {
       body: JSON.stringify(upstreamBody),
       signal
     })
-    if (response.status !== 401 || attempt > 0 || route.auth === 'key') return response
-    // 上游說 token 不能用了：清掉快取那顆，下一圈強制重換
-    ;(deps.credential || credential).invalidate(route.auth === 'codex' ? 'codex' : 'grok-build')
+    force = response.status === 401 && route.auth !== 'key'
+    const transient = [502, 503, 504].includes(response.status)
+    if (attempt > 0 || (!force && !transient)) return response
+    if (force) (deps.credential || credential).invalidate(route.auth === 'codex' ? 'codex' : 'grok-build')
     // 沒有消耗掉 body 的話 undici 的連線會卡到 GC
     try {
       await response.body?.cancel()
     } catch {
       // 已經關了
     }
+    if (transient) await delay(500, undefined, { signal })
   }
   throw new Error('UNREACHABLE')
 }
@@ -426,6 +378,7 @@ async function handle(req, res) {
       await readSse(response, (payload) => {
         for (const delta of consume(payload, state)) convert.apply(collector, delta)
       }, () => arm(IDLE_MS, 'UPSTREAM_IDLE'))
+      if (!collector.finish) throw new Error('UPSTREAM_STREAM_FAILED')
       clearTimeout(timer)
       sendJson(res, 200, convert.toResponse(collector))
     } catch {
@@ -449,6 +402,7 @@ async function handle(req, res) {
         if (chunk) res.write(chunk)
       }
     }, () => arm(IDLE_MS, 'UPSTREAM_IDLE'))
+    if (!collector.finish) throw new Error('UPSTREAM_STREAM_FAILED')
     clearTimeout(timer)
     if (!res.writableEnded) {
       res.write(convert.closeStream(collector))

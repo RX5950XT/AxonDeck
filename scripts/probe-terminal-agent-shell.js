@@ -22,7 +22,7 @@ for (const shell of ['powershell', 'cmd']) {
     : ['-NoLogo', '-NoProfile', '-Command', `${command}; Write-Output ('VI_AFTER:' + $env:CODEX_HOME)`]
   const result = execFileSync(exe, args, { env, cwd: dir, windowsHide: true, encoding: 'utf8', timeout: 15000 })
   assert.equal(read('seen-home.txt'), `"${home}"`)
-  assert.equal(read('seen-args.txt'), `resume --no-daemon ${id}`)
+  assert.equal(read('seen-args.txt'), `resume --no-daemon --no-alt-screen ${id}`)
   assert.ok(result.includes('VI_AFTER:PARENT_HOME'), '接續後必須恢復原 shell 的 home')
   console.log(`PASS ${shell} 接續只暫時換可信 home，單引號／百分號／&／空白／括號不會變成指令`)
 }

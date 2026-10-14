@@ -1,17 +1,20 @@
 /**
  * AxonDeck — Local SI 的「推薦」子分頁＋「執行環境」的推論方式
  *
- * 推薦：語音辨識與翻譯用的固定模型（`models.js` 的 registry；執行環境另在「執行環境」分頁裝）。
+ * 推薦：語音、翻譯與文件辨識的固定模型（`models.js` 的 registry；執行環境另在「執行環境」分頁裝）。
  * 推論方式：不給選，main 自動偵測（NVIDIA 且 VRAM ≥ 8GB 走 GPU，其餘 CPU），這裡只顯示結果
  * 與 CUDA 環境的安裝按鈕。原本都在設定頁的「本地模型」。
  */
 
 import { electronAPI, showToast, cleanIpcError, openInFilesPage } from './app.js'
+import { hasLlamaRuntime } from './model-picker.js'
 
 /** registry 的 kind → 顯示分組（執行環境在「執行環境」分頁，這裡不列） */
 const MODEL_GROUPS = [
+  ['tts', '語音生成'],
   ['asr', '語音辨識'],
-  ['llm', '翻譯']
+  ['llm', '翻譯'],
+  ['ocr', 'PDF 文件辨識']
 ]
 
 let bound = false
@@ -70,16 +73,16 @@ function renderModelItem(model) {
   item.className = 'model-item'
   item.dataset.key = model.key
 
-  const needsRuntime = model.requires && !latestModels[model.requires]?.downloaded
-  const runtimeLabel = latestModels[model.requires]?.label || model.requires
+  const needsRuntime = model.requires && !(model.requires === 'llamaruntime'
+    ? hasLlamaRuntime(latestModels) : latestModels[model.requires]?.downloaded)
   const stateText = model.downloaded
     ? needsRuntime
-      ? `${formatBytes(model.totalBytes)} · 已下載，還缺「${runtimeLabel}」（到執行環境安裝）`
+      ? `${formatBytes(model.totalBytes)} · 已下載，還缺執行環境`
       : `${formatBytes(model.totalBytes)} · 已下載`
     : model.downloading
       ? '下載中…'
       : needsRuntime
-        ? `${formatBytes(model.totalBytes)} · 需搭配「${runtimeLabel}」`
+        ? `${formatBytes(model.totalBytes)} · 需搭配執行環境`
         : formatBytes(model.totalBytes)
 
   const name = document.createElement('p')
@@ -164,9 +167,15 @@ async function startDownload(model) {
   promise.catch(() => {}) // 先標記已處理，避免 refresh 期間出現 unhandled rejection
   await refreshRecommend() // 立刻顯示「下載中」狀態
   try {
-    if (model.requires && !latestModels[model.requires]?.downloaded) {
-      showToast('自動安裝這顆模型需要的執行環境')
-      await electronAPI.models.download(model.requires)
+    if (model.requires === 'llamaruntime' && !hasLlamaRuntime(latestModels)) {
+      showToast('自動安裝建議的執行環境')
+      const hw = await electronAPI.hfmodels.hardware()
+      if (!hw?.ok) throw new Error(hw?.error?.message || '無法偵測執行環境')
+      const list = Array.isArray(hw.data?.installable) ? hw.data.installable : []
+      const llama = list.filter((item) => item.key === 'llamaruntime' || item.key === 'llamaruntimecuda')
+      const best = llama.find((item) => item.recommended && !item.downloaded)
+        || llama.find((item) => !item.downloaded)
+      if (best) await electronAPI.models.download(best.key)
     }
     await promise
   } catch (error) {
@@ -177,7 +186,7 @@ async function startDownload(model) {
   await refreshRecommend()
 }
 
-function onModelProgress({ key, receivedBytes, totalBytes, stage }) {
+function onModelProgress({ key, receivedBytes, totalBytes, stage, cancellable }) {
   const percent = totalBytes > 0 ? Math.min(100, (receivedBytes / totalBytes) * 100) : 0
   // 解壓階段（main 送 stage）已經取消不了，文字照實講、取消鈕停用
   const text = stage || `${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)} (${percent.toFixed(0)}%)`
@@ -188,7 +197,7 @@ function onModelProgress({ key, receivedBytes, totalBytes, stage }) {
   progress.querySelector('.model-progress-fill').style.width = percent + '%'
   item.querySelector('.model-size').textContent = text
   const cancelBtn = /** @type {HTMLButtonElement|null} */ (item.querySelector('.model-actions .btn'))
-  if (cancelBtn && stage) cancelBtn.disabled = true
+  if (cancelBtn) cancelBtn.disabled = !!stage && !cancellable
 }
 
 // ===== 推論方式（自動）=====

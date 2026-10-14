@@ -91,7 +91,7 @@ async function main() {
   for (const model of UPSTREAM_MODELS) {
     let row = model.padEnd(28)
     let anyOk = false
-    for (const [label, base] of BASES) {
+    for (const [, base] of BASES) {
       const result = await generate({ base, token, project, model })
       row += `${result.status}`.padEnd(10)
       if (result.status === 200) anyOk = true

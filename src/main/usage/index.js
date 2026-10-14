@@ -199,10 +199,6 @@ async function redeemCodexReset(creditId) {
   return { outcome, state }
 }
 
-async function getDiagnostics() {
-  return (await usageStore.loadState()).diagnostics
-}
-
 function resetForTests() {
   syncInFlight = null
   resetRateLimitsForTests()
@@ -211,7 +207,6 @@ function resetForTests() {
 
 module.exports = {
   coalesceSync,
-  getDiagnostics,
   load,
   mergeAccountState,
   publicError,

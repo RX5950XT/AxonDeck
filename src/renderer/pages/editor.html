@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-TW" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; img-src 'self' data: blob: vi-media: https:; connect-src 'self'; media-src 'self' vi-media:"
+    />
+    <title>AxonDeck 編輯器</title>
+    <link rel="stylesheet" href="../styles/themes.css" />
+    <link rel="stylesheet" href="../styles/main.css" />
+    <link rel="stylesheet" href="../styles/editor.css" />
+  </head>
+  <body class="ed-body">
+    <header class="ed-bar">
+      <div class="ed-file">
+        <span class="ed-name" id="edName"></span>
+        <span class="ed-dirty" id="edDirty" hidden title="尚未儲存"></span>
+        <span class="ed-path" id="edPath"></span>
+      </div>
+      <div class="ed-actions">
+        <div class="ed-modes" id="edModes" role="group" aria-label="顯示方式" hidden>
+          <button type="button" data-mode="edit" title="只顯示原始碼">編輯</button>
+          <button type="button" data-mode="split" title="左邊編輯、右邊預覽">分割</button>
+          <button type="button" data-mode="preview" title="只顯示預覽（Ctrl+Shift+V 切換）">預覽</button>
+        </div>
+        <button type="button" class="ed-tool" id="edWrap" aria-pressed="false" title="自動換行（Alt+Z）">換行</button>
+        <button type="button" class="btn btn-secondary btn-sm ed-save" id="edSave" disabled title="儲存（Ctrl+S）">儲存</button>
+      </div>
+    </header>
+    <div class="ed-notice" id="edNotice" hidden>
+      <span id="edNoticeText"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="edNoticeAction" hidden></button>
+    </div>
+    <main class="ed-main" id="edMain" data-mode="edit">
+      <div class="ed-source" id="edSource"></div>
+      <article class="ed-preview" id="edPreview" aria-label="Markdown 預覽"></article>
+      <div class="ed-fatal" id="edFatal" hidden></div>
+    </main>
+    <footer class="ed-status">
+      <span id="edCursor"></span>
+      <span class="ed-status-msg" id="edMsg" role="status"></span>
+      <span id="edLang"></span>
+      <span id="edEncoding"></span>
+      <span id="edEol"></span>
+    </footer>
+    <script type="module" src="../scripts/editor-window.js"></script>
+  </body>
+</html>

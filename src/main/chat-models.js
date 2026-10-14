@@ -88,8 +88,9 @@ async function readBounded(response) {
  * @param {{ apiUrl?: string, url?: string, apiKey?: string, headers?: Record<string, string>, fetchImpl?: typeof fetch, allowEmpty?: boolean }} options
  * @returns {Promise<{ ok: true, models: string[] } | { ok: false, code: string, error: string }>}
  */
-async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty = false, pickRows = null }) {
-  const target = String(url || modelsUrl(apiUrl)).trim()
+async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty = false, pickRows = null, includeTypes = false }) {
+  let target = String(url || modelsUrl(apiUrl)).trim()
+  if (includeTypes && /^https:\/\/openrouter\.ai\//i.test(target)) target += '?output_modalities=all'
   if (!/^https?:\/\//i.test(target)) {
     return { ok: false, code: 'BAD_URL', error: '這個供應商的 API URL 不正確' }
   }
@@ -132,6 +133,15 @@ async function fetchModels({ apiUrl, url, apiKey, headers, fetchImpl, allowEmpty
     const models = extractIds(pickRows && Array.isArray(rows) ? pickRows(rows) : payload)
     if (allowEmpty && Array.isArray(rows) && rows.length === 0) return { ok: true, models: [] }
     if (!models.length) return { ok: false, code: 'EMPTY', error: '這個端點沒有回傳任何模型' }
+    if (includeTypes) {
+      const { classifyModel } = require('../shared/cloud-model-types.mjs')
+      const types = Object.fromEntries(models.map((id) => [id, classifyModel(id)]))
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const id = extractIds([row])[0]
+        if (Object.hasOwn(types, id)) types[id] = classifyModel(row)
+      }
+      return { ok: true, models, types }
+    }
     return { ok: true, models }
   } catch (error) {
     if (error instanceof ScanError) return { ok: false, code: error.code, error: error.message }

@@ -38,7 +38,6 @@ const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
 const fs = require('fs')
 
 const PORT = 9274
@@ -112,6 +111,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch { /* 已斷線 */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()
@@ -273,6 +274,8 @@ async function main() {
     await cdp.connect()
     await cdp.send('Runtime.enable')
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false })
+    // 視窗是 --hidden 開的：不模擬焦點的話，就地輸入框的焦點與 Monaco 的 hover 時有時無
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
     await sleep(1500)
     // 感測器 sidecar 會跳 UAC，測試一律先關掉
     await cdp.eval(`window.electronAPI.store.set('sysmonSensors', false)`)
@@ -591,9 +594,9 @@ async function main() {
       return ${guestSrc()}
     })()`)
     // 只斷言「開頭不是 file:」不夠：補成 http://file/// 也通得過，但那是去查一個叫 file 的主機。
-    // webview 版被拒時**不動**（留在上一個網址），fresh tab 就是初始的 about:blank
+    // webview 版被拒時**不動**（留在上一個網址），fresh tab 就是初始的 Infinity 新分頁
     ok('[F] file: 整個被拒（不是硬轉成 http）',
-      fileUrl === 'about:blank' || fileUrl === '' || String(fileUrl).startsWith('http://localhost:5173'),
+      fileUrl === 'about:blank' || fileUrl === '' || String(fileUrl).startsWith('chrome-extension://') || String(fileUrl).startsWith('http://localhost:5173'),
       JSON.stringify(fileUrl))
     const httpUrl = await cdp.eval(`(async () => {
       const input = document.getElementById('wsBrowserUrl')
@@ -939,7 +942,6 @@ async function main() {
     })
     for (let step = 1; step <= 6; step += 1) {
       const x = dragXY.x0 + ((dragXY.x1 - dragXY.x0) * step) / 6
-      // eslint-disable-next-line no-await-in-loop
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y: dragXY.y, button: 'left', buttons: 1 })
     }
     await cdp.send('Input.dispatchMouseEvent', {
@@ -1437,16 +1439,22 @@ async function main() {
       await waitInPage(cdp, `document.querySelector('#projList [data-id="${PROJECT_ID}"] .chat-list-open')`, 5000)
       await cdp.eval(`document.querySelector('#projList [data-id="${PROJECT_ID}"] .chat-list-open')?.click()`)
       await waitInPage(cdp, `document.querySelector('#wsTree .ws-tree-row[data-rel="README.md"]')`, 10000)
-      await cdp.eval(`(() => {
-        const row = document.querySelector('#wsTree .ws-tree-row[data-rel="src"]')
-        if (row && row.getAttribute('aria-expanded') !== 'true') row.click()
-      })()`)
-      await waitInPage(cdp, `document.querySelector('${newRow} .ws-tree-status')`, 8000)
-      await cdp.eval(`document.querySelector('${newRow} .ws-tree-status')?.click()`)
-      ok('[V] 檔案頁的狀態標記可以開未提交 Diff',
-        await waitInPage(cdp,
-          `document.getElementById('wsDiffTitle')?.textContent.includes('[工作區]')`
-          + ` && /\\+[1-9][0-9]*/.test(document.getElementById('wsDiffStats')?.textContent || '')`, 15000))
+      // 重開專案後檔案樹會自己把之前展開的資料夾非同步展回來：這時候去點 src 會跟它互相抵消又收起來。
+      // 同一個輪詢裡：src 沒展開就展開（隔 1.5 秒以上才再點），展開了再點狀態標記；監看重畫把列換掉也會再點
+      const vOpened = await waitInPage(cdp, `(() => {
+          const title = document.getElementById('wsDiffTitle')?.textContent || ''
+          if (title.includes('[工作區]') && title.includes('new-untracked')) {
+            return /\\+[1-9][0-9]*/.test(document.getElementById('wsDiffStats')?.textContent || '')
+          }
+          const src = document.querySelector('#wsTree .ws-tree-row[data-rel="src"]')
+          if (src && src.getAttribute('aria-expanded') !== 'true') {
+            if (Date.now() - (window.__vSrcClick || 0) > 1500) { window.__vSrcClick = Date.now(); src.click() }
+            return false
+          }
+          document.querySelector('${newRow} .ws-tree-status')?.click()
+          return false
+        })()`, 20000)
+      ok('[V] 檔案頁的狀態標記可以開未提交 Diff', vOpened)
       await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="files"]').click()`)
       await waitInPage(cdp, `document.querySelector('#wsTree .ws-tree-row[data-rel="README.md"]')`, 8000)
     }

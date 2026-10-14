@@ -70,14 +70,52 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.ex-ops-policy {
-  max-width: 170px;
-  padding: 4px 6px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--surface-solid);
-  color: var(--text-secondary);
-  font: inherit;
+.ex-ops-panel-head .custom-select-trigger {
+  min-width: 150px;
+  min-height: 28px;
+  padding: 0 30px 0 10px;
+  font-size: 12px;
+}
+
+.ex-ops-panel-head .custom-select-trigger::after { right: 11px; }
+
+/* 狀態列鈕上的小進度條 */
+.ex-ops-bar {
+  position: relative;
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+}
+
+.ex-ops-bar[hidden] { display: none; }
+
+.ex-ops-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent-primary);
+  transition: width 200ms var(--ease-out);
+}
+
+.ex-ops-bar.is-indeterminate > span {
+  width: 35%;
+  animation: ex-ops-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes ex-ops-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(290%); }
+}
+
+.ex-ops-chip-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.ex-ops-empty {
+  margin: 0;
+  padding: 18px 8px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 .ex-ops-cards {
@@ -105,7 +143,22 @@
   width: 100%;
   height: 5px;
   margin: 8px 0 5px;
-  accent-color: var(--accent-primary);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  appearance: none;
+}
+
+.ex-ops-meter::-webkit-progress-bar {
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+}
+
+.ex-ops-meter::-webkit-progress-value {
+  border-radius: var(--radius-pill);
+  background: var(--accent-primary);
+  transition: width 200ms var(--ease-out);
 }
 
 .ex-ops-summary {
@@ -153,5 +206,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ex-ops-toggle,
-  .ex-ops-panel { transition: none; }
+  .ex-ops-panel,
+  .ex-ops-bar > span,
+  .ex-ops-meter::-webkit-progress-value { transition: none; }
+  .ex-ops-bar.is-indeterminate > span { animation: none; width: 100%; opacity: .5; }
 }

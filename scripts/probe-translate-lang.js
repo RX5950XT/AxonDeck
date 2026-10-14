@@ -4,9 +4,7 @@
  *   node scripts/probe-translate-lang.js
  */
 const { spawn, execFileSync } = require('child_process')
-const fs = require('fs')
 const http = require('http')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 

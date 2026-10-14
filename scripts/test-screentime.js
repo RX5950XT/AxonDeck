@@ -6,7 +6,6 @@
 
 const assert = require('assert')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
 const http = require('http')

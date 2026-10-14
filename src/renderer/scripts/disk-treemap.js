@@ -30,19 +30,6 @@ const EXT = {
   tmp: 'cache', temp: 'cache', cache: 'cache'
 }
 
-export const CATEGORIES = [
-  { key: 'code', label: '程式碼' },
-  { key: 'doc', label: '文件' },
-  { key: 'image', label: '圖片' },
-  { key: 'video', label: '影片' },
-  { key: 'audio', label: '音樂' },
-  { key: 'archive', label: '壓縮檔' },
-  { key: 'bin', label: '執行檔' },
-  { key: 'cache', label: '快取' },
-  { key: 'dir', label: '資料夾' },
-  { key: 'other', label: '其他' }
-]
-
 function num(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0

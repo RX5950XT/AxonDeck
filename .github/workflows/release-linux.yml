@@ -1,11 +1,18 @@
-# Linux AppImage 發行：在 ubuntu 上打 AppImage，把 .AppImage 與 latest-linux.yml 附加到「同名 tag」的 GitHub Release。
+# Linux 發行：x64 與 arm64 各在原生 runner 上打 AppImage／deb／rpm，附加到「同名 tag」的 GitHub Release。
 #
 # 觸發：
 #   - release published：照 AGENTS.md 發行流程 `gh release create vX.Y.Z` 之後自動跑（Windows 資產照舊在本機上傳）。
 #   - workflow_dispatch：手動補發／重跑，輸入既有 tag（例如 v1.43.0）。
 # 不用 tag push 觸發：發行流程是先 push tag、打完 NSIS 才 `gh release create`，tag push 時 Release 還不存在。
 #
-# 只上傳 Linux 兩個檔（--clobber 只覆蓋同名檔），不動 .exe／.blockmap／latest.yml；Release 不存在就失敗、不自己建。
+# 架構：不交叉編譯。x64 在 ubuntu-22.04（glibc 2.35）；arm64 在 ubuntu-24.04-arm（GitHub 的 arm64 runner，
+# glibc 2.39，所以 arm64 套件要 Ubuntu 24.04／Debian 13／Fedora 40 這一代以上）。原生模組（node-pty、
+# uiohook-napi、sherpa-onnx、reflink）在各自的 runner 上安裝／重編，打完由 check-linux-artifacts.js 逐一驗 ELF 架構。
+#
+# 簽章（選用）：repo secrets 有 LINUX_SIGNING_KEY（ASCII-armored 私鑰）才簽，LINUX_SIGNING_PASSPHRASE 可空；
+# 沒有就略過、照常上傳。設定方式見 README「Linux 套件簽章」。
+#
+# 只上傳 Linux 檔（--clobber 只覆蓋同名檔），不動 .exe／.blockmap／latest.yml；Release 不存在就失敗、不自己建。
 name: release-linux
 
 on:
@@ -26,12 +33,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  appimage:
-    # 22.04：glibc 2.35，AppImage 在較舊發行版也跑得起來
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+  package:
+    name: linux-${{ matrix.arch }}
+    strategy:
+      # 一個架構失敗不要取消另一個（各自上傳各自的檔，互不覆蓋）
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      ARCH: ${{ matrix.arch }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -52,6 +69,15 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           [ "v$VERSION" = "$TAG" ] || { echo "::error::package.json 是 $VERSION，tag 是 $TAG"; exit 1; }
 
+      - name: 安裝打包工具與原生模組編譯相依
+        # rpm：打 rpm／rpmsign；fakeroot：deb；X11 開發檔：uiohook-napi 要在本機架構重編
+        #（它附的 linux-arm64 prebuild 其實是 x86-64）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            rpm fakeroot build-essential python3 \
+            libx11-dev libxtst-dev libxt-dev libxrandr-dev libxkbfile-dev libxkbcommon-x11-dev libxinerama-dev
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -60,31 +86,38 @@ jobs:
       - name: 安裝相依
         run: npm ci
 
-      - name: 打 AppImage（不發佈，上傳交給下一步）
+      - name: runner 架構要等於 matrix（不交叉編譯）
+        run: |
+          GOT="$(node -p process.arch)"
+          [ "$GOT" = "$ARCH" ] || { echo "::error::runner 是 $GOT，matrix 要 $ARCH"; exit 1; }
+
+      - name: 打 AppImage／deb／rpm（不發佈，上傳交給後面）
         run: npm run electron:build:linux
 
-      - name: 確認產物
-        run: |
-          VERSION="${TAG#v}"
-          test -f "dist/AxonDeck-${VERSION}-linux-x86_64.AppImage"
-          grep -q "^version: ${VERSION}$" dist/latest-linux.yml
-          ls -la dist/*.AppImage dist/latest-linux.yml
+      - name: 簽章（有 LINUX_SIGNING_KEY 才做）
+        env:
+          LINUX_SIGNING_KEY: ${{ secrets.LINUX_SIGNING_KEY }}
+          LINUX_SIGNING_PASSPHRASE: ${{ secrets.LINUX_SIGNING_PASSPHRASE }}
+        run: node scripts/sign-linux-artifacts.js --arch "$ARCH" --version "${TAG#v}"
 
-      - name: 附加到 Release（只動 Linux 資產）
+      - name: 檢查產物（檔名、更新清單雜湊、套件架構、原生模組 ELF 架構）
+        run: node scripts/check-linux-artifacts.js --arch "$ARCH" --version "${TAG#v}"
+
+      - name: 附加到 Release（只動這個架構的 Linux 資產）
         run: |
-          VERSION="${TAG#v}"
-          gh release upload "$TAG" \
-            "dist/AxonDeck-${VERSION}-linux-x86_64.AppImage" \
-            dist/latest-linux.yml \
-            --clobber
+          mapfile -t FILES < <(node scripts/check-linux-artifacts.js --arch "$ARCH" --version "${TAG#v}" --list)
+          ls -la "${FILES[@]}"
+          gh release upload "$TAG" "${FILES[@]}" --clobber
 
       - name: 失敗時保留產物
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: axondeck-linux-${{ env.TAG }}
+          name: axondeck-linux-${{ matrix.arch }}-${{ env.TAG }}
           path: |
             dist/*.AppImage
-            dist/latest-linux.yml
+            dist/*.deb
+            dist/*.rpm
+            dist/latest-linux*.yml
           if-no-files-found: ignore
           retention-days: 7

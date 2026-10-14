@@ -27,7 +27,7 @@ assert.strictEqual(called[1], pkg.build.appId, '[A] AppUserModelID 與 package.j
 
 // [B] 要在搶 single instance lock 之前設定（之後才設，第一扇窗已經帶著錯的身分開出去了）
 assert.ok(
-  main.indexOf(called[0]) < main.indexOf('app.requestSingleInstanceLock()'),
+  main.indexOf(called[0]) < main.indexOf('app.requestSingleInstanceLock('),
   '[B] setAppUserModelId 必須排在 requestSingleInstanceLock 之前'
 )
 

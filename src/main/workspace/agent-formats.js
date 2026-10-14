@@ -156,11 +156,32 @@ async function* jsonRecords(file, offset = 0) {
   } finally { await handle.close() }
 }
 
-async function* records(found, agent, offset) {
+/** 導覽用純對話；舊的完整記錄檢視仍保留思考與工具。 */
+function conversationTurns(agent, obj) {
+  const message = agent === 'codex' ? (obj.type === 'response_item' ? obj.payload : null)
+    : agent === 'claude' ? obj.message : obj
+  const role = agent === 'codex' ? message?.role : obj.type
+  if (!['user', 'assistant'].includes(role) || !message) return []
+  if (obj.isMeta || obj.isCompactSummary || obj.isSidechain) return []
+  if (agent === 'claude' && role === 'assistant' && message.stop_reason && message.stop_reason !== 'end_turn') return []
+  if (role === 'assistant' && message.channel && message.channel !== 'final') return []
+  if (role === 'assistant' && message.phase && message.phase !== 'final_answer') return []
+  const content = message.content
+  if (Array.isArray(content) && content.some(p => ['tool_use', 'tool_result'].includes(p?.type))) return []
+  if (message.tool_calls?.length || obj.tool_calls?.length) return []
+  const clean = typeof content === 'string' ? content : Array.isArray(content)
+    ? content.filter(p => ['text', 'input_text', 'output_text'].includes(p?.type)) : []
+  const safe = agent === 'codex' ? { ...obj, payload: { ...message, content: clean } }
+    : agent === 'claude' ? { ...obj, message: { ...message, content: clean } } : { ...obj, content: clean }
+  return logTurns(agent, safe).filter(turn => turn.text && !turn.tools?.length && !turn.thought
+    && (turn.role !== 'user' || !/^(?:# AGENTS\.md instructions|<environment_context>|<local-command|<command-name>|Caveat: The messages below|<system-reminder>)/i.test(turn.text.trim())))
+}
+
+async function* records(found, agent, offset, conversationOnly = false) {
   if (agent !== 'agy' && agent !== 'opencode') {
     for await (const record of jsonRecords(found.file, offset)) {
       let value; try { value = JSON.parse(record.value) } catch { continue }
-      yield { ...record, turns: logTurns(agent, value) }
+      yield { ...record, turns: conversationOnly ? conversationTurns(agent, value) : logTurns(agent, value) }
     }
     return
   }
@@ -170,10 +191,13 @@ async function* records(found, agent, offset) {
     const sql = agent === 'agy' ? 'SELECT idx,step_type,step_payload FROM steps WHERE idx >= ? ORDER BY idx' : 'SELECT rowid,id,data FROM message WHERE session_id = ? AND rowid >= ? ORDER BY rowid'
     for (const row of db.prepare(sql).iterate(...(agent === 'agy' ? [offset] : [found.id, offset]))) {
       let turns = []
-      if (agent === 'agy') turns = agyTurns(row)
+      if (agent === 'agy') turns = agyTurns(row).filter(t => !conversationOnly || (!t.thought && !t.tools?.length))
       else {
         const message = JSON.parse(row.data), parts = db.prepare('SELECT data FROM part WHERE message_id = ? ORDER BY time_created,id').all(row.id).map(p => JSON.parse(p.data))
-        const text = textParts(parts), tools = parts.filter(p => p.type === 'tool').map(p => ({ name: p.tool || 'tool', detail: JSON.stringify(p.state || {}) }))
+        const text = textParts(conversationOnly ? parts.filter(p => p.type === 'text' && !p.synthetic && !p.ignored) : parts)
+        const tools = conversationOnly ? [] : parts.filter(p => p.type === 'tool').map(p => ({ name: p.tool || 'tool', detail: JSON.stringify(p.state || {}) }))
+        const pending = message.role === 'assistant' && !message.time?.completed
+        if (conversationOnly && message.role !== 'user' && !pending && (message.role !== 'assistant' || ['tool-calls', 'unknown'].includes(message.finish))) continue
         if (text || tools.length) turns.push({ role: message.role === 'user' ? 'user' : 'assistant', text, tools })
       }
       const n = agent === 'agy' ? row.idx : row.rowid
@@ -182,4 +206,21 @@ async function* records(found, agent, offset) {
   } finally { db.close() }
 }
 
-module.exports = { extraSessions, records, protoFields, logTurns, dataPaths }
+const AGY_DB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 終端機目錄和 AGY 工作區可以不同。只接受這個家目錄裡、路徑沒有跳出去的對話庫。 */
+function agyOwnedFile(sessionId) {
+  if (!AGY_DB_ID.test(String(sessionId || ''))) return null
+  const home = dataPaths().agy
+  const dir = path.join(home, 'conversations')
+  let real, parent, stat
+  try {
+    real = fs.realpathSync.native(path.join(dir, `${sessionId}.db`))
+    parent = fs.realpathSync.native(dir)
+    stat = fs.statSync(real)
+  } catch { return null }
+  if (!stat.isFile() || path.dirname(real).toLowerCase() !== parent.toLowerCase()) return null
+  return { file: real, home, id: sessionId, mtime: stat.mtimeMs }
+}
+
+module.exports = { extraSessions, records, protoFields, logTurns, conversationTurns, dataPaths, agyOwnedFile }

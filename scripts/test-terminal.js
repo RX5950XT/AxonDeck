@@ -291,6 +291,7 @@ console.log('\n[pty 參數]')
     ok('Linux 認不得的 key 退回預設 shell', Boolean(pty.shellCommand('../../evil').exe))
   }
 
+  ok('Claude 使用原生捲動且不需要自訂 home', pty.shellEnvironment('', '', 't_claude', 'claude').CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN === '1')
   const withId = pty.shellEnvironment('', '', 't_abc')
   ok('shell 帶 AXONDECK_TERMINAL_ID', withId.AXONDECK_TERMINAL_ID === 't_abc')
   const badId = pty.shellEnvironment('', '', '../x')

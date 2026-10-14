@@ -9,8 +9,8 @@ const clipboardImage = require('./clipboard-image')
 const background = require('./background')
 const claudeHooks = require('./claude-hooks')
 const agents = require('../workspace/agents')
-const agentResume = require('./agent-resume').createTracker(store, agents)
 const { HostClient } = require('./host-client')
+const { createActivity, shellCommandOpen } = require('./agent-activity')
 
 /** Linux／macOS：不走 Windows named-pipe 宿主，直接 in-process node-pty */
 const IN_PROCESS = process.platform !== 'win32'
@@ -20,6 +20,45 @@ const CLIPBOARD_MAX_CHARS = 8 * 1024 * 1024
 
 let client
 let emit = () => {}
+const activity = createActivity((event, payload) => emit(event, payload))
+const agentResume = require('./agent-resume').createTracker(store, agents, Date.now, () => (IN_PROCESS ? terminal.sessionStates() : getClient().request('list')),
+  (states, terminals) => require('./agent-processes').identifySessions(states, terminals, agents.claudeHomes()),
+  (id, sessionId) => { void publishSession(id, sessionId) },
+  async (terminals, live) => {
+    if (!Array.isArray(live)) return
+    const known = new Map(live.filter(item => item && item.id).map(item => [item.id, item]))
+    if (!known.size) return
+    const fresh = await store.list()
+    const byId = new Map(fresh.map(item => [item.id, item]))
+    for (const meta of terminals) {
+      const state = known.get(meta.id)
+      if (!state) continue
+      const current = byId.get(meta.id) || meta
+      if (shellCommandOpen(state)) void activity.follow(current)
+      else activity.drop(meta.id)
+    }
+  })
+
+/** 改綁時先讀對話標題再通知，分頁才不會先閃工作階段名稱。 */
+async function publishSession(id, sessionId) {
+  let title = ''
+  let bound = null
+  try {
+    const meta = await store.get(id)
+    bound = meta ? { ...meta, agentSessionId: sessionId } : null
+    if (bound) title = await activity.titleOf(bound)
+  } catch {
+    title = ''
+    bound = null
+  }
+  emit('terminal:session', { id, sessionId, title })
+  if (bound) void activity.follow(bound)
+}
+
+/** 指令真的結束才放開 Grok 狀態。安靜逾時的 idle 仍可能是同一支 CLI。 */
+function releaseFinished(payload) {
+  if (payload?.id && !shellCommandOpen(payload)) activity.drop(payload.id)
+}
 
 function getClient() {
   if (!client) client = new HostClient(require('electron').app.getPath('userData'), forward)
@@ -43,6 +82,7 @@ function forward(event, payload) {
   // shell 提示字元回來（exitCode 從 null 變數字）或 pty 結束：Claude 已經不在了，含當掉沒送 SessionEnd。
   claudeHooks.noteStatus(payload)
   emit(event, { ...rest, osTitle: title || '', liveCwd: cwd || '' })
+  releaseFinished(payload)
 }
 
 /**
@@ -64,10 +104,14 @@ async function listSessions() {
     ? terminal.sessionStates()
     : (await getClient().request('list') || [])
   const byId = new Map(states.map(item => [item.id, item]))
+  const follows = []
   for (const item of items) {
     if (byId.has(item.id)) await agentResume.begin(item, true)
+    if (shellCommandOpen(byId.get(item.id))) follows.push(activity.follow(item))
+    else activity.drop(item.id)
   }
-  return items.map(item => {
+  await Promise.all(follows)
+  return Promise.all(items.map(async item => {
     const state = byId.get(item.id)
     if (state?.cwd) links.noteCwd(item.id, state.cwd)
     return {
@@ -76,9 +120,10 @@ async function listSessions() {
       exitCode: state?.exitCode ?? null,
       osTitle: state?.title || '',
       liveCwd: state?.cwd || '',
-      agent: claudeHooks.agentOf(item.id)
+      agent: claudeHooks.agentOf(item.id) || activity.stateOf(item.id),
+      agentTitle: await activity.titleOf(item)
     }
-  })
+  }))
 }
 
 async function openSession(id, cols, rows) {
@@ -100,6 +145,7 @@ async function openSession(id, cols, rows) {
     ? terminal.sessionStates()
     : (await getClient().request('list') || [])
   await agentResume.begin(safe, states.some(item => item.id === safe.id))
+  void activity.follow(safe)
   const snapshot = IN_PROCESS
     ? terminal.openSessionWithMeta({ ...safe }, cols, rows, editor, editorDir)
     : await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
@@ -145,18 +191,20 @@ async function restartHost() {
 }
 
 async function deleteSession(id) {
-  agentResume.forget(String(id || ''))
-  if (IN_PROCESS) terminal.forgetSession(String(id || ''))
-  else await getClient().request('forget', { sessionId: String(id || '') })
-  links.noteCwd(String(id || ''), '')
-  return store.remove(String(id || ''))
+  const key = String(id || '')
+  agentResume.forget(key)
+  activity.drop(key)
+  if (IN_PROCESS) terminal.forgetSession(key)
+  else await getClient().request('forget', { sessionId: key })
+  links.noteCwd(key, '')
+  return store.remove(key)
 }
 
 async function writeSession(id, data) {
   if (typeof data !== 'string' || !data) return false
   const key = String(id || '')
   // AI 記錄「送到現有終端機」用固定 resume 指令；驗記錄所屬目錄後一起保存 metadata。
-  const match = data.match(/^(claude --resume|codex resume(?: --no-daemon)?|grok --resume|agy --conversation|opencode --session) ([A-Za-z0-9_-]{6,64})\r?\n?$/)
+  const match = data.match(/^(claude --resume|codex resume(?: --no-daemon)?(?: --no-alt-screen)?|grok(?: --(?:fullscreen|minimal) --no-alt-screen)? --resume|agy --conversation|opencode(?: --mini)? --session) ([A-Za-z0-9_-]{6,64})\r?\n?$/)
   if (match) {
     const meta = await store.get(key)
     const agent = match[1].split(' ')[0]
@@ -191,6 +239,25 @@ async function createSession(req = {}) {
   return terminal.createSession(req)
 }
 
+/** 只收終端機 ID；對話與目錄由 main 的已驗證 metadata 取，不能讀別顆的記錄。 */
+async function conversation(id, cursor) {
+  const meta = typeof id === 'string' ? await store.get(id) : null
+  if (!meta) throw Object.assign(new Error('NO_SESSION'), { code: 'NO_SESSION', userMessage: '找不到這個工作階段' })
+  await agentResume.capture()
+  const current = await store.get(id)
+  const sessionId = current?.agentSessionId || current?.claudeSessionId
+  const agent = current?.claudeSessionId && !current.agentSessionId ? 'claude' : current?.preset
+  if (!sessionId || !agents.AGENTS[agent]) return { sessionId: '', turns: [], nextCursor: null }
+  const page = await agents.sessionConversation(current.cwd, agent, sessionId, cursor)
+  return { sessionId, agent, agentLabel: page.agentLabel, turns: page.turns, nextCursor: page.nextCursor }
+}
+
+/** OpenCode 全螢幕的文字不在 xterm 儲存格裡。外掛讀這個檔，把內部捲軸移到該則。 */
+async function navJump(id, req) {
+  const dir = require('node:path').join(require('electron').app.getPath('userData'), 'terminal-nav')
+  return require('./nav-jump').requestJump(dir, String(id || ''), req)
+}
+
 module.exports = {
   setEmitter(fn) {
     emit = typeof fn === 'function' ? fn : () => {}
@@ -214,6 +281,8 @@ module.exports = {
       : 0
   }),
   createSession,
+  conversation,
+  navJump,
   renameSession: terminal.renameSession,
   listSessions,
   hostState,
@@ -251,6 +320,7 @@ module.exports = {
   async disconnect() {
     try { await agentResume.capture() } catch { console.error('[terminal] AI_SESSION_SCAN_FAILED') }
     agentResume.stop()
+    activity.stop()
     foreground.stop()
     editorBridge.stop()
     client?.disconnect()

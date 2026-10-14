@@ -75,9 +75,9 @@ export function handleCopyKey(term, event) {
  * @param {() => void} paste 沒選取時右鍵要做的事
  * @returns {() => void} 收掉監聽
  */
-export function bindTermCopy(term, pane, paste) {
+export function bindTermCopy(term, pane, paste, nativeMouse = () => false) {
   let pressed = false
-  const onDown = (event) => { if (event.button === 0) pressed = true }
+  const onDown = (event) => { if (event.button === 0) pressed = !nativeMouse() || event.shiftKey }
   // 掛在 window：拖曳常常放開在這一格外面，掛在 pane 上就收不到 mouseup
   const onUp = (event) => {
     if (event.button !== 0 || !pressed) return
@@ -86,6 +86,7 @@ export function bindTermCopy(term, pane, paste) {
   }
   const onMenu = (event) => {
     event.preventDefault()
+    if (nativeMouse() && !event.shiftKey) return
     if (copySelection(term)) term.clearSelection()
     else paste()
   }

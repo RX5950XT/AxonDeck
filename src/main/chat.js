@@ -40,10 +40,10 @@ const IMAGE_CONTEXT_MESSAGES = 6
 const REASONING_EFFORT = 'medium'
 
 /** 系統提示 preset 上限 */
-const MAX_PROVIDERS = 10
+const MAX_PROVIDERS = 30
 const MAX_PROVIDER_NAME = 40
 const MAX_PROVIDER_URL = 500
-const MAX_PROVIDER_MODELS = 30
+const MAX_PROVIDER_MODELS = 120
 const MAX_PROMPTS = 20
 const MAX_PROMPT_NAME = 40
 const MAX_PROMPT_CONTENT = 4000
@@ -145,6 +145,12 @@ function allProviders() {
   return local ? list.concat(local) : list
 }
 
+/** 翻譯與文字整理只列出文字模型，生圖留在聊天頁。 */
+function textProviders(list = allProviders()) {
+  return list.map((p) => ({ ...p, models: p.models.filter((id) => !p.imageModels?.includes(id)) }))
+    .filter((p) => p.models.length)
+}
+
 /**
  * 取目前選中的供應商。`chatProviderId` 失效時退回第一筆，一筆都沒有就是 null。
  * @returns {Provider | null}
@@ -171,7 +177,8 @@ function pickProvider(wantedId) {
  * @returns {{ apiUrl: string, apiKey: string, modelId: string, providerName: string }}
  */
 function readTranslateConfig() {
-  const provider = pickProvider(store?.get('translateProviderId', ''))
+  const list = textProviders()
+  const provider = list.find((p) => p.id === store?.get('translateProviderId', '')) || list[0]
   const wanted = String(store?.get('translateModelId', '') || '').trim()
   return {
     apiUrl: provider?.apiUrl || '',
@@ -774,6 +781,7 @@ module.exports = {
   sanitizePrompts,
   sanitizeProviders,
   allProviders,
+  textProviders,
   localProvider,
   LOCAL_PROVIDER_ID,
   providerFromLegacy,

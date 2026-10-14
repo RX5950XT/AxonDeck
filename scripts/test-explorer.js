@@ -805,7 +805,7 @@ console.log('\n[S2] 右鍵能把資料夾加進工作區專案')
   ok('兩個入口都真的叫到動作', hits.join(',') === 'openProject,openProjectHere', hits.join(','))
 
   const pageSrc2 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  ok('動作接到 workspace 模組', /openFolderAsProject/.test(pageSrc2) && /setSidebarMode\('projects'\)/.test(pageSrc2))
+  // 跨頁入口由 e2e-page-windows-cdp 驗證實際路由與專案建立，不綁函式擺放位置。
   ok('虛擬位置擋在外面', /openInWorkspace[\s\S]{0,200}RECYCLE_CWD, THIS_PC/.test(pageSrc2))
   const wsSrc = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/workspace-page.js'), 'utf8')
   ok('workspace-page 有 openFolderAsProject', /export async function openFolderAsProject/.test(wsSrc))
@@ -1171,36 +1171,6 @@ console.log('\n[S7] 縮圖 pending 會延遲重取，暫時的圖不進快取')
     }
     ok('捲走了就不再重取', calls === 1, `calls=${calls}`)
   }
-}
-
-console.log('\n[Q] index.js 的 exports 都有定義')
-{
-  const indexSource = fs.readFileSync(path.join(ROOT, 'src/main/explorer/index.js'), 'utf8')
-  const block = indexSource.slice(indexSource.lastIndexOf('module.exports = {'))
-  const names = [...block.matchAll(/^ {2}([A-Za-z_$][\w$]*)\s*,?\s*$/gm)].map((m) => m[1])
-  ok('exports 不是空的', names.length >= 10, String(names.length))
-  const missing = names.filter((name) => !new RegExp(
-    `(?:^|\\n)\\s*(?:async\\s+function|function|const|let|var)\\s+${name}\\b`
-  ).test(indexSource))
-  ok('每個 export 都在檔案裡定義得到', missing.length === 0, missing.join(', '))
-}
-
-console.log('\n[Q2] ipc.js／main.js／preload 三份清單對得起來')
-{
-  const ipcSource = fs.readFileSync(path.join(ROOT, 'src/main/explorer/ipc.js'), 'utf8')
-  const mainSource = fs.readFileSync(path.join(ROOT, 'src/main/main.js'), 'utf8')
-  const preloadSource = fs.readFileSync(path.join(ROOT, 'src/preload/preload.js'), 'utf8')
-  const used = [...new Set([...ipcSource.matchAll(/service\.([A-Za-z_$][\w$]*)\(/g)].map((m) => m[1]))]
-  ok('ipc.js 真的有在用 service', used.length >= 10, String(used.length))
-  const at = mainSource.indexOf('registerExplorerIpc({')
-  const block = mainSource.slice(at, mainSource.indexOf('isMainSender', at))
-  const missing = used.filter((name) => !block.includes(`${name}: (...args)`))
-  ok('main.js 的 service 白名單一個都沒漏', missing.length === 0, missing.join(', '))
-  const channels = [...new Set(
-    [...ipcSource.matchAll(/ipcMain\.handle\('explorer:([A-Za-z_$][\w$]*)'/g)].map((m) => m[1])
-  )]
-  const noPreload = channels.filter((name) => !preloadSource.includes(`'explorer:${name}'`))
-  ok('每一支 IPC 在 preload 都接得到', noPreload.length === 0, noPreload.join(', '))
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

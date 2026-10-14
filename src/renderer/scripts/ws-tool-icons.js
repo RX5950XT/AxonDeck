@@ -24,6 +24,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * @type {Record<string, { d: string[], fill?: boolean, box?: string }>}
  */
 const ICONS = {
+  download: { d: ['M8 2v8', 'M5 7l3 3 3-3', 'M3 11v3h10v-3'] },
   // 終端機：提示字元的 `>` 與游標底線
   shell: { d: ['M3.6 5 6.9 8l-3.3 3', 'M8.8 11.2h3.6'] },
 
@@ -72,7 +73,7 @@ const ICONS = {
 
   // ── 頂端導覽列 ──
   // 品牌那幾顆（Telegram、Hugging Face）同上是 simple-icons 的原廠輪廓；
-  // CC Proxy 直接沿用上面的 claude。其餘是 lucide（ISC）的 24×24 描邊圖示
+  // 設定頁的 AGY 反代直接沿用上面的 agy。其餘是 lucide（ISC）的 24×24 描邊圖示
   telegram: {
     fill: true,
     box: '0 0 24 24',
@@ -121,6 +122,7 @@ const ICONS = {
     d: ['M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z']
   },
   mic: { box: '0 0 24 24', d: ['M12 19v3', 'M19 10v2a7 7 0 0 1-14 0v-2', 'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0Z'] },
+  speaker: { box: '0 0 24 24', d: ['M11 5 6 9H3v6h3l5 4Z', 'M15 8a6 6 0 0 1 0 8', 'M18 5a10 10 0 0 1 0 14'] },
   languages: {
     box: '0 0 24 24',
     d: ['m5 8 6 6', 'm4 14 6-6 2-3', 'M2 5h12', 'M7 2h1', 'm22 22-5-10-5 10', 'M14 18h6']
@@ -136,6 +138,17 @@ const ICONS = {
       'M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z'
     ]
   },
+
+  // 設定頁分類：lucide cloud／palette／terminal（基本沿用上面的 settings）
+  cloud: { box: '0 0 24 24', d: ['M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z'] },
+  palette: {
+    box: '0 0 24 24',
+    d: [
+      'M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z',
+      'M13.5 6.5h.01', 'M17.5 10.5h.01', 'M8.5 7.5h.01', 'M6.5 12.5h.01'
+    ]
+  },
+  terminal: { box: '0 0 24 24', d: ['M12 19h8', 'm4 17 6-6-6-6'] },
 
   // ── 執行狀態（側欄用；轉圈圈的那顆靠 CSS 動畫，這裡只畫缺一角的圓）──
   'state-running': { d: ['M14 8A6 6 0 1 1 8 2'] },

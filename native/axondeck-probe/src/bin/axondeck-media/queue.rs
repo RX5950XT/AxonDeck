@@ -199,7 +199,7 @@ impl State {
     pub fn begin_defaults(&mut self) {
         if self.default_task.is_some() { return; }
         let (send,receive)=std::sync::mpsc::channel(); self.default_task=Some(receive);
-        std::thread::spawn(move || { let _=send.send(registration::defaults()); });
+        std::thread::spawn(move || { let _=send.send(registration::defaults(&registration::MEDIA)); });
         self.notice("正在背景設定預設開啟程式，仍可繼續播放");
     }
     pub fn tick_queue(&mut self) {

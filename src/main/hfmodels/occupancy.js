@@ -17,6 +17,9 @@ const GPU_ARGS = [
 
 /** @type {object[] | null} */
 let prevCpus = null
+let prevCpuAt = 0
+// 離開分頁再回來，上一筆可能是幾分鐘前的；拿它算出來是那段期間的平均，不是現在
+const CPU_STALE_MS = 5000
 /** @type {Promise<Array<object>> | null} */
 let gpuFlight = null
 /** @type {Array<object>} */
@@ -37,8 +40,10 @@ function readCpuPercent(prev, curr) {
 
 function takeCpu() {
   const curr = os.cpus()
-  const pct = readCpuPercent(prevCpus, curr)
+  const now = Date.now()
+  const pct = now - prevCpuAt > CPU_STALE_MS ? null : readCpuPercent(prevCpus, curr)
   prevCpus = curr
+  prevCpuAt = now
   return pct
 }
 
@@ -105,7 +110,9 @@ function normName(value) {
 }
 
 /**
- * 把 nvidia-smi 的使用率接到 llama.cpp 列出來的同一張卡。對不到就留 null。
+ * 把 nvidia-smi 的使用率與顯存接到 llama.cpp 列出來的同一張卡。對不到就留 null。
+ * 顯存以 nvidia-smi 為準：Windows WDDM 下 CUDA／Vulkan 回報的 free 是本程序可用額度，
+ * 看不到別的程式佔的量（實測卡上已用 15.8GB，llama 還說 14.5GB free）。
  * @param {Array<object>} devices
  * @param {Array<object>} gpus
  */
@@ -120,7 +127,11 @@ function attachUtil(devices, gpus) {
     })
     if (idx < 0) return { ...device, utilization: null }
     used.add(idx)
-    return { ...device, utilization: gpus[idx].utilization ?? null }
+    const gpu = gpus[idx]
+    const vram = gpu.totalMiB > 0 && gpu.usedMiB != null
+      ? { totalMiB: gpu.totalMiB, freeMiB: Math.max(0, gpu.totalMiB - gpu.usedMiB) }
+      : {}
+    return { ...device, ...vram, utilization: gpu.utilization ?? null }
   })
 }
 

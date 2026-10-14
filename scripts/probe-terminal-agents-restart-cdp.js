@@ -47,7 +47,9 @@ async function connect(url) {
 }
 async function launch() {
   const cdpPort = await port(), inspectPort = await port()
-  child = spawn(exe, ['--hidden', '--disable-backgrounding-occluded-windows', `--remote-debugging-port=${cdpPort}`, `--inspect=127.0.0.1:${inspectPort}`, `--user-data-dir=${profile}`], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...fixture.env, LOCALAPPDATA: profile } })
+  const env = { ...process.env, ...fixture.env, LOCALAPPDATA: profile }
+  for (const key of Object.keys(env)) if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_CODE_') || key === 'ELECTRON_RUN_AS_NODE') delete env[key]
+  child = spawn(exe, ['--hidden', '--disable-backgrounding-occluded-windows', `--remote-debugging-port=${cdpPort}`, `--inspect=127.0.0.1:${inspectPort}`, `--user-data-dir=${profile}`], { detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env })
   for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { appLog = (appLog + data).slice(-12000) })
   const target = await wait(async () => {
     try { return (await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json()).find(t => /index\.html/.test(t.url)) } catch { return null }
@@ -57,6 +59,12 @@ async function launch() {
   // 只觀察真宿主 PID；不替換回應，也不攔截 ConPTY。
   await inspector.eval(`globalThis.__ownedHostPids=[];globalThis.__hostClass=process.mainModule.require(process.mainModule.require('electron').app.getAppPath()+'/src/main/terminal/host-client.js').HostClient;globalThis.__request=__hostClass.prototype.request;__hostClass.prototype.request=async function(...args){const result=await __request.apply(this,args);if(this.host.pid)__ownedHostPids.push(this.host.pid);return result}`)
   await wait(() => cdp.eval('!!window.electronAPI?.terminal'), 'IPC 尚未就緒')
+  await cdp.eval(`(async () => {
+    const { Terminal } = await import('../../node_modules/@xterm/xterm/lib/xterm.mjs')
+    const open = Terminal.prototype.open
+    window.__historyTerms = new Map()
+    Terminal.prototype.open = function(el) { __historyTerms.set(el.dataset.id, this); return open.call(this, el) }
+  })()`)
   await cdp.eval('document.getElementById("sidebarModeProjects").click()')
   await wait(() => cdp.eval(`!!document.querySelector('#projList [data-id=${projectId}] .chat-list-open')`), '專案清單尚未就緒')
   await cdp.eval(`document.querySelector('#projList [data-id=${projectId}] .chat-list-open').click()`)
@@ -76,14 +84,34 @@ function calls(agent) {
 }
 async function open(id) {
   await cdp.eval(`import('./scripts/terminal-page.js').then(m => m.openTerminalSession(${JSON.stringify(id)}))`)
-  const result = await cdp.eval(`electronAPI.terminal.open(${JSON.stringify(id)},100,25)`)
+  const result = await cdp.eval(`(() => { const t=__historyTerms.get(${JSON.stringify(id)}); return electronAPI.terminal.open(${JSON.stringify(id)},t.cols,t.rows) })()`)
   assert.equal(result.ok, true)
   await rememberPids()
   return result.data
 }
+async function verifyNavigation(sessions) {
+  for (const row of sessions) {
+    const snapshot = await open(row.id)
+    const pane = `.term-pane[data-id="${row.id}"]`
+    const query = selector => `document.querySelector(${JSON.stringify(pane + ' ' + selector)})`
+    const history = `__historyTerms.get(${JSON.stringify(row.id)})`
+    await wait(() => cdp.eval(`${query('.term-conversation-list')}?.textContent.includes(${JSON.stringify(fixture.user.slice(0, 40))})`), row.preset + ' 保存索引沒有還原')
+    for (const [role, text] of [['prompt', fixture.user.slice(0, 40)], ['answer', fixture.text]]) {
+      const button = query(`.term-conversation-row[data-role="${role}"]`)
+      await cdp.eval(`${button}.click()`)
+      await wait(() => cdp.eval(`(() => { const t=${history};if(!t || ${button}.getAttribute('aria-current') !== 'true')return false;const b=t.buffer.active;return Array.from({length:t.rows},(_,i)=>b.getLine(b.viewportY+i)?.translateToString(true)||'').join('').replace(/\\s/g,'').includes(${JSON.stringify(text.replace(/\s/g,''))}) })()`), row.preset + ' 無法直接跳到保存訊息')
+    }
+    assert.equal(await cdp.eval(`!!${query('.term-conversation-reader')} || !!${query('.term-conversation-preview')}`), false)
+    assert.equal(await cdp.eval(`!!${query('.term-history-screen')}`), false)
+    assert.equal(await cdp.eval(`${history}.options.disableStdin`), false)
+    assert.equal((await open(row.id)).pid, snapshot.pid, '讀紀錄不可以換掉 CLI')
+    assert.equal(calls(row.preset).length, 1, '讀紀錄不可以重送 CLI 指令')
+  }
+}
 async function main() {
   const sessions = Object.entries(fixture.ids).map(([agent, id]) => ({ id: 't_restart_' + agent, title: agent, shell: 'cmd', preset: agent, cwd: project, projectId, agentSessionId: id, createdAt: Date.now() }))
-  for (const agent of Object.keys(fixture.ids)) fs.writeFileSync(path.join(project, agent + '.cmd'), `@echo off\r\necho %*>>${agent}-args.txt\r\necho DUMMY_${agent} %*\r\n`)
+  fs.writeFileSync(path.join(project, 'navigation-output.js'), 'process.stdout.write(' + JSON.stringify('› ' + fixture.user + '\r\n' + fixture.text + '\r\n' + 'CLI output\r\n'.repeat(80)) + ')')
+  for (const agent of Object.keys(fixture.ids)) fs.writeFileSync(path.join(project, agent + '.cmd'), `@echo off\r\necho %*>>${agent}-args.txt\r\necho DUMMY_${agent} %*\r\n"${process.execPath}" "%~dp0navigation-output.js"\r\n`)
   fs.writeFileSync(path.join(profile, 'config.json'), JSON.stringify({ closeToTray: false, sysmonSensors: false, dictationEnabled: false, agyEnabled: false, autoUpdate: false }))
   fs.writeFileSync(path.join(profile, 'terminals.json'), JSON.stringify({ sessions }))
   fs.writeFileSync(path.join(profile, 'workspaces.json'), JSON.stringify({ projects: [{ id: projectId, name: '五家接續驗收', path: project, createdAt: Date.now(), tabsState: { activeId: sessions[0].id, tabs: sessions.map(row => ({ id: row.id, kind: 'terminal', title: row.title })) } }] }))
@@ -93,6 +121,8 @@ async function main() {
   await wait(() => sessions.every(row => calls(row.preset).length === 1), '五家接續指令沒有執行')
   for (const row of sessions) assert.ok(calls(row.preset)[0].includes(row.agentSessionId))
   console.log('PASS packaged 五家 metadata 經 main 驗證，真 ConPTY 收到指定對話 ID')
+  await verifyNavigation(sessions)
+  console.log('PASS 五家正式保存紀錄建立清單，提問與回答直接在終端機跳轉')
   await closeApp()
   for (const pid of before.values()) assert.ok(alive(pid), '關 App 不可以结束原 shell')
   await launch()
@@ -103,6 +133,8 @@ async function main() {
     assert.equal(calls(row.preset).length, 1, '不可重送接續指令')
   }
   console.log('PASS 真正關 App 再開，五家原分頁／輸出／PID 皆還原且不重送指令')
+  await verifyNavigation(sessions)
+  console.log('PASS 真正重開後五家索引與舊訊息跳轉皆還原，原 CLI 持續保留')
   assert.equal((await cdp.eval('electronAPI.terminal.restartHost()')).ok, true)
   for (const row of sessions) {
     const snapshot = await open(row.id)

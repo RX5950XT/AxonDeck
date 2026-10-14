@@ -10,7 +10,6 @@
 
 const { spawn, execFileSync } = require('child_process')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
@@ -116,6 +115,8 @@ class Cdp {
     try { this.ws.close() } catch { /* 已關 */ }
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(fn, ms, label) {
   const deadline = Date.now() + ms
@@ -155,7 +156,7 @@ async function main() {
       `--remote-debugging-port=${PORT}`,
       `--user-data-dir=${USER_DATA_DIR}`
     ], { cwd: path.join(__dirname, '..'), stdio: 'ignore' })
-    const version = await waitFor(async () => {
+    await waitFor(async () => {
       try {
         return await getJson(`http://127.0.0.1:${PORT}/json/version`)
       } catch {
@@ -336,11 +337,24 @@ async function main() {
       const hiddenFile = path.join(SEED_DIR, 'hidden-check.txt')
       fs.writeFileSync(hiddenFile, 'hidden')
       execFileSync(path.join(process.env.SystemRoot, 'System32', 'attrib.exe'), ['+h', hiddenFile], { windowsHide: true })
-      const off = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(SEED_DIR)})`)
-      const on = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(SEED_DIR)}, { showHidden: true })`)
-      assert(off.ok && !off.data.entries.some(e => e.name === 'hidden-check.txt'), '打包版預設藏起真正隱藏檔')
+      // main 的目錄清單有 1.5 秒快取（fs.js LIST_CACHE_TTL_MS），剛剛畫面才列過這一層
+      await sleep(1600)
+      // listDir 不帶選項時預設顯示隱藏項目（fs.js：showHidden !== false），要量「藏起來」得明講關掉。
+      // 隱藏屬性走原生 sidecar、只給 200ms（ATTRS_TIMEOUT_MS），機器忙時那一次會漏標，等到標到為止
+      const off = await waitFor(async () => {
+        const r = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(SEED_DIR)}, { showHidden: false })`)
+        return r.ok && !r.data.entries.some(e => e.name === 'hidden-check.txt') ? r : null
+      }, 8_000, '隱藏檔被藏起來').catch(() => ({ ok: false }))
+      const on = await waitFor(async () => {
+        const r = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(SEED_DIR)}, { showHidden: true })`)
+        return r.ok && r.data.entries.some(e => e.name === 'hidden-check.txt' && e.hidden) ? r : null
+      }, 8_000, '顯示隱藏項目保留屬性').catch(() => ({ ok: false }))
+      assert(off.ok && !off.data.entries.some(e => e.name === 'hidden-check.txt'), '關掉「顯示隱藏項目」時藏起真正隱藏檔')
       assert(on.ok && on.data.entries.some(e => e.name === 'hidden-check.txt' && e.hidden), '打包版顯示隱藏項目保留屬性')
       fs.unlinkSync(hiddenFile)
+      // 等畫面把那一列收掉再往下：不然後面量好座標的拖放，會被監看重畫把列擠位
+      await waitFor(() => cdp.eval(`!document.querySelector('#exList [data-id="hidden-check.txt"]')`), 10_000, '隱藏檔從清單收掉')
+      await sleep(1_200)
     }
 
     console.log('\n[C3] 多選之後點空白取消選取')
@@ -626,7 +640,8 @@ async function main() {
       await waitFor(() => cdp.eval(`!!document.querySelector('#exList [data-id="hello.txt"]')`), 10_000, '回到種子資料夾')
     }
 
-    console.log('\n[C10] 系統項目預設藏起來，開關打得開')
+    // 1757312（10/08）起預設顯示隱藏項目、畫淡；開關是拿來藏起來的
+    console.log('\n[C10] 系統項目預設看得到（畫淡），開關藏得起來')
     {
       fs.writeFileSync(path.join(SEED_DIR, 'desktop.ini'), '[.ShellClassInfo]')
       fs.writeFileSync(path.join(SEED_DIR, '.gitignore'), 'node_modules')
@@ -635,7 +650,13 @@ async function main() {
         return ids.includes('.gitignore') ? ids : null
       })()`), 15_000, '清單更新').catch(() => null)
       assert(!!shown, '種的檔案有進畫面', JSON.stringify(shown))
-      assert(!shown.includes('desktop.ini'), 'desktop.ini 預設藏起來', JSON.stringify(shown))
+      assert(shown.includes('desktop.ini'), 'desktop.ini 預設看得到', JSON.stringify(shown))
+      const dimmed = await cdp.eval(`(() => {
+        const ini = [...document.querySelectorAll('#exList .ex-row')].find((r) => r.dataset.id === 'desktop.ini')
+        // 畫淡的是名稱文字 .ex-row-label 與圖示（main.css .ex-row.is-dim），外層 .ex-row-name 不變
+        return ini ? { dim: ini.classList.contains('is-dim'), opacity: getComputedStyle(ini.querySelector('.ex-row-label')).opacity } : null
+      })()`)
+      assert(dimmed && dimmed.dim && Number(dimmed.opacity) < 1, '隱藏項目畫得比較淡', JSON.stringify(dimmed))
       assert(shown.includes('.gitignore'),
         '.gitignore 不可以被藏（Windows 上點開頭沒有隱藏的意思）', JSON.stringify(shown))
 
@@ -654,18 +675,17 @@ async function main() {
         })()`)
         return got.open ? got : null
       }, 15_000, '空白處右鍵選單').catch(() => ({ open: false, labels: [] }))
-      assert(menu10.labels.includes('顯示隱藏項目'), '空白處右鍵有「顯示隱藏項目」', JSON.stringify(menu10.labels))
+      // 選單字樣跟著狀態換：現在是顯示中，所以寫「不顯示隱藏項目」
+      assert(menu10.labels.includes('不顯示隱藏項目'), '空白處右鍵有「不顯示隱藏項目」', JSON.stringify(menu10.labels))
       await cdp.eval(`(() => {
-        [...document.querySelectorAll('.ws-menu .ws-menu-item')].find((n) => n.textContent === '顯示隱藏項目')?.click()
+        [...document.querySelectorAll('.ws-menu .ws-menu-item')].find((n) => n.textContent === '不顯示隱藏項目')?.click()
       })()`)
-      const withHidden = await waitFor(() => cdp.eval(`(() => {
-        const rows = [...document.querySelectorAll('#exList .ex-row')]
-        const ini = rows.find((r) => r.dataset.id === 'desktop.ini')
-        if (!ini) return null
-        return { dim: ini.classList.contains('is-dim'), opacity: getComputedStyle(ini.querySelector('.ex-row-name')).opacity }
-      })()`), 15_000, '打開之後看得到系統項目').catch(() => null)
-      assert(!!withHidden, '切換之後 desktop.ini 出現', JSON.stringify(withHidden))
-      assert(withHidden.dim && Number(withHidden.opacity) < 1, '隱藏項目畫得比較淡', JSON.stringify(withHidden))
+      const withoutHidden = await waitFor(() => cdp.eval(`(() => {
+        const ids = [...document.querySelectorAll('#exList .ex-row')].map((r) => r.dataset.id)
+        return ids.includes('hello.txt') && !ids.includes('desktop.ini') ? ids : null
+      })()`), 15_000, '關掉之後藏起系統項目').catch(() => null)
+      assert(!!withoutHidden, '關掉「顯示隱藏項目」之後 desktop.ini 藏起來', JSON.stringify(withoutHidden))
+      assert(withoutHidden.includes('.gitignore'), '關掉之後 .gitignore 仍在（點開頭不算隱藏）', JSON.stringify(withoutHidden))
 
       await cdp.eval(`window.electronAPI.explorer.saveState({ showHidden: false })`)
       const saved = await cdp.eval(`window.electronAPI.explorer.bootstrap()`)
@@ -864,7 +884,20 @@ async function main() {
       return Boolean(img && img.naturalWidth > 0) || el.textContent === '📁'
     })()`), 10_000, '捷徑顯示資料夾與箭頭')
     await waitFor(() => cdp.eval(`document.querySelector('#exList [data-id="hello.txt"] .ex-row-icon img')?.naturalWidth > 0`), 10_000, 'Windows 檔案圖示')
-    assert(await cdp.eval(`document.querySelector('#exList [data-id="hello.txt"] .ex-row-icon img').src.startsWith('data:image/png;base64,')`), '文字檔使用 Windows 圖示')
+    // .txt 綁到 Microsoft Store 記事本（AppX）的機器，殼層拿不到圖示，main 會回 fallback、畫依類型的預設圖：
+    // 驗「畫面用的是 main 給的那張」，不假設每台機器都有 Windows 圖示
+    const txtMain = await cdp.eval(`window.electronAPI.explorer.fileIcon(${JSON.stringify(path.join(SEED_DIR, 'hello.txt'))})`)
+    const wantPrefix = txtMain?.data?.fallback ? 'data:image/svg+xml' : 'data:image/png;base64,'
+    // 圖示要等列「進到可視範圍」（IntersectionObserver）才去拿；--hidden 的視窗不算可視，先不搶焦點地顯示出來
+    await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().find(w => /index\\.html/.test(w.webContents.getURL()))?.showInactive()`)
+    await sleep(500)
+    await cdp.eval(`document.dispatchEvent(new KeyboardEvent('keydown', {key:'F5', bubbles:true, cancelable:true}))`)
+    const txtIcon = await waitFor(async () => {
+      const src = await cdp.eval(`document.querySelector('#exList [data-id="hello.txt"] .ex-row-icon img')?.src.slice(0, 40) || ''`)
+      return src.startsWith(wantPrefix) ? src : null
+    }, 10_000, '文字檔圖示').catch(() => cdp.eval(`document.querySelector('#exList [data-id="hello.txt"] .ex-row-icon img')?.src.slice(0, 40) || ''`))
+    assert(txtIcon.startsWith(wantPrefix),
+      '文字檔圖示跟 main 一致（有 Windows 圖示用它，沒有就畫預設圖）', JSON.stringify({ fallback: !!txtMain?.data?.fallback, txtIcon }))
     const iconShots = path.join(__dirname, '..', 'dist', 'explorer-tabs-qa')
     fs.mkdirSync(iconShots, { recursive: true })
     for (const mode of ['list', 'grid']) {

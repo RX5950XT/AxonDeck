@@ -15,7 +15,6 @@
 
 const { spawn, execFileSync } = require('child_process')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
@@ -127,6 +126,8 @@ class Cdp {
     try { this.ws.close() } catch { /* 已關閉 */ }
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 /**
  * 選單改值＋派發 change。`Runtime.evaluate` 每次都在同一個全域範圍求值，
@@ -204,18 +205,25 @@ async function main() {
       'preload 就緒'
     )
 
-    // ===== 分頁存在且切得過去 =====
+    // ===== 供應商在工作區額度條的抽屜裡（CC Proxy 頁已拆掉） =====
     assert(
-      await cdp.eval("Boolean(document.querySelector('.nav-tab[data-page=\"ccswitch\"]'))"),
-      'nav 有 Claude Code 分頁'
+      await cdp.eval("!document.querySelector('.nav-tab[data-page=\"ccswitch\"]') && !document.getElementById('page-ccswitch')"),
+      '頂端不再有 CC Proxy 頁'
     )
-    await cdp.eval("document.querySelector('.nav-tab[data-page=\"ccswitch\"]').click()")
+    await cdp.eval("document.querySelector('.nav-tab[data-page=\"chat\"]').click()")
+    // 額度條只在專案主區顯示，第一次顯示才綁事件：先切到專案主區
+    await cdp.eval("import('./scripts/app.js').then((m) => m.setChatPaneMode('workspace'))")
     await waitFor(
-      () => cdp.eval("document.getElementById('page-ccswitch').classList.contains('active')"),
+      () => cdp.eval("(document.getElementById('quotaProviderBtn').click(), !document.getElementById('quotaDrawerProviders').hidden) || null"),
       10_000,
-      '切到 Claude Code 分頁'
+      '額度條供應商按鈕綁好'
     )
-    pass('切到 Claude Code 分頁')
+    await waitFor(
+      () => cdp.eval("!document.getElementById('quotaDrawerProviders').hidden && document.querySelectorAll('#ccProviderList .cc-tile').length > 0"),
+      10_000,
+      '額度條打開供應商抽屜'
+    )
+    pass('額度條打開供應商抽屜')
 
     // ===== 預設表 =====
     const catalog = await cdp.eval('window.electronAPI.ccswitch.catalog()')
@@ -303,7 +311,7 @@ async function main() {
     }, 10_000, '自動模型清單')
     assert(modelRequests > 0, '未開編輯窗就自動掃模型（真 HTTP）')
     modelIds = ['fresh-cdp', 'new-cdp']
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+    await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
     await waitFor(() => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${automaticId}"]'))`), 5000, '自動供應商 tile')
     await cdp.eval(`document.querySelector('#ccProviderList .cc-tile[data-id="${automaticId}"] .cc-tile-edit').click()`)
     const requestsBeforeManual = modelRequests
@@ -351,7 +359,7 @@ async function main() {
     const empty = await cdp.eval(`window.electronAPI.ccswitch.scanModels(${JSON.stringify(automaticId)})`)
     assert(empty.ok && empty.data.ok && empty.data.models.length === 0, '合法空清單可清掉全部舊模型')
     await cdp.eval(`window.electronAPI.ccswitch.deleteProvider(${JSON.stringify(automaticId)})`)
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+    await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
 
     // ===== tile 拖曳排序（跟額度卡片一樣可以自由換位置）=====
     // 拖曳的最後一步跟鍵盤搬動走同一條 onCommit，所以用 Alt+↓ 驗（模擬 pointer 事件
@@ -381,7 +389,7 @@ async function main() {
         '新順序寫回 store'
       )
       // 重新整理之後畫面要照 store 的順序畫回來
-      await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+      await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
       await waitFor(
         () => cdp.eval(`[...document.querySelectorAll('#ccProviderList .cc-tile:not(.is-add)')][0]?.dataset.id === '${order0[1]}'`),
         5000,
@@ -389,7 +397,7 @@ async function main() {
       )
       // 搬回原位，後面的斷言才不受影響
       await cdp.eval(`window.electronAPI.ccswitch.reorderProviders(${JSON.stringify(order0)})`)
-      await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+      await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
       await waitFor(
         () => cdp.eval(`[...document.querySelectorAll('#ccProviderList .cc-tile:not(.is-add)')][0]?.dataset.id === '${order0[0]}'`),
         5000,
@@ -427,7 +435,7 @@ async function main() {
       assert(await cdp.eval("document.querySelectorAll('.reorder-overlay').length === 0"), 'overlay 收乾淨')
 
       await cdp.eval(`window.electronAPI.ccswitch.reorderProviders(${JSON.stringify(order0)})`)
-      await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+      await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
       await waitFor(
         () => cdp.eval(`[...document.querySelectorAll('#ccProviderList .cc-tile:not(.is-add)')][0]?.dataset.id === '${order0[0]}'`),
         5000,
@@ -457,7 +465,7 @@ async function main() {
     assert(created?.ok === true, '新增供應商成功', JSON.stringify(created?.error || {}))
     createdId = created.data.id
 
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+    await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
     await waitFor(
       () => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${createdId}"]'))`),
       10_000,
@@ -832,7 +840,7 @@ async function main() {
     assert(gatewayBefore?.ok === true && gatewayBefore.data.running === false,
       '新增供應商不會開閘道', JSON.stringify(gatewayBefore))
 
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=providers]').click()")
+    await cdp.eval("(document.getElementById('quotaProviderBtn').click(), document.getElementById('quotaProviderBtn').click())")
     await waitFor(
       () => cdp.eval(`Boolean(document.querySelector('#ccProviderList .cc-tile[data-id="${createdId}"] .cc-tile-switch'))`),
       10_000,
@@ -883,31 +891,37 @@ async function main() {
     const cleared = JSON.parse(fs.readFileSync(path.join(HOME_DIR, '.claude', 'settings.json'), 'utf8'))
     assert(!cleared.env?.ANTHROPIC_BASE_URL, '切回官方訂閱清掉 Base URL', JSON.stringify(cleared.env || {}))
 
-    // ===== AGY 反代搬進 CC Proxy 子分頁 =====
+    // ===== AGY 反代在設定頁 =====
     assert(await cdp.eval("!document.querySelector('.nav-tab[data-page=\"agy\"]')"), '頂端不再有 AGY 反代那一頁')
-    assert(await cdp.eval("document.querySelector('.nav-tab[data-page=\"ccswitch\"] .nav-text').textContent === 'CC Proxy'"),
-      '導覽名稱改成 CC Proxy')
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"agy\"]').click()")
+    await cdp.eval("document.querySelector('.nav-tab[data-page=\"settings\"]').click()")
+    await cdp.eval("document.querySelector('#settingsNav [data-section=\"agy\"]').click()")
     await waitFor(
-      () => cdp.eval("document.getElementById('cc-agy').classList.contains('active') && document.getElementById('agyToggleBtn').offsetHeight > 0"),
+      () => cdp.eval("document.getElementById('set-agy').classList.contains('active') && document.getElementById('agyToggleBtn').offsetHeight > 0"),
       10_000,
-      'AGY 反代子分頁切得過去、啟動鈕看得見'
+      'AGY 反代分類切得過去、啟動鈕看得見'
     )
     await waitFor(
       () => cdp.eval("document.getElementById('agyPortInput').value !== ''"),
       10_000,
       'AGY 子分頁有載入狀態'
     )
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"providers\"]').click()")
+    await cdp.eval("document.querySelector('.nav-tab[data-page=\"chat\"]').click()")
 
     await cdp.eval(`window.electronAPI.ccswitch.deleteProvider(${JSON.stringify(createdId)})`)
     createdId = ''
 
-    // ===== MCP 子分頁（唯讀，不寫使用者的 ~/.claude.json） =====
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"mcp\"]').click()")
+    // ===== MCP 與 Skills：右側欄第五顆按鈕開成專案分頁（唯讀，不寫使用者的 ~/.claude.json） =====
+    await cdp.eval("document.getElementById('wsCcToolsBtn').click()")
+    await waitFor(
+      () => cdp.eval("!document.getElementById('wsCcTools').hidden || null"),
+      10_000,
+      'MCP 與 Skills 分頁打得開'
+    )
+    await cdp.eval("document.getElementById('wsCcToolsBtn').click()")
+    await sleep(300)
     assert(
-      await cdp.eval("document.getElementById('cc-mcp').classList.contains('active')"),
-      'MCP 子分頁切得過去'
+      await cdp.eval("document.querySelectorAll('#wsTabStrip .ws-tab[data-kind=\"cc-tools\"]').length === 1"),
+      'MCP 與 Skills 開成一個專案分頁，再按一次不重開'
     )
     await waitFor(
       () => cdp.eval("document.getElementById('ccMcpPath').textContent.includes('.claude.json')"),
@@ -951,7 +965,8 @@ async function main() {
     // 四家切換：只讀各家設定檔路徑，不寫使用者家目錄
     const mcpHomePaths = await cdp.eval(`(async () => {
       const out = {}
-      for (const btn of document.querySelectorAll('#ccMcpHomes .cc-home-btn')) {
+      for (const btn of document.querySelectorAll('#ccHomes .cc-home-btn')) {
+        if (btn.dataset.home === 'agents') continue
         btn.click()
         await new Promise((resolve) => setTimeout(resolve, 800))
         out[btn.dataset.home] = document.getElementById('ccMcpPath').textContent
@@ -963,18 +978,13 @@ async function main() {
     assert(mcpHomePaths.grok.includes('config.toml'), 'Grok 家指到 config.toml', JSON.stringify(mcpHomePaths))
     assert(mcpHomePaths.opencode.includes('opencode.json'), 'OpenCode 家指到 opencode.json', JSON.stringify(mcpHomePaths))
     await cdp.eval(`(() => {
-      document.querySelector('#ccMcpHomes .cc-home-btn[data-home="claude"]').click()
+      document.querySelector('#ccHomes .cc-home-btn[data-home="claude"]').click()
     })()`)
 
-    // ===== Skills 與記憶子分頁（唯讀：只看清單與記憶檔按鈕，不寫家目錄） =====
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"skills\"]').click()")
-    assert(
-      await cdp.eval("document.getElementById('cc-skills').classList.contains('active')"),
-      'Skills 子分頁切得過去'
-    )
+    // ===== Skills 與記憶（同一個分頁；唯讀：只看清單與記憶檔按鈕，不寫家目錄） =====
     const skillHomeCount = await waitFor(
       () => cdp.eval(`(() => {
-        const btns = document.querySelectorAll('#ccSkillHomes .cc-home-btn')
+        const btns = document.querySelectorAll('#ccHomes .cc-home-btn')
         return btns.length === 5 ? btns.length : null
       })()`),
       10_000,
@@ -987,14 +997,17 @@ async function main() {
       await cdp.eval("document.getElementById('ccMemoryEdit') !== null"),
       '記憶檔編輯框在'
     )
-    // 全域記憶在上、Skills 在下
+    // 五家切換在整頁最上面，MCP、Skills、記憶三塊都在同一頁
     assert(
       await cdp.eval(`(() => {
-        const panel = document.getElementById('cc-skills')
-        const pos = document.getElementById('ccMemoryPanel').compareDocumentPosition(document.querySelector('#cc-skills .cc-panel:last-child'))
-        return (pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 && panel.children[0].id === 'ccMemoryPanel'
+        const page = document.getElementById('wsCcTools')
+        const homes = document.getElementById('ccHomes')
+        const parts = ['ccMcpPanel', 'ccSkillList', 'ccMemoryPanel'].map((id) => document.getElementById(id))
+        if (!page.contains(homes) || parts.some((node) => !page.contains(node))) return false
+        const after = Node.DOCUMENT_POSITION_FOLLOWING
+        return parts.every((node) => (homes.compareDocumentPosition(node) & after) !== 0)
       })()`),
-      '全域記憶在上、Skills 在下'
+      '五家切換在上，MCP、Skills 與記憶同一頁'
     )
     // 兩顆「開資料夾」都在
     assert(
@@ -1011,19 +1024,19 @@ async function main() {
       ),
       '按開資料夾跳到檔案頁新分頁'
     )
-    await cdp.eval("document.querySelector('.nav-tab[data-page=\"ccswitch\"]').click()")
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"skills\"]').click()")
-    // .agents 共用家：只留 Skills，記憶整塊藏起來
-    await cdp.eval(`document.querySelector('#ccSkillHomes .cc-home-btn[data-home="agents"]').click()`)
+    await cdp.eval("document.querySelector('.nav-tab[data-page=\"chat\"]').click()")
+    await cdp.eval("document.getElementById('wsCcToolsBtn').click()")
+    // .agents 共用家：只留 Skills，記憶與 MCP 整塊藏起來
+    await cdp.eval(`document.querySelector('#ccHomes .cc-home-btn[data-home="agents"]').click()`)
     assert(
       await waitFor(
-        () => cdp.eval(`document.getElementById('ccMemoryPanel')?.classList.contains('hidden') || null`),
+        () => cdp.eval(`(document.getElementById('ccMemoryPanel')?.classList.contains('hidden') && document.getElementById('ccMcpPanel')?.classList.contains('hidden')) || null`),
         10_000,
         '共用家藏記憶'
       ),
       '.agents 共用家不擺全域記憶'
     )
-    await cdp.eval(`document.querySelector('#ccSkillHomes .cc-home-btn[data-home="claude"]').click()`)
+    await cdp.eval(`document.querySelector('#ccHomes .cc-home-btn[data-home="claude"]').click()`)
     assert(
       await waitFor(
         () => cdp.eval(`!document.getElementById('ccMemoryPanel')?.classList.contains('hidden') || null`),

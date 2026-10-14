@@ -79,6 +79,34 @@ export function normalizeAppearance(raw) {
   return { theme, image, opacity }
 }
 
+const blobUrls = new Map()
+
+/**
+ * Chromium 會直接丟掉超過 2MB 的 CSS 自訂屬性值：3MB 的桌布 base64 後 4MB+，
+ * 整張圖無聲消失（變數是空的、背景是 none）。所以大圖改轉成 blob: URL 再交給 CSS。
+ * @param {string} dataUri
+ * @returns {string}
+ */
+function cssImageUrl(dataUri) {
+  // 終端機頁自己已經換成 blob: 了（terminal-page.js toBlobUrl），再 atob 一次會丟例外
+  if (!dataUri.startsWith('data:')) return dataUri
+  let url = blobUrls.get(dataUri)
+  if (url) return url
+  const comma = dataUri.indexOf(',')
+  const type = /^data:([^;,]+)/.exec(dataUri)?.[1] || 'image/png'
+  const binary = atob(dataUri.slice(comma + 1))
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  url = URL.createObjectURL(new Blob([bytes], { type }))
+  if (blobUrls.size >= 4) {
+    const [oldest] = blobUrls.keys()
+    URL.revokeObjectURL(blobUrls.get(oldest))
+    blobUrls.delete(oldest)
+  }
+  blobUrls.set(dataUri, url)
+  return url
+}
+
 /**
  * 把外觀套到畫面上：CSS 變數給桌布那一層，回傳的物件給 xterm。
  *
@@ -93,7 +121,7 @@ export function applyAppearance(host, appearance, dataUri) {
   if (host) {
     host.classList.toggle('has-term-bg', hasImage)
     host.style.setProperty('--term-theme-bg', colors.background)
-    host.style.setProperty('--term-bg-image', hasImage ? `url("${dataUri}")` : 'none')
+    host.style.setProperty('--term-bg-image', hasImage ? `url("${cssImageUrl(dataUri)}")` : 'none')
     host.style.setProperty('--term-bg-opacity', String(appearance.opacity / 100))
   }
   return {

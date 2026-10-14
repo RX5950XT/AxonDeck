@@ -199,13 +199,16 @@ async function hardwareInfo() {
     hasToken: hub.hasToken(),
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
     autoRuntime: !tempUserData,
-    installable: RUNTIME_KEYS.map((key) => ({
+    // PDF GPU 加速只給驅動夠新的 NVIDIA 顯示卡（cu129 要 576 版以上，cudaReady 的門檻更高）
+    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime', ...(nvidia.cudaReady ? ['pdfruntimegpu'] : [])].map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,
       downloaded: models.isDownloaded(key),
+      runtime: models.MODELS[key]?.runtime || 'llama',
+      description: models.MODELS[key]?.description || '',
       // CUDA 版只在驅動夠新時才建議：驅動太舊裝了也起不來，而錯誤訊息是 DLL 層級的
-      recommended: key === 'llamaruntimecuda' ? preferCuda : !preferCuda
+      recommended: key === 'llamaruntimecuda' ? preferCuda : key === 'llamaruntime' && !preferCuda
     }))
   }
 }
@@ -304,20 +307,28 @@ async function writePresets() {
   }
 
   // 推薦的翻譯模型也交給同一台 router，檔案仍放原本 models/，不用複製進模型庫。
-  for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS]) {
+  for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS, ...models.OCR_MODEL_KEYS]) {
     if (!models.isDownloaded(key)) continue
     const device = hardware.pickDevice(devices)?.id || 'none'
     entries.push({ id: key, args: {
-      model: models.filePath(key, 'gguf'), 'ctx-size': models.isAsrKey(key) ? '8192' : '2048', device,
-      ...(models.isAsrKey(key) ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
+      model: models.filePath(key, 'gguf'),
+      // ASR 音訊約 13 token／秒，最長 2 分鐘加轉寫，4096 夠。翻譯要裝原文與譯文，用 8192。
+      'ctx-size': models.isAsrKey(key) ? '4096' : '8192', device,
+      // V 用 q8_0 必須開 flash attention，否則載入失敗
+      'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on',
+      ...(models.MODELS[key].mmproj ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
       reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
+      // Spotting 的座標是特殊 token；只靠 API 的 skip_special_tokens 無法讓 llama 保留它們。
+      ...(key === 'paddleocrvl16' ? { special: 'on' } : {}),
       ...(device === 'none' ? { 'gpu-layers': '0' } : {})
     } })
   }
 
   presets.write(presetPath, entries, {
     // router 自己的全域設定：同時載入幾顆由使用者決定
-    'models-max': String(Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)))
+    'models-max': String(Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2))),
+    // 用過的 prompt 預設存 RAM 最多 8GB：翻譯每段都不同，實測每段 +73MB 一路長；512MB 仍留得住系統提示與最近幾段
+    'cache-ram': '512'
   })
   return planned
 }
@@ -818,10 +829,6 @@ function benchExePath() {
   return path.join(path.dirname(runtimeExe()), process.platform === 'win32' ? 'llama-bench.exe' : 'llama-bench')
 }
 
-function cancelTune() {
-  return bench.cancel()
-}
-
 /**
  * 關 App 時要收掉（router 一走，它底下跑模型的子程序也會一起走）
  */
@@ -829,13 +836,18 @@ function cancelTune() {
  * 儀表板一次要的東西：GPU、用量、端點、log。**不送金鑰**。
  * @returns {Promise<object>}
  */
+/** @type {{ at: number, list: Promise<Array<object>> } | null} */
+let dashDevices = null
+// `--list-devices` 每次都要初始化 CUDA／Vulkan（吃 CPU、短暫佔顯存），儀表板每 2 秒問一次太重。
+// shortcut: 卡名清單 30 秒才重抓；非 NVIDIA 卡的顯存數字因此最多慢 30 秒，要即時再改讀 DXGI。
+const DASH_DEVICES_TTL_MS = 30_000
+
 async function dashboard() {
   const status = runtime.status()
-  const [devices, nvidia, live] = await Promise.all([
-    listDevices(),
-    hardware.nvidiaDriver(),
-    occupancy.sample()
-  ])
+  if (!dashDevices || Date.now() - dashDevices.at > DASH_DEVICES_TTL_MS) {
+    dashDevices = { at: Date.now(), list: listDevices().catch(() => []) }
+  }
+  const [devices, live] = await Promise.all([dashDevices.list, occupancy.sample()])
   const models = status.running ? await runtime.listModels().catch(() => []) : []
   // 指標要指名模型（router 的 /metrics 不帶 model 會 400），拿載著的第一顆
   const loaded = models.find((row) => row.status?.value === 'loaded')
@@ -847,7 +859,6 @@ async function dashboard() {
     anthropicBaseUrl: status.running ? `http://${runtime.HOST}:${status.port}` : '',
     devices: occupancy.attachUtil(devices, live.gpus),
     occupancy: { cpu: live.cpu, memory: live.memory, gpus: live.gpus },
-    nvidia,
     metrics: stats,
     models: models.map((row) => ({
       id: String(row.id || ''),
@@ -893,7 +904,6 @@ module.exports = {
   rescan,
   tune,
   autoTune,
-  cancelTune,
   writePresets,
   applyPresets,
   startRuntime,

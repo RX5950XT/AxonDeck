@@ -1,7 +1,8 @@
 'use strict'
 
 const http = require('http')
-const { randomUUID, timingSafeEqual } = require('crypto')
+const { randomUUID } = require('crypto')
+const { safeEqual, hostAllowed, presentedKey, sendJson } = require('../local-proxy-http')
 const anthropic = require('./anthropic')
 const catalog = require('./catalog')
 const logs = require('./logs')
@@ -11,8 +12,6 @@ const { listModels, resolveModel } = require('./model-map')
 
 const HOST = '127.0.0.1'
 const MAX_BODY_BYTES = 32 * 1024 * 1024
-/** 只接受指向本機的 Host，擋 DNS rebinding（惡意網域解析到 127.0.0.1） */
-const ALLOWED_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 const ADAPTERS = Object.freeze({
   openai: { protocol: 'openai', mapper: openai, contentType: 'application/json' },
@@ -35,37 +34,6 @@ function configureUpstream(options) {
 }
 
 // ===== 共用小工具 =====
-
-function safeEqual(a, b) {
-  const left = Buffer.from(String(a))
-  const right = Buffer.from(String(b))
-  if (left.length !== right.length) return false
-  return timingSafeEqual(left, right)
-}
-
-function hostAllowed(req) {
-  const host = String(req.headers.host || '')
-  const name = host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.split(':')[0]
-  return ALLOWED_HOSTS.has(name)
-}
-
-/** Anthropic 客戶端送 x-api-key，OpenAI 客戶端送 Authorization: Bearer */
-function presentedKey(req) {
-  const header = String(req.headers.authorization || '')
-  if (header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
-  const apiKey = req.headers['x-api-key']
-  return typeof apiKey === 'string' ? apiKey.trim() : ''
-}
-
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store'
-  })
-  res.end(body)
-}
 
 /** 錯誤回應要長成各協議自己的形狀，否則客戶端會解析失敗 */
 function sendError(res, protocol, status, code, message) {

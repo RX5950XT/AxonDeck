@@ -14,7 +14,6 @@ const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const http = require('http')
-const os = require('os')
 const fs = require('fs')
 
 const PORT = 9251
@@ -174,7 +173,6 @@ async function main() {
 
     // ===== 開兩個終端機 =====
     for (let i = 0; i < 2; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
       const id = await cdp.eval(`(async () => {
         const r = await window.electronAPI.terminal.create({ shell: 'pwsh', preset: 'shell', title: 'probe-${i}' })
         if (!r.ok) throw new Error(r.error?.message || 'create failed')
@@ -182,7 +180,6 @@ async function main() {
         return r.data.id
       })()`)
       created.push(id)
-      // eslint-disable-next-line no-await-in-loop
       await sleep(900)
     }
     const [firstId, secondId] = created
@@ -326,7 +323,6 @@ async function main() {
     for (const id of created) {
       if (!cdp) break
       try {
-        // eslint-disable-next-line no-await-in-loop
         await cdp.eval(`window.electronAPI.terminal.delete(${JSON.stringify(id)})`)
         console.log(`（已清掉測試建立的工作階段 ${id}）`)
       } catch { /* App 可能已經關了 */ }

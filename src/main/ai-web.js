@@ -60,30 +60,73 @@ function titleFromPage(site, value) {
 // 只動這個網域：其他網站（含 Gemini 本身）仍是一般 Chrome 識別。
 const GOOGLE_LOGIN_UA = 'https://accounts.google.com/'
 
-/** @param {import('electron').Session} ses */
+/**
+ * 真 Chrome 的品牌清單（Chromium `GenerateBrandVersionList`：假品牌與順序都由主版號決定）。
+ * Electron 只報 Chromium 一家、而且改過 UA 之後**完全不送** `Sec-CH-UA`——真 Chrome 每個 https 請求都有，
+ * Cloudflare／Google 拿這個分辨內嵌瀏覽器。`ai-web-shim.js` 用同一套算法補 `navigator.userAgentData`。
+ * @param {number} major
+ * @param {string} version 主版號或完整版號
+ * @param {string} [brand]
+ */
+function brandList(major, version, brand = 'Google Chrome') {
+  const order = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]][major % 6]
+  const chars = ' (:-./);=?_'
+  const greaseVersion = ['8', '99', '24'][major % 3]
+  const out = []
+  out[order[0]] = { brand: `Not${chars[major % 11]}A${chars[(major + 1) % 11]}Brand`, version: version.includes('.') ? `${greaseVersion}.0.0.0` : greaseVersion }
+  out[order[1]] = { brand: 'Chromium', version }
+  out[order[2]] = { brand, version }
+  return out
+}
+
+/** 照請求自己的 UA 產生 `Sec-CH-UA` 那三個標頭（Grok 用的是 Edge 的 UA，品牌就要是 Edge）；認不出版號回 null */
+function clientHints(userAgent) {
+  const major = Number(String(userAgent).match(/Chrome\/(\d+)/)?.[1])
+  if (!major) return null
+  const brand = /\sEdg\//.test(userAgent) ? 'Microsoft Edge' : 'Google Chrome'
+  return {
+    'sec-ch-ua': brandList(major, String(major), brand).map((b) => `"${b.brand}";v="${b.version}"`).join(', '),
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"'
+  }
+}
+
+/**
+ * 每個 https 請求補上真 Chrome 會送的 Client Hints；accounts.google.com 的整頁導覽則反過來
+ * 換成精簡版登入頁的識別。同一個 session 的 onBeforeSendHeaders 只能掛一個，兩件事寫在一起。
+ * @param {import('electron').Session} ses
+ */
 function installGoogleLoginFix(ses) {
-  ses.webRequest.onBeforeSendHeaders({ urls: ['https://accounts.google.com/*'] }, (details, callback) => {
+  ses.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
+    const headers = { ...details.requestHeaders }
     // 只換登入頁本身（整頁導覽）：網站嵌的 Google 登入元件（/gsi/ iframe、腳本）看到怪識別會直接不動
-    if (details.resourceType !== 'mainFrame') return callback({})
-    const headers = { ...details.requestHeaders, 'User-Agent': GOOGLE_LOGIN_UA }
-    for (const key of Object.keys(headers)) if (/^sec-ch-ua/i.test(key)) delete headers[key]
-    callback({ requestHeaders: headers })
+    if (details.resourceType === 'mainFrame' && details.url.startsWith(GOOGLE_LOGIN_UA)) {
+      headers['User-Agent'] = GOOGLE_LOGIN_UA
+      for (const key of Object.keys(headers)) if (/^sec-ch-ua/i.test(key)) delete headers[key]
+      return callback({ requestHeaders: headers })
+    }
+    if (Object.keys(headers).some((key) => /^sec-ch-ua$/i.test(key))) return callback({})
+    const hints = clientHints(headers['User-Agent'] || '')
+    callback(hints ? { requestHeaders: { ...headers, ...hints } } : {})
   })
 }
 
 // 「用 Google／Apple／X… 登入」若是開小視窗（Claude 的 Google 登入就是），要在 App 裡開、共用同一個登入分區，
-// 丟去系統瀏覽器的話登入結果回不來。只放行這些登入網域，其他外部連結照舊交給系統瀏覽器。
-// x.com／github.com 只認登入路徑：回答裡貼的一般連結仍交給系統瀏覽器
+// 丟去系統瀏覽器的話登入結果回不來。只放行這些登入網域，其他外部連結開成專案瀏覽器分頁。
+// x.com／github.com 只認登入路徑：回答裡貼的一般連結開成專案瀏覽器分頁
 const LOGIN_POPUPS = new Map([
   ['accounts.google.com', /^\//], ['appleid.apple.com', /^\//], ['login.microsoftonline.com', /^\//],
   ['login.live.com', /^\//], ['auth.openai.com', /^\//], ['accounts.x.ai', /^\//],
   ['x.com', /^\/i\/(oauth2|flow\/login)/], ['api.x.com', /^\/oauth/], ['github.com', /^\/login/]
 ])
 
+// 第三方網站常先開自己的 /login/google、/oauth/authorize 再轉去 Google；路徑某一段是這些字就當登入頁
+const AUTH_PATH = /(^|\/)(oauth2?|authorize|auth|log-?in|sign-?in|sso)(\/|$)/i
+
 function isLoginPopup(value) {
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' && !!LOGIN_POPUPS.get(url.hostname)?.test(url.pathname)
+    return url.protocol === 'https:' && (!!LOGIN_POPUPS.get(url.hostname)?.test(url.pathname) || AUTH_PATH.test(url.pathname))
   } catch { return false }
 }
 
@@ -106,10 +149,11 @@ function allowPermission(permission, details) {
 /**
  * 網頁版 AI 一個登入分區的設定（main 在 whenReady 叫）
  * @param {import('electron').Session} ses
- * @param {{ userAgent: string, shimPath: string }} opts
+ * @param {{ userAgent: string, shimPath: string, languages?: string }} opts
  */
-function setupSession(ses, { userAgent, shimPath }) {
-  ses.setUserAgent(chromeUserAgent(userAgent))
+function setupSession(ses, { userAgent, shimPath, languages }) {
+  // 第二個參數是 Accept-Language：不給的話只送一個 `zh-TW`，跟 navigator.languages 的三個對不上
+  ses.setUserAgent(chromeUserAgent(userAgent), languages || undefined)
   ses.registerPreloadScript({ type: 'frame', id: 'axondeck-ai-web-shim', filePath: shimPath })
   ses.setPermissionRequestHandler((_contents, permission, callback, details) => callback(allowPermission(permission, details)))
   ses.setPermissionCheckHandler((_contents, permission, _origin, details) => allowPermission(permission, details))
@@ -118,5 +162,5 @@ function setupSession(ses, { userAgent, shimPath }) {
 
 module.exports = {
   SITES, isSite, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup,
-  chromeUserAgent, allowPermission, setupSession
+  chromeUserAgent, allowPermission, setupSession, brandList, clientHints
 }

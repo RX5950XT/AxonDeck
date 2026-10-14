@@ -66,14 +66,14 @@ function float32ToWav(samples, sampleRate = 16000) {
   return buffer
 }
 
-const MAX_ASR_CLOUDS = 20
-const MAX_ASR_CLOUD_NAME = 24
-const MAX_ASR_URL = 300
-const MAX_ASR_KEY = 200
-const MAX_ASR_MODEL_ID = 120
+const MAX_ASR_CLOUDS = 30
+const MAX_ASR_CLOUD_NAME = 40
+const MAX_ASR_URL = 500
+const MAX_ASR_KEY = 10000
+const MAX_ASR_MODEL_ID = 200
 
 /** 一組設定底下最多幾顆模型 */
-const MAX_ASR_MODELS = 30
+const MAX_ASR_MODELS = 120
 
 /**
  * 多組雲端 ASR 設定（`asrClouds`）的正規化。形狀與守門跟聊天供應商同一套規矩：

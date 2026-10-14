@@ -17,6 +17,17 @@
 
 import { electronAPI, showToast } from './app.js'
 
+/** 兩包 llama.cpp 擇一即可；裝了 CUDA 就不必再裝 Vulkan */
+const LLAMA_RUNTIME_KEYS = ['llamaruntimecuda', 'llamaruntime']
+
+/**
+ * @param {Record<string, { downloaded?: boolean }> | null | undefined} modelsMap
+ * @returns {boolean}
+ */
+export function hasLlamaRuntime(modelsMap) {
+  return LLAMA_RUNTIME_KEYS.some((key) => modelsMap?.[key]?.downloaded)
+}
+
 /** 選項值編碼：本地 `local:<模型 key>`；ASR 雲端 `cloud`；LLM 雲端 `cloud:<供應商 id>:<模型 id>` */
 const CLOUD_VALUE = 'cloud'
 
@@ -43,7 +54,7 @@ function buildOptions(modelsMap, keys, cloudLabel) {
     .filter((key) => modelsMap?.[key])
     .map((key) => {
       const def = modelsMap[key]
-      const needsRuntime = def.requires && !modelsMap?.[def.requires]?.downloaded
+      const needsRuntime = def.requires && !hasLlamaRuntime(modelsMap)
       const ready = !!def.downloaded && !needsRuntime
       return {
         value: `local:${key}`,
@@ -102,6 +113,7 @@ export function translateOptions(modelsMap, settings, opts = {}) {
   for (const provider of providers) {
     const ready = Boolean(provider?.apiUrl && provider?.apiKey)
     for (const model of provider?.models || []) {
+      if (provider.imageModels?.includes(model)) continue
       options.push({
         value: `${CLOUD_VALUE}:${provider.id}:${model}`,
         label: `雲端 · ${provider.name || '未命名'} / ${model}${cloudSetupHint(provider)}`,
@@ -126,7 +138,7 @@ export function translateOptions(modelsMap, settings, opts = {}) {
 export function resolveCloudTranslate(settings) {
   const providers = Array.isArray(settings?.chatProviders) ? settings.chatProviders : []
   const provider = providers.find((p) => p.id === settings?.translateProviderId) || providers[0] || null
-  const models = provider?.models || []
+  const models = (provider?.models || []).filter((id) => !provider.imageModels?.includes(id))
   const modelId = models.includes(settings?.translateModelId) ? settings.translateModelId : (models[0] || '')
   return { provider, modelId, ready: Boolean(provider?.apiUrl && provider?.apiKey && modelId) }
 }
@@ -147,7 +159,7 @@ export function resolveScopedCloud(settings, value) {
   return {
     provider,
     modelId,
-    ready: Boolean(provider?.apiUrl && provider?.apiKey && provider?.models?.includes(modelId))
+    ready: Boolean(provider?.apiUrl && provider?.apiKey && provider?.models?.includes(modelId) && !provider.imageModels?.includes(modelId))
   }
 }
 

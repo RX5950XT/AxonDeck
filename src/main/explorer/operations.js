@@ -115,7 +115,7 @@ const RUNNER_MODES = new Set(['compress', 'extract'])
 
 function throwBadSpec(spec) {
   const runnerMode = RUNNER_MODES.has(spec.mode) && typeof spec.runner === 'function'
-  if (!['copy', 'move', 'trash'].includes(spec.mode) && !runnerMode) throw paths.fail('BAD_PATH', '操作類型不合法')
+  if (!['copy', 'move', 'trash', 'delete'].includes(spec.mode) && !runnerMode) throw paths.fail('BAD_PATH', '操作類型不合法')
   if (!Array.isArray(spec.sources) && !Array.isArray(spec.items)) throw paths.fail('BAD_PATH', '路徑不合法')
 }
 
@@ -144,7 +144,7 @@ async function executeItem(state, item, controller) {
   if (state.runner) result = await state.runner(item, opts)
   else if (state.mode === 'copy') result = await files.copyEntry(item.source, item.plannedDestination, opts)
   else if (state.mode === 'move') result = await files.moveEntry(item.source, item.plannedDestination, opts)
-  else result = await files.removeEntry(item.source)
+  else result = await files.removeEntry(item.source, { permanent: state.mode === 'delete' })
   item.destination = result && result.path ? result.path : item.plannedDestination
   if (result && result.skipped) {
     item.status = 'skipped'

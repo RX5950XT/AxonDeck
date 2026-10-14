@@ -1,5 +1,5 @@
 /**
- * CC Proxy頁的「用量統計」子分頁（renderer）。
+ * 用量統計（renderer）：工作區額度條上方抽屜的一塊，按條上「用量統計」開（quota-bar.js）。
  *
  * 跟工作區底下那條「訂閱額度」看的是兩件事：那邊是**還剩多少**（官方 API），
  * 這邊是**實際用掉多少 token、跑幾次、大概多少錢**（本機 session 記錄）。
@@ -95,19 +95,25 @@ function renderSummary() {
   const s = latest.summary
   host.replaceChildren()
 
+  const hero = el('div', 'cu-hero')
+  hero.append(el('span', 'cu-stat-label', '花費（估）'))
+  hero.append(el('span', 'cu-hero-value', formatMoney(s.costUsd)))
+  hero.append(el('span', 'cu-hero-sub', `${s.requests} 次請求`))
+  host.append(hero)
+
+  // 色點跟趨勢圖、分佈長條同一組顏色
   const cards = [
-    { label: '請求數', value: String(s.requests) },
-    { label: '輸入', value: formatTokens(s.input) },
-    { label: '輸出', value: formatTokens(s.output) },
-    { label: '快取讀取', value: formatTokens(s.cacheRead) },
+    { key: 'input', label: '輸入', value: s.input },
+    { key: 'output', label: '輸出', value: s.output },
+    { key: 'cacheRead', label: '快取讀取', value: s.cacheRead },
     // 快取寫入是真的要付錢的（而且比一般輸入貴），不列出來使用者會以為金額算錯
-    { label: '快取寫入', value: formatTokens((s.cacheWrite || 0) + (s.cacheWrite1h || 0)) },
-    { label: '花費（估）', value: formatMoney(s.costUsd) }
+    { key: 'cacheWrite', label: '快取寫入', value: (s.cacheWrite || 0) + (s.cacheWrite1h || 0) }
   ]
   for (const card of cards) {
     const node = el('div', 'cu-stat')
+    node.append(el('span', `cu-legend-dot is-${card.key}`))
     node.append(el('span', 'cu-stat-label', card.label))
-    node.append(el('span', 'cu-stat-value', card.value))
+    node.append(el('span', 'cu-stat-value', formatTokens(card.value)))
     host.append(node)
   }
 
@@ -122,6 +128,11 @@ function renderSummary() {
       note.style.cursor = 'pointer'
     }
   }
+
+  // 條上那顆按鈕順便帶目前範圍的花費，下次不用打開也看得到
+  const chip = document.getElementById('quotaStatsValue')
+  const rangeLabel = document.querySelector(`#cuRangeGroup [data-cu-range="${range}"]`)?.textContent?.trim() || ''
+  if (chip) chip.textContent = `${rangeLabel} ${formatMoney(s.costUsd)}`.trim()
 
   const syncedAt = document.getElementById('cuSyncedAt')
   if (syncedAt) {
@@ -217,6 +228,28 @@ function renderChartLegend() {
 }
 
 /**
+ * 分佈每一列底下的明細：一種 token 一格（色點、名稱、量、錢），沒有量的那種不列。
+ * 一長串「輸入 … · 輸出 … · 輸入 $…，輸出 $…」要來回對照才知道哪個錢配哪個量。
+ * @param {object} row
+ * @returns {HTMLElement | null}
+ */
+function partsGrid(row) {
+  const grid = el('div', 'cu-parts')
+  for (const part of TOKEN_PARTS) {
+    const amount = row[part.key] || 0
+    if (!amount) continue
+    const cell = el('span', 'cu-part')
+    cell.append(el('span', `cu-legend-dot is-${part.key}`))
+    cell.append(el('span', 'cu-part-label', part.label))
+    cell.append(el('span', 'cu-part-tokens', formatTokens(amount)))
+    const cost = row.costParts?.[part.key] || 0
+    if (cost > 0.00005) cell.append(el('span', 'cu-part-cost', formatMoney(cost)))
+    grid.append(cell)
+  }
+  return grid.childElementCount ? grid : null
+}
+
+/**
  * @param {string} hostId
  * @param {Array<object>} rows
  * @param {(row: object) => string} labelOf
@@ -248,8 +281,8 @@ function renderDistribution(hostId, rows, labelOf) {
       track.append(fill)
     }
     item.append(track)
-    const detail = partsText(row)
-    if (detail) item.append(el('span', 'cu-dist-parts', detail))
+    const parts = partsGrid(row)
+    if (parts) item.append(parts)
     // 例如 Antigravity 只統計得到經過反代的那段，不講的話數字看起來像完整的
     if (row.note) item.append(el('span', 'cu-dist-parts', row.note))
     host.append(item)

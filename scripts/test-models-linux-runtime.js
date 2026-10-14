@@ -15,7 +15,8 @@ if (process.platform === 'linux') {
   assert.match(files[0], /ubuntu-vulkan/)
   assert.ok(!files[0].includes('win-'))
   assert.equal(models.MODELS.llamaruntime.binary, 'llama-server')
-  assert.equal(models.MODELS.llamaruntimecuda, undefined)
+  // Linux CUDA 走官方 Ubuntu CUDA 產物（見 test-models-linux-cuda.js）
+  assert.match(models.MODELS.llamaruntimecuda.files[0], /ubuntu-cuda/)
 } else if (process.platform === 'win32') {
   assert.match(files[0], /win-vulkan/)
   assert.equal(models.MODELS.llamaruntime.binary, 'llama-server.exe')

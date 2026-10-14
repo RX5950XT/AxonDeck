@@ -97,26 +97,48 @@ const CUDA13_MIN_DRIVER = 580
  * @param {{ execFileFn?: Function }} [deps]
  * @returns {Promise<{ hasNvidia: boolean, driver: string, cudaReady: boolean }>}
  */
+/**
+ * Linux 沒裝 nvidia-smi（有些發行版拆成另一個套件）時，從核心模組讀驅動版本：
+ * `NVRM version: NVIDIA UNIX x86_64 Kernel Module  580.82.07  …` → '580.82.07'
+ * @param {string} text
+ */
+function parseProcNvidiaVersion(text) {
+  const match = /NVRM version:.*?Kernel Module\s+(?:for\s+\S+\s+)?(\d+\.\d+(?:\.\d+)?)/.exec(String(text || ''))
+  return match ? match[1] : ''
+}
+
+/** @param {string} driver */
+function driverInfo(driver) {
+  const major = Number(String(driver).split('.')[0]) || 0
+  return { hasNvidia: !!driver, driver, cudaReady: major >= CUDA13_MIN_DRIVER }
+}
+
 function nvidiaDriver(deps = {}) {
   const execFileFn = deps.execFileFn || require('child_process').execFile
+  const platform = deps.platform || ((typeof process === 'object' && process) ? process.platform : 'win32')
+  const readProc = deps.readProc || (() => require('fs').readFileSync('/proc/driver/nvidia/version', 'utf8'))
   return new Promise((resolve) => {
     const none = { hasNvidia: false, driver: '', cudaReady: false }
+    const fallback = () => {
+      if (platform !== 'linux') return none
+      try { return driverInfo(parseProcNvidiaVersion(readProc())) } catch { return none }
+    }
     try {
       execFileFn(
         'nvidia-smi',
         ['--query-gpu=driver_version', '--format=csv,noheader'],
         { timeout: 5000, windowsHide: true },
         (/** @type {any} */ error, /** @type {string} */ stdout) => {
-          if (error) { resolve(none); return }
+          if (error) { resolve(fallback()); return }
           const driver = String(stdout || '').split(/\r?\n/)[0].trim()
           const major = Number(driver.split('.')[0]) || 0
           resolve({ hasNvidia: !!driver, driver, cudaReady: major >= CUDA13_MIN_DRIVER })
         }
       )
     } catch {
-      resolve(none)
+      resolve(fallback())
     }
   })
 }
 
-module.exports = { parseDevices, pickDevice, listDevices, nvidiaDriver, CUDA13_MIN_DRIVER }
+module.exports = { parseDevices, pickDevice, listDevices, nvidiaDriver, parseProcNvidiaVersion, CUDA13_MIN_DRIVER }

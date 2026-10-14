@@ -2172,8 +2172,22 @@ registerHfModelsIpc({
   isMainSender: assertMainWindowSender
 })
 
+/**
+ * Linux／macOS：「安裝」分頁靠 WinGet 與 Windows 解除安裝紀錄，沒有對應實作——
+ * 回固定的中文說明，不去跑 winget／reg.exe。
+ */
+const APP_INSTALLER_UNSUPPORTED = 'Linux 版暫不支援「安裝」分頁：常用程式的安裝、更新與解除安裝靠 Windows 的 WinGet。請改用發行版的套件管理員（apt、dnf、pacman）或 Flatpak。'
+function unsupportedAppInstaller() {
+  const failNow = () => { throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: APP_INSTALLER_UNSUPPORTED }) }
+  return {
+    snapshot: () => ({ categories: [], checkedAt: null, scanning: false, scanError: APP_INSTALLER_UNSUPPORTED, busy: false, iconsStamp: 0,
+      batch: null, jobs: [], installed: [], catalog: [], unsupported: true }),
+    refresh: failNow, start: failNow, upgradeAll: failNow, icons: async () => ({})
+  }
+}
 let appInstaller = null
 function loadAppInstaller() {
+  if (!appInstaller && process.platform !== 'win32') appInstaller = unsupportedAppInstaller()
   if (!appInstaller) appInstaller = require('./app-installer').createInstaller({
     cacheDir: path.join(app.getPath('userData'), 'app-installers'),
     notify: (state) => sendToPages('appInstaller:state', state)
@@ -2224,16 +2238,24 @@ registerBreezeIpc({
   isMainSender: assertMainWindowSender
 })
 
+/** PDF 版面翻譯的 Python 執行環境（paddlepaddle＋uv）目前只鎖了 Windows wheel；其他平台回固定中文說明。 */
+const PDF_TRANSLATE_UNSUPPORTED = 'Linux 版暫不支援 PDF／圖片保留版面翻譯：版面辨識的 Python 執行環境目前只提供 Windows 版。一般文字翻譯不受影響。'
+async function loadPdfTranslateChecked() {
+  if (process.platform !== 'win32') {
+    throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: PDF_TRANSLATE_UNSUPPORTED })
+  }
+  return loadPdfTranslate()
+}
 registerPdfTranslateIpc({
   ipcMain,
   service: {
-    pick: async () => (await loadPdfTranslate()).pick(),
-    inspect: async (filename) => (await loadPdfTranslate()).inspect(filename),
-    pasteImage: async (payload) => (await loadPdfTranslate()).pasteImage(payload),
-    start: async (options) => (await loadPdfTranslate()).start(options),
-    cancel: async (jobId) => (await loadPdfTranslate()).cancel(jobId),
-    status: async () => (await loadPdfTranslate()).status(),
-    save: async (jobId) => (await loadPdfTranslate()).save(jobId)
+    pick: async () => (await loadPdfTranslateChecked()).pick(),
+    inspect: async (filename) => (await loadPdfTranslateChecked()).inspect(filename),
+    pasteImage: async (payload) => (await loadPdfTranslateChecked()).pasteImage(payload),
+    start: async (options) => (await loadPdfTranslateChecked()).start(options),
+    cancel: async (jobId) => (await loadPdfTranslateChecked()).cancel(jobId),
+    status: async () => (await loadPdfTranslateChecked()).status(),
+    save: async (jobId) => (await loadPdfTranslateChecked()).save(jobId)
   },
   isMainSender: assertMainWindowSender
 })

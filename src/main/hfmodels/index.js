@@ -200,7 +200,7 @@ async function hardwareInfo() {
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
     autoRuntime: !tempUserData,
     // PDF GPU 加速只給驅動夠新的 NVIDIA 顯示卡（cu129 要 576 版以上，cudaReady 的門檻更高）
-    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime', ...(nvidia.cudaReady ? ['pdfruntimegpu'] : [])].map((key) => ({
+    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime', ...(nvidia.cudaReady ? ['pdfruntimegpu'] : [])].filter((key) => Boolean(models.MODELS[key])).map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,

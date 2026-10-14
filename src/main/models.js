@@ -17,7 +17,25 @@ const { removeTreeSync } = require('./safe-rm')
  */
 const LLAMA_BUILD = 'b10666'
 const BREEZE_BUILD = 'v0.1.0'
-const BREEZE_DIR = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
+/**
+ * Breeze-TTS-2 官方預建：Windows x64 zip、Linux x64 tar.gz（glibc ≥ 2.35，需 libvulkan1；沒 GPU 會退 CPU）。
+ * 官方沒有 Linux arm64／macOS 產物，這些平台不列 Breeze。
+ */
+function breezeRuntime() {
+  if (HOST.platform === 'win32') {
+    const dir = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
+    return { dir, file: `${dir}.zip`, totalBytes: 73809893,
+      check: ['breeze-server.exe', 'breeze-cli.exe', 'libbreeze.dll'], binary: 'breeze-server.exe',
+      sha256: '1c5178577a9fb90e84b43269880d17acafd466030abf615c6df4ccc163eac0d8' }
+  }
+  if (HOST.platform === 'linux' && HOST.arch === 'x64') {
+    const dir = `breeze-tts-2-${BREEZE_BUILD}-linux-x64-vulkan`
+    return { dir, file: `${dir}.tar.gz`, totalBytes: 72195854,
+      check: ['breeze-server', 'breeze-cli'], binary: 'breeze-server',
+      sha256: '41f309bea160cdeb3c01721f97ea66125b4047a5726b01fd5559f1abb608b2a0' }
+  }
+  return null
+}
 
 /**
  * 模型 registry
@@ -84,6 +102,7 @@ function llamaCudaRuntime() {
 
 const _llamaVulkan = llamaVulkanRuntime()
 const _llamaCuda = llamaCudaRuntime()
+const _breeze = breezeRuntime()
 
 const MODELS = {
   paddleocrvl16: {
@@ -103,6 +122,8 @@ const MODELS = {
       'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': '204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a'
     }
   },
+  // PDF 版面翻譯的 Python 執行環境只鎖了 Windows wheel（paddlepaddle win_amd64＋uv.exe），其他平台不列
+  ...(HOST.platform === 'win32' ? {
   ppdoclayoutv3: {
     label: 'PP-DocLayoutV3 · 版面辨識',
     kind: 'ocr',
@@ -136,6 +157,8 @@ const MODELS = {
     totalBytes: 5000000000,
     files: []
   },
+  } : {}),
+  ...(_breeze ? {
   breezetts2q8: {
     label: 'Breeze-TTS-2 · Q8_0',
     kind: 'tts',
@@ -154,14 +177,15 @@ const MODELS = {
     kind: 'runtime',
     runtime: 'breeze',
     description: '語音生成專用；Vulkan 與 CPU，和 llama.cpp 分開。',
-    totalBytes: 73809893,
+    totalBytes: _breeze.totalBytes,
     base: `https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/${BREEZE_BUILD}/`,
-    files: [`${BREEZE_DIR}.zip`],
+    files: [_breeze.file],
     archive: true,
-    check: ['breeze-server.exe', 'breeze-cli.exe', 'libbreeze.dll'].map(name => `${BREEZE_DIR}/${name}`),
-    binary: `${BREEZE_DIR}/breeze-server.exe`,
-    sha256: { [`${BREEZE_DIR}.zip`]: '1c5178577a9fb90e84b43269880d17acafd466030abf615c6df4ccc163eac0d8' }
+    check: _breeze.check.map(name => `${_breeze.dir}/${name}`),
+    binary: `${_breeze.dir}/${_breeze.binary}`,
+    sha256: { [_breeze.file]: _breeze.sha256 }
   },
+  } : {}),
   qwen3asr: {
     label: 'Qwen3-ASR 0.6B · Q8_0',
     kind: 'asr',

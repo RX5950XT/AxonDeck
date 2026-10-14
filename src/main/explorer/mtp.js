@@ -305,4 +305,23 @@ function readOnly() {
   return paths.fail('READ_ONLY', '手機裡不能改名或新增，只能複製進出與刪除')
 }
 
-module.exports = { PREFIX, isMtp, parse, listDevices, list, resolve, inspect, realPath, openPath, copyOut, copyIn, remove, readOnly }
+const windowsMtp = { PREFIX, isMtp, parse, listDevices, list, resolve, inspect, realPath, openPath, copyOut, copyIn, remove, readOnly }
+
+/**
+ * Linux：同一套 `mtp:` 虛擬路徑，底層換成 gvfs（gio）／jmtpfs／simple-mtpfs（見 mtp-linux.js）。
+ * Windows 的匯出完全不變。
+ */
+function linuxMtp() {
+  const impl = require('./mtp-linux').createLinuxMtp({
+    parse,
+    PREFIX,
+    fail: paths.fail,
+    files,
+    zipTempRoot: () => zip.tempRoot(),
+    mediaOpen: (file) => mediaPlayer.openPath(file),
+    resolveExisting: (item) => paths.resolveExisting(item)
+  })
+  return { PREFIX, isMtp, parse, readOnly, ...impl }
+}
+
+module.exports = require('../platform').isLinux ? linuxMtp() : windowsMtp

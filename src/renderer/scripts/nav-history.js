@@ -6,6 +6,7 @@
  */
 import { electronAPI, switchPage, setChatPaneMode, getChatPaneMode } from './app.js'
 import { currentChatId, openChatById } from './chat-page.js'
+import { pageOwner } from './page-windows.js'
 
 const MAX_STEPS = 50
 
@@ -15,10 +16,13 @@ let index = -1
 let restoring = false
 
 function here() {
-  const page = /** @type {HTMLElement | null} */ (document.querySelector('.nav-tab.active'))?.dataset.page || ''
+  // 功能頁各自一個 renderer：這份只記自己這一頁（跨頁的足跡在 main，`pages.history`）。
+  // 讀 .nav-tab.active 會在頁面剛載入時讀到 index.html 預設的 chat，多記一步假的
+  const owned = pageOwner && pageOwner !== 'host' ? pageOwner : ''
+  const page = owned || /** @type {HTMLElement | null} */ (document.querySelector('.nav-tab.active'))?.dataset.page || ''
   if (page !== 'chat') return { page, pane: '', chatId: '' }
   const pane = getChatPaneMode()
-  return { page, pane, chatId: pane === 'workspace' ? '' : currentChatId() }
+  return { page, pane, chatId: pane === 'workspace' || pane === 'browser' ? '' : currentChatId() }
 }
 
 /** 切頁、切主區、開對話之後叫；跟目前這一步一樣就不記 */
@@ -42,7 +46,7 @@ async function restore(loc) {
   switchPage(loc.page)
   if (loc.page !== 'chat') return
   if (loc.chatId) await openChatById(loc.chatId)
-  else setChatPaneMode(/** @type {'chat' | 'workspace' | 'web'} */ (loc.pane))
+  else setChatPaneMode(/** @type {'chat' | 'workspace' | 'web' | 'browser'} */ (loc.pane))
 }
 
 /** @param {number} delta -1 上一頁、1 下一頁 */
@@ -52,7 +56,10 @@ async function go(delta) {
   if (here().page === 'explorer' && (await import('./explorer-page.js')).explorerHistory(delta)) return
   noteLocation()
   const next = index + delta
-  if (next < 0 || next >= steps.length) return
+  if (next < 0 || next >= steps.length) {
+    await electronAPI.pages?.history(delta)
+    return
+  }
   index = next
   restoring = true
   try {

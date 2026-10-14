@@ -17,11 +17,14 @@
  */
 
 const { execFile } = require('child_process')
+const http = require('http')
 
 /** 單次指令逾時 */
 const TIMEOUT_MS = 8000
 /** 最多列幾個埠 */
 const MAX_PORTS = 200
+/** HTTP 探測逾時：本機服務該立刻回，等不到就當不是網頁 */
+const PROBE_MS = 1200
 /** 這些埠是 Windows 自己的服務，列出來只是雜訊 */
 const NOISE_PORTS = new Set([135, 139, 445, 5040, 7680])
 
@@ -102,8 +105,37 @@ function parseTasklist(raw) {
 }
 
 /**
- * 目前在聽的本機埠，依埠號小到大。
- * @returns {Promise<Array<{ port: number, pid: number, process: string }>>}
+ * 這個埠開起來是不是一個真的網頁：對 127.0.0.1 送一個 GET，2xx 且是 HTML、或 3xx 轉址才算。
+ * 4xx／5xx（系統服務、Discord RPC）和 JSON／純文字 API（Ollama）開了只是一片錯誤或一行字，不算。
+ * 只收標頭就斷線，不讀內容；非 HTTP 服務會回亂碼或不回，一律當不是網頁。
+ * @param {number} port
+ * @returns {Promise<boolean>}
+ */
+function probeHttp(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_MS, agent: false }, (res) => {
+      res.destroy()
+      resolve(isWebPage(res.statusCode, res.headers['content-type']))
+    })
+    req.on('timeout', () => req.destroy())
+    req.on('error', () => resolve(false))
+  })
+}
+
+/**
+ * @param {number | undefined} status
+ * @param {string | undefined} contentType
+ * @returns {boolean}
+ */
+function isWebPage(status, contentType) {
+  if (!status) return false
+  if (status >= 300 && status < 400) return true
+  return status >= 200 && status < 300 && /text\/html/i.test(String(contentType || ''))
+}
+
+/**
+ * 目前在聽的本機埠，依埠號小到大；`web` 是開得起來的網頁。
+ * @returns {Promise<Array<{ port: number, pid: number, process: string, web: boolean }>>}
  */
 async function list() {
   const [netstat, tasks] = await Promise.all([
@@ -112,11 +144,13 @@ async function list() {
   ])
   const ports = parseNetstat(netstat)
   const names = parseTasklist(tasks)
-  return [...ports.entries()]
+  const rows = [...ports.entries()]
     .filter(([port]) => !NOISE_PORTS.has(port))
     .sort((a, b) => a[0] - b[0])
     .slice(0, MAX_PORTS)
     .map(([port, pid]) => ({ port, pid, process: names.get(pid) || '' }))
+  const web = await Promise.all(rows.map((row) => probeHttp(row.port)))
+  return rows.map((row, i) => ({ ...row, web: web[i] }))
 }
 
 module.exports = {
@@ -125,5 +159,6 @@ module.exports = {
   parseAddress,
   parseNetstat,
   parseTasklist,
+  isWebPage,
   list
 }

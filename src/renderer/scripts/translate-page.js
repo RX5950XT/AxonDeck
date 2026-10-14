@@ -1,5 +1,5 @@
 /**
- * AxonDeck - 翻譯與 TTS 頁
+ * AxonDeck - 翻譯頁
  * 按鈕式翻譯 + Edge TTS 朗讀；engine owner = translate
  */
 
@@ -20,6 +20,7 @@ import {
   warnNotReady,
   resolveCloudTranslate
 } from './model-picker.js'
+import { initPdfTranslate, refreshPdfTranslate, isPdfRunning, detachPdfFile } from './pdf-translate.js'
 
 /** @type {{ value: string, label: string, ready: boolean }[]} */
 let modelOpts = []
@@ -46,12 +47,10 @@ async function refreshModelBar() {
 }
 
 /**
- * 單次送模型的字數上限：本地 context 2048 tokens（prompt + 輸出）共用。
- * 通用預設 600；LinguaForge 對齊出貨用 280（main 亦會再切 ≤280）。
- * 雲端整篇送出；本地超過上限才自動分段依序翻譯。
+ * 單次送模型的字數上限。本地 ctx 8192：原文約 2000 字，譯文另留空間。
+ * 雲端整篇送出；本地超過上限才依句尾分段。
  */
-const CHUNK_CHARS_GENERIC = 600
-const CHUNK_CHARS_LINGUAFORGE = 280
+const LOCAL_CHUNK_CHARS = 2000
 
 /**
  * 依句尾／換行切成單位再貪婪合併到 max（保留原始尾端空白供接回）
@@ -59,7 +58,7 @@ const CHUNK_CHARS_LINGUAFORGE = 280
  * @param {number} [max]
  * @returns {string[]}
  */
-export function splitForTranslate(text, max = CHUNK_CHARS_GENERIC) {
+export function splitForTranslate(text, max = LOCAL_CHUNK_CHARS) {
   const units = String(text || '').split(/(?<=[。．.！!？?…；;\n])/)
   const chunks = []
   let buf = ''
@@ -182,7 +181,9 @@ export function initTranslatePage() {
   el.copyInputBtn?.addEventListener('click', () => copyText(el.input.value, '已複製輸入'))
   el.copyOutputBtn?.addEventListener('click', () => copyText(el.output.value, '已複製譯文'))
   el.clearInputBtn?.addEventListener('click', () => {
+    if (isPdfRunning()) return
     el.input.value = ''
+    detachPdfFile()
     onInputChange()
   })
   el.speakInputBtn?.addEventListener('click', () => toggleSpeak('input'))
@@ -202,15 +203,49 @@ export function initTranslatePage() {
     await syncEngineForSettings()
   })
 
+  initGlossary()
   updateCharCount()
   setOutputState('idle')
   refreshUiState()
+  initPdfTranslate({ getLanguages: () => ({ sourceLang: el.sourceLang.value, targetLang: el.targetLang.value }) })
+}
+
+/** 術語表：main 端在沒設定過時回內建清單；存 null＝恢復內建 */
+function initGlossary() {
+  const input = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('translateGlossaryInput'))
+  if (!input) return
+  const load = async () => { input.value = await electronAPI.store.get('translateGlossary', '') }
+  const save = async (value) => {
+    try {
+      await electronAPI.store.set('translateGlossary', value)
+      await load()
+      showToast('術語表已儲存')
+    } catch (error) {
+      showToast(`術語表儲存失敗：${cleanIpcError(error)}`, 'error')
+    }
+  }
+  input.addEventListener('change', () => save(input.value))
+  document.getElementById('translateGlossaryReset')?.addEventListener('click', () => save(null))
+  void load().catch(() => {})
+  const builtin = /** @type {HTMLInputElement | null} */ (document.getElementById('translateGlossaryBuiltin'))
+  if (!builtin) return
+  builtin.addEventListener('change', async () => {
+    try {
+      await electronAPI.store.set('translateGlossaryBuiltin', builtin.checked)
+      showToast(builtin.checked ? '已啟用內建學術名詞庫' : '已關閉內建學術名詞庫')
+    } catch (error) {
+      builtin.checked = !builtin.checked
+      showToast(`設定失敗：${cleanIpcError(error)}`, 'error')
+    }
+  })
+  void electronAPI.store.get('translateGlossaryBuiltin', true).then((on) => { builtin.checked = on }).catch(() => {})
 }
 
 /**
  * 進入翻譯分頁
  */
 export async function prewarmTranslatePage() {
+  await refreshPdfTranslate()
   settings = await getSettings()
   await refreshModelBar()
   await refreshUiState()
@@ -340,22 +375,17 @@ async function refreshUiState() {
       el.runBtn.disabled = false
       el.runBtn.textContent = '停止'
     } else {
+      el.runBtn.textContent = '翻譯'
       el.runBtn.disabled = !canTranslate
     }
   }
   updateSpeakOutputEnabled()
 }
 
-/**
- * 依當前本地翻譯模型選分段上限（LinguaForge 對齊出貨 250–300）
- */
+/** 雲端整篇送；本地兩顆同一段長 */
 function resolveChunkChars() {
   if (settings?.translator === 'cloud') return Infinity
-  const key = settings?.localTranslateModel
-  // 兩個量化（Q8／Q4）是同一顆模型，切段長度相同
-  return String(key || '').startsWith('linguaforge08')
-    ? CHUNK_CHARS_LINGUAFORGE
-    : CHUNK_CHARS_GENERIC
+  return LOCAL_CHUNK_CHARS
 }
 
 function updateCharCount() {
@@ -456,7 +486,6 @@ async function runTranslate() {
     showToast(el.bannerText?.textContent || '翻譯尚未就緒，請到設定檢查', 'error')
     return
   }
-
   const text = (el.input?.value || '').trim()
   if (!text) {
     showToast('請輸入要翻譯的文字', 'error')

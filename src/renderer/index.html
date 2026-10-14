@@ -14,6 +14,8 @@
     <link rel="stylesheet" href="./styles/themes.css" />
     <link rel="stylesheet" href="./styles/main.css" />
     <link rel="stylesheet" href="./styles/explorer-operations.css" />
+    <link rel="stylesheet" href="./styles/speech.css" />
+    <link rel="stylesheet" href="./styles/app-installer.css" />
   </head>
   <body>
     <div id="app" class="app-container">
@@ -36,17 +38,17 @@
             <span class="nav-icon" data-icon="folder"></span>
             <span class="nav-text">檔案</span>
           </button>
-          <button class="nav-tab" data-page="ccswitch" title="CC Proxy" aria-label="CC Proxy">
-            <span class="nav-icon" data-icon="claude"></span>
-            <span class="nav-text">CC Proxy</span>
-          </button>
           <button class="nav-tab" data-page="stt" title="語音轉文字" aria-label="語音轉文字">
             <span class="nav-icon" data-icon="mic"></span>
             <span class="nav-text">語音轉文字</span>
           </button>
-          <button class="nav-tab" data-page="translate" title="翻譯與 TTS" aria-label="翻譯與 TTS">
+          <button class="nav-tab" data-page="translate" title="翻譯" aria-label="翻譯">
             <span class="nav-icon" data-icon="languages"></span>
-            <span class="nav-text">翻譯與 TTS</span>
+            <span class="nav-text">翻譯</span>
+          </button>
+          <button class="nav-tab" data-page="speech" title="文字轉語音" aria-label="文字轉語音">
+            <span class="nav-icon" data-icon="speaker"></span>
+            <span class="nav-text">文字轉語音</span>
           </button>
           <button class="nav-tab" data-page="sysmon" title="系統監控" aria-label="系統監控">
             <span class="nav-icon" data-icon="activity"></span>
@@ -96,6 +98,17 @@
                   </button>
                   <button
                     type="button"
+                    class="sidebar-mode"
+                    id="sidebarModeBrowser"
+                    role="tab"
+                    data-mode="browser"
+                    aria-controls="browserPanel"
+                    aria-selected="false"
+                  >
+                    Browser
+                  </button>
+                  <button
+                    type="button"
                     class="sidebar-mode active"
                     id="sidebarModeChats"
                     role="tab"
@@ -116,6 +129,19 @@
                   <div class="proj-unified-list">
                     <div id="projList" class="chat-list proj-list" aria-label="專案清單"></div>
                   </div>
+                </section>
+
+                <!-- Browser 模式的分頁清單（browser-page.js）；網頁在 #browserMain -->
+                <section class="sidebar-panel browser-panel" id="browserPanel" role="tabpanel" hidden>
+                  <div class="bt-head">
+                    <button type="button" id="browserPinBtn" class="btn-icon bt-pin" title="固定側欄（不自動收起）" aria-label="固定側欄" aria-pressed="false">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z" /><path d="M12 14v6" /></svg>
+                    </button>
+                  </div>
+                  <div id="browserTabList" class="bt-list" role="list" aria-label="瀏覽器分頁"></div>
+                  <button type="button" id="browserNewTabBtn" class="bt-new" title="新分頁 (Ctrl+T)">
+                    <span class="bt-icon" aria-hidden="true">＋</span><span class="bt-label">新分頁</span><kbd class="bt-label">Ctrl+T</kbd>
+                  </button>
                 </section>
 
                 <section class="sidebar-panel" id="chatPanel" role="tabpanel">
@@ -172,6 +198,20 @@
 
               <!-- 網頁版 AI 對話：webview 第一次打開才建，久沒看會收掉（網址存在那則對話，下次接著開） -->
               <div class="ai-web-main hidden" id="aiWebMain"></div>
+
+              <!-- Browser 模式：跟專案瀏覽器同一個 partition（登入狀態、擴充功能共用） -->
+              <div class="ws-browser browser-main hidden" id="browserMain">
+                <div class="ws-browser-bar">
+                  <button type="button" id="browserBackBtn" class="btn-icon" title="上一頁" aria-label="上一頁" disabled>←</button>
+                  <button type="button" id="browserFwdBtn" class="btn-icon" title="下一頁" aria-label="下一頁" disabled>→</button>
+                  <button type="button" id="browserReloadBtn" class="btn-icon" title="重新整理" aria-label="重新整理">⟳</button>
+                  <input type="text" id="browserUrl" class="input input-sm ws-browser-url" placeholder="輸入網址或搜尋（Google AI Mode）" aria-label="網址或搜尋" />
+                  <div id="browserActions" class="ws-browser-actions" role="group" aria-label="擴充功能圖示" hidden></div>
+                  <button type="button" id="browserExtBtn" class="btn-icon" title="擴充功能" aria-label="擴充功能">🧩</button>
+                  <button type="button" id="browserExternalBtn" class="btn btn-secondary btn-sm">用系統瀏覽器開</button>
+                </div>
+                <div id="browserFrame" class="ws-browser-frame"></div>
+              </div>
 
               <div class="chat-main" id="chatMain">
                 <div id="chatBanner" class="translate-banner hidden" role="status">
@@ -257,6 +297,26 @@
                 </div>
                 <p id="chatError" class="live-error hidden" role="alert"></p>
               </div>
+
+              <!-- 對話／網頁版 AI 裡點的連結開在這裡；跟專案瀏覽器同一個 partition（登入狀態、擴充功能共用） -->
+              <div
+                id="chatBrowserResizer"
+                class="sidebar-resizer sidebar-resizer-right chat-browser-part"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="調整瀏覽器寬度"
+                tabindex="0"
+                hidden
+              ></div>
+              <aside id="chatBrowser" class="chat-browser chat-browser-part" aria-label="瀏覽器" hidden>
+                <div class="ws-browser-bar">
+                  <button type="button" id="chatBrowserBackBtn" class="btn-icon" title="上一頁" aria-label="上一頁">←</button>
+                  <button type="button" id="chatBrowserReloadBtn" class="btn-icon" title="重新整理" aria-label="重新整理">⟳</button>
+                  <span id="chatBrowserUrl" class="chat-browser-url"></span>
+                  <button type="button" id="chatBrowserCloseBtn" class="btn-icon" title="關閉" aria-label="關閉瀏覽器">✕</button>
+                </div>
+                <div id="chatBrowserFrame" class="ws-browser-frame"></div>
+              </aside>
 
               <!--
                 工作區主區：跟聊天共用這一頁（`#chatMain` ⇄ `#termMain` 二選一）。
@@ -453,7 +513,10 @@
                         placeholder="http://localhost:5173"
                         aria-label="網址"
                       />
-                      <button type="button" id="wsBrowserGoBtn" class="btn btn-secondary btn-sm">前往</button>
+                      <div id="wsBrowserActions" class="ws-browser-actions" role="group" aria-label="擴充功能圖示" hidden></div>
+                      <button type="button" id="wsBrowserExtBtn" class="btn-icon" title="擴充功能" aria-label="擴充功能">
+                        🧩
+                      </button>
                       <button type="button" id="wsBrowserDevBtn" class="btn-icon" title="開發人員工具 (F12)" aria-label="開發人員工具">
                         ⛭
                       </button>
@@ -473,6 +536,52 @@
                     </div>
                   </div>
 
+                  <!-- MCP 與 Skills：右側欄「MCP／Skills」在目前專案開的分頁；五家共用最上面的切換（ccswitch-page.js） -->
+                  <div id="wsCcTools" class="ws-cc-tools" hidden>
+                    <header class="cc-tools-head">
+                      <h2 class="cc-tools-title">MCP 與 Skills</h2>
+                      <div id="ccHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
+                    </header>
+                    <p id="ccToolsError" class="live-error hidden cc-page-error" role="alert"></p>
+                    <p id="ccToolsStatus" class="cc-status hidden cc-page-status" role="status" aria-live="polite"></p>
+                    <div class="cc-tools-grid">
+                      <div class="cc-tools-col">
+                        <section class="cc-panel" id="ccMcpPanel" aria-labelledby="ccMcpTitle">
+                          <div class="cc-panel-head">
+                            <h2 id="ccMcpTitle" class="cc-panel-title">MCP 伺服器</h2>
+                            <button type="button" id="ccAddMcpBtn" class="btn btn-primary btn-sm">新增伺服器</button>
+                          </div>
+                          <p id="ccMcpPath" class="cc-panel-desc"></p>
+                          <div id="ccMcpList" class="cc-list" role="list"></div>
+                          <p id="ccMcpEmpty" class="cc-empty hidden">還沒有 MCP 伺服器</p>
+                        </section>
+
+                        <section class="cc-panel" aria-labelledby="ccSkillTitle">
+                          <div class="cc-panel-head">
+                            <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
+                            <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                          </div>
+                          <p id="ccSkillPath" class="cc-panel-desc"></p>
+                          <div id="ccSkillList" class="cc-list" role="list"></div>
+                          <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
+                        </section>
+                      </div>
+                      <section class="cc-panel cc-memory-panel" id="ccMemoryPanel" aria-labelledby="ccMemoryTitle">
+                        <div class="cc-panel-head">
+                          <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶</h2>
+                          <span class="cc-head-actions">
+                            <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                            <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
+                          </span>
+                        </div>
+                        <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔"></div>
+                        <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
+                                  aria-label="記憶檔內容"></textarea>
+                        <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
+                      </section>
+                    </div>
+                  </div>
+
                   <!-- AI 會話結構化卡片檢視面板（不用 resume，直接檢視） -->
                   <div id="wsAiSession" class="ws-ai-session" hidden>
                     <div class="ws-ai-session-bar" id="wsAiSessionBar">
@@ -480,7 +589,7 @@
                       <button type="button" id="wsAiResumeBtn" class="btn btn-primary btn-sm">在新終端機接續</button>
                       <button type="button" id="wsAiResumeIntoBtn" class="btn btn-secondary btn-sm" hidden>送進現有終端機</button>
                       <button type="button" id="wsAiCopyPathBtn" class="btn btn-secondary btn-sm" hidden title="複製這段對話記錄檔的完整路徑">複製路徑</button>
-                      <span class="ws-editor-spacer"></span>
+                      <button type="button" id="wsAiFindBtn" class="btn btn-secondary btn-sm" title="搜尋目前對話紀錄（Ctrl+F）">搜尋</button>
                       <span class="ws-ai-session-meta" id="wsAiSessionMeta"></span>
                     </div>
                     <div class="ws-ai-session-body" id="wsAiSessionBody"></div>
@@ -489,11 +598,83 @@
 
                 <!-- 訂閱額度：七家官方端點，一家一顆，點開看完整那張卡；拖曳可排序（quota-bar.js） -->
                 <div class="quota-bar" id="quotaBar" role="region" aria-label="訂閱額度">
+                  <!-- 額度條上方的抽屜：供應商切換／用量統計（原本 CC Proxy 頁），點條左邊兩顆按鈕開關 -->
+                  <div id="quotaDrawer" class="quota-drawer" hidden>
+                    <div class="quota-drawer-panel" id="quotaDrawerProviders" role="region" aria-label="Claude Code 供應商" hidden>
+                      <p id="ccError" class="live-error hidden cc-page-error" role="alert"></p>
+                      <p id="ccStatus" class="cc-status hidden cc-page-status" role="status" aria-live="polite"></p>
+                      <section class="cc-panel" aria-label="供應商">
+                        <p id="ccLivePath" class="cc-panel-desc"></p>
+                        <div id="ccGateway" class="cc-gateway">
+                          <span id="ccGatewayDot" class="agy-dot" aria-hidden="true"></span>
+                          <span class="cc-gateway-label">轉換閘道</span>
+                          <span id="ccGatewayText" class="cc-gateway-text" role="status" aria-live="polite"></span>
+                        </div>
+                        <div id="ccProviderList" class="cc-tiles" role="list"></div>
+                      </section>
+                    </div>
+                    <div class="quota-drawer-panel" id="quotaDrawerStats" role="region" aria-label="用量統計" hidden>
+                      <div class="cu-dash-head">
+                        <h2 id="cuTitle" class="cc-panel-title">用量統計</h2>
+                        <span id="cuSyncedAt" class="cu-synced">尚未掃描</span>
+                        <div class="cu-head-actions">
+                            <div id="cuRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
+                              <button type="button" class="agy-range-btn" data-cu-range="24h" aria-pressed="false">24 小時</button>
+                              <button type="button" class="agy-range-btn is-active" data-cu-range="7d" aria-pressed="true">7 天</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="30d" aria-pressed="false">30 天</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="all" aria-pressed="false">全部</button>
+                            </div>
+                            <button type="button" id="cuPricesBtn" class="btn btn-secondary btn-sm">單價</button>
+                            <button type="button" id="cuSyncBtn" class="btn btn-primary btn-sm"
+                              title="增量掃描本機 session 記錄；規則改版會自動重讀">掃描本機記錄</button>
+                        </div>
+                      </div>
+                      <p id="cuError" class="live-error hidden" role="alert"></p>
+                      <p id="cuUncosted" class="cu-note hidden" role="status"></p>
+
+                      <!-- 左：總計（花費＋四種 token，色點兼當圖例）在上、趨勢在下；右：依工具／依模型 -->
+                      <div class="cu-dash">
+                        <section class="cc-panel" aria-label="總計">
+                          <div id="cuSummary" class="cu-summary"></div>
+                        </section>
+
+                        <section class="cc-panel cu-trend" aria-labelledby="cuTrendTitle">
+                          <div class="cu-section-head">
+                            <h3 id="cuTrendTitle" class="cu-dist-title">趨勢</h3>
+                            <div id="cuChartLegend" class="cu-legend"></div>
+                          </div>
+                          <div id="cuChart" class="cu-chart" role="img" aria-label="用量趨勢"></div>
+                        </section>
+
+                        <section class="cc-panel cu-breakdown" aria-label="分佈">
+                          <div class="cu-dist">
+                            <h3 class="cu-dist-title">依工具</h3>
+                            <div id="cuProviders" class="cc-list"></div>
+                          </div>
+                          <div class="cu-dist">
+                            <h3 class="cu-dist-title">依模型</h3>
+                            <div id="cuModels" class="cc-list"></div>
+                          </div>
+                        </section>
+                      </div>
+                      <p class="cu-footnote">花費依 API 公開單價估算；訂閱方案扣的是額度，不是這筆錢。Claude Code 長對話幾乎都是快取讀取。</p>
+                    </div>
+                  </div>
+                  <div class="quota-dash" role="group" aria-label="Claude Code">
+                    <button type="button" id="quotaProviderBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="切換 Claude Code 供應商">
+                      <span id="quotaGatewayDot" class="agy-dot is-stopped" aria-hidden="true"></span>
+                      <span class="quota-dash-label">供應商</span>
+                      <span id="quotaProviderName" class="quota-dash-value">—</span>
+                    </button>
+                    <button type="button" id="quotaStatsBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="本機記錄的 token 用量與估計花費">
+                      <span class="quota-dash-label">用量統計</span>
+                      <span id="quotaStatsValue" class="quota-dash-value"></span>
+                    </button>
+                  </div>
                   <div class="quota-items" id="quotaItems" role="list" aria-label="各家額度"></div>
                   <div class="quota-bar-side">
                     <span class="quota-last-sync" id="quotaLastSync" role="status" aria-live="polite">尚未同步</span>
                     <button type="button" id="quotaSyncBtn" class="btn-icon quota-bar-btn" title="立即同步額度" aria-label="立即同步額度">↻</button>
-                    <button type="button" id="quotaDiagnosticsBtn" class="btn-icon quota-bar-btn" title="同步診斷" aria-label="同步診斷">ⓘ</button>
                     <button type="button" id="quotaSettingsBtn" class="btn-icon quota-bar-btn" title="顯示設定" aria-label="額度顯示設定">⚙</button>
                   </div>
                   <div id="quotaPopover" class="quota-popover" popover="auto" aria-label="額度詳情"></div>
@@ -529,7 +710,10 @@
                     AI 記錄
                   </button>
                   <button type="button" class="ws-right-tab" role="tab" data-panel="ports" aria-selected="false">
-                    埠號
+                    Port
+                  </button>
+                  <button type="button" class="ws-right-tab" id="wsCcToolsBtn" title="在目前專案開「MCP 與 Skills」分頁">
+                    MCP/Skills
                   </button>
                 </div>
 
@@ -571,7 +755,7 @@
                 <div class="ws-right-body" id="wsPanelGit" role="tabpanel" hidden>
                   <div class="ws-right-head">
                     <span class="ws-git-branch" id="wsGitBranch">—</span>
-                    <button type="button" id="wsGitHubBtn" class="btn btn-secondary btn-sm" title="沒有 GitHub 遠端倉庫" aria-label="在瀏覽器開啟 GitHub 倉庫" disabled>GitHub</button>
+                    <button type="button" id="wsGitHubBtn" class="btn-icon" title="沒有 GitHub 遠端倉庫" aria-label="開啟 GitHub 倉庫" disabled><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></button>
                     <button type="button" id="wsGitOpenAllBtn" class="btn-icon" title="開啟所有變更 (Review)" aria-label="開啟所有變更">⇗</button>
                     <button type="button" id="wsGitPullBtn" class="btn-icon" title="拉取（ff-only）" aria-label="拉取上游">⇣</button>
                     <button type="button" id="wsGitRefreshBtn" class="btn-icon" title="重新整理" aria-label="重新整理 Git 狀態">
@@ -656,15 +840,15 @@
                   <div class="ws-agent-list" id="wsAgentList" aria-label="AI 對話記錄"></div>
                 </div>
 
-                <!-- 埠號：這台機器正在聽的本機 TCP 埠，點一下用內建瀏覽器開 -->
+                <!-- Port：這台機器正在聽的本機 TCP 埠；開得起來的網頁在上面，點一下用內建瀏覽器開 -->
                 <div class="ws-right-body" id="wsPanelPorts" role="tabpanel" hidden>
                   <div class="ws-right-head">
                     <span class="ws-right-project">本機正在監聽</span>
-                    <button type="button" id="wsPortsRefreshBtn" class="btn-icon" title="重新整理" aria-label="重新整理埠號清單">
+                    <button type="button" id="wsPortsRefreshBtn" class="btn-icon" title="重新整理" aria-label="重新整理 Port 清單">
                       ⟳
                     </button>
                   </div>
-                  <div class="ws-port-list" id="wsPortList" aria-label="本機埠號"></div>
+                  <div class="ws-port-list" id="wsPortList" aria-label="本機 Port"></div>
                 </div>
               </aside>
             </div>
@@ -736,6 +920,7 @@
                     <option value="size">大小</option>
                   </select>
                   <button type="button" id="exSortDir" class="btn-icon" title="排序方向" aria-label="排序方向">↑</button>
+                  <button type="button" id="exFolderSizesBtn" class="btn btn-secondary btn-sm" aria-pressed="false" title="背景計算每個資料夾的大小，可依大小排序">資料夾大小</button>
                   <button type="button" id="exViewListBtn" class="btn-icon" title="清單" aria-label="清單檢視" aria-pressed="true">☰</button>
                   <button type="button" id="exViewGridBtn" class="btn-icon" title="圖示" aria-label="圖示檢視" aria-pressed="false">▦</button>
                   <button type="button" id="exDualBtn" class="btn btn-secondary btn-sm" aria-pressed="false">雙欄</button>
@@ -984,7 +1169,7 @@
                       </div>
                       <div>
                         <div id="hfRuntimeList" class="hf-runtime-list"></div>
-                        <div class="hf-setting-row">
+                        <div class="hf-setting-row hf-token-setting">
                           <div class="hf-setting-text">
                             <span class="hf-setting-label">Hugging Face Token</span>
                             <span class="setting-hint">只有 gated repo 需要。</span>
@@ -1006,336 +1191,6 @@
                     </details>
                   </section>
                 </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- Claude Code：供應商切換／MCP／CLI 版本 -->
-          <section id="page-ccswitch" class="page">
-            <div class="cc-shell">
-              <header class="page-header page-header-row">
-                <div class="page-header-text">
-                  <p class="cc-eyebrow">Claude Code 工作台</p>
-                  <h1>CC Proxy</h1>
-                  <p class="page-desc">切換 Claude Code 的供應商；要轉換格式的那幾家會自動開本機閘道。</p>
-                </div>
-              </header>
-
-              <p id="ccError" class="live-error hidden" role="alert"></p>
-              <p id="ccStatus" class="cc-status hidden" role="status" aria-live="polite"></p>
-
-              <div class="subtabs" id="ccSubtabs" role="tablist" aria-label="Claude Code 設定">
-                <button type="button" class="subtab active" data-subtab="providers" role="tab" aria-selected="true">
-                  供應商
-                </button>
-                <button type="button" class="subtab" data-subtab="agy" role="tab" aria-selected="false">
-                  AGY 反代
-                </button>
-                <button type="button" class="subtab" data-subtab="mcp" role="tab" aria-selected="false">
-                  MCP
-                </button>
-                <button type="button" class="subtab" data-subtab="skills" role="tab" aria-selected="false">
-                  Skills 與記憶
-                </button>
-                <button type="button" class="subtab" data-subtab="stats" role="tab" aria-selected="false">
-                  用量統計
-                </button>
-              </div>
-
-              <!-- 供應商 -->
-              <div class="subtab-panel active" id="cc-providers" data-subtab="providers" role="tabpanel">
-                <section class="cc-panel" aria-label="供應商">
-                  <p id="ccLivePath" class="cc-panel-desc"></p>
-                  <div id="ccGateway" class="cc-gateway">
-                    <span id="ccGatewayDot" class="agy-dot" aria-hidden="true"></span>
-                    <span class="cc-gateway-label">轉換閘道</span>
-                    <span id="ccGatewayText" class="cc-gateway-text" role="status" aria-live="polite"></span>
-                  </div>
-                  <div id="ccProviderList" class="cc-tiles" role="list"></div>
-                </section>
-              </div>
-
-              <!-- AGY 反代：Antigravity 額度 → OpenAI／Anthropic 端點（原本是獨立一頁） -->
-              <div class="subtab-panel" id="cc-agy" data-subtab="agy" role="tabpanel">
-                <div class="agy-shell">
-                  <header class="agy-header">
-                    <div class="agy-heading">
-                      <p class="page-desc">把 Antigravity 額度轉成 OpenAI／Anthropic API；只聽 127.0.0.1，需帶金鑰。</p>
-                    </div>
-                    <div class="agy-actions" role="group" aria-label="服務操作">
-                      <button type="button" id="agyRefreshBtn" class="btn btn-secondary btn-sm">重新整理</button>
-                      <button type="button" id="agyTestBtn" class="btn btn-secondary btn-sm">測試連線</button>
-                      <button type="button" id="agyToggleBtn" class="btn btn-primary btn-sm">啟動服務</button>
-                    </div>
-                  </header>
-
-                  <p id="agyError" class="live-error hidden" role="alert"></p>
-
-                  <section class="agy-panel agy-control" aria-labelledby="agyControlTitle">
-                    <div class="agy-panel-head">
-                      <h2 id="agyControlTitle" class="agy-panel-title">服務控制</h2>
-                      <p id="agyStatusLine" class="agy-status" role="status" aria-live="polite">
-                        <span id="agyStatusDot" class="agy-dot" aria-hidden="true"></span>
-                        <span id="agyStatusText">已停止</span>
-                      </p>
-                    </div>
-
-                    <dl class="agy-endpoint">
-                      <div class="agy-endpoint-row">
-                        <dt>Base URL</dt>
-                        <dd>
-                          <code id="agyBaseUrl" class="agy-code">尚未啟動</code>
-                          <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
-                        </dd>
-                      </div>
-                      <div class="agy-endpoint-row">
-                        <dt>API Key</dt>
-                        <dd>
-                          <code id="agyApiKey" class="agy-code agy-secret">尚未產生</code>
-                          <button type="button" id="agyKeyToggleBtn" class="btn btn-secondary btn-sm" aria-pressed="false">顯示</button>
-                          <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
-                          <button type="button" id="agyRegenerateBtn" class="btn btn-secondary btn-sm">重新產生</button>
-                        </dd>
-                      </div>
-                      <div class="agy-endpoint-row">
-                        <dt>憑證</dt>
-                        <dd><span id="agyCredential" class="agy-credential">服務停止中</span></dd>
-                      </div>
-                    </dl>
-
-                    <div id="agyCredentialHelp" class="agy-cred-help" role="status" hidden>
-                      <p id="agyCredentialHelpTitle" class="agy-cred-help-title"></p>
-                      <ol id="agyCredentialHelpSteps" class="agy-cred-help-steps"></ol>
-                    </div>
-
-                    <p id="agyTestResult" class="agy-test-result" role="status" aria-live="polite" hidden></p>
-
-                    <details class="agy-clients">
-                      <summary class="agy-clients-summary">客戶端怎麼填？（Claude Code／CC Switch、OpenAI 相容工具）</summary>
-                      <div class="agy-clients-body">
-                        <div class="agy-client">
-                          <p class="agy-client-tag">Claude Code · CC Switch</p>
-                          <div class="agy-client-row">
-                            <code class="agy-code-inline">ANTHROPIC_BASE_URL</code>
-                            <code id="agyAnthropicUrl" class="agy-code">尚未啟動</code>
-                            <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="anthropicBaseUrl">複製</button>
-                          </div>
-                          <div class="agy-client-row">
-                            <code class="agy-code-inline">ANTHROPIC_AUTH_TOKEN</code>
-                            <span class="agy-client-note">填上面那組 API Key</span>
-                            <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
-                          </div>
-                          <p class="agy-client-warn">結尾<strong>不要</strong>加 <code class="agy-code-inline">/v1</code>（Claude Code 自己接）。</p>
-                        </div>
-                        <div class="agy-client">
-                          <p class="agy-client-tag">OpenAI 相容工具</p>
-                          <div class="agy-client-row">
-                            <code class="agy-code-inline">Base URL</code>
-                            <code id="agyOpenaiUrl" class="agy-code">尚未啟動</code>
-                            <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
-                          </div>
-                          <p class="agy-client-note">這一組<strong>要</strong>帶 <code class="agy-code-inline">/v1</code>。</p>
-                        </div>
-                      </div>
-                    </details>
-
-                    <div class="agy-settings">
-                      <label class="agy-setting">
-                        <span>監聽埠</span>
-                        <input id="agyPortInput" class="input" type="number" min="1024" max="65535" step="1" inputmode="numeric" />
-                      </label>
-                      <label class="agy-setting">
-                        <span>日誌保留天數</span>
-                        <input id="agyRetentionInput" class="input" type="number" min="1" max="365" step="1" inputmode="numeric" />
-                      </label>
-                      <label class="agy-setting agy-setting-check">
-                        <input id="agyLogBodiesInput" type="checkbox" />
-                        <span>除錯模式：記錄請求／回應內容（各截 8KB）</span>
-                      </label>
-                      <div class="agy-setting-actions">
-                        <button type="button" id="agyClearLogsBtn" class="btn btn-secondary btn-sm">清空日誌</button>
-                        <button type="button" id="agySaveSettingsBtn" class="btn btn-primary btn-sm">儲存設定</button>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section class="agy-panel agy-stats" aria-labelledby="agyStatsTitle">
-                    <div class="agy-panel-head">
-                      <h2 id="agyStatsTitle" class="agy-panel-title">統計</h2>
-                      <div id="agyRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
-                        <button type="button" class="agy-range-btn" data-agy-range="6h" aria-pressed="false">6 小時</button>
-                        <button type="button" class="agy-range-btn is-active" data-agy-range="24h" aria-pressed="true">24 小時</button>
-                        <button type="button" class="agy-range-btn" data-agy-range="7d" aria-pressed="false">7 天</button>
-                        <button type="button" class="agy-range-btn" data-agy-range="30d" aria-pressed="false">30 天</button>
-                        <button type="button" class="agy-range-btn" data-agy-range="all" aria-pressed="false">全部</button>
-                      </div>
-                    </div>
-                    <div id="agyStatCards" class="agy-stat-cards"></div>
-                    <div class="agy-charts">
-                      <figure class="agy-chart">
-                        <figcaption class="agy-chart-head">
-                          <span>請求量</span>
-                          <span id="agyTrendMeta" class="agy-chart-meta"></span>
-                        </figcaption>
-                        <div class="agy-bars-wrap">
-                          <div id="agyHourlyChart" class="agy-bars" role="img" aria-label="請求量長條圖"></div>
-                          <div id="agyChartTip" class="agy-tip" hidden></div>
-                        </div>
-                      </figure>
-                      <figure class="agy-chart">
-                        <figcaption class="agy-chart-head">
-                          <span>模型分佈</span>
-                          <span id="agyModelMeta" class="agy-chart-meta"></span>
-                        </figcaption>
-                        <div id="agyModelChart" class="agy-model-list" role="img" aria-label="各模型請求量分佈"></div>
-                      </figure>
-                    </div>
-                  </section>
-
-                  <section class="agy-panel agy-models" aria-labelledby="agyModelsTitle">
-                    <div class="agy-panel-head">
-                      <h2 id="agyModelsTitle" class="agy-panel-title">可用模型</h2>
-                      <p class="agy-panel-desc">即時向上游查詢；點模型 ID 可複製。</p>
-                    </div>
-                    <div class="agy-models-bar">
-                      <button type="button" id="agyModelsRefreshBtn" class="btn btn-secondary btn-sm">
-                        重新查詢
-                      </button>
-                      <label class="agy-models-toggle">
-                        <input type="checkbox" id="agyModelsShowAll" />
-                        <span>顯示全部（含 IDE 內部模型）</span>
-                      </label>
-                      <span id="agyModelsMeta" class="agy-models-meta" role="status"></span>
-                    </div>
-                    <div id="agyModelsList" class="agy-models-list"></div>
-                  </section>
-
-                  <section class="agy-panel agy-logs" aria-labelledby="agyLogsTitle">
-                    <div class="agy-panel-head">
-                      <h2 id="agyLogsTitle" class="agy-panel-title">流量日誌</h2>
-                      <div class="agy-log-filters" role="group" aria-label="日誌篩選">
-                        <select id="agyProtocolFilter" class="select" aria-label="協議篩選">
-                          <option value="">全部協議</option>
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
-                        </select>
-                        <label class="agy-filter-check">
-                          <input id="agyErrorsOnly" type="checkbox" />
-                          <span>只看錯誤</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div class="agy-table-wrap">
-                      <table class="agy-table">
-                        <caption class="visually-hidden">反向代理流量日誌，依時間由新到舊排列</caption>
-                        <thead>
-                          <tr>
-                            <th scope="col">時間</th>
-                            <th scope="col">協議</th>
-                            <th scope="col">模型</th>
-                            <th scope="col">狀態</th>
-                            <th scope="col">耗時</th>
-                            <th scope="col">Tokens</th>
-                          </tr>
-                        </thead>
-                        <tbody id="agyLogRows"></tbody>
-                      </table>
-                    </div>
-                    <p id="agyLogEmpty" class="agy-empty">尚無流量記錄。啟動服務並讓客戶端送出第一個請求後就會出現。</p>
-                  </section>
-                </div>
-              </div>
-
-              <!-- MCP（四家 AI CLI 共用同一套新增／編輯，家用上面的切換器選） -->
-              <div class="subtab-panel" id="cc-mcp" data-subtab="mcp" role="tabpanel">
-                <section class="cc-panel" aria-labelledby="ccMcpTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="ccMcpTitle" class="cc-panel-title">MCP 伺服器</h2>
-                    <button type="button" id="ccAddMcpBtn" class="btn btn-primary btn-sm">新增伺服器</button>
-                  </div>
-                  <div id="ccMcpHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
-                  <p id="ccMcpPath" class="cc-panel-desc"></p>
-                  <div id="ccMcpList" class="cc-list" role="list"></div>
-                  <p id="ccMcpEmpty" class="cc-empty hidden">還沒有 MCP 伺服器</p>
-                </section>
-              </div>
-
-              <!-- Skills 與記憶：全域記憶檔在上、skills 開關在下 -->
-              <div class="subtab-panel" id="cc-skills" data-subtab="skills" role="tabpanel">
-                <section class="cc-panel" id="ccMemoryPanel" aria-labelledby="ccMemoryTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶</h2>
-                    <span class="cc-head-actions">
-                      <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
-                      <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
-                    </span>
-                  </div>
-                  <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔"></div>
-                  <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
-                            aria-label="記憶檔內容"></textarea>
-                  <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
-                </section>
-
-                <section class="cc-panel" aria-labelledby="ccSkillTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
-                    <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
-                  </div>
-                  <div id="ccSkillHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
-                  <p id="ccSkillPath" class="cc-panel-desc"></p>
-                  <div id="ccSkillList" class="cc-list" role="list"></div>
-                  <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
-                </section>
-              </div>
-
-              <!-- 用量統計：實際用掉多少 token（本機 session 記錄）。訂閱額度在工作區底下那條 -->
-              <div class="subtab-panel" id="cc-stats" data-subtab="stats" role="tabpanel">
-                <section class="cc-panel" aria-labelledby="cuTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="cuTitle" class="cc-panel-title">用量統計</h2>
-                    <div class="cu-head-actions">
-                      <div id="cuRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
-                        <button type="button" class="agy-range-btn" data-cu-range="24h" aria-pressed="false">24 小時</button>
-                        <button type="button" class="agy-range-btn is-active" data-cu-range="7d" aria-pressed="true">7 天</button>
-                        <button type="button" class="agy-range-btn" data-cu-range="30d" aria-pressed="false">30 天</button>
-                        <button type="button" class="agy-range-btn" data-cu-range="all" aria-pressed="false">全部</button>
-                      </div>
-                      <button type="button" id="cuPricesBtn" class="btn btn-secondary btn-sm">單價</button>
-                      <button type="button" id="cuSyncBtn" class="btn btn-primary btn-sm"
-                        title="增量掃描本機 session 記錄；規則改版會自動重讀">掃描本機記錄</button>
-                    </div>
-                  </div>
-                  <p id="cuSyncedAt" class="cc-panel-desc">尚未掃描</p>
-                  <p id="cuError" class="live-error hidden" role="alert"></p>
-
-                  <div id="cuSummary" class="cu-summary"></div>
-                  <p class="cc-panel-desc">花費依 API 公開單價估算；訂閱方案扣的是額度，不是這筆錢。Claude Code 長對話幾乎都是快取讀取。</p>
-                  <p id="cuUncosted" class="cu-note hidden" role="status"></p>
-                </section>
-
-                <section class="cc-panel" aria-labelledby="cuTrendTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="cuTrendTitle" class="cc-panel-title">趨勢</h2>
-                    <div id="cuChartLegend" class="cu-legend"></div>
-                  </div>
-                  <div id="cuChart" class="cu-chart" role="img" aria-label="用量趨勢"></div>
-                </section>
-
-                <section class="cc-panel" aria-labelledby="cuBreakdownTitle">
-                  <div class="cc-panel-head">
-                    <h2 id="cuBreakdownTitle" class="cc-panel-title">分佈</h2>
-                  </div>
-                  <div class="cu-breakdown">
-                    <div class="cu-dist">
-                      <h3 class="cu-dist-title">依工具</h3>
-                      <div id="cuProviders" class="cc-list"></div>
-                    </div>
-                    <div class="cu-dist">
-                      <h3 class="cu-dist-title">依模型</h3>
-                      <div id="cuModels" class="cc-list"></div>
-                    </div>
-                  </div>
-                </section>
               </div>
             </div>
           </section>
@@ -1744,42 +1599,34 @@
             </dialog>
           </section>
 
-          <!-- 語音轉文字：檔案與錄音｜即時字幕｜語音輸入。模型選單各自放在自己那一頁裡 -->
+          <!-- 語音轉文字：轉錄、錄音、即時字幕、語音輸入同一頁。語音輸入的模型與輸出語言獨立 -->
           <section id="page-stt" class="page">
-            <div class="page-header">
-              <h1>語音轉文字</h1>
-              <p class="page-desc">轉錄音訊檔、錄音，或做即時字幕（系統聲音／麥克風），也能用語音輸入</p>
-            </div>
-
-            <div class="subtabs" id="sttSubtabs" role="tablist" aria-label="語音轉文字模式">
-              <button type="button" class="subtab active" data-subtab="file" role="tab" aria-selected="true">
-                檔案與錄音
-              </button>
-              <button type="button" class="subtab" data-subtab="live" role="tab" aria-selected="false">
-                即時字幕
-              </button>
-              <button type="button" class="subtab" data-subtab="dictation" role="tab" aria-selected="false">
-                語音輸入
-              </button>
-            </div>
-
-            <!-- 檔案轉錄 -->
-            <div class="subtab-panel active" id="stt-file" data-subtab="file" role="tabpanel">
-            <div class="stt-split">
-            <div class="stt-split-col" id="sttFileCol">
-
-            <!-- 這一頁自己的模型（跟即時字幕、語音輸入各存各的） -->
-            <div class="scope-models" id="fileModelBar">
+            <div class="stt-board" id="stt-file">
+            <div class="scope-models stt-models" id="fileModelBar">
               <div class="option-group">
                 <label for="fileAsrModel">辨識模型</label>
-                <select id="fileAsrModel" class="select" aria-label="檔案轉錄的語音辨識模型"></select>
+                <select id="fileAsrModel" class="select" aria-label="語音辨識模型"></select>
               </div>
               <div class="option-group">
                 <label for="fileLlmModel">翻譯模型</label>
-                <select id="fileLlmModel" class="select" aria-label="檔案轉錄的翻譯模型"></select>
+                <select id="fileLlmModel" class="select" aria-label="翻譯模型"></select>
+              </div>
+              <div class="option-group">
+                <label for="liveLanguage">目標語言</label>
+                <select id="liveLanguage" class="select" aria-label="目標語言">
+                  <option value="zh-TW">繁體中文（台灣）</option>
+                  <option value="zh-CN">簡體中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                  <option value="auto">自動偵測（不翻譯）</option>
+                </select>
               </div>
               <p id="fileModelHint" class="setting-hint scope-models-hint hidden" role="status"></p>
             </div>
+
+            <div class="stt-column stt-column-file">
+            <div class="stt-drop" id="sttFileCol">
 
             <!-- 拖放區域 -->
             <div id="dropZone" class="drop-zone">
@@ -1813,242 +1660,181 @@
               </div>
             </div>
 
-            <!-- 語言選擇 -->
             <div id="transcribeOptions" class="options-panel hidden">
-              <div class="option-group">
-                <label for="outputLanguage">輸出語言</label>
-                <select id="outputLanguage" class="select">
-                  <option value="zh-TW">繁體中文（台灣）</option>
-                  <option value="zh-CN">簡體中文</option>
-                  <option value="en">English</option>
-                  <option value="ja">日本語</option>
-                  <option value="ko">한국어</option>
-                  <option value="auto">自動偵測</option>
-                </select>
-              </div>
               <button id="startTranscribeBtn" class="btn btn-primary">
                 <span>開始轉錄</span>
               </button>
             </div>
-
-            <!-- 進度顯示 -->
-            <div id="transcribeProgress" class="progress-panel hidden">
-              <div class="progress-spinner" aria-hidden="true"></div>
-              <div
-                class="progress-bar"
-                role="progressbar"
-                aria-label="轉錄進度"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow="0"
-              >
-                <div class="progress-fill" style="width: 0%"></div>
-              </div>
-              <p class="progress-text" role="status" aria-live="polite">正在轉錄中...</p>
-              <p class="progress-percent" aria-hidden="true">0%</p>
             </div>
 
-            <!-- 結果區域 -->
-            <div id="transcribeResult" class="result-panel hidden">
-              <div class="result-header">
-                <h3>轉錄結果</h3>
-                <div class="result-actions">
-                  <button id="copyResultBtn" class="btn btn-secondary">
-                    📋 複製
-                  </button>
-                  <button id="saveResultBtn" class="btn btn-secondary">
-                    💾 儲存
-                  </button>
+            <section class="stt-card stt-txlog">
+              <div class="dict-panel-head">
+                <h3>轉錄紀錄</h3>
+              </div>
+              <p id="sttTxEmpty" class="dict-empty">還沒有轉錄</p>
+              <div id="transcribeProgress" class="progress-panel hidden">
+                <div class="progress-spinner" aria-hidden="true"></div>
+                <div
+                  class="progress-bar"
+                  role="progressbar"
+                  aria-label="轉錄進度"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                >
+                  <div class="progress-fill" style="width: 0%"></div>
+                </div>
+                <p class="progress-text" role="status" aria-live="polite">正在轉錄中...</p>
+                <p class="progress-percent" aria-hidden="true">0%</p>
+              </div>
+              <div id="transcribeResult" class="result-panel hidden">
+                <div class="result-header">
+                  <div class="result-actions">
+                    <button id="copyResultBtn" class="btn btn-secondary">📋 複製</button>
+                    <button id="saveResultBtn" class="btn btn-secondary">💾 儲存</button>
+                  </div>
+                </div>
+                <p id="resultWarning" class="result-warning hidden" role="status"></p>
+                <div id="resultText" class="result-text"></div>
+              </div>
+            </section>
+
+            </div>
+            <div class="stt-column stt-column-recorder">
+            <div class="stt-card stt-rec-hero">
+              <div class="live-controls rec-controls">
+                <button id="recStartBtn" type="button" class="btn btn-primary btn-large">
+                  <span class="btn-icon">⏺️</span>
+                  <span>開始錄音</span>
+                </button>
+                <button id="recStopBtn" type="button" class="btn btn-danger btn-large hidden">
+                  <span class="btn-icon">⏹️</span>
+                  <span>停止錄音</span>
+                </button>
+              </div>
+              <div id="recStatus" class="live-status rec-status" role="status" aria-live="polite">
+                <span class="status-dot"></span>
+                <span class="status-text">未錄音</span>
+                <span id="recTimer" class="rec-timer">00:00</span>
+                <div class="level-meter" title="錄音音量">
+                  <div id="recLevel" class="level-fill"></div>
                 </div>
               </div>
-              <p id="resultWarning" class="result-warning hidden" role="status"></p>
-              <div id="resultText" class="result-text"></div>
-            </div>
+              <div class="option-group stt-rec-source">
+                <label for="recAudioSource">音源</label>
+                <select id="recAudioSource" class="select" aria-label="錄音音源">
+                  <option value="system">系統聲音</option>
+                  <option value="mic" selected>麥克風</option>
+                  <option value="both">系統＋麥克風</option>
+                </select>
+              </div>
             </div>
 
-            <!-- 錄音機：麥克風錄成 webm，可拖到左邊轉入或按轉錄 -->
-            <div class="stt-split-col" id="stt-recorder">
-            <div class="rec-content">
-              <div class="dict-hero">
-                <div class="dict-hero-main">
-                  <div class="live-controls rec-controls">
-                    <button id="recStartBtn" type="button" class="btn btn-primary btn-large">
-                      <span class="btn-icon">⏺️</span>
-                      <span>開始錄音</span>
-                    </button>
-                    <button id="recStopBtn" type="button" class="btn btn-danger btn-large hidden">
-                      <span class="btn-icon">⏹️</span>
-                      <span>停止錄音</span>
-                    </button>
+            <section class="stt-card stt-recs" id="stt-recorder">
+              <div class="dict-panel-head">
+                <h3>錄音檔</h3>
+                <button type="button" id="recOpenFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+              </div>
+              <div id="recList" class="dict-records rec-list"></div>
+            </section>
+
+            </div>
+            <div class="stt-column stt-column-live">
+              <div class="stt-card stt-live-card">
+                <div class="stt-live-start">
+                  <div class="stt-live-main">
+                    <div class="live-controls">
+                      <button id="startLiveBtn" class="btn btn-primary btn-large">
+                        <span class="btn-icon">▶️</span>
+                        <span>開始字幕</span>
+                      </button>
+                      <button id="stopLiveBtn" class="btn btn-danger btn-large hidden">
+                        <span class="btn-icon">⏹️</span>
+                        <span>停止字幕</span>
+                      </button>
+                    </div>
+                    <div id="liveStatus" class="live-status">
+                      <span class="status-dot"></span>
+                      <span class="status-text">未啟動</span>
+                      <span id="liveEngine" class="live-engine"></span>
+                      <div class="level-meter" title="系統音訊音量">
+                        <div id="levelFill" class="level-fill"></div>
+                      </div>
+                    </div>
+                    <p id="liveError" class="live-error hidden" role="alert"></p>
                   </div>
-                  <p class="setting-hint">錄音邊錄邊存。停止後可播放、按轉錄，或拖到轉入區。</p>
-                </div>
-                <div class="dict-state">
-                  <div id="recStatus" class="live-status rec-status" role="status" aria-live="polite">
-                    <span class="status-dot"></span>
-                    <span class="status-text">未錄音</span>
-                    <span id="recTimer" class="rec-timer">00:00</span>
-                  </div>
-                  <div class="level-meter" title="麥克風音量">
-                    <div id="recLevel" class="level-fill"></div>
+                  <div class="option-group stt-live-source">
+                    <label for="liveAudioSource">音源</label>
+                    <select id="liveAudioSource" class="select" aria-label="即時字幕音源">
+                      <option value="system">系統聲音</option>
+                      <option value="mic">麥克風</option>
+                      <option value="both">系統＋麥克風</option>
+                    </select>
                   </div>
                 </div>
               </div>
-
-              <section class="dict-panel">
+              <section class="stt-card live-history">
                 <div class="dict-panel-head">
-                  <h3>錄音檔</h3>
-                  <button type="button" id="recOpenFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+                  <h3>字幕紀錄</h3>
                 </div>
-                <div id="recList" class="dict-records rec-list"></div>
+                <div id="liveHistoryList" class="dict-records rec-list"></div>
               </section>
             </div>
-            </div>
-            </div>
-            </div>
-
-            <!-- 即時字幕 -->
-            <div class="subtab-panel" id="stt-live" data-subtab="live" role="tabpanel">
-            <div class="live-content">
-              <!-- 這一頁自己的模型（跟檔案轉錄、語音輸入各存各的） -->
-              <div class="scope-models" id="liveModelBar">
-                <div class="option-group">
-                  <label for="liveAsrModel">辨識模型</label>
-                  <select id="liveAsrModel" class="select" aria-label="即時字幕的語音辨識模型"></select>
-                </div>
-                <div class="option-group">
-                  <label for="liveLlmModel">翻譯模型</label>
-                  <select id="liveLlmModel" class="select" aria-label="即時字幕的翻譯模型"></select>
-                </div>
-                <p id="liveModelHint" class="setting-hint scope-models-hint hidden" role="status"></p>
-              </div>
-
-              <!-- 語言選擇 -->
-              <div class="option-group">
-                <label for="liveLanguage">目標語言</label>
-                <select id="liveLanguage" class="select">
-                  <option value="zh-TW">繁體中文（台灣）</option>
-                  <option value="zh-CN">簡體中文</option>
-                  <option value="en">English</option>
-                  <option value="ja">日本語</option>
-                  <option value="ko">한국어</option>
-                  <option value="auto">自動偵測（不翻譯）</option>
-                </select>
-              </div>
-
-              <div class="option-group">
-                <label for="liveAudioSource">音源</label>
-                <select id="liveAudioSource" class="select" aria-label="即時字幕音源">
-                  <option value="system">系統聲音</option>
-                  <option value="mic">麥克風</option>
-                </select>
-              </div>
-
-              <!-- 翻譯後端提示（雙語／僅翻譯切換已移至字幕視窗右上角）-->
-              <div class="option-group" id="liveCaptionDisplayGroup">
-                <p class="setting-hint" id="liveTranslatorHint">翻譯：檢查中…</p>
-                <p class="setting-hint">雙語／僅翻譯在字幕視窗右上角切換</p>
-              </div>
-
-              <!-- 控制按鈕 -->
-              <div class="live-controls">
-                <button id="startLiveBtn" class="btn btn-primary btn-large">
-                  <span class="btn-icon">▶️</span>
-                  <span>開始字幕</span>
-                </button>
-                <button
-                  id="stopLiveBtn"
-                  class="btn btn-danger btn-large hidden"
-                >
-                  <span class="btn-icon">⏹️</span>
-                  <span>停止字幕</span>
-                </button>
-              </div>
-
-              <!-- 狀態指示 -->
-              <div id="liveStatus" class="live-status">
-                <span class="status-dot"></span>
-                <span class="status-text">未啟動</span>
-                <span id="liveEngine" class="live-engine"></span>
-                <div class="level-meter" title="系統音訊音量">
-                  <div id="levelFill" class="level-fill"></div>
-                </div>
-              </div>
-              <p id="liveError" class="live-error hidden" role="alert"></p>
-            </div>
-
-            <!-- 過去每一場字幕的逐字稿（開始字幕就自動記） -->
-            <section class="dict-panel live-history">
-              <div class="dict-panel-head">
-                <h3>字幕紀錄</h3>
-              </div>
-              <div id="liveHistoryList" class="dict-records rec-list"></div>
-            </section>
-            </div>
-
-            <!-- 語音輸入：全域右 Alt 講話，整理完直接貼到游標所在的程式 -->
-            <div class="subtab-panel" id="stt-dictation" data-subtab="dictation" role="tabpanel">
-            <div class="dict-content">
+            <div class="stt-dict" id="stt-dictation">
               <div class="dict-hero">
-                <div class="dict-hero-main">
-                  <label class="setting-check dict-switch">
-                    <input type="checkbox" id="dictationEnabledInput" />
-                    <span>啟用語音輸入</span>
-                  </label>
-                  <p class="setting-hint">
-                    按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
-                  </p>
-                  <p id="dictationHotkeyTipLinux" class="setting-hint dict-hotkey-note" hidden>
-                    <strong>Wayland：</strong>全域右 Alt 可能無效或需額外權限。<strong>X11：</strong>uiohook 監聽通常較穩，但仍無法吞鍵。
-                  </p>
-                  <p id="dictationHotkeyNote" class="setting-hint dict-hotkey-note" hidden></p>
-                </div>
-                <div class="dict-state">
-                  <div id="dictationStatus" class="dict-status" role="status" aria-live="polite">
-                    <span class="status-dot"></span>
-                    <span class="dict-status-text">未啟用</span>
+                <div class="dict-hero-top">
+                  <div class="dict-hero-main">
+                    <label class="dict-switch">
+                      <input type="checkbox" id="dictationEnabledInput" role="switch" />
+                      <span class="dict-switch-track" aria-hidden="true"></span>
+                      <span class="dict-switch-label">啟用語音輸入</span>
+                    </label>
+                    <p class="setting-hint">
+                      按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
+                    </p>
+                    <p id="dictationHotkeyTipLinux" class="setting-hint dict-hotkey-note" hidden>
+                      <strong>Wayland：</strong>全域右 Alt 可能無效或需額外權限。<strong>X11：</strong>uiohook 監聽通常較穩，但仍無法吞鍵。
+                    </p>
+                    <p id="dictationHotkeyNote" class="setting-hint dict-hotkey-note" hidden></p>
                   </div>
-                  <div class="level-meter" title="麥克風音量">
-                    <div id="dictationLevel" class="level-fill"></div>
+                  <div class="dict-state">
+                    <div id="dictationStatus" class="dict-status" role="status" aria-live="polite">
+                      <span class="status-dot"></span>
+                      <span class="dict-status-text">未啟用</span>
+                    </div>
+                    <div class="level-meter" title="麥克風音量">
+                      <div id="dictationLevel" class="level-fill"></div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="dict-options">
-                <div class="option-group">
-                  <label for="dictationAsrModel">辨識模型</label>
-                  <select id="dictationAsrModel" class="select" aria-label="語音輸入的語音辨識模型"></select>
+                <div class="dict-options">
+                  <div class="option-group">
+                    <label for="dictationAsrModel">辨識模型</label>
+                    <select id="dictationAsrModel" class="select" aria-label="語音輸入的語音辨識模型"></select>
+                  </div>
+                  <div class="option-group">
+                    <label for="dictationLlmSelect">整理模型</label>
+                    <select id="dictationLlmSelect" class="select" aria-label="語音輸入的整理模型"></select>
+                  </div>
+                  <div class="option-group">
+                    <label for="dictationLangSelect">輸出語言</label>
+                    <select id="dictationLangSelect" class="select">
+                      <option value="zh-TW">繁體中文（台灣）</option>
+                      <option value="zh-CN">簡體中文</option>
+                      <option value="en">English</option>
+                      <option value="ja">日本語</option>
+                      <option value="ko">한국어</option>
+                    </select>
+                  </div>
+                  <p id="dictationHint" class="setting-hint hidden" role="status"></p>
                 </div>
-                <div class="option-group">
-                  <label for="dictationLlmSelect">整理模型</label>
-                  <select id="dictationLlmSelect" class="select" aria-label="語音輸入的整理模型"></select>
-                </div>
-                <div class="option-group">
-                  <label for="dictationLangSelect">輸出語言</label>
-                  <select id="dictationLangSelect" class="select">
-                    <option value="zh-TW">繁體中文（台灣）</option>
-                    <option value="zh-CN">簡體中文</option>
-                    <option value="en">English</option>
-                    <option value="ja">日本語</option>
-                    <option value="ko">한국어</option>
-                  </select>
-                </div>
-                <p id="dictationHint" class="setting-hint hidden" role="status"></p>
-              </div>
-
-              <div class="dict-result" id="dictationResult">
-                <div class="dict-result-head">
-                  <h3>這次的結果</h3>
-                  <button type="button" id="dictationCopyBtn" class="btn btn-secondary btn-sm">📋 複製</button>
-                </div>
-                <p class="dict-result-text" id="dictationResultText">還沒有內容。按住右 Alt 講一段話試試。</p>
-                <p class="dict-result-raw" id="dictationResultRaw"></p>
               </div>
 
               <div class="dict-columns">
                 <section class="dict-panel">
                   <div class="dict-panel-head">
-                    <h3>轉錄紀錄</h3>
+                    <h3>語音輸入紀錄</h3>
                     <button type="button" id="dictationClearBtn" class="btn btn-secondary btn-sm">清空</button>
                   </div>
                   <div id="dictationRecords" class="dict-records"></div>
@@ -2072,19 +1858,207 @@
             </div>
           </section>
 
-          <!-- 翻譯與 TTS -->
-          <section id="page-translate" class="page">
+          <!-- 翻譯 -->
+          <section id="page-speech" class="page" aria-label="文字轉語音">
+            <div class="speech-workbench">
+              <div class="speech-backend"><label for="speechBackend">語音來源</label><select id="speechBackend" class="input"><option value="local">本機 · Breeze-TTS-2</option><option value="cloud">雲端供應商</option></select></div>
+              <div id="speechCloudPanel" hidden>
+                <header class="speech-head"><div><h2>雲端文字轉語音</h2><p class="setting-hint">選擇聲音，把文字變成可播放與下載的 MP3。</p></div></header>
+                <p id="cloudSpeechEmpty" class="speech-notice">尚未加入文字轉語音模型。到設定的雲端模型選擇「文字轉語音」用途。</p>
+                <div class="speech-form">
+                  <div class="speech-editor"><label for="cloudSpeechText">想說的話</label><textarea id="cloudSpeechText" class="input" maxlength="4096" rows="12" placeholder="寫下想讓聲音說的話…"></textarea><p class="setting-hint">最多 4096 字，文字會送到選取的供應商。</p></div>
+                  <aside class="speech-settings" aria-label="雲端聲音設定">
+                    <div><label for="cloudSpeechModel">模型</label><select id="cloudSpeechModel" class="input"></select></div>
+                    <div><label for="cloudSpeechVoice">聲音名稱</label><input id="cloudSpeechVoice" class="input" value="alloy" maxlength="120" /><p class="setting-hint">填寫供應商支援的聲音 ID，例如 alloy。</p></div>
+                    <div><label for="cloudSpeechSpeed">語速</label><input id="cloudSpeechSpeed" class="input" type="number" min="0.25" max="4" step="0.05" value="1" /><p class="setting-hint">1 是正常速度。</p></div>
+                  </aside>
+                </div>
+                <div class="speech-actions"><span id="cloudSpeechStatus" role="status" aria-live="polite">選好模型、寫下台詞，就能開始。</span><div><button id="cloudSpeechCancel" class="btn btn-secondary" hidden>取消生成</button><button id="cloudSpeechGenerate" class="btn btn-primary" disabled>生成語音</button></div></div>
+                <div class="speech-player-row"><audio id="cloudSpeechAudio" controls hidden aria-label="雲端語音試聽"></audio><button id="cloudSpeechSave" class="btn btn-secondary" disabled>匯出 MP3</button></div>
+              </div>
+              <div id="speechLocalPanel">
+              <header class="speech-head">
+                <div><h1>文字轉語音</h1><p>寫下台詞，讓聲音有自己的表情。</p></div>
+                <div class="speech-model"><strong>Breeze-TTS-2 · Q8_0</strong><span id="speechModelStatus" role="status">正在確認模型…</span></div>
+              </header>
+              <div id="speechInstallNotice" class="speech-notice" hidden><span>先下載語音模型，就能在這台電腦生成聲音。</span><button id="speechModelsBtn" class="btn btn-secondary btn-sm">前往 Local SI 推薦</button></div>
+              <form id="speechForm" class="speech-studio" data-mode="design" data-script="whole">
+                <div id="speechEditor" class="speech-doc">
+                  <div class="speech-doc-bar">
+                    <div class="speech-script-modes" role="radiogroup" aria-label="怎麼生成">
+                      <button type="button" class="speech-script-mode active" data-script="whole" role="radio" aria-checked="true" title="整段一次生成">整段</button>
+                      <button type="button" class="speech-script-mode" data-script="sentences" role="radio" aria-checked="false" tabindex="-1" title="一句一句生成，可以只重做念不好的那句">逐句</button>
+                      <button type="button" class="speech-script-mode" data-script="subtitle" role="radio" aria-checked="false" tabindex="-1" title="匯入字幕，每個角色配不同聲音，依字幕時間排好">字幕配音</button>
+                    </div>
+                    <div class="speech-doc-tools">
+                      <button id="speechImportSubtitle" type="button" class="btn btn-secondary btn-sm" hidden><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15h4"/><path d="M15 15h2"/><path d="M7 11h2"/><path d="M13 11h4"/></svg>匯入字幕</button><input id="speechSubtitleFile" type="file" accept=".srt,.vtt,.ass,.ssa" hidden />
+                      <button id="speechPronounceBtn" type="button" class="btn btn-secondary btn-sm" aria-expanded="false" aria-controls="speechPronounce" title="指定破音字或專有名詞怎麼念"><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>讀音<span id="speechPronounceCount" class="speech-badge" hidden></span></button>
+                      <span id="speechCount" class="speech-count">0 / 100000</span>
+                    </div>
+                  </div>
+                  <div id="speechPronounce" class="speech-pronounce" hidden>
+                    <p class="speech-hint">生成前會把左邊的字換成右邊的念法，原稿不變。選取文字後按「讀音」可直接帶入。</p>
+                    <ul id="speechPronounceList" class="speech-pronounce-list"></ul>
+                    <div class="speech-pronounce-add"><input id="speechPronounceWord" class="input" maxlength="50" placeholder="原字，例如 重慶" aria-label="原字" /><span aria-hidden="true">念成</span><input id="speechPronounceSound" class="input" maxlength="50" placeholder="同音字，例如 崇慶" aria-label="念成" /><button id="speechPronounceAdd" type="button" class="btn btn-secondary btn-sm">加入</button></div>
+                  </div>
+                  <div id="speechSource" class="speech-source" hidden><label>原錄音</label><div id="speechSourceInput"></div></div>
+                  <label for="speechText" id="speechTextLabel" class="visually-hidden">想說的話</label>
+                  <textarea id="speechText" maxlength="100000" placeholder="你好，今天想用什麼聲音說故事？" aria-describedby="speechTextHint"></textarea>
+                  <div id="speechCues" class="speech-cues" hidden>
+                    <p id="speechCuesEmpty" class="speech-cues-empty">匯入 SRT、VTT 或 ASS 字幕。台詞前寫「名字：」或字幕本身有角色欄，就能替每個角色配不同的聲音。</p>
+                    <p id="speechCuesInfo" class="speech-hint" hidden></p>
+                    <ol id="speechCueList" class="speech-cue-list"></ol>
+                  </div>
+                  <div id="speechEvents" class="speech-events" role="group" aria-label="插入語音標記">
+                    <div class="speech-event-group" role="group" aria-label="笑聲"><button type="button" data-event="[笑]">笑</button><button type="button" data-event="(laugh)">laugh</button></div>
+                    <div class="speech-event-group" role="group" aria-label="嘆氣"><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="(sigh)">sigh</button></div>
+                    <div class="speech-event-group" role="group" aria-label="咳嗽"><button type="button" data-event="[咳嗽]">咳嗽</button><button type="button" data-event="(cough)">cough</button></div>
+                    <div class="speech-event-group" role="group" aria-label="清喉嚨"><button type="button" data-event="[清嗓子]">清喉嚨</button><button type="button" data-event="(clears throat)">clears throat</button></div>
+                    <div class="speech-event-group" role="group" aria-label="低語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[低语]">低語</button><button type="button" data-event="(whispering)">whispering</button></div>
+                    <div class="speech-event-group" role="group" aria-label="倒抽氣" title="描述型標記，效果依台詞而異"><button type="button" data-event="[倒抽气]">倒抽氣</button><button type="button" data-event="(gasp)">gasp</button></div>
+                    <div class="speech-event-group" role="group" aria-label="緊張輕笑" title="描述型標記，效果依台詞而異"><button type="button" data-event="[紧张地轻笑]">緊張輕笑</button><button type="button" data-event="(nervous chuckle)">nervous chuckle</button></div>
+                    <div class="speech-event-group" role="group" aria-label="哈欠" title="描述型標記，效果依台詞而異"><button type="button" data-event="[打哈欠]">哈欠</button><button type="button" data-event="(yawn)">yawn</button></div>
+                    <div class="speech-event-group" role="group" aria-label="耳語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[耳语]">耳語</button><button type="button" data-event="(whispers)">whispers</button></div>
+                  </div>
+                  <p id="speechTextHint" class="speech-hint" hidden>支援中文與英文。點選標記插入游標位置，也能直接在台詞寫 [中文描述] 或 (English description)。</p>
+                </div>
+                <aside class="speech-inspector" aria-label="聲音設定">
+                  <div class="speech-run">
+                    <button id="speechGenerate" class="btn btn-primary speech-generate" type="submit" disabled>生成語音</button>
+                    <button id="speechCancel" class="btn btn-secondary" type="button" hidden>停止</button>
+                  </div>
+                  <label id="speechStreamLabel" class="speech-stream"><input id="speechStream" type="checkbox" checked />邊生成邊播放</label>
+                  <div class="speech-modes" role="tablist" aria-label="語音生成模式">
+                    <button id="speechModeDesign" class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechForm"><span class="speech-mode-title">聲音設計</span><span class="speech-mode-description">文字描述聲音</span></button>
+                    <button id="speechModeClone" class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語音克隆</span><span class="speech-mode-description">用原聲讀新台詞</span></button>
+                    <button id="speechModeDirection" class="speech-mode" type="button" role="tab" data-mode="direction" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語氣指導</span><span class="speech-mode-description">原聲加上新語氣</span></button>
+                    <button id="speechModeConvert" class="speech-mode" type="button" role="tab" data-mode="convert" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">變聲<small>實驗性</small></span><span class="speech-mode-description">替錄音換個聲音</span></button>
+                  </div>
+                  <div id="speechSpeakers" class="speech-speakers" hidden>
+                    <h3>角色聲音</h3>
+                    <p class="speech-hint">沒指定的角色用下方設定。指定保存的聲音後，該角色一律用語音克隆。</p>
+                    <ul id="speechSpeakerList"></ul>
+                  </div>
+                  <div id="speechReference" hidden>
+                    <label for="speechVoice" id="speechVoiceLabel">參考聲音</label><div class="speech-voice-row"><select id="speechVoice" class="input"><option value="">新的參考音訊</option></select><button id="speechDeleteVoice" type="button" class="btn btn-secondary btn-sm" disabled>刪除</button></div>
+                    <div id="speechNewReference"><div id="speechReferenceInput"></div><label for="speechRefText">參考音訊的逐字稿（自動辨識）</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="選檔或錄音後自動辨識，可再手動修改；要和錄音裡說的一字不差。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">5～20 秒、乾淨少雜音最好；保存後不用每次重新上傳。</p></div>
+                  </div>
+                  <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
+                  <details class="speech-advanced"><summary>進階設定</summary><div class="speech-params">
+                    <label>指令強度（CFG）<input id="speechCfg" class="input" type="number" min="0" max="10" step="0.1" value="1" /></label>
+                    <label>隨機種子<input id="speechSeed" class="input" type="number" min="-2147483648" max="2147483647" value="42" /></label>
+                    <label>Temperature<input id="speechTemperature" class="input" type="number" min="0" max="2" step="0.05" value="0.9" /></label>
+                    <label>Top K<input id="speechTopK" class="input" type="number" min="0" max="1024" value="50" /></label>
+                    <label>Top P<input id="speechTopP" class="input" type="number" min="0" max="1" step="0.01" value="1" /></label>
+                    <label>重複懲罰<input id="speechRepetition" class="input" type="number" min="0" max="3" step="0.01" value="1.05" /></label>
+                    <label>每段字數<input id="speechSplit" class="input" type="number" min="0" max="10000" value="200" /></label>
+                    <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="30000" /></label>
+                    <label id="speechAcousticGroup" hidden>保留旋律<input id="speechAcoustic" class="input" type="number" min="0" max="15" value="0" /></label>
+                  </div><p class="speech-hint">CFG 越高越遵循指令，也可能讓聲音變粗糙。笑聲等表情可試 2～3；變聲的保留旋律只建議用於歌聲，超過 2 可能失真。重做單句時會自動換一個隨機種子。</p></details>
+                </aside>
+              </form>
+              <section class="speech-dock" aria-labelledby="speechResultTitle">
+                <div class="speech-dock-head"><h2 id="speechResultTitle">你的聲音會出現在這裡</h2><span id="speechProgress" role="status" aria-live="polite">選好聲音、寫下台詞，就能開始。</span></div>
+                <p id="speechDockEmpty" class="speech-dock-empty">每次生成都會留一個版本，可以切換比較、挑最好的匯出。</p>
+                <div id="speechDockBody" hidden>
+                  <div class="speech-dock-bar">
+                    <button id="speechPlay" class="speech-play" type="button" aria-label="播放" disabled></button>
+                    <span id="speechTime" class="speech-time">00:00 / 00:00</span>
+                    <div class="speech-take-pick"><label for="speechTakes" class="visually-hidden">版本</label><select id="speechTakes" class="input"></select></div>
+                    <div class="speech-dock-tools">
+                      <button id="speechExport" class="btn btn-secondary btn-sm" type="button" disabled><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>匯出 WAV</button>
+                      <button id="speechDeleteTake" class="btn-icon" type="button" aria-label="刪除這個版本" title="刪除這個版本" disabled><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                    </div>
+                  </div>
+                  <canvas id="speechWave" class="speech-wave-canvas speech-dock-wave" tabindex="0" aria-label="語音波形：點一下跳到該位置，空白鍵播放，左右鍵快轉 5 秒"></canvas>
+                  <ol id="speechSegments" class="speech-segments" aria-label="分句" hidden></ol>
+                </div>
+                <audio id="speechPlayer" hidden></audio>
+                <p id="speechError" role="alert" hidden></p>
+              </section>
+              <p class="speech-license">本機音訊不會上傳到雲端。Breeze 模型及本機生成內容限研究與非商業用途；克隆前請取得聲音使用權。<a href="https://huggingface.co/BreezeBlue/Breeze-TTS-2" target="_blank" rel="noreferrer">模型授權</a></p>
+              </div>
+            </div>
+          </section>
+          <section id="page-translate" class="page" aria-label="翻譯">
             <!-- 模型選單與語音轉文字頁共用同一份設定，改哪邊都一樣 -->
             <div class="page-header page-header-row">
-              <div class="page-header-text">
-                <h1>翻譯與 TTS</h1>
-                <p class="page-desc">文字翻譯與 Edge TTS 語音朗讀</p>
-              </div>
-              <div class="model-chips" id="translateModelBar">
-                <label class="model-chip">
-                  <span class="model-chip-label">翻譯</span>
-                  <select id="translatePageModel" class="model-chip-select" aria-label="翻譯模型"></select>
-                </label>
+              <div class="translate-topbar">
+                <div class="model-chips" id="translateModelBar">
+                  <label class="model-chip">
+                    <span class="model-chip-label">翻譯</span>
+                    <select id="translatePageModel" class="model-chip-select" aria-label="翻譯模型"></select>
+                  </label>
+                </div>
+                <details class="translate-voice" name="translateTopbar">
+                  <summary id="translateVoiceTitle">EdgeTTS</summary>
+                  <div class="settings-card">
+                    <p class="settings-section-desc">需要連網。改了立刻生效。</p>
+                    <div class="setting-group">
+                      <label for="ttsRateInput">語速 <span id="ttsRateLabel" class="setting-value-label">1.0×</span></label>
+                      <input
+                        type="range"
+                        id="ttsRateInput"
+                        class="range-input"
+                        min="-50"
+                        max="100"
+                        step="5"
+                        value="0"
+                      />
+                      <p class="setting-hint">0.5×（慢）— 1.0×（預設）— 2.0×（快）</p>
+                    </div>
+                    <div id="ttsVoicesFields" class="tts-voices-fields">
+                      <div class="setting-group">
+                        <label for="ttsVoiceZhTw">繁體中文</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceZhTw" class="select select-full" data-tts-lang="zh-TW"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-TW" aria-label="預覽繁體中文語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                      <div class="setting-group">
+                        <label for="ttsVoiceZhCn">簡體中文</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceZhCn" class="select select-full" data-tts-lang="zh-CN"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-CN" aria-label="預覽簡體中文語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                      <div class="setting-group">
+                        <label for="ttsVoiceEn">English</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceEn" class="select select-full" data-tts-lang="en"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="en" aria-label="預覽 English 語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                      <div class="setting-group">
+                        <label for="ttsVoiceJa">日本語</label>
+                        <div class="tts-voice-row">
+                          <select id="ttsVoiceJa" class="select select-full" data-tts-lang="ja"></select>
+                          <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="ja" aria-label="預覽日本語語音">▶ 試聽</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+                <details class="translate-voice translate-glossary" name="translateTopbar">
+                  <summary>術語表</summary>
+                  <div class="settings-card">
+                    <div class="setting-group">
+                      <label class="dict-switch">
+                        <input type="checkbox" id="translateGlossaryBuiltin" role="switch" aria-describedby="translateGlossaryBuiltinHint" />
+                        <span class="dict-switch-track" aria-hidden="true"></span>
+                        <span class="dict-switch-label">內建學術名詞庫</span>
+                      </label>
+                      <p id="translateGlossaryBuiltinHint" class="setting-hint">國家教育研究院學術名詞（數理化、天文地科、生命科學、材料、電機、資訊、機械、土木、化工、航太等 45 科，約 55 萬條片語），依政府資料開放授權條款使用。一詞多譯時，雲端模型依上下文挑；Index-Translate 只套用譯法唯一的詞。</p>
+                    </div>
+                    <div class="setting-group">
+                      <label for="translateGlossaryInput">自訂術語（優先於內建），每行一個：英文=繁中</label>
+                      <textarea id="translateGlossaryInput" class="input translate-glossary-input" rows="12" maxlength="50000"
+                        spellcheck="false" aria-describedby="translateGlossaryHint"></textarea>
+                      <p id="translateGlossaryHint" class="setting-hint">原文出現這個詞才套用，目標語言是繁體中文時有效。雲端模型與 Index-Translate 適用；LinguaForge 不支援。離開文字框就儲存。</p>
+                    </div>
+                    <button type="button" id="translateGlossaryReset" class="btn btn-secondary btn-sm">恢復內建清單</button>
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -2118,7 +2092,7 @@
             </div>
 
             <div class="translate-panes">
-              <div class="translate-pane">
+              <div class="translate-pane" id="translateInputPane">
                 <div class="pane-header">
                   <span class="pane-title">輸入</span>
                   <span id="translateInputCount" class="pane-meta">0 字</span>
@@ -2130,9 +2104,22 @@
                   placeholder="輸入或貼上要翻譯的文字…"
                 ></textarea>
                 <div class="pane-toolbar">
+                  <button type="button" id="pdfTranslatePick" class="btn btn-secondary btn-sm">＋ 檔案</button>
                   <button type="button" id="translateCopyInputBtn" class="btn btn-secondary btn-sm">📋 複製</button>
                   <button type="button" id="translateSpeakInputBtn" class="btn btn-secondary btn-sm" aria-pressed="false">🔊 朗讀</button>
                   <button type="button" id="translateClearInputBtn" class="btn btn-secondary btn-sm">清空</button>
+                </div>
+                <div class="file-attach">
+                  <div id="pdfTranslateChip" class="file-chip" hidden>
+                    <span id="pdfTranslateFile" class="file-chip-name"></span>
+                    <button type="button" id="pdfTranslateRun" class="btn btn-primary btn-sm">翻譯檔案</button>
+                    <button type="button" id="pdfTranslateRemove" class="file-chip-remove" aria-label="移除附件">×</button>
+                  </div>
+                  <div id="pdfTranslateSetup" class="file-setup" hidden>
+                    <p id="pdfTranslateSetupText"></p>
+                    <button type="button" id="pdfTranslateModels" class="btn btn-secondary btn-sm">前往 Local SI</button>
+                  </div>
+                  <p id="pdfTranslateError" class="live-error" role="alert" hidden></p>
                 </div>
               </div>
               <div class="translate-pane">
@@ -2151,6 +2138,12 @@
                   <button type="button" id="translateCopyOutputBtn" class="btn btn-secondary btn-sm">📋 複製</button>
                   <button type="button" id="translateSpeakOutputBtn" class="btn btn-secondary btn-sm" aria-pressed="false" disabled title="請先翻譯">🔊 朗讀</button>
                 </div>
+                <div id="pdfTranslateRoot" class="file-attach" aria-live="polite" hidden>
+                  <progress id="pdfTranslateProgress" class="pdf-translate-progress" aria-label="檔案翻譯進度" hidden></progress>
+                  <p id="pdfTranslateStatus" class="file-status" role="status" hidden></p>
+                  <ul id="pdfTranslateWarnings" class="pdf-translate-warnings" aria-label="需要核對的內容" hidden></ul>
+                  <button type="button" id="pdfTranslateSave" class="btn btn-secondary btn-sm" hidden>另存翻譯 PDF</button>
+                </div>
               </div>
             </div>
 
@@ -2158,7 +2151,7 @@
               <button type="button" id="translateRunBtn" class="btn btn-primary">
                 翻譯
               </button>
-              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段；朗讀走 Edge TTS。</p>
+              <p class="setting-hint translate-hint">Ctrl+Enter 翻譯，長文自動分段；PDF 或圖片可＋檔案、拖入或貼上，按「翻譯檔案」輸出成 PDF，處理時仍可翻譯文字。</p>
             </div>
             <p id="translateStatus" class="translate-status">翻譯：檢查中…</p>
             <p id="translateError" class="live-error hidden" role="alert"></p>
@@ -2169,30 +2162,37 @@
             <div class="settings-shell">
               <nav class="settings-nav" id="settingsNav" aria-label="設定分類">
                 <button type="button" class="settings-nav-item active" data-section="cloud">
-                  <span class="settings-nav-icon" aria-hidden="true">☁️</span>雲端模型
-                </button>
-                <button type="button" class="settings-nav-item" data-section="voice">
-                  <span class="settings-nav-icon" aria-hidden="true">🔊</span>語音朗讀
+                  <span class="nav-icon" data-icon="cloud"></span>雲端模型
                 </button>
                 <button type="button" class="settings-nav-item" data-section="basic">
-                  <span class="settings-nav-icon" aria-hidden="true">🎨</span>基本
+                  <span class="nav-icon" data-icon="settings"></span>基本
+                </button>
+                <button type="button" class="settings-nav-item" data-section="appearance">
+                  <span class="nav-icon" data-icon="palette"></span>外觀
+                </button>
+                <button type="button" class="settings-nav-item" data-section="agy">
+                  <span class="nav-icon" data-icon="agy"></span>AGY 反代
+                </button>
+                <button type="button" class="settings-nav-item" data-section="install">
+                  <span class="nav-icon" data-icon="download"></span>安裝
                 </button>
                 <button type="button" class="settings-nav-item" data-section="cli">
-                  <span class="settings-nav-icon" aria-hidden="true">⌨️</span>CLI 版本
+                  <span class="nav-icon" data-icon="terminal"></span>CLI 版本
                 </button>
               </nav>
 
               <div class="settings-body">
                 <div class="settings-scroll" id="settingsScroll">
-                  <!-- 雲端模型：聊天／翻譯／語音轉文字三組端點各自獨立 -->
+                  <!-- 雲端模型：統一供應商、按模型用途分流 -->
                   <section class="settings-section active" id="set-cloud" data-section="cloud">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">雲端模型</h2>
-                      <p class="settings-section-desc">聊天與翻譯共用供應商；語音轉文字另設。</p>
+                      <p class="settings-section-desc">同一組網址與金鑰，依模型用途出現在對應頁面。</p>
+                      <p id="cloudSaveStatus" class="setting-hint" role="status" aria-live="polite">修改後自動儲存</p>
                     </header>
                     <div class="settings-card">
-                      <h4 class="settings-subsection-title">供應商（聊天與翻譯共用）</h4>
-                      <p class="setting-hint">勾「生圖」的模型可生成圖片。</p>
+                      <h4 class="settings-subsection-title">供應商</h4>
+                      <p class="setting-hint">新增預設使用 OpenRouter；AGY 啟動時會自動加入 Antigravity。</p>
                       <div class="setting-group">
                         <label for="chatProviderSelect">供應商</label>
                         <div class="chat-provider-bar">
@@ -2214,7 +2214,7 @@
                           class="input"
                           placeholder="https://openrouter.ai/api/v1"
                         />
-                        <p class="setting-hint">OpenAI 相容 chat completions 端點</p>
+                        <p class="setting-hint">OpenAI 相容服務的根網址，例如 https://openrouter.ai/api/v1</p>
                       </div>
                       <div class="setting-group">
                         <label for="chatApiKeyInput">API Key</label>
@@ -2225,6 +2225,8 @@
                       </div>
                       <div class="setting-group">
                         <label>模型清單</label>
+                        <p class="setting-hint">能辨識的自動選好用途；「待選用途」請手動指定。</p>
+                        <div class="cloud-model-columns" aria-hidden="true"><span>模型 ID</span><span>用途／出現位置</span></div>
                         <div id="chatModelList" class="chat-model-list"></div>
                         <div class="chat-model-actions">
                           <button type="button" id="chatAddModelBtn" class="btn btn-secondary btn-sm">
@@ -2234,193 +2236,152 @@
                             掃描模型
                           </button>
                         </div>
-                        <p class="setting-hint">「掃描模型」會<strong>先儲存設定</strong>再抓 /models 清單。</p>
+                        <p class="setting-hint">掃描供應商模型，勾選後自動儲存並加入對應頁面的選單。</p>
                       </div>
                     </div>
 
-                    <div class="settings-card">
-                      <h4 class="settings-subsection-title">語音轉文字</h4>
-                      <p class="setting-hint">需支援 <code>/audio/transcriptions</code>。</p>
-                      <div class="setting-group">
-                        <label for="asrCloudSelect">設定</label>
-                        <div class="chat-provider-bar">
-                          <select id="asrCloudSelect" class="input"></select>
-                          <button type="button" id="asrAddCloudBtn" class="btn btn-secondary btn-sm">＋ 新增</button>
-                          <button type="button" id="asrDeleteCloudBtn" class="btn btn-secondary btn-sm">刪除</button>
-                        </div>
-                        <p id="asrCloudHint" class="setting-hint">以下欄位屬於目前選取的設定。</p>
-                      </div>
-                      <div class="setting-group">
-                        <label for="asrCloudNameInput">名稱</label>
-                        <input type="text" id="asrCloudNameInput" class="input" placeholder="例如 OpenRouter" maxlength="24" />
-                      </div>
-                      <div class="setting-group">
-                        <label for="asrApiUrlInput">API URL</label>
-                        <input
-                          type="text"
-                          id="asrApiUrlInput"
-                          class="input"
-                          placeholder="https://openrouter.ai/api/v1"
-                        />
-                      </div>
-                      <div class="setting-group">
-                        <label for="asrApiKeyInput">API Key</label>
-                        <div class="input-group">
-                          <input
-                            type="password"
-                            id="asrApiKeyInput"
-                            class="input"
-                            placeholder="sk-..."
-                          />
-                          <button type="button" id="toggleAsrApiKeyVisibility" class="btn-icon" aria-label="顯示或隱藏語音轉文字 API Key">👁️</button>
-                        </div>
-                      </div>
-                      <div class="setting-group">
-                        <label>模型清單</label>
-                        <div id="asrModelList" class="chat-model-list"></div>
-                        <div class="chat-model-actions">
-                          <button type="button" id="asrAddModelBtn" class="btn btn-secondary btn-sm">
-                            ＋ 新增模型
-                          </button>
-                        </div>
-                        <p class="setting-hint">
-                          必須是<strong>轉錄模型</strong>（不是聊天模型）；403＝這顆模型未開通，換一顆。
-                          <a href="https://openrouter.ai/collections/speech-to-text-models" target="_blank" rel="noopener">STT 模型列表</a>
-                        </p>
-                      </div>
-                    </div>
                   </section>
 
                   <!-- 基本 -->
                   <section class="settings-section" id="set-basic" data-section="basic">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">基本</h2>
-                      <p class="settings-section-desc">這一頁都即時套用，不用按儲存。</p>
+                      <p class="settings-section-desc">管理更新與啟動方式，變更會自動儲存。</p>
                     </header>
-                    <div class="settings-card">
-                      <div class="setting-group">
-                        <label>主題</label>
-                        <div id="themeSegment" class="segmented">
-                          <button type="button" class="seg-btn" data-value="dark">深色</button>
-                          <button type="button" class="seg-btn" data-value="light">淺色</button>
+                    <div class="settings-card settings-basic-card">
+                      <section class="settings-group" aria-labelledby="setUpdateTitle">
+                        <h3 id="setUpdateTitle" class="settings-group-title">應用程式更新</h3>
+                        <div class="settings-rows">
+                          <div class="setting-row">
+                            <span class="setting-row-text">
+                              <span id="updateVersion" class="setting-row-title">目前版本 …</span>
+                              <span id="updateStatus" class="setting-row-desc" role="status"></span>
+                            </span>
+                            <span class="setting-row-control">
+                              <button type="button" id="updateInstallBtn" class="btn btn-primary btn-sm hidden">重新啟動並安裝</button>
+                              <button type="button" id="updateCheckBtn" class="btn btn-secondary btn-sm">檢查更新</button>
+                            </span>
+                          </div>
+                          <label class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">自動下載新版本</span>
+                              <span class="setting-row-desc">下載完成後，結束 AxonDeck 時安裝</span>
+                            </span>
+                            <input id="autoUpdateInput" class="switch" type="checkbox" />
+                          </label>
                         </div>
-                      </div>
-                      <div class="setting-group">
-                        <label>視窗與啟動</label>
-                        <label class="setting-check">
-                          <input id="closeToTrayInput" type="checkbox" />
-                          <span>關閉視窗時繼續在背景執行</span>
-                        </label>
-                        <label class="setting-check">
-                          <input id="startAtLoginInput" type="checkbox" />
-                          <span>開機時自動啟動（直接縮在系統匣）</span>
-                        </label>
-                        <p class="setting-hint">
-                          背景執行時 AGY 反代不會中斷，token 也會自動續期。
-                          要真的結束請用系統匣圖示的「結束 AxonDeck」。
-                        </p>
+                      </section>
+                      <section class="settings-group" aria-labelledby="setStartupTitle">
+                        <h3 id="setStartupTitle" class="settings-group-title">視窗與啟動</h3>
+                        <div class="settings-rows">
+                          <label class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">關閉視窗時繼續在背景執行</span>
+                              <span class="setting-row-desc">AGY 反代不會中斷，token 也會自動續期。要結束請用系統匣圖示的「結束 AxonDeck」。</span>
+                            </span>
+                            <input id="closeToTrayInput" class="switch" type="checkbox" />
+                          </label>
+                          <label class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">開機時自動啟動</span>
+                              <span class="setting-row-desc">直接縮在系統匣，不開視窗。</span>
+                            </span>
+                            <input id="startAtLoginInput" class="switch" type="checkbox" />
+                          </label>
+                        </div>
                         <p id="startupHint" class="setting-hint hidden"></p>
-                      </div>
-                      <div class="setting-group">
-                        <label>更新</label>
-                        <label class="setting-check">
-                          <input id="autoUpdateInput" type="checkbox" />
-                          <span>自動下載新版本（結束 AxonDeck 時安裝）</span>
-                        </label>
-                        <div class="update-row">
-                          <span id="updateVersion" class="update-version">目前版本 …</span>
-                          <button type="button" id="updateCheckBtn" class="btn btn-secondary btn-sm">檢查更新</button>
-                          <button type="button" id="updateInstallBtn" class="btn btn-primary btn-sm hidden">重新啟動並安裝</button>
-                        </div>
-                        <p id="updateStatus" class="setting-hint"></p>
-                      </div>
-                      <div class="setting-group">
-                        <label for="termThemeSelect">終端機外觀</label>
-                        <select id="termThemeSelect" class="select select-full" aria-label="終端機配色"></select>
-                        <div class="term-bg-row">
-                          <button type="button" id="termBgPickBtn" class="btn btn-secondary btn-sm">選背景圖…</button>
-                          <button type="button" id="termBgClearBtn" class="btn btn-secondary btn-sm" hidden>移除背景圖</button>
-                          <span id="termBgName" class="setting-value-label"></span>
-                        </div>
-                        <label for="termBgOpacityInput">
-                          背景圖強度 <span id="termBgOpacityLabel" class="setting-value-label">45%</span>
-                        </label>
-                        <input
-                          type="range"
-                          id="termBgOpacityInput"
-                          class="range-input"
-                          min="10"
-                          max="100"
-                          step="5"
-                          value="45"
-                        />
-                        <p class="setting-hint">數字越大圖越清楚，越小越接近配色的底色；文字不受影響。不要圖請按「移除背景圖」。</p>
-                      </div>
+                      </section>
                     </div>
                   </section>
 
-                  <!-- 語音朗讀 -->
-                  <section class="settings-section" id="set-voice" data-section="voice">
+                  <section class="settings-section" id="set-appearance" data-section="appearance">
                     <header class="settings-section-head">
-                      <h2 class="settings-section-title">語音朗讀</h2>
-                      <p class="settings-section-desc">翻譯頁的朗讀使用 Edge TTS，需要連網。</p>
+                      <h2 class="settings-section-title">外觀</h2>
+                      <p class="settings-section-desc">調整主題與終端機，變更會立即套用並自動儲存。</p>
                     </header>
-                    <div class="settings-card">
-                      <div class="setting-group">
-                        <label for="ttsRateInput">語速 <span id="ttsRateLabel" class="setting-value-label">1.0×</span></label>
-                        <input
-                          type="range"
-                          id="ttsRateInput"
-                          class="range-input"
-                          min="-50"
-                          max="100"
-                          step="5"
-                          value="0"
-                        />
-                        <p class="setting-hint">0.5×（慢）— 1.0×（預設）— 2.0×（快）</p>
-                      </div>
-                      <div id="ttsVoicesFields" class="tts-voices-fields">
-                        <div class="setting-group">
-                          <label for="ttsVoiceZhTw">繁體中文</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceZhTw" class="select select-full" data-tts-lang="zh-TW"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-TW" aria-label="預覽繁體中文語音">▶ 試聽</button>
+                    <div class="settings-card settings-basic-card">
+                      <section class="settings-group" aria-labelledby="setThemeTitle">
+                        <h3 id="setThemeTitle" class="settings-group-title">主題</h3>
+                        <div class="settings-rows">
+                          <div class="setting-row">
+                            <span class="setting-row-text"><span class="setting-row-title">介面配色</span></span>
+                            <div id="themeSegment" class="segmented">
+                              <button type="button" class="seg-btn" data-value="dark">深色</button>
+                              <button type="button" class="seg-btn" data-value="light">淺色</button>
+                            </div>
                           </div>
                         </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceZhCn">簡體中文</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceZhCn" class="select select-full" data-tts-lang="zh-CN"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="zh-CN" aria-label="預覽簡體中文語音">▶ 試聽</button>
+                      </section>
+                      <section class="settings-group" aria-labelledby="setTermTitle">
+                        <h3 id="setTermTitle" class="settings-group-title">終端機</h3>
+                        <figure class="term-preview" aria-label="終端機預覽">
+                          <div id="termAppearancePreview" class="term-preview-screen">
+                            <div class="term-preview-text">PS C:\&gt; <span class="term-preview-cursor" aria-hidden="true"> </span></div>
+                          </div>
+                          <p id="termPreviewStatus" class="setting-hint" role="status"></p>
+                        </figure>
+                        <div class="settings-rows">
+                          <div class="setting-row">
+                            <label class="setting-row-text" for="termThemeSelect"><span class="setting-row-title">配色</span></label>
+                            <span class="setting-row-control is-select">
+                              <select id="termThemeSelect" class="select select-full" aria-label="終端機配色"></select>
+                            </span>
+                          </div>
+                          <div class="setting-row">
+                            <span class="setting-row-text">
+                              <span class="setting-row-title">背景圖</span>
+                              <span id="termBgName" class="setting-row-desc"></span>
+                            </span>
+                            <span class="setting-row-control">
+                              <button type="button" id="termBgClearBtn" class="btn btn-secondary btn-sm" hidden>移除</button>
+                              <button type="button" id="termBgPickBtn" class="btn btn-secondary btn-sm">選擇圖片</button>
+                            </span>
+                          </div>
+                          <div class="setting-row is-stack">
+                            <label class="setting-row-head" for="termBgOpacityInput">
+                              <span class="setting-row-title">背景圖強度</span>
+                              <span id="termBgOpacityLabel" class="setting-value-label">45%</span>
+                            </label>
+                            <input
+                              type="range"
+                              id="termBgOpacityInput"
+                              class="range-input"
+                              min="10"
+                              max="100"
+                              step="5"
+                              value="45"
+                            />
                           </div>
                         </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceEn">English</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceEn" class="select select-full" data-tts-lang="en"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="en" aria-label="預覽 English 語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceJa">日本語</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceJa" class="select select-full" data-tts-lang="ja"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="ja" aria-label="預覽日本語語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                        <div class="setting-group">
-                          <label for="ttsVoiceKo">한국어</label>
-                          <div class="tts-voice-row">
-                            <select id="ttsVoiceKo" class="select select-full" data-tts-lang="ko"></select>
-                            <button type="button" class="btn btn-secondary btn-sm tts-preview-btn" data-tts-preview="ko" aria-label="預覽한국어 語音">▶ 試聽</button>
-                          </div>
-                        </div>
-                      </div>
-                      <p class="setting-hint">試聽用的是<strong>目前選到的語音與語速</strong>，不必先按儲存；需要連網。</p>
+                      </section>
                     </div>
                   </section>
 
                   <!-- CLI 版本（從 CC Proxy 搬過來，跟設定表單無關：按鈕不觸發未儲存提示） -->
+                  <section class="settings-section" id="set-install" data-section="install">
+                    <header class="settings-section-head install-heading">
+                      <div><h2 class="settings-section-title">安裝</h2>
+                        <p class="settings-section-desc">常用程式與這台電腦的應用程式，在這裡一起管理。</p></div>
+                      <button type="button" class="btn btn-secondary btn-sm" id="installRefresh">重新整理</button>
+                    </header>
+                    <div class="install-toolbar">
+                      <div class="segmented" id="installFilters" role="group" aria-label="程式清單">
+                        <button type="button" class="seg-btn active" data-filter="catalog" aria-pressed="true">常用程式</button>
+                        <button type="button" class="seg-btn" data-filter="installed" aria-pressed="false">已安裝</button>
+                        <button type="button" class="seg-btn" data-filter="updates" aria-pressed="false">可更新</button>
+                      </div>
+                      <div class="install-tools">
+                        <input type="search" class="input" id="installSearch" placeholder="搜尋程式名稱" aria-label="搜尋程式名稱" />
+                        <button type="button" class="btn btn-primary btn-sm" id="installUpgradeAll" hidden>全部更新</button>
+                      </div>
+                    </div>
+                    <div class="install-categories" id="installCategories" role="group" aria-label="分類"></div>
+                    <p class="install-summary" id="installSummary" role="status">尚未讀取程式清單。</p>
+                    <p class="install-error" id="installError" role="alert" hidden></p>
+                    <div id="installJobs" class="install-jobs" aria-label="安裝工作" hidden></div>
+                    <div id="installList" class="install-list" aria-label="應用程式"></div>
+                    <p class="setting-hint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
+                  </section>
                   <section class="settings-section" id="set-cli" data-section="cli">
                     <header class="settings-section-head">
                       <h2 class="settings-section-title">CLI 版本</h2>
@@ -2435,12 +2396,203 @@
                       <div id="ccVersionList" class="cc-list" role="list" aria-live="polite"></div>
                     </div>
                   </section>
+
+                  <!-- AGY 反代：Antigravity 額度 → OpenAI／Anthropic 端點（agy-page.js 自己管輪詢） -->
+                  <section class="settings-section" id="set-agy" data-section="agy">
+                    <header class="settings-section-head">
+                      <h2 class="settings-section-title">AGY 反代</h2>
+                    </header>
+                    <div class="agy-shell">
+                      <header class="agy-header">
+                        <div class="agy-heading">
+                          <p class="page-desc">把 Antigravity 額度轉成 OpenAI／Anthropic API；只聽 127.0.0.1，需帶金鑰。</p>
+                        </div>
+                        <div class="agy-actions" role="group" aria-label="服務操作">
+                          <button type="button" id="agyRefreshBtn" class="btn btn-secondary btn-sm">重新整理</button>
+                          <button type="button" id="agyTestBtn" class="btn btn-secondary btn-sm">測試連線</button>
+                          <button type="button" id="agyToggleBtn" class="btn btn-primary btn-sm">啟動服務</button>
+                        </div>
+                      </header>
+
+                      <p id="agyError" class="live-error hidden" role="alert"></p>
+
+                      <section class="agy-panel agy-control" aria-labelledby="agyControlTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="agyControlTitle" class="agy-panel-title">服務控制</h2>
+                          <p id="agyStatusLine" class="agy-status" role="status" aria-live="polite">
+                            <span id="agyStatusDot" class="agy-dot" aria-hidden="true"></span>
+                            <span id="agyStatusText">已停止</span>
+                          </p>
+                        </div>
+
+                        <dl class="agy-endpoint">
+                          <div class="agy-endpoint-row">
+                            <dt>Base URL</dt>
+                            <dd>
+                              <code id="agyBaseUrl" class="agy-code">尚未啟動</code>
+                              <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
+                            </dd>
+                          </div>
+                          <div class="agy-endpoint-row">
+                            <dt>API Key</dt>
+                            <dd>
+                              <code id="agyApiKey" class="agy-code agy-secret">尚未產生</code>
+                              <button type="button" id="agyKeyToggleBtn" class="btn btn-secondary btn-sm" aria-pressed="false">顯示</button>
+                              <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
+                              <button type="button" id="agyRegenerateBtn" class="btn btn-secondary btn-sm">重新產生</button>
+                            </dd>
+                          </div>
+                          <div class="agy-endpoint-row">
+                            <dt>憑證</dt>
+                            <dd><span id="agyCredential" class="agy-credential">服務停止中</span></dd>
+                          </div>
+                        </dl>
+
+                        <div id="agyCredentialHelp" class="agy-cred-help" role="status" hidden>
+                          <p id="agyCredentialHelpTitle" class="agy-cred-help-title"></p>
+                          <ol id="agyCredentialHelpSteps" class="agy-cred-help-steps"></ol>
+                        </div>
+
+                        <p id="agyTestResult" class="agy-test-result" role="status" aria-live="polite" hidden></p>
+
+                        <details class="agy-clients">
+                          <summary class="agy-clients-summary">客戶端怎麼填？（Claude Code／CC Switch、OpenAI 相容工具）</summary>
+                          <div class="agy-clients-body">
+                            <div class="agy-client">
+                              <p class="agy-client-tag">Claude Code · CC Switch</p>
+                              <div class="agy-client-row">
+                                <code class="agy-code-inline">ANTHROPIC_BASE_URL</code>
+                                <code id="agyAnthropicUrl" class="agy-code">尚未啟動</code>
+                                <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="anthropicBaseUrl">複製</button>
+                              </div>
+                              <div class="agy-client-row">
+                                <code class="agy-code-inline">ANTHROPIC_AUTH_TOKEN</code>
+                                <span class="agy-client-note">填上面那組 API Key</span>
+                                <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="apiKey">複製</button>
+                              </div>
+                              <p class="agy-client-warn">結尾<strong>不要</strong>加 <code class="agy-code-inline">/v1</code>（Claude Code 自己接）。</p>
+                            </div>
+                            <div class="agy-client">
+                              <p class="agy-client-tag">OpenAI 相容工具</p>
+                              <div class="agy-client-row">
+                                <code class="agy-code-inline">Base URL</code>
+                                <code id="agyOpenaiUrl" class="agy-code">尚未啟動</code>
+                                <button type="button" class="btn btn-secondary btn-sm" data-agy-copy="baseUrl">複製</button>
+                              </div>
+                              <p class="agy-client-note">這一組<strong>要</strong>帶 <code class="agy-code-inline">/v1</code>。</p>
+                            </div>
+                          </div>
+                        </details>
+
+                        <div class="agy-settings">
+                          <label class="agy-setting">
+                            <span>監聽埠</span>
+                            <input id="agyPortInput" class="input" type="number" min="1024" max="65535" step="1" inputmode="numeric" />
+                          </label>
+                          <label class="agy-setting">
+                            <span>日誌保留天數</span>
+                            <input id="agyRetentionInput" class="input" type="number" min="1" max="365" step="1" inputmode="numeric" />
+                          </label>
+                          <label class="agy-setting agy-setting-check">
+                            <input id="agyLogBodiesInput" type="checkbox" />
+                            <span>除錯模式：記錄請求／回應內容（各截 8KB）</span>
+                          </label>
+                          <div class="agy-setting-actions">
+                            <button type="button" id="agyClearLogsBtn" class="btn btn-secondary btn-sm">清空日誌</button>
+                            <button type="button" id="agySaveSettingsBtn" class="btn btn-primary btn-sm">儲存設定</button>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section class="agy-panel agy-stats" aria-labelledby="agyStatsTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="agyStatsTitle" class="agy-panel-title">統計</h2>
+                          <div id="agyRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
+                            <button type="button" class="agy-range-btn" data-agy-range="6h" aria-pressed="false">6 小時</button>
+                            <button type="button" class="agy-range-btn is-active" data-agy-range="24h" aria-pressed="true">24 小時</button>
+                            <button type="button" class="agy-range-btn" data-agy-range="7d" aria-pressed="false">7 天</button>
+                            <button type="button" class="agy-range-btn" data-agy-range="30d" aria-pressed="false">30 天</button>
+                            <button type="button" class="agy-range-btn" data-agy-range="all" aria-pressed="false">全部</button>
+                          </div>
+                        </div>
+                        <div id="agyStatCards" class="agy-stat-cards"></div>
+                        <div class="agy-charts">
+                          <figure class="agy-chart">
+                            <figcaption class="agy-chart-head">
+                              <span>請求量</span>
+                              <span id="agyTrendMeta" class="agy-chart-meta"></span>
+                            </figcaption>
+                            <div class="agy-bars-wrap">
+                              <div id="agyHourlyChart" class="agy-bars" role="img" aria-label="請求量長條圖"></div>
+                              <div id="agyChartTip" class="agy-tip" hidden></div>
+                            </div>
+                          </figure>
+                          <figure class="agy-chart">
+                            <figcaption class="agy-chart-head">
+                              <span>模型分佈</span>
+                              <span id="agyModelMeta" class="agy-chart-meta"></span>
+                            </figcaption>
+                            <div id="agyModelChart" class="agy-model-list" role="img" aria-label="各模型請求量分佈"></div>
+                          </figure>
+                        </div>
+                      </section>
+
+                      <section class="agy-panel agy-models" aria-labelledby="agyModelsTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="agyModelsTitle" class="agy-panel-title">可用模型</h2>
+                          <p class="agy-panel-desc">即時向上游查詢；點模型 ID 可複製。</p>
+                        </div>
+                        <div class="agy-models-bar">
+                          <button type="button" id="agyModelsRefreshBtn" class="btn btn-secondary btn-sm">
+                            重新查詢
+                          </button>
+                          <label class="agy-models-toggle">
+                            <input type="checkbox" id="agyModelsShowAll" />
+                            <span>顯示全部（含 IDE 內部模型）</span>
+                          </label>
+                          <span id="agyModelsMeta" class="agy-models-meta" role="status"></span>
+                        </div>
+                        <div id="agyModelsList" class="agy-models-list"></div>
+                      </section>
+
+                      <section class="agy-panel agy-logs" aria-labelledby="agyLogsTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="agyLogsTitle" class="agy-panel-title">流量日誌</h2>
+                          <div class="agy-log-filters" role="group" aria-label="日誌篩選">
+                            <select id="agyProtocolFilter" class="select" aria-label="協議篩選">
+                              <option value="">全部協議</option>
+                              <option value="openai">OpenAI</option>
+                              <option value="anthropic">Anthropic</option>
+                            </select>
+                            <label class="agy-filter-check">
+                              <input id="agyErrorsOnly" type="checkbox" />
+                              <span>只看錯誤</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div class="agy-table-wrap">
+                          <table class="agy-table">
+                            <caption class="visually-hidden">反向代理流量日誌，依時間由新到舊排列</caption>
+                            <thead>
+                              <tr>
+                                <th scope="col">時間</th>
+                                <th scope="col">協議</th>
+                                <th scope="col">模型</th>
+                                <th scope="col">狀態</th>
+                                <th scope="col">耗時</th>
+                                <th scope="col">Tokens</th>
+                              </tr>
+                            </thead>
+                            <tbody id="agyLogRows"></tbody>
+                          </table>
+                        </div>
+                        <p id="agyLogEmpty" class="agy-empty">尚無流量記錄。啟動服務並讓客戶端送出第一個請求後就會出現。</p>
+                      </section>
+                    </div>
+                  </section>
                 </div>
 
-                <div class="settings-footer">
-                  <p class="settings-footer-hint">「基本」即時套用；其餘按「儲存設定」後生效。</p>
-                  <button type="button" id="saveSettingsBtn" class="btn btn-primary">儲存設定</button>
-                </div>
+
               </div>
             </div>
           </section>
@@ -2546,20 +2698,6 @@
         <footer class="dialog-actions">
           <button type="button" id="usageSettingsCancel" class="btn btn-secondary">取消</button>
           <button type="button" id="usageSettingsSave" class="btn btn-primary">儲存變更</button>
-        </footer>
-      </dialog>
-
-      <dialog id="usageDiagnosticsDialog" class="app-dialog usage-dialog" aria-labelledby="usageDiagnosticsTitle">
-        <header class="dialog-head">
-          <h2 id="usageDiagnosticsTitle" class="dialog-title">同步診斷</h2>
-          <p class="dialog-desc">只顯示連線狀態與額度視窗，不含任何憑證內容。</p>
-        </header>
-        <div class="usage-dialog-body">
-          <pre id="usageDiagnosticsText" class="usage-diagnostics-text">尚無診斷資料</pre>
-        </div>
-        <footer class="dialog-actions">
-          <button type="button" id="usageDiagnosticsCopy" class="btn btn-secondary">複製診斷</button>
-          <button type="button" id="usageDiagnosticsClose" class="btn btn-primary">關閉</button>
         </footer>
       </dialog>
 

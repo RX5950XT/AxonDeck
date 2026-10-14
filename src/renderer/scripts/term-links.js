@@ -1,5 +1,5 @@
-import { electronAPI, showToast, switchPage, setChatPaneMode } from './app.js'
-import { openBrowserTab, openEditorTab, setActiveProject, currentProjectId } from './ws-tabs.js'
+import { electronAPI, showToast, switchPage, setChatPaneMode, openUrlInApp } from './app.js'
+import { openEditorTab, setActiveProject, currentProjectId } from './ws-tabs.js'
 import { scanLine, logicalLine } from './term-link-scan.js'
 
 /**
@@ -77,7 +77,7 @@ async function openTarget(data) {
  * @param {{ text: string, url: string, line?: number }} hit
  */
 function activateHit(id, hit) {
-  if (hit.url) { void openBrowserTab(hit.url); return }
+  if (hit.url) { void openUrlInApp(hit.url); return }
   void electronAPI.terminal.revealLink(id, hit.text, hit.line).then((result) => {
     if (!result?.ok) showToast(result?.error?.message || '找不到這個路徑', 'error')
     else void openTarget(result.data)
@@ -103,7 +103,7 @@ export function oscLinkHandler(id) {
       const unsupported = () => showToast('這種連結不支援開啟', 'error')
       try { parsed = new URL(uri) } catch { unsupported(); return }
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-        void openBrowserTab(parsed.href)
+        void openUrlInApp(parsed.href)
         return
       }
       if (parsed.protocol !== 'file:') { unsupported(); return }

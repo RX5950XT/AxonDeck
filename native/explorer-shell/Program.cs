@@ -27,6 +27,13 @@ namespace AxonDeckShell
         private static readonly ConcurrentQueue<string> Inbox = new ConcurrentQueue<string>();
         private static readonly AutoResetEvent Arrived = new AutoResetEvent(false);
         private static volatile bool _ended;
+        /// <summary>
+        /// 縮圖／圖示另開幾條 STA 平行做：只排在主執行緒的話，一張 NAS 上的影片現生縮圖
+        /// 就讓整排圖示和右鍵選單一起乾等。這些操作沒有共用狀態，選單仍留在主執行緒。
+        /// </summary>
+        private const int ImageWorkers = 4;
+        private static readonly BlockingCollection<string> ImageJobs = new BlockingCollection<string>();
+        private static readonly object WriteLock = new object();
 
         [STAThread]
         private static int Main()
@@ -48,6 +55,16 @@ namespace AxonDeckShell
                 Arrived.Set();
             }) { IsBackground = true };
             input.Start();
+            for (int i = 0; i < ImageWorkers; i++)
+            {
+                Thread worker = new Thread(() =>
+                {
+                    Native.OleInitialize(IntPtr.Zero);
+                    foreach (string job in ImageJobs.GetConsumingEnumerable()) Reply(writer, Handle(job));
+                }) { IsBackground = true };
+                worker.SetApartmentState(ApartmentState.STA);
+                worker.Start();
+            }
             IntPtr[] handles = { Arrived.SafeWaitHandle.DangerousGetHandle() };
             while (true)
             {
@@ -57,14 +74,38 @@ namespace AxonDeckShell
                     string line;
                     while (Inbox.TryDequeue(out line))
                     {
-                        if (line.Length > 0) writer.WriteLine(Handle(line));
+                        if (line.Length == 0) continue;
+                        if (IsImageOp(line)) ImageJobs.Add(line);
+                        else Reply(writer, Handle(line));
                     }
                     if (_ended && Inbox.IsEmpty) break;
                 }
                 Pump();
             }
+            ImageJobs.CompleteAdding();
             foreach (ShellMenu menu in Live.Values) menu.Dispose();
             return 0;
+        }
+
+        private static void Reply(StreamWriter writer, string line)
+        {
+            lock (WriteLock) writer.WriteLine(line);
+        }
+
+        private static bool IsImageOp(string line)
+        {
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(line))
+                {
+                    string op = Str(doc.RootElement, "op");
+                    return op == "thumb" || op == "icon" || op == "genericIcon" || op == "extractIcon";
+                }
+            }
+            catch (JsonException)
+            {
+                return false; // 壞 JSON 交給 Handle 回 BAD_JSON
+            }
         }
 
         private static void Pump()
@@ -91,6 +132,7 @@ namespace AxonDeckShell
                     {
                         case "overlay": return Ok(id, w => Overlay(root, w));
                         case "icon": return Ok(id, w => Icon(root, w));
+                        case "extractIcon": return Ok(id, w => WriteImage(w, "icon", Overlays.ExtractFile(Str(root, "path"), Num(root, "index", 0))));
                         case "genericIcon": return Ok(id, w => WriteImage(w, "icon", Overlays.IconOf(".axondeck-unregistered-file-type", true)));
                         case "thumb": return Ok(id, w => Thumb(root, w));
                         case "attrs": return Ok(id, w => Attributes.Write(Str(root, "dir"), w));

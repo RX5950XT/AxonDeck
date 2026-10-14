@@ -445,7 +445,6 @@ function createSysmonService(deps = {}) {
     fanResetAll: () => fans.resetAll(),
     fanTaskStatus: () => sensors.taskStatus(),
     fanTaskInstall: () => sensors.taskInstall(),
-    fanTaskRemove: () => sensors.taskRemove(),
 
     // Linux 引擎是 async（讀 sysfs）；Windows 照舊同步回傳
     ocStatus: () => ocFeed(oc.status()),

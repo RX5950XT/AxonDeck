@@ -1,0 +1,215 @@
+/* 獨立編輯視窗：沿用主 App 的代幣與 Markdown 樣式，只補自己的版面 */
+
+.ed-body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* 標題列：可拖曳；右側留給 Windows 原生的最小化／最大化／關閉（titleBarOverlay） */
+.ed-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 38px;
+  flex: none;
+  /* 150px：Windows 原生視窗按鈕（titleBarOverlay）的寬度再留一點空 */
+  padding: 0 150px 0 14px;
+  border-bottom: 1px solid var(--glass-border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.ed-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ed-name {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ed-dirty {
+  flex: none;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-warm);
+}
+
+.ed-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ed-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  -webkit-app-region: no-drag;
+}
+
+.ed-modes[hidden] {
+  display: none;
+}
+
+.ed-modes {
+  display: flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.ed-modes button,
+.ed-tool {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.ed-modes button:hover,
+.ed-tool:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.ed-modes button[aria-pressed="true"],
+.ed-tool[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--accent-soft);
+}
+
+.ed-modes button:focus-visible,
+.ed-tool:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
+.ed-save {
+  min-width: 56px;
+}
+
+.ed-notice {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.ed-notice[hidden] {
+  display: none;
+}
+
+/* 主區：編輯／分割／預覽三種排法 */
+.ed-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.ed-main[data-mode="split"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.ed-source {
+  min-width: 0;
+  min-height: 0;
+}
+
+.ed-preview {
+  min-width: 0;
+  overflow: auto;
+  padding: 28px 32px 64px;
+  font-size: 15px;
+  line-height: 1.75;
+  user-select: text;
+}
+
+.ed-main[data-mode="split"] .ed-preview {
+  border-left: 1px solid var(--glass-border);
+}
+
+/* 讀起來舒服的行寬，置中 */
+.ed-preview > * {
+  max-width: 820px;
+  margin-inline: auto;
+}
+
+.ed-main[data-mode="edit"] .ed-preview,
+.ed-main[data-mode="preview"] .ed-source,
+.ed-main[data-mode="fatal"] .ed-source,
+.ed-main[data-mode="fatal"] .ed-preview {
+  display: none;
+}
+
+/* 預覽字級比聊天大一號：這裡是讀文件 */
+.ed-preview h1.md-h { font-size: 26px; }
+.ed-preview h2.md-h { font-size: 21px; }
+.ed-preview h3.md-h { font-size: 17px; }
+
+.ed-preview .md-image {
+  max-width: 100%;
+}
+
+.ed-preview ::selection {
+  background: var(--accent-soft);
+}
+
+.ed-fatal {
+  place-self: center;
+  max-width: 420px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.ed-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 18px;
+  height: 26px;
+  padding: 0 14px;
+  border-top: 1px solid var(--glass-border);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ed-status-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ed-status-msg[data-tone="error"] {
+  color: var(--danger, #e06c6c);
+}

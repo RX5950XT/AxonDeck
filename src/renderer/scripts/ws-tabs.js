@@ -1,4 +1,5 @@
 import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
+import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
 import { renderMarkdown } from './markdown.js'
 import { showMenu } from './ws-menu.js'
 import { askInput } from './app-dialog.js'
@@ -10,9 +11,11 @@ import {
   disposeModel, disposeModelsExcept, retargetModel, revealLine, cursorInfo, currentValue, pushValue, showDiff,
   selectionInfo, diffGoTo, diffChangeCount, diffCursor, releaseEditors, flushChange
 } from './ws-monaco.js'
-import { paintAiSession } from './ws-ai-session.js'
+import { paintAiSession, startAiSessionWatch, stopAiSessionWatch } from './ws-ai-session.js'
+import { initAiSessionFind, closeAiSessionFind } from './ws-ai-session-find.js'
 import { nextZoom } from './ws-zoom.js'
 import { toolIcon } from './ws-tool-icons.js'
+import { terminalLabel, terminalTabTitle } from './term-title.js'
 import {
   addComment, listComments, removeComment, clearComments, countComments,
   formatComments, sendToChat
@@ -24,7 +27,7 @@ import {
  * 借 Orca 的 tab 模型，適配於本機單一工作區。支援分頁持久化與 Hot Exit
  * （未存檔草稿安全網），切換專案或重新啟動後自動還原。
  *
- * 畫面上五種內容各只有一份 DOM（`#termHost` / `#wsEditor` / `#wsBrowser` / `#wsDiff` / `#wsAiSession`），
+ * 畫面上六種內容各只有一份 DOM（`#termHost` / `#wsEditor` / `#wsBrowser` / `#wsDiff` / `#wsAiSession` / `#wsCcTools`），
  * 切分頁時把狀態搬進搬出。終端機是例外：每個工作階段有自己的 `.term-pane`，
  * 那份由 `terminal-page.js` 管，這裡只負責「現在該不該顯示 `#termHost`」。
  */
@@ -35,7 +38,7 @@ const MAX_TAB_TITLE = 28
 /**
  * @typedef {{
  *   id: string,
- *   kind: 'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session',
+ *   kind: 'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'cc-tools',
  *   title: string,
  *   projectId?: string,
  *   relPath?: string,
@@ -139,7 +142,7 @@ function shortTitle(value) {
 /**
  * 哪一塊內容該顯示。**單一擁有者**——終端機那邊也走這支，
  * 不然開編輯器分頁時 `#termHost` 會留在畫面上疊著。
- * @param {'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'empty'} kind
+ * @param {'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'cc-tools' | 'empty'} kind
  */
 export function showSurface(kind) {
   if (el.termHost) el.termHost.inert = false
@@ -149,7 +152,11 @@ export function showSurface(kind) {
   if (el.browser) el.browser.hidden = kind !== 'browser'
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
-  if (kind !== 'ai-session') el.aiSessionBody?.replaceChildren()
+  if (el.ccTools) el.ccTools.hidden = kind !== 'cc-tools'
+  if (kind !== 'ai-session') {
+    closeAiSessionFind(el.aiSessionBody)
+    el.aiSessionBody?.replaceChildren()
+  }
 }
 
 // ===== 持久化 (Hot Exit) =====
@@ -372,7 +379,7 @@ function renderTabs() {
     }
     const label = document.createElement('span')
     label.className = 'ws-tab-label'
-    label.textContent = shortTitle(tab.title)
+    label.textContent = tab.kind === 'terminal' ? terminalLabel(tab.title, MAX_TAB_TITLE) : shortTitle(tab.title)
     open.appendChild(label)
     if (tab.kind === 'terminal') {
       const status = document.createElement('span')
@@ -710,7 +717,6 @@ async function splitTerminal(id) {
 async function closeMany(list) {
   // 由後往前關：closeTab 會改動陣列，從前面關會跳過東西
   for (const tab of [...list].reverse()) {
-    // eslint-disable-next-line no-await-in-loop
     await closeTab(tab.id)
   }
   // 未存檔與終端機分頁要各自按 × 確認，批次裡會被略過：講清楚，不然像按了沒反應
@@ -773,6 +779,7 @@ async function activate(id) {
   if (id !== activeId) stash()
   activeId = id
   setChatPaneMode('workspace')
+  if (tab.kind !== 'ai-session') stopAiSessionWatch()
 
   if (tab.kind === 'terminal') {
     // 終端機那一格由 terminal-page 管；它會自己 showSurface('terminal')
@@ -789,8 +796,18 @@ async function activate(id) {
     paintDiff(tab)
     showSurface('diff')
   } else if (tab.kind === 'ai-session') {
-    paintAiSessionTab(tab)
     showSurface('ai-session')
+    paintAiSessionTab(tab)
+    startAiSessionWatch(tab, {
+      hidden: () => document.hidden,
+      current: () => activeId === tab.id && findTab(tab.id) === tab && !staleOpen(generation, tab.projectId || ''),
+      read: (cursor) => readAiSession(tab, cursor),
+      paint: () => { if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab) },
+      body: () => el.aiSessionBody
+    })
+  } else if (tab.kind === 'cc-tools') {
+    showSurface('cc-tools')
+    void import('./ccswitch-page.js').then((mod) => mod.refreshCcTools())
   } else {
     paintBrowser(tab)
     showSurface('browser')
@@ -980,7 +997,7 @@ export function ensureLiveTerminalTabs(sessions) {
     tabs.push({
       id: item.id,
       kind: 'terminal',
-      title: item.osTitle || item.title || '終端機'
+      title: terminalTabTitle(item) || '終端機'
     })
     added = true
   }
@@ -1019,7 +1036,7 @@ export function paintTerminalTab(id, meta) {
       status.classList.toggle('is-waiting', tab.state === 'waiting')
     }
     const label = open.querySelector('.ws-tab-label')
-    if (label && renamingId !== id) label.textContent = shortTitle(tab.title)
+    if (label && renamingId !== id) label.textContent = terminalLabel(tab.title, MAX_TAB_TITLE)
     open.querySelector('.ws-tab-unread')?.remove()
     if (tab.unread) {
       const dot = document.createElement('span')
@@ -1704,20 +1721,21 @@ function paintPreview(tab) {
     void paintPdf(tab, box, generation)
     return
   }
-  if (tab.audio) {
-    const audio = document.createElement('audio')
-    audio.className = 'ws-editor-audio'
-    audio.controls = true
-    audio.src = tab.audio
-    box.replaceChildren(audio)
-    return
-  }
-  if (tab.video) {
-    const video = document.createElement('video')
-    video.className = 'ws-editor-video'
-    video.controls = true
-    video.src = tab.video
-    box.replaceChildren(video)
+  if (tab.audio || tab.video) {
+    const player = document.createElement(tab.audio ? 'audio' : 'video')
+    player.className = tab.audio ? 'ws-editor-audio' : 'ws-editor-video'
+    player.controls = true
+    player.src = tab.audio || tab.video
+    // 容器認得、編碼解不了（例如 HEVC 的 .mkv／.mov）：改給原生播放器，不留一個黑框
+    player.addEventListener('error', () => {
+      if (generation !== previewGeneration) return
+      const hint = document.createElement('p')
+      hint.className = 'ws-unsupported-meta'
+      hint.textContent = '分頁播不了這個檔案的編碼，已改用 AxonDeck 播放器開啟。'
+      box.replaceChildren(hint)
+      void openWithSystem(tab.projectId, tab.relPath)
+    }, { once: true })
+    box.replaceChildren(player)
     return
   }
   if (tab.image) {
@@ -2396,6 +2414,14 @@ export async function openBrowserTab(url = '') {
   await activate(id)
 }
 
+/** MCP 與 Skills 跟專案無關，一個專案最多一個這種分頁：已經開著就切過去 */
+export async function openCcToolsTab() {
+  const existing = tabs.find((tab) => tab.kind === 'cc-tools')
+  if (existing) return activate(existing.id)
+  tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: project?.id || '' })
+  await activate('cc-tools')
+}
+
 // ===== 內建瀏覽器（<webview>）=====
 //
 // 比照 Orca：guest 不掛 preload、`partition` 用持久 session（登入狀態留著）、
@@ -2414,10 +2440,14 @@ function browserProjectId(tab) {
   return (tab && tab.projectId) || project?.id || ''
 }
 
+/** 空白分頁開 Infinity New Tab Pro 的新分頁（跟 Browser 頁同一個；main 只放行這個擴充功能、這個 partition） */
+const NEWTAB_URL = 'chrome-extension://nnnkddnnlpamobajfibfdgfnbcnkgngh/newtab/index.html'
+const isBlankPage = (url) => !url || url === 'about:blank' || url === NEWTAB_URL
+
 function liveBrowserUrl(tab) {
   const guest = browserGuestOf(tab)
   const fromGuest = guest?.dataset.src || ''
-  if (fromGuest && fromGuest !== 'about:blank') return fromGuest
+  if (!isBlankPage(fromGuest)) return fromGuest
   return ''
 }
 
@@ -2461,8 +2491,8 @@ function ensureBrowserGuest(tab) {
   guest.setAttribute('partition', 'persist:wsbrowser')
   guest.setAttribute('allowpopups', '')
   const href = safeUrl(tab.url || '')
-  guest.setAttribute('src', href || 'about:blank')
-  guest.dataset.src = href || 'about:blank'
+  guest.setAttribute('src', href || NEWTAB_URL)
+  guest.dataset.src = href || NEWTAB_URL
   guest.dataset.tabId = tab.id
   guest.dataset.projectId = pid
   // 事件處理一律從 guest 自己的 `data-tab-id` 找回分頁：背景分頁也會導航
@@ -2563,6 +2593,16 @@ function syncBrowserLocation(tab, url) {
   if (!tab || tab.kind !== 'browser' || !url || url === 'about:blank') return
   const guest = browserGuestOf(tab)
   if (guest) guest.dataset.src = url
+  if (url === NEWTAB_URL) {
+    // 上一頁退回新分頁：網址列留空、分頁不記這個擴充功能網址
+    tab.url = ''
+    tab.title = '新分頁'
+    const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
+    if (activeId === tab.id && input && document.activeElement !== input) input.value = ''
+    if (activeId === tab.id) paintBrowserChrome(tab)
+    renderTabs()
+    return
+  }
   tab.url = url
   tab.loadError = ''
   try {
@@ -2617,6 +2657,7 @@ function paintBrowserChrome(tab) {
     el.browserReloadBtn.setAttribute('aria-label', loading ? '停止載入' : '重新整理')
   }
   if (el.browserProgress) el.browserProgress.hidden = !loading
+  refreshBrowserActions() // 徽章跟著分頁走
   if (el.browserError) {
     const failed = Boolean(tab.loadError) && !loading
     el.browserError.hidden = !failed
@@ -2641,11 +2682,11 @@ function paintBrowser(tab) {
   if (!guest) return
   const href = safeUrl(tab.url || '')
   const current = guest.dataset.src || ''
-  const loaded = current !== '' && current !== 'about:blank'
+  const loaded = !isBlankPage(current)
   if (!href) {
-    if (!loaded && current !== 'about:blank') {
-      guest.dataset.src = 'about:blank'
-      guest.setAttribute('src', 'about:blank')
+    if (!loaded && current !== NEWTAB_URL) {
+      guest.dataset.src = NEWTAB_URL
+      guest.setAttribute('src', NEWTAB_URL)
     }
     // 空白分頁：游標直接落在網址列（不然使用者得自己去點那一格）
     input?.focus()
@@ -2664,7 +2705,10 @@ function navigateBrowser() {
   if (!tab || tab.kind !== 'browser' || !input) return
   const guest = ensureBrowserGuest(tab)
   if (!guest) return
-  const href = safeUrl(input.value)
+  // 有空白、或沒有 . : / 的字（localhost 除外）當搜尋，交給 Google AI Mode
+  const text = input.value.trim()
+  const isSearch = text && (/\s/.test(text) || !(/[.:/]/.test(text) || /^localhost/i.test(text)))
+  const href = isSearch ? `https://www.google.com/search?udm=50&aep=11&q=${encodeURIComponent(text)}` : safeUrl(text)
   if (!href) {
     showToast('只支援 http 與 https 的網址', 'error')
     return
@@ -2681,6 +2725,17 @@ function navigateBrowser() {
   }
   paintBrowserChrome(tab)
   renderTabs()
+}
+
+/** 目前瀏覽器分頁那顆 webview 的 webContents id；還沒 attach 回 null（擴充功能只列已裝的） */
+function activeGuestId() {
+  const tab = findTab(activeId)
+  if (!tab || tab.kind !== 'browser') return null
+  try {
+    return /** @type {any} */ (browserGuestOf(tab))?.getWebContentsId() ?? null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -2763,6 +2818,7 @@ function paintAiSessionTab(tab) {
   paintAiSession({
     tab,
     els: {
+      bar: el.aiSessionBar,
       title: el.aiSessionTitle,
       meta: el.aiSessionMeta,
       body: el.aiSessionBody,
@@ -2781,37 +2837,16 @@ function paintAiSessionTab(tab) {
     terminals: () => tabs
       .filter((one) => one.kind === 'terminal')
       .map((one) => ({ id: one.id, title: one.title })),
-    onResume: (terminalId) => void resumeSession(tab, terminalId),
-    onLoadPage: (direction) => void loadAiSessionPage(tab, direction)
+    onResume: (terminalId) => void resumeSession(tab, terminalId)
   })
 }
 
-/** 每次只保留一頁內容；前一頁用游標重讀，不累積整份巨型 log。 */
-async function loadAiSessionPage(tab, direction) {
-  if (tab.sessionLoading || !tab.projectId || !tab.sessionRow) return
-  const page = tab.sessionPage || 0
-  const cursors = tab.sessionPageCursors || [null]
-  const nextPage = page + direction
-  if (nextPage < 0 || (direction > 0 && !tab.sessionData?.nextCursor)) return
-  const cursor = direction > 0 ? tab.sessionData.nextCursor : cursors[nextPage]
-  const gen = projectSwitch
-  tab.sessionLoading = true
-  paintAiSessionTab(tab)
-  try {
-    const row = tab.sessionRow
-    const data = await call(electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor), '讀取這頁對話失敗')
-    if (staleOpen(gen, tab.projectId) || findTab(tab.id) !== tab) return
-    tab.sessionData = data
-    tab.sessionPage = nextPage
-    cursors[nextPage] = cursor
-    tab.sessionPageCursors = cursors
-    if (activeId === tab.id && el.aiSessionBody) el.aiSessionBody.scrollTop = 0
-  } catch {
-    // call 已顯示錯誤；保留現在這頁。
-  } finally {
-    tab.sessionLoading = false
-    if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab)
-  }
+/** 每次 IPC 仍只讀一小段，畫面會自動接成完整對話。 */
+async function readAiSession(tab, cursor) {
+  const row = tab.sessionRow
+  if (!tab.projectId || !row) return null
+  const result = await electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor)
+  return result?.ok ? result.data : null
 }
 
 /**
@@ -2857,9 +2892,9 @@ const NEW_ITEMS = [
   { preset: 'shell', label: '終端機' },
   { preset: 'claude', label: 'Claude Code' },
   { preset: 'codex', label: 'Codex' },
-  { preset: 'opencode', label: 'OpenCode' },
+  { preset: 'grok', label: 'Grok Build' },
   { preset: 'agy', label: 'Antigravity' },
-  { preset: 'grok', label: 'Grok' }
+  { preset: 'opencode', label: 'OpenCode' }
 ]
 
 /**
@@ -3130,6 +3165,8 @@ async function restoreProjectTabs(proj, generation) {
           url: item.url || '',
           projectId: proj.id
         })
+      } else if (item.kind === 'cc-tools' && !tabs.some((t) => t.kind === 'cc-tools')) {
+        tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: proj.id })
       } else if (item.kind === 'ai-session' && item.sessionRow) {
         try {
           const detail = await call(electronAPI.workspace.agentSessionDetail(proj.id, item.sessionRow.agent, item.sessionRow.id), '')
@@ -3262,9 +3299,12 @@ export function initWsTabs() {
 
   // AI 會話元素
   el.aiSession = document.getElementById('wsAiSession')
+  el.ccTools = document.getElementById('wsCcTools')
+  el.aiSessionBar = document.getElementById('wsAiSessionBar')
   el.aiSessionTitle = document.getElementById('wsAiSessionTitle')
   el.aiSessionMeta = document.getElementById('wsAiSessionMeta')
   el.aiSessionBody = document.getElementById('wsAiSessionBody')
+  initAiSessionFind(el.aiSession, el.aiSessionBody)
   el.aiResumeBtn = document.getElementById('wsAiResumeBtn')
   el.aiResumeIntoBtn = document.getElementById('wsAiResumeIntoBtn')
   el.aiCopyPathBtn = document.getElementById('wsAiCopyPathBtn')
@@ -3568,11 +3608,16 @@ export function initWsTabs() {
     }
   })
 
-  document.getElementById('wsBrowserGoBtn')?.addEventListener('click', navigateBrowser)
   el.browserBackBtn?.addEventListener('click', () => browserAction('back'))
   el.browserFwdBtn?.addEventListener('click', () => browserAction('forward'))
   el.browserReloadBtn?.addEventListener('click', () => browserAction('reload'))
   document.getElementById('wsBrowserDevBtn')?.addEventListener('click', () => browserAction('devtools'))
+  document.getElementById('wsBrowserExtBtn')?.addEventListener('click', (event) => {
+    // 擴充功能的 popup 對齊這顆鈕（視窗內座標）
+    const { x, y, width, height } = /** @type {HTMLElement} */ (event.currentTarget).getBoundingClientRect()
+    void electronAPI.workspace.extensionsMenu(activeGuestId(), { x, y, width, height })
+  })
+  initBrowserActions(document.getElementById('wsBrowserActions'), activeGuestId)
   document.getElementById('wsBrowserRetryBtn')?.addEventListener('click', () => browserAction('reload'))
   document.getElementById('wsBrowserExternalBtn')?.addEventListener('click', () => {
     const href = safeUrl(/** @type {HTMLInputElement} */ (el.browserUrl)?.value || '')

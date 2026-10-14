@@ -15,7 +15,6 @@
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 const fs = require('fs')
-const os = require('os')
 const { app, BrowserWindow } = require('electron')
 
 const ROOT = path.join(__dirname, '..')

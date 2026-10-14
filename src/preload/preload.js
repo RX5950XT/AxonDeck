@@ -4,6 +4,89 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
  * 安全地將 API 暴露給 Renderer Process
  */
 contextBridge.exposeInMainWorld('electronAPI', {
+  pages: {
+    ready: () => ipcRenderer.invoke('pages:ready'),
+    history: (delta) => ipcRenderer.invoke('pages:history', delta),
+    navigate: (request, detach = false) => ipcRenderer.invoke('pages:navigate', request, detach),
+    onNavigate: (callback) => {
+      const handler = (_event, value) => callback(value)
+      ipcRenderer.on('pages:navigate', handler)
+      return () => ipcRenderer.removeListener('pages:navigate', handler)
+    },
+    onState: (callback) => {
+      const handler = (_event, value) => callback(value)
+      ipcRenderer.on('pages:state', handler)
+      return () => ipcRenderer.removeListener('pages:state', handler)
+    },
+    onVisibility: (callback) => {
+      const handler = (_event, value) => callback(value)
+      ipcRenderer.on('pages:visibility', handler)
+      return () => ipcRenderer.removeListener('pages:visibility', handler)
+    }
+  },
+  pdfTranslate: {
+    pick: () => ipcRenderer.invoke('pdfTranslate:pick'),
+    inspect: (filename) => ipcRenderer.invoke('pdfTranslate:inspect', filename),
+    pasteImage: (payload) => ipcRenderer.invoke('pdfTranslate:pasteImage', payload),
+    start: (options) => ipcRenderer.invoke('pdfTranslate:start', options),
+    cancel: (jobId) => ipcRenderer.invoke('pdfTranslate:cancel', jobId),
+    status: () => ipcRenderer.invoke('pdfTranslate:status'),
+    save: (jobId) => ipcRenderer.invoke('pdfTranslate:save', jobId),
+    onProgress: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('pdfTranslate:progress', handler)
+      return () => ipcRenderer.removeListener('pdfTranslate:progress', handler)
+    }
+  },
+  appInstaller: {
+    status: () => ipcRenderer.invoke('appInstaller:status'),
+    refresh: () => ipcRenderer.invoke('appInstaller:refresh'),
+    start: (request) => ipcRenderer.invoke('appInstaller:start', request),
+    upgradeAll: () => ipcRenderer.invoke('appInstaller:upgradeAll'),
+    icons: () => ipcRenderer.invoke('appInstaller:icons'),
+    onState: (callback) => {
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('appInstaller:state', handler)
+      return () => ipcRenderer.removeListener('appInstaller:state', handler)
+    }
+  },
+  cloudTts: {
+    status: () => ipcRenderer.invoke('cloudTts:status'),
+    generate: (options) => ipcRenderer.invoke('cloudTts:generate', options),
+    cancel: (options) => ipcRenderer.invoke('cloudTts:cancel', options),
+    saveAudio: (options) => ipcRenderer.invoke('cloudTts:saveAudio', options)
+  },
+  breeze: {
+    status: () => ipcRenderer.invoke('breeze:status'),
+    generate: (options) => ipcRenderer.invoke('breeze:generate', options),
+    cancel: (options) => ipcRenderer.invoke('breeze:cancel', options),
+    pickAudio: (options) => ipcRenderer.invoke('breeze:pickAudio', options),
+    voices: () => ipcRenderer.invoke('breeze:voices'),
+    saveVoice: (options) => ipcRenderer.invoke('breeze:saveVoice', options),
+    removeVoice: (options) => ipcRenderer.invoke('breeze:removeVoice', options),
+    saveAudio: (options) => ipcRenderer.invoke('breeze:saveAudio', options),
+    importRecording: (options) => ipcRenderer.invoke('breeze:importRecording', options),
+    trimAudio: (options) => ipcRenderer.invoke('breeze:trimAudio', options),
+    saveTake: (options) => ipcRenderer.invoke('breeze:saveTake', options),
+    loadTake: (options) => ipcRenderer.invoke('breeze:loadTake', options),
+    listTakes: () => ipcRenderer.invoke('breeze:listTakes'),
+    removeTake: (options) => ipcRenderer.invoke('breeze:removeTake', options),
+    onChunk: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('breeze:chunk', handler)
+      return () => ipcRenderer.removeListener('breeze:chunk', handler)
+    },
+    onStatus: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('breeze:status', handler)
+      return () => ipcRenderer.removeListener('breeze:status', handler)
+    },
+    onProgress: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('breeze:progress', handler)
+      return () => ipcRenderer.removeListener('breeze:progress', handler)
+    }
+  },
   /**
    * 取得本機檔案絕對路徑（Electron 32+ 取代 File.path）
    * @param {File} file
@@ -25,7 +108,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ===== 字幕視窗控制 =====
   subtitle: {
     show: () => ipcRenderer.invoke('subtitle:show'),
-    hide: () => ipcRenderer.invoke('subtitle:hide'),
     close: () => ipcRenderer.invoke('subtitle:close'),
     /** @param {string | { id?: string, source?: string, translation?: string, action?: string, text?: string }} payload */
     update: (payload) => ipcRenderer.invoke('subtitle:update', payload),
@@ -129,15 +211,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     gpuCapability: () => ipcRenderer.invoke('system:gpuCapability'),
     refreshGpuCapability: () => ipcRenderer.invoke('system:refreshGpuCapability'),
     installCudaEnv: () => ipcRenderer.invoke('system:installCudaEnv'),
-    openCudaDownloadPage: () => ipcRenderer.invoke('system:openCudaDownloadPage'),
     onCudaInstallProgress: (callback) => {
       const handler = (_event, progress) => callback(progress)
       ipcRenderer.on('system:cudaInstallProgress', handler)
       return () => ipcRenderer.removeListener('system:cudaInstallProgress', handler)
     }
-  },
-  llm: {
-    loadInfo: () => ipcRenderer.invoke('llm:loadInfo')
   },
 
   // ===== 應用程式內更新 =====
@@ -159,7 +237,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('usage:load'),
     sync: () => ipcRenderer.invoke('usage:sync'),
     saveSettings: (settings) => ipcRenderer.invoke('usage:saveSettings', settings),
-    getDiagnostics: () => ipcRenderer.invoke('usage:diagnostics'),
     redeemCodexReset: (creditId) => ipcRenderer.invoke('usage:redeemCodexReset', creditId)
   },
 
@@ -188,6 +265,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @returns {Promise<{ ok: boolean, data?: { shells: object[], presets: object[], maxSessions: number } }>} */
     catalog: () => ipcRenderer.invoke('terminal:catalog'),
     list: () => ipcRenderer.invoke('terminal:list'),
+    conversation: (id, cursor) => ipcRenderer.invoke('terminal:conversation', id, cursor),
+    /** 全螢幕 CLI 的內部捲軸。文字、角色與第幾次出現由清單來，路徑不從 renderer 收。 */
+    navJump: (id, req) => ipcRenderer.invoke('terminal:navJump', id, req),
     hostState: () => ipcRenderer.invoke('terminal:hostState'),
     restartHost: () => ipcRenderer.invoke('terminal:restartHost'),
     /** @param {{ shell?: string, preset?: string, cwd?: string, title?: string }} req */
@@ -246,6 +326,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const wrapped = (_event, payload) => handler(payload)
       ipcRenderer.on('terminal:agent', wrapped)
       return () => ipcRenderer.removeListener('terminal:agent', wrapped)
+    },
+    /** 同一個終端機改綁到另一段對話。面板關著也要重讀。 @param {(payload: { id: string, sessionId: string, title?: string }) => void} handler */
+    onSession: (handler) => {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('terminal:session', wrapped)
+      return () => ipcRenderer.removeListener('terminal:session', wrapped)
+    },
+    /** Grok 對話標題更新。 @param {(payload: { id: string, title: string }) => void} handler */
+    onTitle: (handler) => {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('terminal:title', wrapped)
+      return () => ipcRenderer.removeListener('terminal:title', wrapped)
     }
   },
 
@@ -288,7 +380,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveTabsState: (id, tabsState) => ipcRenderer.invoke('workspace:saveTabsState', id, tabsState),
     getTabsState: (id) => ipcRenderer.invoke('workspace:getTabsState', id),
     getFileMtime: (id, relPath) => ipcRenderer.invoke('workspace:getFileMtime', id, relPath),
-    projectPath: (id) => ipcRenderer.invoke('workspace:projectPath', id),
     /** @param {string} relPath 專案內的相對路徑，一律用 `/` */
     listDir: (id, relPath) => ipcRenderer.invoke('workspace:listDir', id, relPath),
     readFile: (id, relPath) => ipcRenderer.invoke('workspace:readFile', id, relPath),
@@ -336,13 +427,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openEntry: (id, relPath) => ipcRenderer.invoke('workspace:openEntry', id, relPath),
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
+    extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
+    browserPopout: (url, title, guestId, slot) => ipcRenderer.invoke('workspace:browserPopout', url, title, guestId, slot),
+    /** 彈出的獨立視窗被最小化或關閉：網頁收回原本的分頁位置 */
+    onBrowserDock: (callback) => {
+      const handler = (_event, info) => callback(info)
+      ipcRenderer.on('browserPopout:dock', handler)
+      return () => ipcRenderer.removeListener('browserPopout:dock', handler)
+    },
+    extensionActions: (guestId) => ipcRenderer.invoke('workspace:extensionActions', guestId),
+    extensionActivate: (guestId, extensionId, anchor) => ipcRenderer.invoke('workspace:extensionActivate', guestId, extensionId, anchor),
+    /** 擴充功能的圖示、徽章或安裝狀態變了 */
+    onExtensionsChanged: (callback) => {
+      const handler = () => callback()
+      ipcRenderer.on('workspace:extensionsChanged', handler)
+      return () => ipcRenderer.removeListener('workspace:extensionsChanged', handler)
+    },
     gitStatus: (id) => ipcRenderer.invoke('workspace:gitStatus', id),
     gitLog: (id) => ipcRenderer.invoke('workspace:gitLog', id),
     /** 暫存／取消暫存／捨棄（捨棄救不回來，renderer 要二次確認） */
     gitStage: (id, relPath) => ipcRenderer.invoke('workspace:gitStage', id, relPath),
     gitUnstage: (id, relPath) => ipcRenderer.invoke('workspace:gitUnstage', id, relPath),
     gitStageAll: (id) => ipcRenderer.invoke('workspace:gitStageAll', id),
-    gitUnstageAll: (id) => ipcRenderer.invoke('workspace:gitUnstageAll', id),
     gitDiscard: (id, relPath) => ipcRenderer.invoke('workspace:gitDiscard', id, relPath),
     gitCommit: (id, message, stageAll) => (
       ipcRenderer.invoke('workspace:gitCommit', id, message, stageAll)
@@ -507,7 +613,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     fanResetAll: () => ipcRenderer.invoke('sysmon:fanResetAll'),
     fanTaskStatus: () => ipcRenderer.invoke('sysmon:fanTaskStatus'),
     fanTaskInstall: () => ipcRenderer.invoke('sysmon:fanTaskInstall'),
-    fanTaskRemove: () => ipcRenderer.invoke('sysmon:fanTaskRemove'),
     ocStatus: () => ipcRenderer.invoke('sysmon:ocStatus'),
     ocSetDraft: (patch) => ipcRenderer.invoke('sysmon:ocSetDraft', patch || {}),
     ocApply: (opts) => ipcRenderer.invoke('sysmon:ocApply', { confirmed: opts?.confirmed === true }),
@@ -565,7 +670,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     tune: (id) => ipcRenderer.invoke('hfmodels:tune', id),
     /** 一鍵自動調參：fit 量記憶體 → bench 實測挑最快 */
     autoTune: (id) => ipcRenderer.invoke('hfmodels:autoTune', id),
-    cancelTune: () => ipcRenderer.invoke('hfmodels:cancelTune'),
     /** 執行環境＋裝置＋CPU＋資料夾＋有沒有 token 一次給 */
     hardware: () => ipcRenderer.invoke('hfmodels:hardware'),
     /** 走系統對話框換模型資料夾（沒有路徑參數） */
@@ -711,6 +815,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // ===== 獨立編輯視窗（只能讀寫 main 替這扇窗開的那個檔案）=====
+  editorFile: {
+    load: () => ipcRenderer.invoke('editorFile:load'),
+    save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
+    stat: () => ipcRenderer.invoke('editorFile:stat'),
+    setDirty: (dirty) => ipcRenderer.invoke('editorFile:setDirty', dirty),
+    close: () => ipcRenderer.invoke('editorFile:close'),
+    onCloseRequest: (callback) => {
+      const handler = () => callback()
+      ipcRenderer.on('editorFile:closeRequest', handler)
+      return () => ipcRenderer.removeListener('editorFile:closeRequest', handler)
+    }
+  },
+
   // ===== 整機檔案總管（絕對路徑由 main 的 explorer/paths.js 收斂）=====
   explorer: {
     bootstrap: () => ipcRenderer.invoke('explorer:bootstrap'),
@@ -743,6 +861,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createEntry: (dirPath, name, dir) => ipcRenderer.invoke('explorer:createEntry', dirPath, name, dir),
     renameEntry: (target, name) => ipcRenderer.invoke('explorer:renameEntry', target, name),
     removeEntry: (target, opts) => ipcRenderer.invoke('explorer:removeEntry', target, opts),
+    removeEntries: (items, opts) => ipcRenderer.invoke('explorer:removeEntries', items, opts),
     restoreEntry: (key) => ipcRenderer.invoke('explorer:restoreEntry', key),
     purgeEntry: (key) => ipcRenderer.invoke('explorer:purgeEntry', key),
     emptyRecycle: () => ipcRenderer.invoke('explorer:emptyRecycle'),
@@ -773,12 +892,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} pattern @param {object} [filters] 類型／日期／大小／位置篩選，由 main 驗證 */
     uffsSearch: (pattern, filters) => ipcRenderer.invoke('explorer:uffsSearch', pattern, filters || {}),
     uffsCancel: () => ipcRenderer.invoke('explorer:uffsCancel'),
-    uffsInstall: () => ipcRenderer.invoke('explorer:uffsInstall'),
-    uffsCancelInstall: () => ipcRenderer.invoke('explorer:uffsCancelInstall'),
-    uffsInstallBroker: () => ipcRenderer.invoke('explorer:uffsInstallBroker'),
     uffsEnsure: (opts) => ipcRenderer.invoke('explorer:uffsEnsure', opts),
     folderSize: (dirPath, token) => ipcRenderer.invoke('explorer:folderSize', dirPath, token),
     folderSizeCancel: (token) => ipcRenderer.invoke('explorer:folderSizeCancel', token),
+    /** 背景算子資料夾大小；lane 'main'｜'second'，同 lane 新的取消舊的 */
+    dirSizes: (dirPath, lane) => ipcRenderer.invoke('explorer:dirSizes', dirPath, lane),
+    dirSizesCancel: (lane) => ipcRenderer.invoke('explorer:dirSizesCancel', lane),
     onChanged: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('explorer:changed', handler)
@@ -788,6 +907,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('explorer:uffsProgress', handler)
       return () => ipcRenderer.removeListener('explorer:uffsProgress', handler)
+    },
+    onDirSizesProgress: (callback) => {
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('explorer:dirSizesProgress', handler)
+      return () => ipcRenderer.removeListener('explorer:dirSizesProgress', handler)
     },
     onFolderSizeProgress: (callback) => {
       const handler = (_event, payload) => callback(payload)

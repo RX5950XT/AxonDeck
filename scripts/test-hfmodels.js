@@ -744,11 +744,14 @@ async function asyncSections() {
   ok('N/A 使用率是缺值不是 0', gpus[1].utilization === null)
   const devices = [
     { id: 'CUDA0', name: 'NVIDIA GeForce RTX 3060 Ti' },
-    { id: 'CUDA1', name: 'NVIDIA GeForce RTX 5060 Ti' },
-    { id: 'Vulkan0', name: 'Intel Arc' }
+    { id: 'CUDA1', name: 'NVIDIA GeForce RTX 5060 Ti', totalMiB: 16310, freeMiB: 14500 },
+    { id: 'Vulkan0', name: 'Intel Arc', totalMiB: 4096, freeMiB: 3000 }
   ]
   const attached = occupancy.attachUtil(devices, gpus)
   ok('使用率接到同名卡', attached[0].utilization === 12 && attached[1].utilization === null)
+  ok('顯存以 nvidia-smi 為準（WDDM 下 llama 的 free 看不到別的程式）',
+    attached[1].totalMiB === 16311 && attached[1].freeMiB === 16311 - 1150, JSON.stringify(attached[1]))
+  ok('對不到的卡保留 llama 的顯存', attached[2].freeMiB === 3000)
   ok('對不到的卡不填 0', attached[2].utilization === null)
 }
 

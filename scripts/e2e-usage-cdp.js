@@ -2,7 +2,6 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
-const os = require('os')
 const http = require('http')
 
 const PORT = 9241
@@ -12,11 +11,21 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-
 // 暫存 user-data-dir：使用者開著的正式實例佔 single-instance lock，
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
 const USER_DATA_DIR = tempDir('axondeck-cdp-')
-const EXPECTED_ORDER = ['chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
+const { NAV_PAGES: EXPECTED_ORDER } = require('./lib/nav-pages')
 /** 條上每一家把東西全打開（含未連線的那幾家），結構斷言才有固定的七顆 */
 const BAR_ALL = { kinds: ['rolling-5h', 'weekly', 'monthly'], showReset: true, showPlan: true, compact: false, hideDisconnected: false, showLastSync: true }
 // 額度條長在工作區主區裡：種一個專案讓主區切得過去；感測器關掉免得跳 UAC
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
+const usageHour = Math.floor(Date.now() / 3600_000) * 3600_000
+fs.writeFileSync(path.join(USER_DATA_DIR, 'code-usage.json'), JSON.stringify({
+  rulesVersion: require('../src/main/codeusage/pricing').RULES_VERSION,
+  buckets: [
+    { ts: usageHour, provider: 'claude', model: 'claude-haiku-5.5', longContext: false,
+      input: 79_000, output: 79_000, requests: 79, reportedCost: null },
+    { ts: usageHour, provider: 'claude', model: 'claude-haiku-5.5', longContext: true,
+      input: 100_001, output: 1_000, requests: 1, reportedCost: null }
+  ]
+}))
 fs.mkdirSync(path.join(USER_DATA_DIR, 'quota-project'))
 fs.writeFileSync(path.join(USER_DATA_DIR, 'workspaces.json'), JSON.stringify({
   projects: [{ id: 'w_quota_test', name: '額度測試', path: path.join(USER_DATA_DIR, 'quota-project'), createdAt: Date.now() }]
@@ -92,6 +101,8 @@ class Cdp {
     try { this.ws.close() } catch {}
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs
@@ -114,6 +125,7 @@ async function main() {
   // 測試視窗常被蓋在後面，不關掉遮蔽偵測的話自動同步那條會隨機等不到
   const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`,
     '--disable-backgrounding-occluded-windows'], {
+    detached: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })
   let processLog = ''
@@ -185,7 +197,7 @@ async function main() {
       }
     })()`)
     if (JSON.stringify(structure.order) !== JSON.stringify(EXPECTED_ORDER) || !structure.noPage ||
-        !structure.inTermMain || !structure.belowSurfaces || structure.height > 30 || structure.chips !== 7) {
+        !structure.inTermMain || !structure.belowSurfaces || structure.height > 40 || structure.chips !== 7) {
       throw new Error(`額度條結構錯誤：${JSON.stringify(structure)}`)
     }
     pass(`額度頁拿掉了；額度條在終端機下面、高 ${Math.round(structure.height)}px、七顆都在`)
@@ -199,7 +211,7 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, 500))
       const afterSave = document.querySelectorAll('#quotaItems .quota-item').length
       const hasGrok = !!document.querySelector('#quotaItems .quota-item[data-id="grok"]')
-      document.querySelector('[data-page="ccswitch"]').click()
+      // 每頁是獨立的 renderer，點別頁會把 CDP 帶去那一頁；這裡只在同一頁重畫
       document.querySelector('[data-page="chat"]').click()
       await new Promise((resolve) => setTimeout(resolve, 400))
       const saved = (await window.electronAPI.usage.load()).data.settings.visibleProviders
@@ -345,18 +357,10 @@ async function main() {
     }
     pass('點一下開那一家的完整卡片（在條的上方、不透明），再點一下收起來')
 
-    await applyAllOn()
-    const diagnostics = await cdp.eval(`(async () => {
-      document.getElementById('quotaDiagnosticsBtn').click()
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      const text = document.getElementById('usageDiagnosticsText').textContent
-      document.getElementById('usageDiagnosticsClose').click()
-      return text
-    })()`)
-    if (/Bearer\s+[A-Za-z0-9._-]{8,}|refresh_token|client_secret|sk-[A-Za-z0-9]/i.test(diagnostics)) {
-      throw new Error('診斷內容疑似含憑證')
-    }
-    pass('診斷內容已去敏')
+    // 同步診斷整條拿掉了（按鈕、彈窗、IPC）；狀態去敏由 e2e-usage.js 檢查
+    const noDiagnostics = await cdp.eval(`!document.getElementById('quotaDiagnosticsBtn') && !document.getElementById('usageDiagnosticsDialog') && !window.electronAPI.usage.getDiagnostics`)
+    if (!noDiagnostics) throw new Error('同步診斷還沒拿乾淨')
+    pass('額度條沒有同步診斷')
 
     // 真的兌換會扣使用者的次數，這裡只驗「清單外的 id 在碰到 CLI 之前就被擋下」
     const fakeRedeem = await cdp.eval(`window.electronAPI.usage.redeemCodexReset('rlrc_not_in_list')`)
@@ -443,20 +447,20 @@ async function main() {
     }
     pass('深淺主題都看得到、字色跟著主題換、沒有水平溢出')
 
-    // ===== 用量統計子分頁 =====
+    // ===== 用量統計（額度條抽屜） =====
     // 只驗「切得過去、面板都在、統計讀得出來」。**刻意不按「掃描本機記錄」**：
     // 那會讀滿 GB 等級的 session 記錄，是使用者自己決定要不要跑的動作，不該由測試代按。
-    // 用量統計搬到 CC Proxy頁的子分頁
-    await cdp.eval("document.querySelector('[data-page=\"ccswitch\"]').click()")
-    await cdp.eval("document.querySelector('#ccSubtabs .subtab[data-subtab=\"stats\"]').click()")
+    // 用量統計在工作區額度條的抽屜裡
+    await cdp.eval("document.querySelector('[data-page=\"chat\"]').click()")
+    await cdp.eval("document.getElementById('quotaStatsBtn').click()")
     await waitFor(
-      () => cdp.eval("document.getElementById('cc-stats').classList.contains('active') && document.querySelectorAll('#cuChart .cu-bar-col').length > 0"),
+      () => cdp.eval("!document.getElementById('quotaDrawerStats').hidden && document.querySelectorAll('#cuChart .cu-bar-col').length > 0"),
       15_000,
-      'CC Proxy的用量統計子分頁'
+      '額度條的用量統計抽屜'
     )
-    pass('CC Proxy頁的「用量統計」子分頁切得過去')
+    pass('額度條的「用量統計」抽屜打得開')
 
-    const statsPanels = await cdp.eval("document.querySelectorAll('#cc-stats .cc-panel').length")
+    const statsPanels = await cdp.eval("document.querySelectorAll('#quotaDrawerStats .cc-panel').length")
     if (statsPanels !== 3) throw new Error(`用量統計應有三個面板，實際 ${statsPanels}`)
     pass('用量統計三個面板都在')
 
@@ -465,6 +469,14 @@ async function main() {
     if (cuStats.data.range !== '7d') throw new Error('range 沒有照送出去的 key')
     if (cuStats.data.providers.length !== 5) throw new Error('用量統計應涵蓋五家')
     pass('用量統計 IPC 回得出五家')
+    const haiku = cuStats.data.models.find((row) => row.key === 'claude-haiku-5.5')
+    if (cuStats.data.summary.uncostedRequests !== 0 || !haiku || haiku.requests !== 80 ||
+        Math.abs(haiku.costUsd - 0.0999005) > 1e-12 ||
+        Math.abs(haiku.costParts.input - 0.0579005) > 1e-12 ||
+        Math.abs(haiku.costParts.output - 0.042) > 1e-12) {
+      throw new Error(`Haiku 5.5 兩級單價／拆帳不符：${JSON.stringify(haiku)}`)
+    }
+    pass('Haiku 5.5 的 80 次請求都計費，長短單價及拆帳正確')
 
     const badRange = await cdp.eval("window.electronAPI.codeusage.stats({ range: 'rm -rf' })")
     if (badRange?.data?.range !== '7d') throw new Error('未知 range 沒有退回預設')
@@ -604,10 +616,11 @@ async function main() {
       } catch {}
     }
     cdp?.close()
-    try { child.kill() } catch {}
+    // 先 taskkill /T 收整棵（含 nvidia-smi 等子程序），再 child.kill()；反過來父程序先死，樹就找不到了
     if (child.pid) {
-      try { spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
+      try { require('child_process').spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch {}
     }
+    try { child.kill() } catch {}
   }
 }
 

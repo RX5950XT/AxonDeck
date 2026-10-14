@@ -41,7 +41,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * @returns {Promise<boolean>} 有沒有真的插進去
  */
 async function insertIntoOwnWindow(payload, deps = {}) {
-  const get = deps.getFocusedWindow || (() => require('electron').BrowserWindow.getFocusedWindow())
+  const get = deps.getFocusedWindow || (() => {
+    const { BrowserWindow, webContents } = require('electron')
+    const win = BrowserWindow.getFocusedWindow()
+    return win ? { webContents: webContents.getFocusedWebContents() || win.webContents } : null
+  })
   let win
   try {
     win = get()

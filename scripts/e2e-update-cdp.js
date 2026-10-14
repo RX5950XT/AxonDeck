@@ -13,7 +13,6 @@
 const { spawn } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 
@@ -64,6 +63,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch {} }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()

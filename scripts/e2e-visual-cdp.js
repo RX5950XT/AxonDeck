@@ -1,7 +1,6 @@
 const { spawn, execFileSync } = require('child_process')
 const fs = require('fs')
 const http = require('http')
-const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
@@ -12,7 +11,7 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-
 const USER_DATA_DIR = tempDir('axondeck-e2e-visual-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
 fs.writeFileSync(path.join(USER_DATA_DIR, 'explorer.json'), JSON.stringify({ uffsAuto: false }))
-const PAGES = ['chat', 'telegram', 'explorer', 'ccswitch', 'agy', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings']
+const { NAV_PAGES: PAGES } = require('./lib/nav-pages')
 // 主視窗 minWidth 是 900，900 就是最窄的真實情況。不要再量更窄的：
 // 視窗 --hidden 時用 Emulation 縮寬，有 -webkit-app-region 的標題列元素不會重算樣式，
 // 量到的溢出是假的（視窗顯示中量就正常）。
@@ -25,16 +24,20 @@ const SIGNATURES = {
   explorer: ['.ex-sidebar', '.ex-main', '.ex-detail'],
   // 探索頁的卡片要等搜尋回來才有，所以挑「執行環境」那三塊靜態就在 DOM 裡的面板
   hfmodels: ['.hf-panel'],
-  ccswitch: ['.cc-panel'],
   // 卡片是收到第一輪取樣才建出來的，所以 signature 挑靜態就在 DOM 裡的兩個面板
   sysmon: ['.sysmon-table', '.sysmon-stress-card'],
-  agy: ['.agy-control', '.agy-stats', '.agy-models', '.agy-logs'],
-  stt: ['.drop-zone', '.result-panel'],
+  // 語音頁改版後玻璃在三欄外框，欄內的 drop-zone／結果卡刻意是平的
+  stt: ['.stt-column'],
   translate: ['.translate-pane', '.translate-banner'],
   settings: ['.settings-card', '.settings-nav', '.settings-save-bar']
   // telegram：整片 webview、沒有卡片，只驗不會水平溢出
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+/** 功能頁各自一個 renderer：切頁要獨立一步，下一個 eval 才會落在新頁上（同一個 eval 裡量到的是被藏起來的舊頁） */
+async function gotoPage(cdp, page) {
+  await cdp.eval(`document.querySelector('[data-page="${page}"]')?.click()`)
+  await sleep(400)
+}
 
 function getJson(url) {
   return new Promise((resolve, reject) => {
@@ -119,6 +122,8 @@ class Cdp {
     try { this.ws.close() } catch {}
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs
@@ -379,8 +384,8 @@ async function main() {
     checks++
     console.log('PASS  control-states (select / model chip / thinking)')
 
+    await gotoPage(cdp, 'stt')
     const customDropdown = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="stt"]')?.click()
       document.querySelector('#sttSubtabs [data-subtab="live"]')?.click()
       await new Promise((resolve) => setTimeout(resolve, 260))
       const trigger = document.querySelector('.custom-select-trigger[data-select-id="liveLanguage"]')
@@ -443,8 +448,8 @@ async function main() {
     checks++
     console.log('PASS  custom-dropdown (shape / selection / change / close)')
 
+    await gotoPage(cdp, 'translate')
     const modelDropdown = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="translate"]')?.click()
       await new Promise((resolve) => setTimeout(resolve, 260))
       const trigger = document.querySelector('.custom-select-trigger[data-select-id="translatePageModel"]')
       if (!trigger) return null
@@ -479,19 +484,21 @@ async function main() {
     checks++
     console.log('PASS  model-dropdown (chip menu / alignment / close)')
 
-    const chatModelDropdown = await cdp.eval(`(async () => {
+    await cdp.eval(`(async () => {
       const provider = {
         id: 'visual_chat_provider',
         name: '視覺測試供應商',
         apiUrl: 'https://visual.test/v1',
         apiKey: '',
-        models: ['z-ai/glm-5.3-flash'],
-        imageModels: []
+        models: [{ id: 'z-ai/glm-5.3-flash', type: 'chat' }]
       }
-      await window.electronAPI.store.set('chatProviders', [provider])
+      // 寫統一的 cloudProviders（main 投影出 chatProviders）；只寫舊鍵會被下一次存 cloudProviders 蓋掉
+      await window.electronAPI.store.set('cloudProviders', [provider])
       await window.electronAPI.store.set('chatProviderId', provider.id)
-      await window.electronAPI.store.set('chatModelId', provider.models[0])
-      document.querySelector('[data-page="chat"]')?.click()
+      await window.electronAPI.store.set('chatModelId', provider.models[0].id)
+    })()`)
+    await gotoPage(cdp, 'chat')
+    const chatModelDropdown = await cdp.eval(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 320))
       const trigger = document.querySelector('.custom-select-trigger[data-select-id="chatModelSelect"]')
       const native = document.getElementById('chatModelSelect')
@@ -505,7 +512,7 @@ async function main() {
         text: menu?.querySelector('.custom-select-option')?.textContent || ''
       }
       if (menu) trigger.click()
-      await window.electronAPI.store.set('chatProviders', [])
+      await window.electronAPI.store.set('cloudProviders', [])
       return result
     })()`)
     if (!chatModelDropdown || !chatModelDropdown.opened || chatModelDropdown.disabled ||
@@ -515,18 +522,19 @@ async function main() {
     checks++
     console.log('PASS  chat-model-dropdown (click / option)')
 
-    const modelRowLayout = await cdp.eval(`(async () => {
+    await cdp.eval(`(async () => {
       const provider = {
         id: 'visual_row_provider',
         name: '視覺測試供應商',
         apiUrl: 'https://visual.test/v1',
         apiKey: '',
-        models: ['model-a'],
-        imageModels: []
+        models: [{ id: 'model-a', type: 'chat' }]
       }
-      await window.electronAPI.store.set('chatProviders', [provider])
+      await window.electronAPI.store.set('cloudProviders', [provider])
       await window.electronAPI.store.set('chatProviderId', provider.id)
-      document.querySelector('[data-page="settings"]')?.click()
+    })()`)
+    await gotoPage(cdp, 'settings')
+    const modelRowLayout = await cdp.eval(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 320))
       document.querySelector('.settings-nav-item[data-section="cloud"]')?.click()
       // 等「量得到尺寸」而不是睡固定時間：機器忙的時候 420ms 不夠，量到的會是
@@ -537,38 +545,30 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
       const row = document.querySelector('#chatModelList .chat-model-row')
-      const checkbox = row?.querySelector('.chat-model-flag input')
-      const flagText = row?.querySelector('.chat-model-flag > span')
       const fields = row ? [
         row.querySelector('.input'),
-        row.querySelector('.chat-model-flag'),
+        row.querySelector('.custom-select-trigger'),
         row.querySelector('.btn-icon')
       ].filter(Boolean).map((item) => {
         const rect = item.getBoundingClientRect()
         return { top: rect.top, height: rect.height }
       }) : []
-      const checkboxRect = checkbox?.getBoundingClientRect()
-      const textRect = flagText?.getBoundingClientRect()
-      await window.electronAPI.store.set('chatProviders', [])
+      await window.electronAPI.store.set('cloudProviders', [])
       return {
         count: fields.length,
         sameTop: fields.length === 3 && Math.max(...fields.map((field) => field.top)) - Math.min(...fields.map((field) => field.top)) <= 1,
         sameHeight: fields.length === 3 && fields.every((field) => Math.abs(field.height - 40) <= 1),
-        flagContentAligned: Boolean(checkboxRect && textRect) && Math.abs(
-          (checkboxRect.top + checkboxRect.height / 2) - (textRect.top + textRect.height / 2)
-        ) <= 1,
         fields
       }
     })()`)
-    if (!modelRowLayout || modelRowLayout.count !== 3 || !modelRowLayout.sameTop || !modelRowLayout.sameHeight ||
-      !modelRowLayout.flagContentAligned) {
+    if (!modelRowLayout || modelRowLayout.count !== 3 || !modelRowLayout.sameTop || !modelRowLayout.sameHeight) {
       throw new Error(`模型列對齊不符預期：${JSON.stringify(modelRowLayout)}`)
     }
     checks++
     console.log('PASS  model-row-layout (same top / 40px controls)')
 
+    await gotoPage(cdp, 'chat')
     const dialogDropdown = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="chat"]')?.click()
       await new Promise((resolve) => setTimeout(resolve, 260))
       document.getElementById('wsNewBtn')?.click()
       await new Promise((resolve) => setTimeout(resolve, 160))

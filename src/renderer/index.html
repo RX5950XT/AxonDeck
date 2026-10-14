@@ -1322,7 +1322,7 @@
                 </div>
                 <p id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></p>
                 <p id="sysmonNetworkNote" class="sysmon-detail sysmon-proc-note">欄名顯示整機占用；拖曳或用 Alt＋方向鍵調換欄位，名稱固定在第一欄。</p>
-                <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
+                <p class="sysmon-detail sysmon-proc-note" id="sysmonProcNote">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 
               <!-- 壓力測試：CPU／GPU／記憶體／磁碟四項，上方一條即時負載與溫度儀錶 -->
@@ -1792,7 +1792,7 @@
                       按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
                     </p>
                     <p id="dictationHotkeyTipLinux" class="setting-hint dict-hotkey-note" hidden>
-                      <strong>Wayland：</strong>全域右 Alt 可能無效或需額外權限。<strong>X11：</strong>uiohook 監聽通常較穩，但仍無法吞鍵。
+                      <strong>X11：</strong>只能監聽右 Alt、無法攔截，前景程式也會收到這顆鍵。<strong>Wayland：</strong>只在 XWayland 視窗位於前景時有效。
                     </p>
                     <p id="dictationHotkeyNote" class="setting-hint dict-hotkey-note" hidden></p>
                   </div>
@@ -2379,7 +2379,7 @@
                     <p class="install-error" id="installError" role="alert" hidden></p>
                     <div id="installJobs" class="install-jobs" aria-label="安裝工作" hidden></div>
                     <div id="installList" class="install-list" aria-label="應用程式"></div>
-                    <p class="setting-hint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
+                    <p class="setting-hint" id="installFootHint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
                   </section>
                   <section class="settings-section" id="set-cli" data-section="cli">
                     <header class="settings-section-head">

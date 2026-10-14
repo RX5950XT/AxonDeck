@@ -208,6 +208,8 @@ function saveOpenSubs() {
 }
 
 const DASH = '—'
+/** Linux 版：Windows 專屬的欄位（Windows 目錄、Windows 更新）不顯示 */
+const IS_LINUX = typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Windows/.test(navigator.userAgent)
 
 /** LibreHardwareMonitor 的感測器型別 → 中文與單位 */
 const SENSOR_TYPES = Object.freeze({
@@ -1081,7 +1083,7 @@ function describeBlocks(s, inv) {
       spark: { key: 'gpu0', value: pct, max: 100 },
       stats: [
         ['專用記憶體', fmtBytes(vram)],
-        ['資料來源', 'Windows 計數器']
+        ['資料來源', IS_LINUX ? '偵測中…' : 'Windows 計數器']
       ],
       viz: {
         kind: 'meters',
@@ -1374,7 +1376,7 @@ function describeBlocks(s, inv) {
         [sys?.inDomain ? '網域' : '工作群組', sys?.workgroup || DASH],
         ['製造商 / 型號', sys ? `${sys.vendor} ${sys.model}`.trim() || DASH : DASH],
         ['系統磁碟', osInfo?.systemDrive || DASH],
-        ['Windows 目錄', osInfo?.windowsDir || DASH],
+        ...(IS_LINUX ? [] : [['Windows 目錄', osInfo?.windowsDir || DASH]]),
         ['虛擬化', sys?.hypervisor ? 'Hypervisor 執行中' : '未執行'],
         ['處理程序數', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))],
         ['已開機', fmtUptime(osInfo?.bootedAt)]
@@ -1402,10 +1404,10 @@ function describeBlocks(s, inv) {
           title: '藍牙',
           rows: (inv?.bluetooth || []).map((b) => [b.name, b.status === 'OK' ? '正常' : (b.status || DASH)])
         },
-        {
+        ...(IS_LINUX ? [] : [{
           title: 'Windows 更新',
           rows: (inv?.hotfixes || []).map((h) => [h.id, h.installedOn || DASH])
-        },
+        }]),
         {
           title: '電池',
           rows: batteries.map((b) => [b.name, [

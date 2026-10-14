@@ -11,6 +11,7 @@ import {
 } from './chat-page.js'
 import { DEFAULT_ASR_API_URL, DEFAULT_ASR_MODEL } from './api.js'
 import { initResizer } from './pane-resize.js'
+import { applyPlatformTexts } from './platform-texts.js'
 import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { createListReorder } from './list-reorder.js'
@@ -18,6 +19,8 @@ import { initNavHistory, noteLocation } from './nav-history.js'
 import { refreshTermAppearancePreview } from './term-appearance-preview.js'
 import { TERM_THEMES, DEFAULT_TERM_THEME, DEFAULT_TERM_BG_OPACITY, MIN_TERM_BG_OPACITY } from './term-themes.js'
 import { initPageWindows, navigateToPage, pageOwner, isPageHost, notifyPageSettings } from './page-windows.js'
+
+applyPlatformTexts()
 
 /** @type {typeof import('./live-caption.js') | null} */
 let liveCaption = null

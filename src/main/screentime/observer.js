@@ -21,6 +21,7 @@ function resolveScript(baseDir = __dirname) {
 function createObserver(deps = {}) {
   const spawnFn = deps.spawnFn || spawn
   const onTick = deps.onTick || (() => {})
+  const probeCommandFn = deps.probeCommand || probeCommand
   /** @type {import('child_process').ChildProcess | null} */
   let child = null
   let buf = ''
@@ -29,7 +30,11 @@ function createObserver(deps = {}) {
     if (child) return
     buf = ''
     try {
-      const cmd = probeCommand('observer', resolveScript())
+      const cmd = probeCommandFn('observer', resolveScript())
+      if (!cmd.file || cmd.unsupported) {
+        child = null
+        return
+      }
       child = spawnFn(cmd.file, cmd.args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch {
       child = null

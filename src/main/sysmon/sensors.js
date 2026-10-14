@@ -232,6 +232,14 @@ function createSensorBridge(deps = {}) {
       const elevate = opts.elevate === true
       if (state === 'on') return Promise.resolve({ state, message })
       if (state === 'starting' && pendingEnable) return pendingEnable
+      // Linux／macOS：沒有 WinRing0／PawnIO／具名管道 sidecar，明確標成 missing
+      // 測試可注入 supportsWinNative: true 走管道協定（不碰真實 sidecar）
+      const winNative = deps.supportsWinNative ?? (process.platform === 'win32')
+      if (!winNative) {
+        state = 'missing'
+        message = '感測器／風扇／超頻目前僅支援 Windows（需要核心驅動 sidecar）。'
+        return Promise.resolve({ state, message })
+      }
       const exe = exePathFn()
       if (!exe) {
         state = 'missing'

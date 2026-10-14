@@ -12,13 +12,16 @@ const agents = require('../workspace/agents')
 const { HostClient } = require('./host-client')
 const { createActivity, shellCommandOpen } = require('./agent-activity')
 
+/** Linux／macOS：不走 Windows named-pipe 宿主，直接 in-process node-pty */
+const IN_PROCESS = process.platform !== 'win32'
+
 /** 複製上限：scrollback 5000 列 × 寬螢幕也到不了這麼多，擋的是 renderer 亂送 */
 const CLIPBOARD_MAX_CHARS = 8 * 1024 * 1024
 
 let client
 let emit = () => {}
 const activity = createActivity((event, payload) => emit(event, payload))
-const agentResume = require('./agent-resume').createTracker(store, agents, Date.now, () => getClient().request('list'),
+const agentResume = require('./agent-resume').createTracker(store, agents, Date.now, () => (IN_PROCESS ? terminal.sessionStates() : getClient().request('list')),
   (states, terminals) => require('./agent-processes').identifySessions(states, terminals, agents.claudeHomes()),
   (id, sessionId) => { void publishSession(id, sessionId) },
   async (terminals, live) => {
@@ -97,7 +100,9 @@ function bridgeTakesOver() {
 
 async function listSessions() {
   const items = await store.list()
-  const states = await getClient().request('list') || []
+  const states = IN_PROCESS
+    ? terminal.sessionStates()
+    : (await getClient().request('list') || [])
   const byId = new Map(states.map(item => [item.id, item]))
   const follows = []
   for (const item of items) {
@@ -136,10 +141,14 @@ async function openSession(id, cols, rows) {
   // 對話檔不在就拿掉 claudeSessionId，宿主才不會打出 `claude --resume` 然後報找不到。
   let safe = await agentResume.prepare(meta)
   if (!safe.agentSessionId) safe = await claudeHooks.prepareResume(safe)
-  const states = await getClient().request('list') || []
+  const states = IN_PROCESS
+    ? terminal.sessionStates()
+    : (await getClient().request('list') || [])
   await agentResume.begin(safe, states.some(item => item.id === safe.id))
   void activity.follow(safe)
-  const snapshot = await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
+  const snapshot = IN_PROCESS
+    ? terminal.openSessionWithMeta({ ...safe }, cols, rows, editor, editorDir)
+    : await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
   if (snapshot?.cwd) links.noteCwd(meta.id, snapshot.cwd)
   return snapshot
 }
@@ -154,6 +163,13 @@ async function openSession(id, cols, rows) {
  * @returns {Promise<{ stale: boolean, busy: boolean }>}
  */
 async function hostState() {
+  if (IN_PROCESS) {
+    const states = terminal.sessionStates()
+    return {
+      stale: false,
+      busy: states.some(item => item.state === 'running' || item.state === 'idle')
+    }
+  }
   if (!await getClient().ensure(false)) return { stale: false, busy: false }
   const states = await getClient().request('list') || []
   return {
@@ -168,6 +184,7 @@ async function hostState() {
  * @returns {Promise<boolean>}
  */
 async function restartHost() {
+  if (IN_PROCESS) return false
   if (!await getClient().ensure(false)) return false
   await agentResume.capture()
   return getClient().restart()
@@ -177,7 +194,8 @@ async function deleteSession(id) {
   const key = String(id || '')
   agentResume.forget(key)
   activity.drop(key)
-  await getClient().request('forget', { sessionId: key })
+  if (IN_PROCESS) terminal.forgetSession(key)
+  else await getClient().request('forget', { sessionId: key })
   links.noteCwd(key, '')
   return store.remove(key)
 }
@@ -202,7 +220,9 @@ async function writeSession(id, data) {
   }
   // 回答了提問 → working；Esc／Ctrl+C 中斷 → idle（中斷不會有 Stop hook）。
   claudeHooks.noteInput(key, data)
-  return getClient().request('write', { sessionId: key, data: data.slice(0, terminal.MAX_WRITE_CHARS) })
+  const chunk = data.slice(0, terminal.MAX_WRITE_CHARS)
+  if (IN_PROCESS) return terminal.writeSession(key, chunk)
+  return getClient().request('write', { sessionId: key, data: chunk })
 }
 
 async function createSession(req = {}) {
@@ -245,6 +265,7 @@ module.exports = {
     editorBridge.configure(userData)
     editorBridge.start((channel, payload) => emit(channel, payload))
     clipboardImage.configure(userData)
+    if (IN_PROCESS) terminal.setEmitter((event, payload) => forward(event, payload))
   },
   // Ctrl+G 開的那個編輯分頁：renderer 只送得出 id，改哪個檔由 main 說了算。
   // 儲存只把內容留著，關掉分頁才真的送回終端機（見 editor-bridge.js）
@@ -252,7 +273,13 @@ module.exports = {
   editorCancel: (id) => editorBridge.cancel(id),
   // Windows 組建號（`10.0.26200` 的最後一段）給 xterm 的 `windowsPty`。放這裡不放 pty.js：
   // pty.js 是宿主檔，一改就得重開宿主（見 AGENTS.md「宿主活得比 App 久」）
-  catalog: () => ({ ...terminal.catalog(), winBuild: Number(require('os').release().split('.')[2]) || 0 }),
+  catalog: () => ({
+    ...terminal.catalog(),
+    // windowsPty 只給 Windows；Linux 若誤傳 buildNumber，xterm 會用錯 ConPTY 語意
+    winBuild: process.platform === 'win32'
+      ? (Number(require('os').release().split('.')[2]) || 0)
+      : 0
+  }),
   createSession,
   conversation,
   navJump,
@@ -284,8 +311,12 @@ module.exports = {
   backgroundImage: background.dataUri,
   adoptBackground: background.adopt,
   clearBackground: background.remove,
-  resizeSession: (id, cols, rows) => getClient().request('resize', { sessionId: String(id || ''), cols, rows }),
-  killSession: (id) => getClient().request('kill', { sessionId: String(id || '') }),
+  resizeSession: (id, cols, rows) => IN_PROCESS
+    ? terminal.resizeSession(String(id || ''), cols, rows)
+    : getClient().request('resize', { sessionId: String(id || ''), cols, rows }),
+  killSession: (id) => IN_PROCESS
+    ? terminal.killSession(String(id || ''))
+    : getClient().request('kill', { sessionId: String(id || '') }),
   async disconnect() {
     try { await agentResume.capture() } catch { console.error('[terminal] AI_SESSION_SCAN_FAILED') }
     agentResume.stop()

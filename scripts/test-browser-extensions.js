@@ -42,4 +42,36 @@ const xml = '<gupdate><app appid="ddkjiahejlhfcafbddmgiahcphecmpfh" status="ok">
 assert.deepEqual([...parseUpdateXml(xml)], [['ddkjiahejlhfcafbddmgiahcphecmpfh', '2026.1012.1545']])
 assert.equal(parseUpdateXml('not xml').size, 0)
 
-console.log('test-browser-extensions: 通過')
+// Linux：解壓改用 bsdtar／unzip（Windows 照舊 tar.exe）
+async function linuxUnzip() {
+  if (process.platform !== 'linux') return
+  const { unzip } = require('../src/main/browser-extensions')
+  const { tempDir } = require('./lib/test-temp')
+  const { execFileSync } = require('node:child_process')
+  const fsx = require('node:fs')
+  const pathx = require('node:path')
+  const work = tempDir('ext-unzip-')
+  const zipFile = pathx.join(work, 'ext.zip')
+  const makeZip = (file, evil) => execFileSync('python3', ['-c', `import zipfile,sys
+z=zipfile.ZipFile(sys.argv[1],'w')
+z.writestr('manifest.json','{"name":"t"}')
+z.writestr('icons/中文.png','x')
+if sys.argv[2]=='1': z.writestr('../evil.txt','x')
+z.close()`, file, evil ? '1' : '0'])
+  makeZip(zipFile, false)
+  const dest = pathx.join(work, 'out')
+  fsx.mkdirSync(dest)
+  await unzip(zipFile, dest)
+  assert.equal(fsx.readFileSync(pathx.join(dest, 'manifest.json'), 'utf8'), '{"name":"t"}')
+  assert.ok(fsx.existsSync(pathx.join(dest, 'icons', '中文.png')))
+  // 含 ../ 的壓縮檔：bsdtar 整包拒絕、unzip 略過那一筆；兩種都不能寫到目的地外面
+  const evilZip = pathx.join(work, 'evil.zip')
+  makeZip(evilZip, true)
+  const dest2 = pathx.join(work, 'out2')
+  fsx.mkdirSync(dest2)
+  await unzip(evilZip, dest2).catch((error) => assert.match(error.message, /解壓失敗/))
+  assert.ok(!fsx.existsSync(pathx.join(work, 'evil.txt')), '../ 不能跳出目的地')
+  await assert.rejects(unzip(pathx.join(work, 'missing.zip'), dest), /解壓失敗/)
+}
+
+linuxUnzip().then(() => console.log('test-browser-extensions: 通過'), (error) => { console.error(error); process.exit(1) })

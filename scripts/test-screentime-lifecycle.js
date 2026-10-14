@@ -80,7 +80,9 @@ async function main() {
     })
     await check('觀測器啟動失敗不崩潰，舊程序退出不影響新程序', () => {
       const children = []
-      const observer = createObserver({ spawnFn: () => {
+      const observer = createObserver({
+        probeCommand: () => ({ file: 'fake-observer', args: ['observer'], unsupported: false }),
+        spawnFn: () => {
         const child = Object.assign(new EventEmitter(), {
           stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill() {}
         })

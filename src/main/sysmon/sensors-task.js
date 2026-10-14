@@ -200,6 +200,9 @@ function createSensorTask(deps = {}) {
   /** 排程工作的內容只有 install／remove 會改；問一次就記住（每次重拉都問要多 2 秒） */
   let taskInfo = null
   const lookup = () => {
+    if (process.platform !== 'win32') {
+      return Promise.resolve({ installed: false, execute: '', arg: '' })
+    }
     if (!taskInfo) {
       // 只記住「有」：逾時或還沒裝的結果留著，之後就永遠退回 UAC
       taskInfo = readTask(spawnFn).then((found) => {
@@ -257,6 +260,12 @@ function createSensorTask(deps = {}) {
      * @param {string} exePath
      */
     async install(exePath) {
+      if (process.platform !== 'win32') {
+        const err = new Error('unsupported')
+        err.code = 'SYSMON_TASK_UNSUPPORTED'
+        err.userMessage = '感測器排程工作僅支援 Windows。'
+        throw err
+      }
       if (!packaged) {
         const err = new Error('dev build')
         err.code = 'SYSMON_TASK_DEV'
@@ -304,6 +313,7 @@ function createSensorTask(deps = {}) {
 
     /** 移除排程工作（會彈一次 UAC）。移除後 sidecar 退回每次 UAC 的舊路。 */
     async remove() {
+      if (process.platform !== 'win32') return { installed: false, stale: false }
       const script = `$ErrorActionPreference='SilentlyContinue'; `
         + `Unregister-ScheduledTask -TaskName ${psQuote(TASK_NAME)} -Confirm:$false; exit 0`
       await runPowerShell(script, { elevate: true, timeoutMs: INSTALL_TIMEOUT_MS, spawnFn })
@@ -318,6 +328,7 @@ function createSensorTask(deps = {}) {
      * @returns {Promise<boolean>} 成功觸發才回 true；false 時呼叫端要退回 -Verb RunAs
      */
     async run(pipeName, exePath = '') {
+      if (process.platform !== 'win32') return false
       const target = protectedExe()
       if (!isProtectedInstall(target) || !sameBinary(exePath, target)) return false
       const found = await query(target)

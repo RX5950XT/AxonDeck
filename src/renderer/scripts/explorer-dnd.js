@@ -7,7 +7,7 @@ import { showMenu } from './ws-menu.js'
 export const RECYCLE_CWD = 'recyclebin'
 
 export function pathKey(value) {
-  return String(value || '').replace(/\\+$/, '').toLowerCase()
+  return String(value || '').replace(/[\\/]+$/, '').toLowerCase()
 }
 
 /**

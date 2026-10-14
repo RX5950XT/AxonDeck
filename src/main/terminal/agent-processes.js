@@ -79,7 +79,67 @@ function resumeId(agent, command) {
   return isAgentSessionId(agent, id) ? id : ''
 }
 
+/** Linux：/proc/<pid>/stat 的 starttime 是開機後的 clock tick；換成 ISO 時間要 btime 與 CLK_TCK。 */
+let clockTicks = 0
+function clkTck() {
+  if (clockTicks) return clockTicks
+  try { clockTicks = Number(require('node:child_process').execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8', timeout: 2000 }).trim()) || 100 }
+  catch { clockTicks = 100 }
+  return clockTicks
+}
+
+/**
+ * Linux 的程序名稱：node／bun／deno 跑的 CLI（npm 裝的 codex、opencode…）取腳本檔名，
+ * 其餘取 argv[0] 的檔名；都去掉 .js／.mjs／.cjs，對照 preset（claude、codex…）。
+ * @param {string[]} argv
+ */
+function linuxProcessName(argv) {
+  const base = (value) => path.posix.basename(String(value || '')).replace(/\.(c|m)?js$/i, '')
+  // Claude 原生安裝：~/.local/share/claude/versions/<版本>，直接執行時 argv[0] 是版本檔名
+  if (/\/claude\/versions\/[^/]+$/.test(String(argv[0] || ''))) return 'claude'
+  const first = base(argv[0])
+  if (/^(node|nodejs|bun|deno)$/i.test(first)) {
+    const script = argv.slice(1).find(arg => arg && !arg.startsWith('-'))
+    if (script) return base(script)
+  }
+  return first
+}
+
+/** 與 Windows 的 Win32_Process 同欄位：ProcessId、ParentProcessId、Name、CommandLine、StartedAt。 */
+async function linuxProcessSnapshot(root = '/proc') {
+  let btime = 0
+  try { btime = Number(/^btime\s+(\d+)/m.exec(await fs.readFile(path.join(root, 'stat'), 'utf8'))?.[1]) || 0 } catch { btime = 0 }
+  const tick = clkTck()
+  const rows = []
+  for (const name of await fs.readdir(root)) {
+    if (!/^\d+$/.test(name)) continue
+    try {
+      const stat = await fs.readFile(path.join(root, name, 'stat'), 'utf8')
+      // comm 可能含空白與括號：從最後一個 ')' 之後切欄位
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+      const ppid = Number(fields[1])
+      const startTicks = Number(fields[19])
+      const argv = (await fs.readFile(path.join(root, name, 'cmdline'), 'utf8')).split('\0').filter(Boolean)
+      if (!argv.length) continue
+      rows.push({
+        ProcessId: Number(name), ParentProcessId: ppid, Name: linuxProcessName(argv),
+        CommandLine: argv.map(arg => /\s/.test(arg) ? `"${arg}"` : arg).join(' '),
+        StartedAt: btime && Number.isFinite(startTicks) ? new Date((btime + startTicks / tick) * 1000).toISOString() : ''
+      })
+    } catch { /* 程序剛結束或讀不到（別人的程序） */ }
+  }
+  return rows.filter(row => Number.isSafeInteger(row.ProcessId) && Number.isSafeInteger(row.ParentProcessId))
+}
+
+/** 程序名稱是不是這個 preset 的 CLI（Windows 比 `<preset>.exe`，Linux 比檔名） */
+function isPresetProcess(row, preset, platform = process.platform) {
+  const name = String(row?.Name || '').toLowerCase()
+  // 非 Windows 也認 `<preset>.exe`：測試的程序表與 Wine 下的 CLI 都長這樣，Linux 本身不會撞名
+  return name === `${preset}.exe` || (platform !== 'win32' && name === preset)
+}
+
 async function processSnapshot() {
+  if (process.platform === 'linux') return linuxProcessSnapshot()
   if (process.platform !== 'win32') return []
   const exe = path.join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
   const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{Name='StartedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress"
@@ -97,7 +157,7 @@ async function identifySessions(states, terminals, homes, snapshot = processSnap
     if (!Number.isSafeInteger(state?.pid)) continue
     const candidates = []
     for (const process of ownedProcesses(state.pid, processes)) {
-      if (process.Name?.toLowerCase() !== `${meta.preset}.exe`) continue
+      if (!isPresetProcess(process, meta.preset)) continue
       const processCandidates = []
       // 同目錄同工具有幾個分頁：只有一個時才可以拿「目錄裡最新的那筆」來猜
       const peers = terminals.filter(item => item.preset === meta.preset && item.cwd && meta.cwd
@@ -122,4 +182,4 @@ async function identifySessions(states, terminals, homes, snapshot = processSnap
   return result
 }
 
-module.exports = { ownedProcesses, resumeId, identifySessions }
+module.exports = { ownedProcesses, resumeId, identifySessions, linuxProcessSnapshot, linuxProcessName, isPresetProcess }

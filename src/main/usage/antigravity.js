@@ -43,7 +43,86 @@ function resolveCredentialScriptPath(baseDir = __dirname) {
   return script.replace(asarSegment, `${path.sep}app.asar.unpacked${path.sep}`)
 }
 
+/**
+ * 把各種常見 OAuth JSON 收成 parseCredential 吃的 `{ token: { access_token, refresh_token, expiry } }`。
+ * @param {string} raw
+ * @returns {string|null} 正規化後的 JSON 字串；認不得就回 null
+ */
+function normalizeCredentialBlob(raw) {
+  if (typeof raw !== 'string') return null
+  const text = raw.trim()
+  if (!text) return null
+  if (parseCredential(text)) return text
+  try {
+    const obj = JSON.parse(text)
+    const token = obj?.token && typeof obj.token === 'object' ? obj.token : obj
+    const access = typeof token?.access_token === 'string'
+      ? token.access_token
+      : typeof token?.accessToken === 'string' ? token.accessToken : ''
+    const refresh = typeof token?.refresh_token === 'string'
+      ? token.refresh_token
+      : typeof token?.refreshToken === 'string' ? token.refreshToken : ''
+    if (!access.trim() || !refresh.trim()) return null
+    const expiry = typeof token?.expiry === 'string'
+      ? token.expiry
+      : typeof token?.expires_at === 'string'
+        ? token.expires_at
+        : typeof token?.expiry === 'number'
+          ? new Date(token.expiry).toISOString()
+          : ''
+    return JSON.stringify({
+      token: {
+        access_token: access.trim(),
+        refresh_token: refresh.trim(),
+        expiry
+      }
+    })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Linux：Secret Service（secret-tool／libsecret）→ 檔案退路。
+ * 服務名 `gemini`、帳號 `antigravity`（與 Windows `gemini:antigravity` 同一對）。
+ * @param {{ homeDir?: string, execFile?: Function, readFile?: (p: string) => Promise<string> }} [deps]
+ */
+async function readAntigravityCredentialLinux(deps = {}) {
+  const home = deps.homeDir || process.env.HOME || require('os').homedir() || ''
+  const run = deps.execFile || execFileAsync
+  const readFile = deps.readFile || ((target) => require('../raw-fs').promises.readFile(target, 'utf8'))
+
+  try {
+    const { stdout } = await run('secret-tool', [
+      'lookup', 'service', 'gemini', 'account', 'antigravity'
+    ], { timeout: 8_000, maxBuffer: API_MAX_BYTES, encoding: 'utf8' })
+    const normalized = normalizeCredentialBlob(stdout || '')
+    if (normalized) return normalized
+  } catch {
+    // 沒裝 secret-tool／金鑰環鎖住／沒有項目 → 試檔案
+  }
+
+  const candidates = [
+    path.join(home, '.gemini', 'antigravity-cli', 'antigravity-oauth-token'),
+    path.join(home, '.config', 'antigravity', 'credentials.json'),
+    path.join(home, '.config', 'agy', 'credentials.json')
+  ]
+  for (const filePath of candidates) {
+    try {
+      const raw = await readFile(filePath)
+      const normalized = normalizeCredentialBlob(String(raw || ''))
+      if (normalized) return normalized
+    } catch {
+      // ENOENT／權限 → 下一條
+    }
+  }
+  return null
+}
+
 async function readAntigravityCredential() {
+  if (process.platform !== 'win32') {
+    return readAntigravityCredentialLinux()
+  }
   const windowsRoot = process.env.SystemRoot || 'C:\\Windows'
   const executable = path.join(
     windowsRoot,
@@ -370,7 +449,9 @@ module.exports = {
   parseCredential,
   parseModelsFallback,
   parseQuotaSummary,
+  normalizeCredentialBlob,
   readAntigravityCredential,
+  readAntigravityCredentialLinux,
   refreshAccessToken,
   resolveCredentialScriptPath,
   syncAntigravity,

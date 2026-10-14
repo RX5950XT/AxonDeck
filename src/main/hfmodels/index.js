@@ -33,7 +33,9 @@ const bench = require('./bench')
 const occupancy = require('./occupancy')
 
 /** Vulkan 那顆（一定有）；CUDA 是可選的加速版 */
-const RUNTIME_KEYS = Object.freeze(['llamaruntimecuda', 'llamaruntime'])
+const RUNTIME_KEYS = Object.freeze(
+  ['llamaruntimecuda', 'llamaruntime'].filter((key) => Boolean(models.MODELS[key]))
+)
 
 let presetPath = ''
 let defaultModelsDir = ''
@@ -198,7 +200,7 @@ async function hardwareInfo() {
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
     autoRuntime: !tempUserData,
     // PDF GPU 加速只給驅動夠新的 NVIDIA 顯示卡（cu129 要 576 版以上，cudaReady 的門檻更高）
-    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime', ...(nvidia.cudaReady ? ['pdfruntimegpu'] : [])].map((key) => ({
+    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime', ...(nvidia.cudaReady ? ['pdfruntimegpu'] : [])].filter((key) => Boolean(models.MODELS[key])).map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,
@@ -493,7 +495,7 @@ async function refreshFit(id) {
   emit({ type: 'fit-start', id })
   const result = await fit.runFit({
     // 不是 runtimeExe()：那是 llama-server，會真的起服務、等到逾時也印不出 fit 參數
-    exe: path.join(path.dirname(runtimeExe()), 'llama-fit-params.exe'),
+    exe: path.join(path.dirname(runtimeExe()), process.platform === 'win32' ? 'llama-fit-params.exe' : 'llama-fit-params'),
     gguf: mainGgufOf(model),
     mmproj: mmprojOf(model),
     ctxSize: decided.ctxSize,
@@ -824,7 +826,7 @@ async function autoTune(id) {
  * @returns {string}
  */
 function benchExePath() {
-  return path.join(path.dirname(runtimeExe()), 'llama-bench.exe')
+  return path.join(path.dirname(runtimeExe()), process.platform === 'win32' ? 'llama-bench.exe' : 'llama-bench')
 }
 
 /**

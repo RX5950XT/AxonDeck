@@ -6,7 +6,6 @@
  */
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 const { app } = require('electron')

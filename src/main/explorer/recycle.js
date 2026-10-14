@@ -21,7 +21,7 @@ const platform = require('../platform')
 let cachedSid = ''
 
 const RECYCLE_CWD = 'recyclebin'
-const KEY_RE = /^([A-Za-z])\|(S-[0-9\-]+)\|(\$I[^\\/:*?"<>|\u0000]+)$/i
+const KEY_RE = /^([^|\u0000]+)\|(\$I[^\\/:*?"<>|\u0000]+)$/i
 const FILETIME_EPOCH_MS = 11644473600000
 
 /**
@@ -90,47 +90,81 @@ function parseIFile(buf) {
 }
 
 /**
- * @returns {Array<{ drive: string, sid: string, dir: string }>}
+ * 非同步＋逾時：網路磁碟睡著時 readdir 會把整個 App 卡住。
+ * @param {string} dir
+ * @returns {Promise<import('fs').Dirent[] | null>}
  */
-async function sidFolders() {
+async function readdirQuick(dir) {
+  let timer
+  return Promise.race([
+    fsp.readdir(dir, { withFileTypes: true }).catch(() => null),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), 1500) })
+  ]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * 被搬到別處的「下載」「文件」等資料夾（例如網路磁碟），Windows 把回收筒放在那個資料夾裡。
+ * @returns {Promise<string[]>}
+ */
+async function redirectedFolders() {
+  const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe')
+  const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders'
+  const stdout = await new Promise((resolve) => {
+    execFile(exe, ['query', key], { encoding: 'utf8', windowsHide: true, timeout: 5000 },
+      (error, out) => resolve(error ? '' : String(out || '')))
+  })
+  const profile = String(process.env.USERPROFILE || '').toLowerCase()
+  const out = new Set()
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = /\s+REG_(?:EXPAND_)?SZ\s+(.+)$/.exec(line)
+    if (!m) continue
+    const dir = m[1].trim().replace(/%([^%]+)%/g, (all, name) => process.env[name] || all)
+    if (!paths.DRIVE_ABS.test(dir) && !paths.isUnc(dir)) continue
+    // 還在使用者資料夾底下的沒被搬走，回收筒就是磁碟那一個
+    if (profile && dir.toLowerCase().startsWith(profile)) continue
+    out.add(dir.replace(/[\\/]+$/, ''))
+  }
+  return [...out]
+}
+
+/**
+ * 所有回收筒資料夾：磁碟的 `$Recycle.Bin\<SID>`、沒分 SID 的 `$Recycle.Bin` 本身（例如 Google Drive），
+ * 以及被搬走的使用者資料夾裡的 `$RECYCLE.BIN`。`sid` 為空表示不分使用者。
+ * @returns {Promise<Array<{ sid: string, dir: string }>>}
+ */
+async function binFolders() {
+  const bins = (await drives.listDrives()).map((disk) => `${disk.letter}:\\$Recycle.Bin`)
+  for (const dir of await redirectedFolders()) bins.push(path.join(dir, '$RECYCLE.BIN'))
   const out = []
-  for (const disk of await drives.listDrives()) {
-    const letter = disk.letter
-    const bin = `${letter}:\\$Recycle.Bin`
-    // 非同步＋逾時：網路磁碟睡著時 readdirSync 會把整個 App 卡住（網路磁碟本來也沒有回收筒）
-    let timer
-    const names = await Promise.race([
-      fsp.readdir(bin, { withFileTypes: true }).catch(() => null),
-      new Promise((resolve) => { timer = setTimeout(() => resolve(null), 1500) })
-    ]).finally(() => clearTimeout(timer))
+  for (const bin of bins) {
+    const names = await readdirQuick(bin)
     if (!names) continue
+    if (names.some((entry) => /^\$I/i.test(entry.name))) out.push({ sid: '', dir: bin })
     for (const entry of names) {
       if (!entry.isDirectory()) continue
       if (!/^S-[0-9\-]+$/i.test(entry.name)) continue
-      out.push({ drive: letter, sid: entry.name, dir: path.join(bin, entry.name) })
+      out.push({ sid: entry.name, dir: path.join(bin, entry.name) })
     }
   }
   return out
 }
 
 /**
- * @param {string} recycleKey
- * @returns {{ drive: string, sid: string, iName: string, dir: string, iPath: string, rPath: string }}
+ * key 是「回收筒資料夾|$I 檔名」；資料夾必須是現在真的找得到的回收筒，不能讓前端指到別處。
+ * @param {unknown} recycleKey
+ * @returns {Promise<{ iName: string, dir: string, iPath: string, rPath: string }>}
  */
-function parseKey(recycleKey) {
+async function parseKey(recycleKey) {
   const m = KEY_RE.exec(String(recycleKey || ''))
   if (!m) throw paths.fail('BAD_PATH', '路徑不合法')
-  const drive = m[1].toUpperCase()
-  const sid = m[2]
-  const iName = m[3]
-  const dir = `${drive}:\\$Recycle.Bin\\${sid}`
+  const iName = m[2]
+  const folder = (await binFolders()).find((f) => f.dir.toLowerCase() === m[1].toLowerCase())
+  if (!folder) throw paths.fail('NOT_FOUND', '找不到這個檔案')
   return {
-    drive,
-    sid,
     iName,
-    dir,
-    iPath: path.join(dir, iName),
-    rPath: path.join(dir, '$R' + iName.slice(2))
+    dir: folder.dir,
+    iPath: path.join(folder.dir, iName),
+    rPath: path.join(folder.dir, '$R' + iName.slice(2))
   }
 }
 
@@ -168,7 +202,7 @@ async function readItem(iPath, rPath) {
 async function list() {
   const entries = []
   let truncated = false
-  for (const folder of await sidFolders()) {
+  for (const folder of await binFolders()) {
     let names
     try {
       names = await fsp.readdir(folder.dir)
@@ -186,7 +220,7 @@ async function list() {
         name: display,
         path: meta.originalPath,
         originalPath: meta.originalPath,
-        recycleKey: `${folder.drive}|${folder.sid}|${name}`,
+        recycleKey: `${folder.dir}|${name}`,
         dir: meta.dir,
         size: meta.size,
         mtimeMs: meta.mtimeMs,
@@ -321,10 +355,10 @@ async function trash(full) {
 }
 
 /**
- * @param {unknown} recycleKey
+ * @param {{ dir: string, iPath: string, rPath: string }} loc
  */
 function assertInsideBin(loc) {
-  const prefix = `${loc.drive}:\\$Recycle.Bin\\${loc.sid}\\`.toLowerCase()
+  const prefix = (loc.dir + '\\').toLowerCase()
   const i = path.resolve(loc.iPath).toLowerCase()
   const r = path.resolve(loc.rPath).toLowerCase()
   if (!i.startsWith(prefix) || !r.startsWith(prefix)) {
@@ -333,7 +367,7 @@ function assertInsideBin(loc) {
 }
 
 async function restore(recycleKey) {
-  const loc = parseKey(recycleKey)
+  const loc = await parseKey(recycleKey)
   assertInsideBin(loc)
   const meta = await readItem(loc.iPath, loc.rPath)
   if (!meta) throw paths.fail('NOT_FOUND', '找不到這個檔案')
@@ -376,7 +410,13 @@ async function restore(recycleKey) {
  * @param {unknown} recycleKey
  */
 async function purge(recycleKey) {
-  const loc = parseKey(recycleKey)
+  return purgeAt(await parseKey(recycleKey))
+}
+
+/**
+ * @param {{ dir: string, iPath: string, rPath: string }} loc
+ */
+async function purgeAt(loc) {
   assertInsideBin(loc)
   try {
     await paths.removeLinkOrTree(loc.rPath)
@@ -394,8 +434,8 @@ async function purge(recycleKey) {
 async function empty() {
   let count = 0
   const sid = await userSid()
-  for (const folder of await sidFolders()) {
-    if (sid && folder.sid.toLowerCase() !== sid.toLowerCase()) continue
+  for (const folder of await binFolders()) {
+    if (sid && folder.sid && folder.sid.toLowerCase() !== sid.toLowerCase()) continue
     let names
     try {
       names = await fsp.readdir(folder.dir)
@@ -405,7 +445,12 @@ async function empty() {
     for (const name of names) {
       if (!name.startsWith('$I') && !name.startsWith('$i')) continue
       try {
-        await purge(`${folder.drive}|${folder.sid}|${name}`)
+        // 直接用這輪找到的資料夾，不要每筆都重新掃一次所有回收筒
+        await purgeAt({
+          dir: folder.dir,
+          iPath: path.join(folder.dir, name),
+          rPath: path.join(folder.dir, '$R' + name.slice(2))
+        })
         count += 1
       } catch {
         // 單筆清不掉就略過，繼續清其餘

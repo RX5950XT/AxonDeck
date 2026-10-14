@@ -11,6 +11,9 @@ const inflight = new Map()
 // 否則 pending 的影片／PDF 每次重畫都重拿三次預算，永遠停不下來。
 /** @type {Map<string, { attempt: number, at: number }>} */
 const retryState = new Map()
+// 快取鍵 → 最近一次 pending 的暫時圖，重畫時先補上。
+/** @type {Map<string, object>} */
+const interimShown = new Map()
 // 快取鍵 → { id, hosts }。重試計時不綁 pane：重畫只換列不換鍵，計時照跑；
 // 離開檔案頁才整批清（`clearFileIconWork`）。
 /** @type {Map<string, { id: ReturnType<typeof setTimeout>, hosts: Set<HTMLElement> }>} */
@@ -241,6 +244,9 @@ export function paintFileIcons(host, readIcon) {
       showIcon(el, cached)
       continue
     }
+    // 暫時圖不進快取，但重畫不能退回空白預設圖：預算用完或還在飛時先畫上次的暫時圖
+    const interim = interimShown.get(key)
+    if (interim) showIcon(el, interim)
     if (!budgetOk(key)) continue
     const flying = inflight.get(key)
     if (flying) {
@@ -253,7 +259,7 @@ export function paintFileIcons(host, readIcon) {
 }
 
 function pump() {
-  while (running < 4 && queue.length) {
+  while (running < 6 && queue.length) {
     const job = queue.shift()
     if (cache.has(job.key) || !budgetOk(job.key)) continue
     const flying = inflight.get(job.key)
@@ -272,6 +278,8 @@ function pump() {
       if (!result?.ok || (!result.data?.folder && !result.data?.fallback && !/^data:image\/png;base64,/.test(result.data?.url))) return
       if (result.data.pending === true) {
         paintCurrent(hosts, job.key, result.data)
+        interimShown.set(job.key, result.data)
+        if (interimShown.size > 512) interimShown.delete(interimShown.keys().next().value)
         const attempt = (retryState.get(job.key)?.attempt || 0) + 1
         retryState.set(job.key, { attempt, at: Date.now() })
         if (retryState.size > 512) retryState.delete(retryState.keys().next().value)
@@ -283,9 +291,10 @@ function pump() {
         return
       }
       retryState.delete(job.key)
+      interimShown.delete(job.key)
       cancelRetryTimer(job.key)
       cache.set(job.key, result.data)
-      if (cache.size > 256) cache.delete(cache.keys().next().value)
+      if (cache.size > 512) cache.delete(cache.keys().next().value)
       paintCurrent(hosts, job.key, result.data)
     }).catch(() => {
       // 檔案可能剛被刪除，保留原本的類型圖示。

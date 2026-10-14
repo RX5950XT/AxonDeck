@@ -4,7 +4,6 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('node:os')
 const files = require('../src/main/workspace/files')
 const store = require('../src/main/workspace/store')
 
@@ -23,6 +22,7 @@ async function main() {
     // 被剝掉的那些 import 都要有替身。Monaco 那組一律回「沒載到」，
     // 這支測的是狀態流程，不是編輯器本身。
     renderMarkdown: noop, showMenu: noop, updateGutter: noop, updateIdeStatus: noop,
+    closeAiSessionFind: noop, initAiSessionFind: noop, stopAiSessionWatch: noop,
     handleEditorKeydown: noop, initFindWidget: () => ({ openFind: noop, closeFind: noop }),
     parseUnifiedDiff: () => [], renderDiffLines: noop,
     loadMonaco: async () => null, ensureEditor: noop, showMonacoTab: noop, runAction: () => false,

@@ -12,7 +12,6 @@ const project = tempDir('media-project-')
 const plainProject = tempDir('workspace-plain-')
 const port = 9497
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-const own = new Set()
 function processes(parent) {
   const code = `Get-CimInstance Win32_Process -Filter "ParentProcessId=${Number(parent)}" | Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json -Compress`
   const output = execFileSync('powershell', ['-NoProfile', '-Command', code], { windowsHide: true, encoding: 'utf8' }).trim()

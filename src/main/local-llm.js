@@ -12,7 +12,8 @@ const {
   ggufRelativePath,
   isDownloaded
 } = require('./models')
-const { s2twp } = require('./opencc')
+const { s2twp, jpKanjiToTw } = require('./opencc')
+const glossary = require('./glossary')
 const { stripThink, stripTranslationNoise, findRepetitionLoop } = require('./translate-clean')
 const { detectGpuCapability } = require('./gpu-capability')
 const { readResponseText } = require('./usage/shared')
@@ -26,7 +27,6 @@ const LANGUAGE_NAMES = {
 }
 
 /** 舊程式／e2e 相容別名（通用模型） */
-const TRANSLATE_MODEL_KEY = 'indextranslate2b'
 const FALLBACK_LLM_KEY = 'indextranslate2b'
 /** Index-Translate 官方格式：單輪 user、簡中指令（README 的 Translation prompt format） */
 const INDEX_KEY = 'indextranslate2b'
@@ -45,7 +45,8 @@ function isLinguaforge(key) {
 
 // live 段落原文上限 120 字（MAX_BATCH_CHARS），256 tokens 足以容納中譯而不截斷半句
 const MAX_TOKENS_LIVE = 256
-const MAX_TOKENS_FILE = 1024
+/** 檔案模式輸出上限：8192 ctx 要同時裝下原文 */
+const MAX_TOKENS_FILE = 4096
 const CLOUD_TIMEOUT_MS = 20000
 const CLOUD_ARTICLE_TIMEOUT_MS = 600000
 
@@ -57,8 +58,8 @@ const CLOUD_ARTICLE_TIMEOUT_MS = 600000
 const LINGUAFORGE_EOS_TOKEN_IDS = Object.freeze([248046, 248044])
 const LINGUAFORGE_NUM_BEAMS = 4
 const LINGUAFORGE_LENGTH_PENALTY = 1.2
-/** 長文單段建議上限（CJK 字元級）；超出在 main 再切 */
-const LINGUAFORGE_CHUNK_CHARS = 280
+/** 長文單段上限（CJK 字元級）。8192 ctx 裝得下這段原文加譯文 */
+const LINGUAFORGE_CHUNK_CHARS = 2000
 /** 與訓練一致的指令（僅三語；勿發明 general-chat system） */
 const LINGUAFORGE_INSTR = Object.freeze({
   'zh-TW': '翻譯成繁體中文：',
@@ -77,28 +78,6 @@ const LINGUAFORGE_DECODE = Object.freeze({
   en: { tgtKey: 'en', repetitionPenalty: 1.1, noRepeatNgramSize: 4, s2twp: false },
   ja: { tgtKey: 'ja', repetitionPenalty: 1.1, noRepeatNgramSize: 4, s2twp: false }
 })
-
-/**
- * Qwen3.5 chat_template 在 enable_thinking 未開時，`<|im_start|>assistant\n` 之後
- * **固定補空 think 區塊** `<think>\n\n</think>\n\n`（token 248068,271,248069,271）；
- * 模型從頭到尾帶著它訓練與評測。node-llama-cpp 預設解析出的 Qwen wrapper 不補這 4 個 token，
- * 掉出分布 → 憑空標籤前綴（說明：／問：）、拉丁專名整個消失、年份幻覺。
- * `budgets.thoughtTokens:0` 只是「不生成 thinking」，補不了前綴，兩件事都要做。
- *
- * 實測（scripts/probe-prompt-path.js）：`thoughts:'discourage'` 產出的字串與
- * transformers `apply_chat_template(..., add_generation_prompt=True)` 逐字元相同，
- * 尾端 token 正是 248068,271,248069,271 → 不需自訂 subclass。
- */
-const THINK_PREFIX = '<think>\n\n</think>\n\n'
-const THINK_PREFIX_TOKEN_IDS = Object.freeze([248068, 271, 248069, 271])
-
-/**
- * @param {new (opts?: object) => object} QwenChatWrapper
- * @returns {object}
- */
-function newQwen35ChatWrapper(QwenChatWrapper) {
-  return new QwenChatWrapper({ thoughts: 'discourage' })
-}
 
 /** @type {import('electron-store').default | null} */
 let storeRef = null
@@ -434,10 +413,10 @@ function linguaforgeInstr(targetLang) {
  */
 function resolveMaxTokens(text, mode, isLinguaforge = false) {
   if (mode === 'live') return MAX_TOKENS_LIVE
-  if (!isLinguaforge) return MAX_TOKENS_FILE
   const n = String(text || '').length
-  // CJK 約 1 token／字；輸出給 2× 空間，上限 768 防灌水
-  return Math.min(768, Math.max(64, Math.ceil(n * 2)))
+  // CJK 約 1 token／字；輸出給 2×，上限停在 ctx 的一半，避免把原文擠出去
+  const floor = isLinguaforge ? 64 : 256
+  return Math.min(MAX_TOKENS_FILE, Math.max(floor, Math.ceil(n * 2)))
 }
 
 /**
@@ -506,14 +485,11 @@ function splitForLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
 }
 
 /** 行首清單標記（`- ` `· ` `1. ` `(1) ` …）：不送模型，翻完原樣貼回 */
-const LIST_MARKER = /^[ 	]*(?:[-*•·‧+>]|\d{1,2}[.)、]|[（(]\d{1,2}[)）])[ 	]*/u
+const LIST_MARKER = /^[ 	]*(?:[-*•·‧+>]|\d{1,2}[.)、]|[A-Z][.)](?=[ 	])|[（(]\d{1,2}[)）])[ 	]*/u
 
 /**
- * 長文切段：**逐行**，行首清單標記剝除後才送模型。
- * - 多段文字混進同一個 prompt，0.8B 會整段退化成重複迴圈並吃掉內容
- * - 孤立的 bullet 區塊整塊送同樣會被「總結」掉
- * - 連 `· ` 一起送，模型會把符號翻成標籤（實測「選擇器：」）
- * 逐行送純句子最穩，一行翻壞也不會拖垮整段；空行保留以還原段落結構。
+ * 拆行並剝清單標記。標記不送模型（實測 `· ` 會被翻成「選擇器：」）。
+ * 純文字再由 `packLinguaforge` 合併到段長上限，不逐行各送一次。
  * @param {string} text
  * @param {number} [max]
  * @returns {{ prefix: string, parts: string[] }[]} 每行一組；parts 為空＝原樣輸出 prefix
@@ -533,6 +509,78 @@ function splitLinesForLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
 }
 
 /**
+ * 把剝完標記的行併成不超過 max 的幾段。有清單標記的行維持單獨一段，方便翻完把標記貼回。
+ * 整段就是一句、沒有標記時回 null，呼叫端直接送原文。
+ * @param {string} text
+ * @param {number} [max]
+ * @returns {{ prefix: string, text: string }[] | null}
+ */
+function packLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
+  const jobs = []
+  let buf = ''
+  const flush = () => {
+    if (!buf) return
+    jobs.push({ prefix: '', text: buf })
+    buf = ''
+  }
+  for (const line of splitLinesForLinguaforge(text, max)) {
+    if (!line.parts.length) {
+      if (!line.prefix) {
+        if (buf) buf += '\n'
+        continue
+      }
+      flush()
+      jobs.push({ prefix: line.prefix, text: '' })
+      continue
+    }
+    if (line.prefix) {
+      flush()
+      for (const part of line.parts) jobs.push({ prefix: line.prefix, text: part })
+      continue
+    }
+    for (const part of line.parts) {
+      if (buf && buf.length + 1 + part.length > max) flush()
+      buf = buf ? `${buf}\n${part}` : part
+    }
+  }
+  flush()
+  if (jobs.length === 1 && !jobs[0].prefix) return null
+  return jobs.length ? jobs : null
+}
+
+/**
+ * @param {{ prefix: string, text: string }[]} jobs
+ * @param {string} targetLang
+ * @param {object} options
+ * @param {string} key
+ */
+async function translatePacked(jobs, targetLang, options, key) {
+  const out = []
+  let done = 0
+  const total = jobs.filter((job) => job.text).length
+  for (const job of jobs) {
+    if (!job.text) {
+      out.push(job.prefix)
+      continue
+    }
+    let translated = await translateLocalOnce(job.text, targetLang, {}, options, key, {
+      chunkIndex: done,
+      chunkCount: total
+    })
+    // 併成一段的多行，小模型常只翻第一行就停；行數變少就逐行重翻。
+    const lines = job.text.split('\n')
+    if (lines.length > 1 && translated.split('\n').filter((line) => line.trim()).length < lines.filter((line) => line.trim()).length) {
+      const each = []
+      for (const line of lines) each.push(line.trim() ? await translateLocalOnce(line, targetLang, {}, options, key) : '')
+      translated = each.join('\n')
+    }
+    done += 1
+    out.push(job.prefix ? job.prefix + translated : translated)
+  }
+  return out.join('\n').replace(/\s+$/, '')
+}
+
+/**
  * @param {LinguaforgeDecode} decode
  * @param {{ maxTokens: number, stopReason?: string, s2twpApplied: boolean, chunkIndex?: number, chunkCount?: number }} meta
  */
@@ -542,8 +590,6 @@ function logLinguaforgeDecode(decode, meta) {
     JSON.stringify({
       runtime: 'gguf/llama-server-router',
       chat_wrapper: 'llama.cpp/jinja（關思考）',
-      think_prefix: JSON.stringify(THINK_PREFIX),
-      think_prefix_token_ids: [...THINK_PREFIX_TOKEN_IDS],
       eos_token_id: [...decode.eosTokenIds],
       num_beams: `${decode.numBeams} (N/A on GGUF; greedy)`,
       length_penalty: `${decode.lengthPenalty} (N/A on GGUF)`,
@@ -621,6 +667,7 @@ function buildContextPair(context = {}) {
  * @param {{ chunkIndex?: number, chunkCount?: number }} [chunkMeta]
  */
 async function translateLocalOnce(text, targetLang, context, options, key, chunkMeta = {}) {
+  options.signal?.throwIfAborted()
   // 一定要把 key 傳下去：各頁可能選不同顆，拿全域那顆的 session 會用錯模型
   const session = await getSession(key)
   const system = buildSystemPrompt(key, targetLang, options.mode)
@@ -633,11 +680,14 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     history.push({ type: 'model', response: [pair.prevTr] })
   }
   session.setChatHistory(history)
-  const userMsg = buildUserMessage(key, text, targetLang)
+  // 術語表只給 Index：它有官方術語約束格式；約束格式整體譯法較差，所以原文有對到詞才用。
+  // 內建詞庫有多個候選的詞不給：硬性約束只能一個譯名，選錯學科比不給更糟
+  const terms = key === INDEX_KEY ? glossary.find(options.glossary, text).filter((term) => term.targets.length === 1) : []
+  const userMsg = terms.length ? buildIndexStrictMessage(text, targetLang, { terms }) : buildUserMessage(key, text, targetLang)
 
   if (isLinguaforge(key)) {
     const decode = resolveLinguaforgeDecode(targetLang)
-    const promptOpts = buildLinguaforgePromptOptions(decode, text, options.mode)
+    const promptOpts = { ...buildLinguaforgePromptOptions(decode, text, options.mode), signal: options.signal }
 
     /** 單次推論（重試前必須還原 history，否則第二輪會帶著上一輪 → 複誦） */
     const runOnce = async (opts) => {
@@ -692,13 +742,64 @@ async function translateLocalOnce(text, targetLang, context, options, key, chunk
     return finalOut
   }
 
-  const out = await session.prompt(userMsg, {
+  const promptOpts = {
+    signal: options.signal,
     maxTokens: resolveMaxTokens(text, options.mode, false),
     temperature: 0,
     repeatPenalty: false,
     budgets: { thoughtTokens: 0 }
-  })
-  return stripTranslationNoise(stripThink(out), text)
+  }
+  let out = stripTranslationNoise(stripThink(await session.prompt(userMsg, promptOpts)), text)
+  // 約束格式偶爾連「【约束要求】…只输出译文」一起吐出來；這時改回一般格式重翻
+  if (terms.length && leaksConstraints(out)) {
+    session.setChatHistory(history)
+    out = stripTranslationNoise(stripThink(await session.prompt(buildUserMessage(key, text, targetLang), promptOpts)), text)
+  }
+  if (key !== INDEX_KEY || !hasLeftoverSource(out, text, targetLang)) return out
+  // 少數片段會留英文單字或冒出日文假名；換官方約束格式重翻。不是每段都用：
+  // 約束格式整體譯法較差（Formulation→配方）。先試寬鬆版，不行再加「只能用繁中」——
+  // 後者修得掉日文，但對正常片段會冒出粵語用字（是→係），所以排第二。
+  for (const strict of [false, true]) {
+    session.setChatHistory(history)
+    const retry = stripTranslationNoise(stripThink(
+      await session.prompt(buildIndexStrictMessage(text, targetLang, { leftover: true, strict, terms }), promptOpts)), text)
+    if (retry && !leaksConstraints(retry) && !hasLeftoverSource(retry, text, targetLang)) return retry
+  }
+  return out
+}
+
+/** Index 把 instTrans 約束格式的說明當成譯文吐出來 */
+function leaksConstraints(out) {
+  return /【(?:约束|約束)要求】|【(?:源文)】|只(?:输出|輸出)(?:译文|譯文)/.test(out)
+}
+
+/**
+ * 中文譯文裡出現日文假名，或原文的小寫英文單字（專有名詞、縮寫多為大寫，不算）
+ * @param {string} out
+ * @param {string} text
+ * @param {string} targetLang
+ */
+function hasLeftoverSource(out, text, targetLang) {
+  if (targetLang !== 'zh-TW' && targetLang !== 'zh-CN') return false
+  if (/[぀-ヿ]/.test(out) && !/[぀-ヿ]/.test(text)) return true
+  return (out.match(/\b[a-z]{4,}\b/g) || []).some((word) => text.toLowerCase().includes(word.slice(0, 4)))
+}
+
+/**
+ * Index-Translate 官方 instTrans 約束格式：術語對照、「不留英文、不出日文」兩種約束按需加
+ * @param {string} text
+ * @param {string} targetLang
+ * @param {{ leftover?: boolean, strict?: boolean, terms?: { source: string, target: string }[] }} constraints
+ */
+function buildIndexStrictMessage(text, targetLang, { leftover = false, strict = false, terms = [] }) {
+  const name = INDEX_LANGUAGE_NAMES[targetLang] || LANGUAGE_NAMES[targetLang] || targetLang
+  const rules = []
+  if (terms.length) rules.push(`【硬性要求】专名/术语对照: ${terms.map((term) => `${term.source}→${term.targets[0]}`).join('、')}`)
+  if (leftover) {
+    rules.push(`【硬性要求】译文${strict ? `只能用${name}，` : ''}不得保留源文的英文单词（专有名词与缩写除外），也不得出现日文`)
+  }
+  return `请将以下文本翻译成${name}，并且严格遵循所有约束要求。\n\n【源文】\n${text}\n\n【约束要求】\n`
+    + `${rules.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}\n\n只输出译文，不要有任何额外说明。`
 }
 
 async function translateLocal(text, targetLang, context = {}, options = {}) {
@@ -708,32 +809,11 @@ async function translateLocal(text, targetLang, context = {}, options = {}) {
     throw new Error(`本地翻譯模型尚未下載（${label}），請先到 Local SI → 推薦下載`)
   }
 
-  // LinguaForge：file 模式逐行翻譯（清單標記不送模型），再還原行／段落結構
-  if (isLinguaforge(key) && options.mode !== 'live') {
-    const lines = splitLinesForLinguaforge(text)
-    const total = lines.reduce((n, l) => n + l.parts.length, 0)
-    // 只有一行但帶清單標記（`· 選擇器`）也要走這條：標記要剝掉才送，否則模型會把符號翻成標籤
-    if (total > 1 || lines.some((line) => line.parts.length && line.prefix.trim())) {
-      const outLines = []
-      let done = 0
-      for (const line of lines) {
-        if (!line.parts.length) {
-          outLines.push(line.prefix)
-          continue
-        }
-        const translated = []
-        for (const part of line.parts) {
-          translated.push(
-            await translateLocalOnce(part, targetLang, {}, options, key, {
-              chunkIndex: done++,
-              chunkCount: total
-            })
-          )
-        }
-        outLines.push(line.prefix + translated.join(''))
-      }
-      return outLines.join('\n').replace(/\s+$/, '')
-    }
+  // LinguaForge：超過段長或帶清單標記才拆。標記剝掉再送，翻完貼回。
+  // Index-Translate 也會吃掉行首的「A. 」「1. 」，一樣剝掉再貼回。
+  if ((isLinguaforge(key) || key === INDEX_KEY) && options.mode !== 'live') {
+    const jobs = packLinguaforge(text)
+    if (jobs) return translatePacked(jobs, targetLang, options, key)
   }
 
   return translateLocalOnce(text, targetLang, context, options, key)
@@ -745,6 +825,26 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
   // 雲端無 modelKey（非 LinguaForge 訓練格式）→ 傳 null 走通用指令
   const messages = [{ role: 'system', content: buildSystemPrompt(null, targetLang, options.mode) }]
   if (options.mode !== 'live') messages[0].content += '完整翻譯全文，保留段落、標題與清單；不要摘要或省略內容。'
+  const terms = glossary.find(options.glossary, text)
+  if (terms.length) {
+    messages[0].content += '\n術語對照（原文出現時譯文用右邊的譯名；列了多個的依上下文選最合適的一個）：\n'
+      + terms.map((term) => `${term.source} → ${term.targets.join('／')}`).join('\n')
+  }
+  // 只有雲端吃得下：LinguaForge 是單輪 MT 格式；Index-Translate 2B 用官方 instTrans 約束格式帶上下文，
+  // 實測仍會把約束段落連同鄰近原文一起吐成譯文，本地兩顆都不帶。
+  if (options.reference || options.segments) {
+    // PDF 片段：數學照抄（模型常把 Yp 寫成 $Y_p$），片段各自讀得通
+    messages[0].content += '\n數學符號、變數與公式照原文寫法照抄，不要改寫成 LaTeX、不要加 $。'
+      + '片段不要用「之」「的」「自」這類虛字開頭或結尾去接別段。'
+  }
+  if (options.reference) {
+    messages[0].content += `\n下面是同一頁的原文，只用來判斷詞義與用語。使用者訊息可能是句子的片段，只翻譯那個片段本身的每個字，不要加入參考裡的其他字，也不要加省略號：\n<reference>\n${options.reference}\n</reference>`
+  }
+  if (options.segments) {
+    messages[0].content += '\n使用者訊息是同一頁的多個片段，每段前有 <<編號>> 標記；片段可能是半句或圖表標籤，'
+      + '整頁一起看來判斷詞義。逐段翻譯：保留每個標記與順序，標記後接那一段自己的譯文，不要合併、拆開、省略或補上其他段的字。'
+      + '同一句被公式或變數切成幾段時（例如「Linear independence of」＋ n ＋「functions」），每段譯文要自己讀得通。'
+  }
   const pair = buildContextPair(context)
   if (pair) {
     messages.push({ role: 'user', content: pair.prevSrc })
@@ -775,7 +875,7 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
         reasoning: { exclude: true },
         messages
       }),
-      signal: AbortSignal.timeout(timeoutMs)
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
     })
     // timeout 也可能在收到 headers 後讀 body 時發生。
     rawBody = await readResponseText(res, 4 * 1024 * 1024)
@@ -800,7 +900,7 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
   }
   if (!res.ok) {
     console.error(`[translate] API error: HTTP ${res.status}`)
-    throw new Error(`翻譯 API 錯誤: ${res.status}`)
+    throw Object.assign(new Error(`翻譯 API 錯誤: ${res.status}`), { status: res.status })
   }
   const choice = data?.choices?.[0]
   if (choice?.finish_reason === 'length') throw new Error('翻譯達到模型的輸出上限，全文尚未翻完，請改用輸出容量較大的模型')
@@ -853,6 +953,7 @@ function hasLinguisticContent(text) {
 }
 
 async function translate(store, text, targetLang, opts = {}) {
+  opts.signal?.throwIfAborted()
   // scope 有給（檔案轉錄／即時字幕）就用那一頁自己的選擇；沒給＝翻譯與 TTS 頁，
   // 沿用全域的 `translator`／`localTranslateModel`／`translateProviderId`。
   const scope = opts.scope
@@ -866,11 +967,14 @@ async function translate(store, text, targetLang, opts = {}) {
   if (!hasLinguisticContent(text)) return text
 
   const run = async () => {
+    opts.signal?.throwIfAborted()
     const context = {
       previousSource: opts.previousSource || '',
       previousTranslation: opts.previousTranslation || ''
     }
-    const options = { mode: opts.mode || 'file', modelKey: localKey }
+    const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal, reference: opts.reference, segments: opts.segments,
+      // 內建譯名都是繁中，只給繁中目標
+      glossary: targetLang === 'zh-TW' ? glossary.load(store) : null }
 
     let result
     if (translator === 'local') {
@@ -905,14 +1009,45 @@ async function translate(store, text, targetLang, opts = {}) {
     if (translator === 'local' && isLinguaforge(resolveLocalTranslateModel(storeRef, localKey))) {
       return result
     }
-    return targetLang === 'zh-TW' ? s2twp(result) : result
+    // 多段合併的譯文由 translateSegments 逐段轉：整批一起轉時，一個簡體字就讓整批套詞彙表（證明了→證明瞭）
+    if (targetLang !== 'zh-TW' || opts.segments) return result
+    // Index 直接吐繁體，s2twp 探測不到簡體就不動；它偶爾夾日文新字體（関、図），另外換回。
+    const indexLocal = translator === 'local' && resolveLocalTranslateModel(storeRef, localKey) === INDEX_KEY
+    return indexLocal ? jpKanjiToTw(s2twp(result)) : s2twp(result)
   }
   // 只有本地推論共用 session；等待雲端不可卡住本地推論與卸載。
   return translator === 'local' ? withTranslateLock(run) : run()
 }
 
+/**
+ * 多個片段合成一個請求翻（加 <<編號>> 標記），回來依編號拆開。
+ * 對不上的位置回 null，呼叫端再個別翻。
+ * @param {object} store
+ * @param {string[]} texts
+ * @param {string} targetLang
+ * @param {object} [opts] 同 translate
+ * @returns {Promise<(string | null)[]>}
+ */
+async function translateSegments(store, texts, targetLang, opts = {}) {
+  const tagged = texts.map((text, index) => `<<${index + 1}>>\n${text.trim()}`).join('\n')
+  const output = await translate(store, tagged, targetLang, { ...opts, segments: true })
+  const found = new Map()
+  for (const [, number, body] of String(output || '').matchAll(/<<\s*(\d+)\s*>>([\s\S]*?)(?=<<\s*\d+\s*>>|$)/g)) {
+    const index = Number(number) - 1
+    // 重複的編號＝模型亂了，兩段都不採信
+    const value = targetLang === 'zh-TW' ? s2twp(body.trim()) : body.trim()
+    found.set(index, found.has(index) ? null : value)
+  }
+  return texts.map((text, index) => {
+    const value = found.get(index)
+    // 原樣回傳或留著原文英文單字（「但 trivial case 除外」）的，交給呼叫端單獨重翻
+    return value && value !== text.trim() && !hasLeftoverSource(value, text, targetLang) ? value : null
+  })
+}
+
 module.exports = {
   translate,
+  translateSegments,
   promptOnce,
   warm,
   unload,
@@ -926,10 +1061,6 @@ module.exports = {
   LINGUAFORGE_CHUNK_CHARS,
   LINGUAFORGE_EOS_TOKEN_IDS,
   LINGUAFORGE_DECODE,
-  THINK_PREFIX,
-  THINK_PREFIX_TOKEN_IDS,
-  newQwen35ChatWrapper,
-  TRANSLATE_MODEL_KEY,
   DEFAULT_LLM_KEY,
   FALLBACK_LLM_KEY,
   LLM_MODEL_KEYS

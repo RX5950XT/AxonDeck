@@ -44,6 +44,31 @@ function parseSse(sse) {
 }
 
 // ===== 送出去 =====
+console.log('\n[回歸] Responses 工具與訊息順序')
+{
+  const body = { tools: [{ name: 'read', input_schema: { type: 'object',
+    properties: { path: { type: 'string' }, optional: { type: 'boolean' } }, required: ['path'] } }],
+  messages: [{ role: 'assistant', content: [
+    { type: 'text', text: '先讀檔' },
+    { type: 'tool_use', id: 'call_1', name: 'read', input: { path: 'a.txt' } },
+    { type: 'text', text: '再確認' }
+  ] }, { role: 'user', content: [
+    { type: 'tool_result', tool_use_id: 'call_1', content: '內容' },
+    { type: 'text', text: '請繼續' }
+  ] }] }
+  const result = convert.toResponsesRequest(body, 'm')
+  ok('Responses 不強迫可選參數必填', result.tools[0].strict === false &&
+    result.tools[0].parameters.required.join(',') === 'path')
+  ok('文字、工具呼叫與結果維持原順序', result.input.map(item =>
+    item.type || item.content[0].text).join('|') === '先讀檔|function_call|再確認|function_call_output|請繼續')
+  let rejected = false
+  try {
+    convert.consumeResponses({ type: 'response.completed',
+      response: { status: 'failed', error: { message: 'private-upstream-error' } } }, convert.newConsumeState())
+  } catch (error) { rejected = error.message === 'UPSTREAM_FAILED' }
+  ok('completed 包著 failed 時回安全錯誤', rejected)
+}
+
 console.log('\n[A] Anthropic → Responses')
 {
   const body = {

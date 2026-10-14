@@ -1,3 +1,4 @@
+import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 
 const STATUS_TEXT = {
   running: '處理中',
@@ -7,7 +8,7 @@ const STATUS_TEXT = {
   cancelled: '已取消'
 }
 
-const MODE_TEXT = { copy: '複製', move: '搬移', trash: '刪除' }
+const MODE_TEXT = { copy: '複製', move: '搬移', trash: '刪除', delete: '永久刪除' }
 
 /** 同名時的三種處理，要跟 main 的 `operations.js` 對得起來 */
 const COLLISIONS = new Set(['rename', 'overwrite', 'skip'])
@@ -43,10 +44,18 @@ function formatBytes(value) {
   return `${n >= 100 ? n.toFixed(0) : n.toFixed(1)} ${units[unit]}`
 }
 
+/** 0～1 的進度；有位元組數用位元組，沒有（刪除）就用完成幾個項目 */
+function ratio(operation) {
+  const total = Number(operation.totalBytes)
+  if (Number.isFinite(total) && total > 0) return Math.min(1, (Number(operation.bytes) || 0) / total)
+  if (!operation.totalItems) return null
+  const done = (operation.completedItems || 0) + (operation.skippedItems || 0) + (operation.failedItems || 0)
+  return Math.min(1, done / operation.totalItems)
+}
+
 function percent(operation) {
   const total = Number(operation.totalBytes)
-  const bytes = Number(operation.bytes) || 0
-  if (Number.isFinite(total) && total > 0) return `${Math.min(100, Math.floor(bytes / total * 100))}%`
+  if (Number.isFinite(total) && total > 0) return `${Math.floor(ratio(operation) * 100)}%`
   const done = (operation.completedItems || 0) + (operation.skippedItems || 0)
   return operation.totalItems ? `${done}/${operation.totalItems}` : '…'
 }
@@ -102,9 +111,10 @@ function operationCard(operation, api, onChanged) {
   const meter = document.createElement('progress')
   meter.setAttribute('aria-label', '操作進度')
   meter.className = 'ex-ops-meter'
-  if (Number.isFinite(Number(operation.totalBytes)) && Number(operation.totalBytes) > 0) {
+  const value = ratio(operation)
+  if (value != null) {
     meter.max = 100
-    meter.value = Math.min(100, Number(operation.bytes) / Number(operation.totalBytes) * 100)
+    meter.value = value * 100
   } else {
     meter.removeAttribute('value')
   }
@@ -171,10 +181,17 @@ export function mountExplorerOperations(options = {}) {
   const host = document.createElement('aside')
   host.className = 'ex-ops-host'
   host.setAttribute('aria-live', 'polite')
-  const toggle = button('檔案操作', 'ex-ops-toggle', () => {
-    panel.toggleAttribute('hidden')
-    toggle.setAttribute('aria-expanded', String(!panel.hidden))
-  })
+  const toggle = button('', 'ex-ops-toggle', () => open(panel.hidden))
+  // 狀態列上直接看得到的進度條；只有在跑的時候才出現
+  const bar = document.createElement('span')
+  bar.className = 'ex-ops-bar'
+  bar.hidden = true
+  const barFill = document.createElement('span')
+  bar.append(barFill)
+  const chip = document.createElement('span')
+  chip.className = 'ex-ops-chip-text'
+  chip.textContent = '檔案操作'
+  toggle.append(bar, chip)
   toggle.setAttribute('aria-expanded', 'false')
   toggle.title = '複製／搬移／刪除的進度，點開可以取消、重試、復原'
   const panel = document.createElement('section')
@@ -207,6 +224,7 @@ export function mountExplorerOperations(options = {}) {
   cards.className = 'ex-ops-cards'
   panel.append(header, cards)
   host.append(toggle, panel)
+  initCustomSelects(header)
   if (options.before && options.before.parentElement === root) root.insertBefore(host, options.before)
   else root.append(host)
 
@@ -218,7 +236,18 @@ export function mountExplorerOperations(options = {}) {
     cards.replaceChildren()
     const operations = [...state.values()].slice(-8).reverse()
     for (const operation of operations) cards.append(operationCard(operation, api, render))
-    toggle.textContent = chipLabel(operations)
+    if (!operations.length) {
+      const empty = document.createElement('p')
+      empty.className = 'ex-ops-empty'
+      empty.textContent = '還沒有複製、搬移或刪除的紀錄'
+      cards.append(empty)
+    }
+    chip.textContent = chipLabel(operations)
+    const running = operations.filter((operation) => operation.status === 'running')
+    const value = running.length ? ratio(running[0]) : null
+    bar.hidden = !running.length
+    bar.classList.toggle('is-indeterminate', running.length > 0 && value == null)
+    barFill.style.width = value == null ? '' : `${Math.round(value * 100)}%`
     const bad = operations.some((operation) => operation.status === 'failed' || operation.status === 'partial')
     toggle.classList.toggle('is-running', operations.some((operation) => operation.status === 'running'))
     toggle.classList.toggle('is-failed', bad)
@@ -234,6 +263,7 @@ export function mountExplorerOperations(options = {}) {
   const unsubscribe = typeof api.onOperation === 'function' ? api.onOperation(update) : () => {}
   void invoke(api, 'operationState').then((initial) => {
     policy.value = COLLISIONS.has(initial?.collision) ? initial.collision : 'rename'
+    syncCustomSelects()
     const active = initial?.active || []
     for (const operation of [...active, ...(initial?.recent || [])]) state.set(operation.id, operation)
     render()

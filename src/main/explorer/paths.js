@@ -127,13 +127,11 @@ function resolveUnc(s) {
       rest.pop()
       continue
     }
-    // eslint-disable-next-line no-control-regex
     if (/[<>:"/|?*\u0000-\u001f]/.test(part) || /[<>:"/|?*\u0000-\u001f]/.test(share)) {
       throw fail('BAD_PATH', '路徑不合法')
     }
     rest.push(part)
   }
-  // eslint-disable-next-line no-control-regex
   if (/[<>:"/|?*\u0000-\u001f]/.test(share)) throw fail('BAD_PATH', '路徑不合法')
   const full = `\\\\${server}\\${share}${rest.length ? '\\' + rest.join('\\') : ''}`
   if (full.length > MAX_PATH) throw fail('BAD_PATH', '路徑不合法')

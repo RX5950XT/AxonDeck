@@ -1,7 +1,7 @@
 /**
  * chat-sidebar.js 回歸：
  * - 改名輸入框在 IME 選字期間的 Enter 不得送出
- * - 對話與資料夾整列右鍵／選單鍵叫出選單（沒有三點與改名、刪除小按鈕）
+ * - 對話列滑鼠移上去出現改名、刪除小按鈕；整列右鍵／選單鍵叫出搬移／匯出選單（資料夾列沒有小按鈕）
  * - 選單貼游標並夾在視窗內；兩參數的 openChatMenu 仍貼在 anchor
  * 不啟動 renderer 或 Electron。
  */
@@ -405,7 +405,6 @@ async function runRowMenu() {
   }
 
   check('側欄沒有刪除鈕計時器', !sidebarSource.includes('DELETE_ARM_MS') && !sidebarSource.includes('function armDelete') && !sidebarSource.includes('function disarmDelete'))
-  check('側欄沒有三點小按鈕helper', !sidebarSource.includes('function listActionButton') && !sidebarSource.includes("className = 'chat-list-btn'"))
   check('側欄接上右鍵與選單鍵', sidebarSource.includes("addEventListener('contextmenu'") && sidebarSource.includes("'ContextMenu'") && sidebarSource.includes("'F10'"))
 
   const sandbox = loadSandbox()
@@ -503,7 +502,8 @@ async function runRowMenu() {
     const openBtn = item?.querySelector('.chat-list-open')
     const head = listEl.querySelector('.chat-folder-head')
     const toggle = head?.querySelector('.chat-folder-toggle')
-    check('對話列沒有小按鈕', item && item.querySelectorAll('.chat-list-btn').length === 0, String(item?.querySelectorAll('.chat-list-btn').length))
+    const rowBtn = (row, label) => [...(row?.querySelectorAll('.chat-list-btn') || [])].find((b) => b.getAttribute('aria-label') === label)
+    check('對話列有改名、刪除小按鈕', Boolean(rowBtn(item, '重新命名') && rowBtn(item, '刪除對話')), String(item?.querySelectorAll('.chat-list-btn').length))
     check('資料夾列沒有小按鈕', head && head.querySelectorAll('.chat-list-btn').length === 0)
     check('列可被程式聚焦', item?.tabIndex === -1 && head?.tabIndex === -1, `item=${item?.tabIndex} head=${head?.tabIndex}`)
 
@@ -511,30 +511,26 @@ async function runRowMenu() {
     const labels = menuButtons(document).map((button) => button.textContent)
     check('右鍵不開啟對話', opened.length === 0, opened.join(','))
     check('右鍵擋掉瀏覽器選單', contextEvent.defaultPrevented === true)
-    check('對話選單含改名刪除匯出與搬移',
-      labels.indexOf('重新命名') >= 0
-      && labels.indexOf('重新命名') < labels.indexOf('刪除對話')
-      && labels.indexOf('刪除對話') < labels.indexOf('匯出 Markdown…')
+    check('對話選單只有匯出與搬移',
+      !labels.includes('重新命名') && !labels.includes('刪除對話')
+      && labels.indexOf('匯出 Markdown…') === 0
       && labels.indexOf('匯出 Markdown…') < labels.indexOf('未分類')
       && labels.indexOf('未分類') < labels.indexOf('工作')
       && labels.indexOf('工作') < labels.indexOf('＋ 新資料夾並移入…'),
       labels.join('|'))
     const work = menuButtons(document).find((button) => button.textContent === '工作')
     const loose = menuButtons(document).find((button) => button.textContent === '未分類')
-    const danger = menuButtons(document).find((button) => button.textContent === '刪除對話')
     check('目前資料夾打勾', work?.getAttribute('aria-checked') === 'true' && loose?.getAttribute('aria-checked') === 'false')
-    check('刪除是危險項', Boolean(danger && hasClass(danger, 'is-danger')))
     pos = menuPos(document)
     check('對話選單開在游標', pos && pos.left === 40 && pos.top === 50, JSON.stringify(pos))
 
     openBtn.dispatch('click')
     check('左鍵仍開啟對話', opened.length === 1 && opened[0] === 'c1', opened.join(','))
 
-    if (danger) {
-      danger.dispatch('click')
-      await flush()
-      check('刪除對話不跳確認、直接刪', !confirmGate && api.some((call) => call[0] === 'delete'))
-    }
+    sandbox.closeChatMenu()
+    rowBtn(item, '刪除對話')?.dispatch('click')
+    await flush()
+    check('刪除對話不跳確認、直接刪', opened.length === 1 && !confirmGate && api.some((call) => call[0] === 'delete'))
 
     item.rect = { left: 30, top: 350, right: 230, bottom: 390, width: 200, height: 40 }
     const keyEvent = openBtn.dispatch('keydown', { key: 'F10', shiftKey: true })
@@ -552,10 +548,9 @@ async function runRowMenu() {
     })
     check('Escape 回到原列', document.activeElement === item && document.querySelector('.chat-menu') == null)
 
-    openBtn.dispatch('contextmenu', { button: 2, clientX: 40, clientY: 50 })
-    menuButtons(document).find((button) => button.textContent === '重新命名')?.dispatch('click')
+    rowBtn(item, '重新命名')?.dispatch('click')
     const input = listEl.querySelector('.chat-list-rename')
-    check('選單改名換成輸入框', Boolean(input))
+    check('改名鈕換成輸入框', Boolean(input))
     if (input) {
       input.value = '新名'
       input.dispatch('keydown', { key: 'Enter', keyCode: 13, isComposing: false })
@@ -564,8 +559,8 @@ async function runRowMenu() {
     }
 
     const fresh = listEl.querySelector('.chat-list-item[data-id="c1"] .chat-list-open')
-    fresh?.dispatch('contextmenu', { button: 2, clientX: 40, clientY: 50 })
-    menuButtons(document).find((button) => button.textContent === '刪除對話')?.dispatch('click')
+    rowBtn(listEl.querySelector('.chat-list-item[data-id="c1"]'), '刪除對話')?.dispatch('click')
+    await flush()
     if (confirmGate && !api.some((call) => call[0] === 'delete')) {
       confirmGate.resolve(true)
       await confirmGate.promise

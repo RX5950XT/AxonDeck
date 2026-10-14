@@ -22,6 +22,7 @@ const recycle = require('./recycle')
 const places = require('./places')
 const shellExt = require('./shell')
 const size = require('./size')
+const dirSizes = require('./dir-sizes')
 const nativeProbe = require('../native-probe')
 const operations = require('./operations')
 const zipOps = require('./zip-ops')
@@ -338,9 +339,6 @@ const uffsCancel = () => {
   uffs.cancelSearch()
   return true
 }
-const uffsInstall = () => uffs.download((info) => emit('explorer:uffsProgress', info))
-const uffsCancelInstall = () => uffs.cancelDownload()
-const uffsInstallBroker = () => uffs.installBroker()
 
 /**
  * 進檔案頁自動把搜尋引擎拉起來。暫存 userData／uffsAuto=false 不跳 UAC。
@@ -383,9 +381,11 @@ async function openPath(target) {
   const full = paths.resolveExisting(target)
   const resolved = resolveLocal(full)
   if (resolved.dir) return resolved
-  // 影音交給自家播放器（要真的檔案路徑）；其他照原樣開 `full`——是捷徑就開捷徑本身，
-  // 啟動參數、起始位置、以系統管理員執行這些設定才不會被跳過
-  const err = await mediaPlayer.openMedia(resolved.path) ? '' : await shell.openPath(full)
+  // 影音交給自家播放器、文字／程式碼交給自家編輯器（要真的檔案路徑）；其他照原樣開 `full`——
+  // 是捷徑就開捷徑本身，啟動參數、起始位置、以系統管理員執行這些設定才不會被跳過
+  // 專案裡的 .bat／.cmd 由 App 自己跑：腳本開的瀏覽器改開在那個專案（script-launch.js）
+  if (await require('../script-launch').launchScript(resolved.path)) return true
+  const err = await mediaPlayer.openMedia(resolved.path) || await mediaPlayer.openEditor(resolved.path) ? '' : await shell.openPath(full)
   if (err) throw paths.fail('OPEN_FAILED', '打不開')
   return true
 }
@@ -426,7 +426,7 @@ async function electronIcon(target) {
 
 async function folderThumb(full, size) {
   const { entries = [], ...thumb } = await shellExt.thumbOf(full, size, true)
-  if (!thumb.url) return { folder: true }
+  if (!thumb.url) return { folder: true, ...(thumb.pending ? { pending: true } : {}) }
   const previews = (await Promise.all(entries.map(async entry => {
     try {
       // 子資料夾／資料夾捷徑只拿圖示，不繼續往內展開。
@@ -457,6 +457,8 @@ async function fileIcon(target, opts) {
         if (thumb.pending !== true) return { ...thumb }
         pendingThumb = thumb
         interim = { ...interim, pending: true }
+      } else if (thumb && thumb.pending === true) {
+        interim = { pending: true }
       }
     } catch (error) {
       console.error('[explorer] 殼層縮圖失敗:', error?.message || error)
@@ -559,8 +561,21 @@ function folderSizeCancel(token) {
   return size.folderSizeCancel(token)
 }
 
+function dirSizesScan(dirPath, lane) {
+  return dirSizes.scan(dirPath, lane, {
+    exe: nativeProbe.resolveProbeExe(),
+    onProgress: (info) => emit('explorer:dirSizesProgress', info)
+  })
+}
+
+function dirSizesCancel(lane) {
+  return dirSizes.cancel(lane)
+}
+
 function shutdown() {
   size.folderSizeCancel()
+  dirSizes.cancel('main')
+  dirSizes.cancel('second')
   watch.stop()
   shellExt.shutdown()
   // Linux 退路（jmtpfs／simple-mtpfs）：只卸掉我們自己掛的 FUSE
@@ -743,6 +758,17 @@ function operationResult(result, extra = {}) {
   }
 }
 
+/**
+ * 一次刪多個（丟回收筒或永久刪除），走操作中心才有進度條、能取消。
+ * @param {unknown} items
+ * @param {unknown} opts
+ */
+async function removeEntries(items, opts) {
+  if (!Array.isArray(items) || !items.length) throw paths.fail('BAD_PATH', '路徑不合法')
+  const permanent = Boolean(opts && typeof opts === 'object' && opts.permanent === true)
+  return operationResult(await operations.run({ mode: permanent ? 'delete' : 'trash', sources: items.slice(0, 50) }))
+}
+
 const operationCancel = (id) => operations.cancel(id)
 const operationRetry = (id) => operations.retry(id)
 const operationUndo = (id) => operations.undo(id)
@@ -808,6 +834,7 @@ module.exports = {
   createEntry,
   renameEntry,
   removeEntry,
+  removeEntries,
   restoreEntry,
   purgeEntry,
   emptyRecycle,
@@ -835,10 +862,9 @@ module.exports = {
   uffsStatus,
   uffsSearch,
   uffsCancel,
-  uffsInstall,
-  uffsCancelInstall,
-  uffsInstallBroker,
   uffsEnsure,
   folderSize,
-  folderSizeCancel
+  folderSizeCancel,
+  dirSizesScan,
+  dirSizesCancel
 }

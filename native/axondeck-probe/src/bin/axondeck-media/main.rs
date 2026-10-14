@@ -686,17 +686,19 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 }
 fn run() -> windows::core::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.iter().any(|s| s == "--register") { registration::register(args.iter().any(|s| s == "--machine"))?; return Ok(()); }
-    if args.iter().any(|s| s == "--unregister") { registration::unregister(args.iter().any(|s| s == "--machine"))?; return Ok(()); }
+    // --editor：同一套關聯流程，改套用文字／程式碼格式（交給 AxonDeck 主程式的編輯器）
+    let suite = if args.iter().any(|s| s == "--editor") { &registration::EDITOR } else { &registration::MEDIA };
+    if args.iter().any(|s| s == "--register") { registration::register(suite, args.iter().any(|s| s == "--machine"))?; return Ok(()); }
+    if args.iter().any(|s| s == "--unregister") { registration::unregister(suite, args.iter().any(|s| s == "--machine"))?; return Ok(()); }
     if args.iter().any(|s| s == "--initialize") {
-        registration::initialize().map_err(|error| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32),error))?; return Ok(());
+        registration::initialize(suite).map_err(|error| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32),error))?; return Ok(());
     }
     if args.iter().any(|s| s == "--defaults") {
-        registration::defaults().map_err(|error| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), error))?;
+        registration::defaults(suite).map_err(|error| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), error))?;
         return Ok(());
     }
     if let Some(file) = args.iter().find_map(|s| s.strip_prefix("--restore-defaults=")) {
-        registration::restore_defaults(Path::new(file)).map_err(|error| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), error))?;
+        registration::restore_defaults(suite, Path::new(file)).map_err(|error| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), error))?;
         return Ok(());
     }
     let flag = |name: &str| args.iter().find_map(|s| s.strip_prefix(name)).map(str::to_owned);

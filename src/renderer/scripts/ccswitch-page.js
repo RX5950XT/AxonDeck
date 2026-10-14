@@ -1322,6 +1322,12 @@ function openMemoryDir() {
 
 async function reloadVersions() {
   if (reloadVersions.pending) return reloadVersions.pending
+  // Linux 不會用 sudo 代裝 Node.js／curl（Windows 用 winget 自動補）：說明改成實際行為
+  const hint = document.getElementById('ccCliInstallHint')
+  const ua = typeof navigator === 'undefined' ? '' : String(navigator.userAgent || '')
+  if (hint && /Linux/.test(ua) && !/Windows/.test(ua)) {
+    hint.textContent = '安裝與更新會在背景執行，裝在你的家目錄（~/.local 等），不會用 sudo；缺少 curl 或 Node.js／npm 時會提示用發行版套件管理員安裝。'
+  }
   const list = document.getElementById('ccVersionList')
   if (list && !versions.length) {
     list.replaceChildren(el('p', 'cc-empty', '檢查中…'))

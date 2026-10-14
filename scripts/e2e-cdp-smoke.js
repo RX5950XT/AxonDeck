@@ -7,7 +7,6 @@
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
-const os = require('os')
 const fs = require('fs')
 const http = require('http')
 
@@ -96,6 +95,8 @@ class Cdp {
     try { this.ws.close() } catch {}
   }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitTargets(timeoutMs = 30000) {
   const start = Date.now()
@@ -192,24 +193,28 @@ async function main() {
         barInWorkspace: !!bar && bar.closest('#termMain') !== null,
         hasSync: !!document.getElementById('quotaSyncBtn'),
         hasSettings: !!document.getElementById('usageSettingsDialog'),
-        hasDiagnostics: !!document.getElementById('usageDiagnosticsDialog'),
-        statsInCc: !!document.querySelector('#page-ccswitch #cc-stats #cuSummary'),
+        noDiagnostics: !document.getElementById('usageDiagnosticsDialog') && !document.getElementById('quotaDiagnosticsBtn'),
+        statsInBar: !!document.querySelector('#quotaBar #quotaDrawerStats #cuSummary'),
+        providersInBar: !!document.querySelector('#quotaBar #quotaDrawerProviders #ccProviderList'),
+        noCcPage: !document.getElementById('page-ccswitch'),
         accounts: usageState.data.accounts.length,
         barSettings: !!usageState.data.settings.bar
       }
     })()`)
     ok(
-      'nine-tab order + quota bar under the terminal + stats under CC',
+      'nine-tab order + quota bar under the terminal + providers/stats in the bar drawer',
       JSON.stringify(usageUi?.order) === JSON.stringify([
-        'chat', 'telegram', 'explorer', 'ccswitch', 'stt', 'translate', 'sysmon', 'hfmodels', 'settings'
+        'chat', 'telegram', 'explorer', 'stt', 'translate', 'speech', 'sysmon', 'hfmodels', 'settings'
       ]) &&
         usageUi.hasApi &&
         usageUi.noUsagePage &&
         usageUi.barInWorkspace &&
         usageUi.hasSync &&
         usageUi.hasSettings &&
-        usageUi.hasDiagnostics &&
-        usageUi.statsInCc &&
+        usageUi.noDiagnostics &&
+        usageUi.statsInBar &&
+        usageUi.providersInBar &&
+        usageUi.noCcPage &&
         usageUi.accounts === 7 &&
         usageUi.barSettings,
       JSON.stringify(usageUi)
@@ -299,46 +304,44 @@ async function main() {
       JSON.stringify(md)
     )
 
-    // 切到語音轉文字分頁（檔案轉錄與即時字幕已合併成子分頁）
+    // 語音轉文字是同一頁：轉錄、錄音、字幕、語音輸入，沒有子分頁
     await cdp.eval(`document.querySelector('[data-page="stt"]')?.click()`)
     await sleep(500)
     const sttPage = await cdp.eval(`(() => {
       const page = document.getElementById('page-stt')
+      const visible = (id) => (document.getElementById(id)?.offsetHeight || 0) > 0
       return {
         active: page?.classList.contains('active') === true,
-        subtabs: document.querySelectorAll('#sttSubtabs .subtab').length,
-        activePanels: document.querySelectorAll('#page-stt .subtab-panel.active').length,
-        defaultPanel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
+        noSubtabs: document.querySelectorAll('#sttSubtabs .subtab').length === 0,
+        noHeader: !document.querySelector('#page-stt .page-header'),
         hasAsrSelect: !!document.getElementById('fileAsrModel'),
         hasLlmSelect: !!document.getElementById('fileLlmModel'),
-        // 三個子分頁各自的 ASR 選單都要在
-        perTabAsr: ['fileAsrModel', 'liveAsrModel', 'dictationAsrModel']
-          .every((id) => !!document.getElementById(id)),
+        hasLive: visible('startLiveBtn'),
+        hasDictation: visible('dictationEnabledInput'),
+        perTabAsr: ['fileAsrModel', 'dictationAsrModel'].every((id) => !!document.getElementById(id)),
         noOldPages: !document.getElementById('page-transcribe') && !document.getElementById('page-live')
       }
     })()`)
     ok(
-      'stt page merges file+recorder, live, dictation into subtabs',
-      sttPage?.active && sttPage.subtabs === 3 && sttPage.activePanels === 1 &&
-        sttPage.defaultPanel === 'stt-file' && sttPage.hasAsrSelect && sttPage.hasLlmSelect &&
-        sttPage.perTabAsr &&
+      'stt page merges transcribe, recorder, captions and dictation',
+      sttPage?.active && sttPage.noSubtabs && sttPage.noHeader &&
+        sttPage.hasAsrSelect && sttPage.hasLlmSelect &&
+        sttPage.hasLive && sttPage.hasDictation && sttPage.perTabAsr &&
         sttPage.noOldPages,
       JSON.stringify(sttPage)
     )
 
-    // 切到即時字幕子分頁：只有它是 active
+    // 字幕跟轉錄在同一頁，這頁不該再有顯示模式 segmented
     const liveSub = await cdp.eval(`(() => {
-      document.querySelector('#sttSubtabs [data-subtab="live"]')?.click()
       return {
-        panel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
-        count: document.querySelectorAll('#page-stt .subtab-panel.active').length,
-        // 顯示模式 segmented 已搬到字幕窗，這頁不該再有
-        noSeg: !document.querySelector('#stt-live .segmented, #captionDisplayMode, #displayModeSegment')
+        noSeg: !document.querySelector('#captionDisplayMode, #displayModeSegment'),
+        source: !!document.querySelector('#stt-file #liveAudioSource'),
+        sourceVisible: (document.getElementById('liveAudioSource')?.offsetHeight || 0) > 0
       }
     })()`)
     ok(
-      'live subtab switches and has no display-mode segment',
-      liveSub?.panel === 'stt-live' && liveSub.count === 1 && liveSub.noSeg === true,
+      'captions sit on the transcribe page without a display-mode segment',
+      liveSub?.noSeg === true && liveSub.source === true && liveSub.sourceVisible === true,
       JSON.stringify(liveSub)
     )
 
@@ -361,15 +364,20 @@ async function main() {
           noAsrEngineSeg: !document.getElementById('asrEngineSegment'),
           // 翻譯的雲端端點已併進聊天供應商，不該再有第二份 URL／Key 欄位
           noSeparateTranslate: !document.getElementById('apiUrlInput'),
-          hasCloudAsr: !!document.getElementById('asrApiUrlInput'),
+          // 語音轉文字併入同一份供應商，不再有第二份端點欄位
+          noSeparateAsr: !document.getElementById('asrApiUrlInput'),
           hasCloudChat: !!document.getElementById('chatApiUrlInput'),
-          hasTtsRate: !!document.getElementById('ttsRateInput'),
-          hasTtsPreview: document.querySelectorAll('.tts-preview-btn').length === 5,
+          hasTtsRate: !!document.querySelector('#page-translate #ttsRateInput'),
+          hasTtsPreview: document.querySelectorAll('#page-translate .tts-preview-btn').length === 4,
+          noTtsInSettings: !document.querySelector('#page-settings #ttsRateInput')
+            && !document.querySelector('#settingsNav [data-section="voice"]'),
+          translateNav: document.querySelector('[data-page="translate"] .nav-text')?.textContent.trim(),
           hasModelList: !!document.getElementById('modelList'),
           navSections: [...document.querySelectorAll('#settingsNav .settings-nav-item')]
             .map((b) => b.dataset.section),
           activeSections: document.querySelectorAll('#page-settings .settings-section.active').length,
-          hasFooterSave: !!document.getElementById('saveSettingsBtn'),
+          // 改成自動儲存，底部儲存列已移除
+          noFooterSave: !document.getElementById('saveSettingsBtn'),
           textHasModels: /模型/.test(text)
         }
       })()
@@ -380,15 +388,17 @@ async function main() {
         settingsUi?.noTranslatorSeg &&
         settingsUi?.noAsrEngineSeg &&
         settingsUi?.noSeparateTranslate &&
-        settingsUi?.hasCloudAsr &&
+        settingsUi?.noSeparateAsr &&
         settingsUi?.hasCloudChat &&
         settingsUi?.hasTtsRate &&
         settingsUi?.hasTtsPreview &&
+        settingsUi?.noTtsInSettings &&
+        settingsUi?.translateNav === '翻譯' &&
         settingsUi?.hasModelList &&
         JSON.stringify(settingsUi?.navSections) ===
-          JSON.stringify(['cloud', 'voice', 'basic']) &&
+          JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'install', 'cli']) &&
         settingsUi?.activeSections === 1 &&
-        settingsUi?.hasFooterSave,
+        settingsUi?.noFooterSave,
       JSON.stringify(settingsUi)
     )
 
@@ -397,11 +407,11 @@ async function main() {
     await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
     for (let i = 0; i < 50; i++) {
       await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
-      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 5')) break
       await sleep(200)
     }
     for (let i = 0; i < 50; i++) {
-      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 5')) break
       await sleep(200)
     }
     const modelItems = await cdp.eval(`(() => {
@@ -429,12 +439,12 @@ async function main() {
     })()`)
     ok(
       'model list rendered without innerHTML',
-      modelItems?.count > 0 &&
+      modelItems?.count === 7 &&
         modelItems.withKey === modelItems.count &&
         modelItems.withRow === modelItems.count &&
         modelItems.withName === modelItems.count &&
         modelItems.noPerRowTag === true &&
-        JSON.stringify(modelItems.groups) === JSON.stringify(['語音辨識', '翻譯']) &&
+        JSON.stringify(modelItems.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']) &&
         modelItems.withSize === modelItems.count &&
         modelItems.withButton === modelItems.count &&
         modelItems.withProgress === modelItems.count &&
@@ -473,9 +483,10 @@ async function main() {
     )
 
     const chatSettings = await cdp.eval(`(async () => {
-      // 雲端設定區的模型列來自 chatProviders（前面已種過一組）；設定表單要先重載
-      await window.electronAPI.store.set('chatProviders', [
-        { id: 'smoke_prov', name: '煙霧測試', apiUrl: 'https://example.invalid/v1', apiKey: 'k', models: ['m-one', 'm-two'] }
+      // 雲端設定區的模型列來自統一的 cloudProviders；設定表單要先重載
+      await window.electronAPI.store.set('cloudProviders', [
+        { id: 'smoke_prov', name: '煙霧測試', apiUrl: 'https://example.invalid/v1', apiKey: 'k',
+          models: [{ id: 'm-one', type: 'chat' }, { id: 'm-two', type: 'chat' }] }
       ])
       document.querySelector('[data-page="settings"]')?.click()
       await new Promise((r) => setTimeout(r, 300))
@@ -506,9 +517,10 @@ async function main() {
     )
 
     // 聊天輸入區：auto-grow、thinking 開關、圖片附件、系統提示彈窗
+    // 功能頁是獨立畫面：先切頁，下一段指令才會送到該頁。
+    await cdp.eval(`document.querySelector('[data-page="chat"]')?.click()`)
+    await new Promise((r) => setTimeout(r, 400))
     const composer = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="chat"]')?.click()
-      await new Promise((r) => setTimeout(r, 400))
       const input = document.getElementById('chatInput')
       const before = input.getBoundingClientRect().height
       input.value = ['a', 'b', 'c', 'd', 'e', 'f'].join('\\n')
@@ -570,9 +582,9 @@ async function main() {
     ok('models.status', Array.isArray(status?.keys) && status.keys.includes('qwen3asr'), JSON.stringify(status))
 
     // 模型選單改在使用現場：翻譯頁上方的下拉要列出兩顆本地翻譯模型＋一個雲端選項
+    await cdp.eval(`document.querySelector('[data-page="translate"]')?.click()`)
+    await new Promise((r) => setTimeout(r, 600))
     const lingua = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="translate"]')?.click()
-      await new Promise(r => setTimeout(r, 600))
       const sel = document.getElementById('translatePageModel')
       const values = [...(sel?.options || [])].map(o => o.value)
       return {
@@ -601,9 +613,9 @@ async function main() {
     // 翻譯分段器單元檢查（直接 import 打包內的 renderer 模組）
     const split = await cdp.eval(`(async () => {
       const m = await import('./scripts/translate-page.js')
-      const long = ('這是一個測試句子。' .repeat(200))
+      const long = ('這是一個測試句子。' .repeat(300))
       const c = m.splitForTranslate(long)
-      const noPunct = 'a'.repeat(1500)
+      const noPunct = 'a'.repeat(4500)
       return {
         multi: c.length > 1,
         maxLen: Math.max(...c.map(s => s.length)),
@@ -615,16 +627,16 @@ async function main() {
     })()`)
     ok(
       'splitForTranslate',
-      split?.multi && split.maxLen <= 600 && split.rejoin && split.hard === 3 && split.empty === 0,
+      split?.multi && split.maxLen <= 2000 && split.rejoin && split.hard === 3 && split.empty === 0,
       JSON.stringify(split)
     )
 
-    // 長文（>1500 字，舊上限）實際翻譯：分段依序跑完
+    // 長文（>2000 字才會分段）實際翻譯：分段依序跑完
     const longRun = await cdp.eval(`(async () => {
       document.querySelector('[data-page="translate"]')?.click()
       await new Promise(r => setTimeout(r, 300))
       const input = document.getElementById('translateInput')
-      input.value = 'The patient should take this medication twice a day. '.repeat(36)
+      input.value = 'The patient should take this medication twice a day. '.repeat(45)
       input.dispatchEvent(new Event('input'))
       return {
         len: input.value.length,
@@ -634,7 +646,7 @@ async function main() {
     })()`)
     ok(
       'long input accepted (no maxlength)',
-      longRun?.len > 1500 && longRun.maxlength === null && /段/.test(longRun.count || ''),
+      longRun?.len > 2000 && longRun.maxlength === null && /段/.test(longRun.count || ''),
       JSON.stringify(longRun)
     )
 
@@ -662,7 +674,7 @@ async function main() {
       // 不要繼續等到 300 秒逾時才發現（等到逾時只會看到同一個字串，但多花五分鐘）。
       if (/完成|失敗|已停止/.test(translated?.state || '')) break
     }
-    // 期望段數取自 UI 的「N 字（M 段）」：段長依模型不同（通用 600／LinguaForge 280），不可寫死
+    // 期望段數取自 UI 的「N 字（M 段）」：本地段長 2000 字，不可寫死
     const expectSegs = Number((longRun?.count || '').match(/（(\d+) 段）/)?.[1] || 0)
     ok(
       // 輸入是同句重複 → 每段譯文相同，故驗「段數」而非總長

@@ -1,285 +1,292 @@
 # tasks/todo.md — 進行中與待辦
 
-> 非簡單任務先在這裡列可勾選計畫，完成後補 Review。只留最近幾輪；更早的紀錄查 git log（`git log -- tasks/todo.md`）。
+> 非簡單任務先在這裡列可勾選計畫，完成後補 Review。完成的任務只留一行摘要；細節與數字查 git log（`git log -- tasks/todo.md` 可看壓縮前的完整紀錄）。
 
-## 待辦
+## 待辦／未解
 
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
+- [ ] 未修（需硬體或判斷）：SATA SMART 用 access=0 開磁碟（要重編 probe＋SATA＋管理員才驗得了）；網頁版 AI 會記住同站非對話頁（對話網址格式不確定，怕擋掉正常對話）；網頁時長寫入失敗不重試（有 busy_timeout，跨小時重試會重複算）；檔案轉錄 `validateFilePath` 同步 stat（檔案剛由對話框選出）。
+- [ ] 依賴稽核剩餘：`concurrently`→9.2.5／`shell-quote`→1.11.0（critical，只影響 `electron:dev`；10/22 後發佈滿兩週再升）；monaco-editor 0.55→0.57（內含 dompurify XSS，pre-1.0 小版號可能破壞，需驗工作區編輯器）；electron-builder 傳遞相依（建置期）。electron 已升 43.7.5。
+- 決定不做（記錄理由）：58 支 CDP client 全面收斂與 Playwright 遷移——現有腳本可用，重寫風險大於收益；改為只修真的有害的重複（收程序順序、nav 清單），新腳本照 AGENTS 測試段寫。
+- [ ] `probe-asr-key-cdp.js` 初始化回報 `Promise was collected`，未進入斷言。
+- [ ] 終端機「突然全空白」未重現，根因未確認（`fitAndSync` 切回一定重畫已補）。
+
+## 已知限制（實作如此，不是 bug）
+
+- PDF／圖片翻譯：複雜背景與數學排版仍要人核對；文字放不下、位置不可靠時保留原文並列警告。
+- 終端機對話導覽：緩衝區上限 50000 列；Grok Build 沒有原生輪次跳轉；OpenCode 1.18.35 回答沒有節點 ID，同一提問內用第一行唯一吻合；Antigravity 依賴本機 `altScreenMode: never`。
+- AI 紀錄：Antigravity CLI 部分工具結果非明文；多個同工具終端機同時產生對話、無法判定歸屬時不接。
+- 文字轉語音：變聲是上游實驗功能；官方模型與本機輸出限研究及非商用。
+- 系統監控網路欄：未提權時 ETW／TCP EStats 回 Access denied，顯示「—」；提權 sidecar 真實吞吐未驗。
+
+# 2026-10-13 — 設定「安裝」分頁
+
+- [x] 常用程式 18 個（WinGet＋官方直連：NVIDIA App／Broadcast、RustDesk、Z-Library 更新 API＋SHA-512、FreeCAD-TW 指定 release＋SHA-256）、已安裝／可更新清單、安裝／更新／解除安裝背景工作與進度（`src/main/app-installer/`、`app-installer-page.js`）。
+- [x] 子頁 `install` 加進功能視窗允許清單；分頁按鈕不折行、標頭撐滿寬度。
+- [x] 清單改緊湊方格卡片；「全部更新（N）」逐一更新（`upgradeAll`，期間鎖住其他操作）。
+- [x] 自動分類（`categoryFor`：常用清單用指定類別，其餘依名稱＋ID 關鍵字）＋分類篩選 chip；實機 278 筆約 18% 落「其他」（銀行元件、小工具）。
+- Review：`test-app-installer`／`-download`、真實唯讀 `probe-app-installer`（18 個來源都解析成功）、Z-Library 實際下載 222MB 校驗通過（未執行）、lint、打包版 `e2e-app-installer-cdp` 4/4、`e2e-page-windows-cdp` 全過。未實際安裝／解除安裝真程式（e2e 用 mock）。
+
+# 2026-10-13 — 文字轉語音參考 yovoice 改進
+
+- [x] 參考音／原錄音支援 MP3、M4A 等（ffmpeg 轉 24kHz 單聲道）、麥克風錄音、波形拖曳裁切。
+- [x] 版本保留（切換、匯出、刪除）、逐句生成與單句修改重做、停止時保留完成的句子。
+- [x] 字幕配音（SRT／VTT／ASS、角色指定聲音、依時間放置）、讀音字典。
+- [x] 版面改左稿右設定＋下方結果區；e2e 支援 `AXONDECK_DEV=1` 跑原始碼。
+- Review：單元測試＋e2e 165 項全過（fixture，不含真模型推論）；未打包驗證、未用真 Q8 跑逐句／字幕。
+
+# 2026-10-12 — 網頁版 AI 右鍵＋F5、專案瀏覽器 Chrome 擴充功能
+
+- [x] 網頁版 AI 與專案瀏覽器 webview：右鍵選單、F5／Ctrl+R（`web-context-menu.js`）。
+- [x] 擴充功能：商店頁一鍵安裝、工具列 🧩／右鍵選單開 popup／選項／移除（`browser-extensions.js`＋`electron-chrome-extensions` 4.9.0，專案改 GPL-3.0）。
+- [x] 驗證：lint、`test-browser-extensions.js`、Electron 實測（uBO Lite 背景程式／popup、F5、安裝→重裝→移除→重啟）、打包。
+- [x] 工具列圖示列＋徽章、自動更新（啟動後 1 分鐘、每 6 小時）。
+- [x] 專案 `.bat`／`.cmd` 開瀏覽器改開在該專案（`script-launch.js`）：真 cmd＋打包版沙箱實測 `start`（含 `/?`、`&`）與 Python `webbrowser`。
+
+# 2026-10-11 — 全專案死碼清理與精簡
+
+- [x] 掃描：頂層定義／export 沒人用、preload API 畫面沒呼叫、沒人 require 的檔案與套件、CSS class 全站找不到、跨檔完全相同的函式本體。
+- [x] 刪死套件 `node-llama-cpp`、`sherpa-onnx-node`（App 自 1757312／c986a24 起已不用）及 `local-asr.js`、`llama-addon.js`、只測它們的 16 支腳本。
+- [x] 拆 10 條沒有呼叫者的 IPC（preload／handler／main 轉發／service／開發替身一起）與零散死定義。
+- [x] CSS 刪 11 個全站無引用的 class（24 條規則）。
+- [x] 共用：`anthropic-stream.js`（閘道與 AGY 的 Anthropic SSE 產生器原本各一份）、`local-proxy-http.js`（兩個本機代理的 Host／金鑰／JSON 小工具）。
+- [x] 文件：README 技術棧、AGENTS asarUnpack、CONTEXT 模組地圖；本檔 822 → 200 行內。
+- [x] 驗證：全部單元、AGY e2e、打包、打包版 CDP。
+- [x] 順手修驗證時撞到的兩個測試問題：`e2e-agy-cdp` nav 舊預期（少 `speech`）；`e2e-agy-cdp`／`e2e-usage-cdp` 先 `child.kill()` 再 `taskkill /T`，樹找不到 → 留下孤兒 nvidia-smi 咬住 CDP 埠、node 不結束。
+
+## Review（死碼清理）
+
+- 刪除的 IPC：`subtitle:hide`、`system:openCudaDownloadPage`、`llm:loadInfo`、`workspace:projectPath`、`workspace:gitUnstageAll`、`sysmon:fanTaskRemove`、`hfmodels:cancelTune`、`explorer:uffsInstall`／`uffsCancelInstall`／`uffsInstallBroker`。底層仍被測試或其他流程用的（`uffs.cancelDownload`、`sensors-task.remove`、`bench.cancel`、`local-llm.getLoadInfo`）保留。
+- 零散死碼：`TRANSLATE_MODEL_KEY`、Qwen wrapper 三件、`cuda-env` 的 `prependCudaBinToPath`／`openCudaDownloadPage`、`background.dirExists`、`disk-treemap.CATEGORIES`、`terminal-page.runInNewTerminal`（舊「更新 CLI」流程）、`api.DEFAULT_MODEL`、`claude-hooks.clearAgent`、`ccswitch-page.mcpHomeLabel`。
+- 共用 SSE：AGY 的 `consume` 改成把 Gemini 一格拆成中性 delta 交給同一個 `apply`；收尾 `message_delta` 現在也補輸入與快取用量（原本只有閘道有）。
+- 沒動的：只在本檔用卻多 export 的名字（無害）；1–3 行的 `fail`／`el`／`withStore` 各模組各一份（合併反而多一層依賴）；xterm／Monaco 產生的 class 與 `is-${...}` 動態拼的 class。
+- 驗證：`node scripts/run-tests.js` 131/131（少的 2 支是刪掉的死模組測試）；`npx electron scripts/e2e-agy.js` 98/0；`npm run electron:pack` 28 秒、asar 290 支一致。對照安裝版 v1.44.0：`app.asar` 482→206MB、`app.asar.unpacked` 72→4.8MB。打包版 CDP：smoke 22/22、`e2e-agy-cdp` 34/34（exit 0，不再卡住）、`e2e-ccswitch-cdp` 149/149、`e2e-hf-cdp` 51/51、`e2e-pdf-translate-cdp` 30/30。
+- 中途改壞一次：`THINK_PREFIX` 在 `logLinguaforgeDecode` 還有一處用到，只數「別檔有沒有用」漏掉；單元全綠，打包版 smoke 的真翻譯才抓到。修法是把這兩個已無意義的 log 欄位一起拿掉，並對所有刪掉的名字全庫再 grep 一次。
+- 清掉 5 個父程序已死的孤兒 nvidia-smi（1 個是本輪測試留下、4 個是 10/7–10/10 留下的）；安裝版自己那個保留。
+
+# 2026-10-11 — 靜態檢查閘門與測試清理
+
+- [x] ESLint 9.39.5（`eslint.config.mjs`，只開 `no-undef`／`no-unused-vars`／`import/no-unresolved`）；`npm run lint` 通過；`electron:pack` 打包前先跑。
+- [x] `scripts/lint-ipc.js` 取代三清單守衛：preload channel 有 main 註冊、`electronAPI.ns.fn` 有定義、ipc.js 的 `service.X` 有轉發。
+- [x] 死碼：69 條沒用到的 `require`、14 條其他死變數、22 條沒作用的 `eslint-disable` 註解。
+- [x] 測試：刪 `test-explorer-browse-wiring.js`、`test-explorer-operations-ui.js`（只讀原始碼字串）；`test-workspace.js`／`test-explorer.js` 的 `[Q]`／`[Q2]` 守衛（已由 lint 涵蓋）；nav 清單改讀 `index.html`（`e2e-usage-cdp`、`e2e-visual-cdp`）。
+- [x] AGENTS.md（驗證方式、作業守則 3／4、專案工作區地雷）、CONTEXT.md（驗證工具）同步。
+
+## Review（靜態檢查閘門）
+
+- 驗證：`npm run lint` 0 項；`lint-ipc` 突變（移除 `pdfTranslate:pasteImage` 轉發）→ `pdf-translate/ipc.js:10 用到 service.pasteImage` exit 1；`run-tests.js` 129/129；`electron:pack` 通過（asar 290 支一致）；打包版 `e2e-cdp-smoke` 22/22。
+- 補驗與後續（Opus 複查）：修 `test-chat-image-memory` 替換留下的巢狀 Promise；4 支 CDP 收程序順序錯／沒收樹（`e2e-screentime-cdp`、`probe-dictation-live`、`e2e-ui-transcribe`、`probe-startup`，後者另補暫存 userData）；nav 清單抽成 `scripts/lib/nav-pages.js`（usage／visual／agy／terminal）；visual 的 stt signature 改 `.stt-column`（語音頁改版後 drop-zone 刻意是平的）；electron 43.4.1→43.7.5（修 preload 程式碼快取污染）。
+- 驗證（新 electron 打包版）：smoke 22/22、terminal 68/68、agy 34/34、usage 24/24、screentime 19/19、visual 59/59、`probe-startup` 正常；單元 129/129；lint 0。
+- 死腳本掃描：280 支無引用已刪檔者（12 條命中皆為字串資料或 `-e` 子程序內路徑，誤判）。
+
+# 近期完成（新→舊，一行一件）
+
+- 2026-10-11 打包卡 15 分鐘：自己開的預覽咬住 exe、robocopy 無限重試 → `pack-preview` 打包前先擋、`/R:12 /W:5`。
+- 2026-10-11 翻譯輸入框貼上圖片（`pdfTranslate:pasteImage`）；根因是 `main.js` 轉發漏了 `pasteImage`，補三清單守衛。
+- 2026-10-11 PDF／圖片併入翻譯輸入框：「＋ 檔案」、附件 chip、拖放、單一主按鈕；圖片先 `convert_to_pdf` 走同一管線。
+- 2026-10-10 PDF 保留版面翻譯（PaddleOCR-VL-1.6＋PP-DocLayoutV3＋隔離 Python）；修 fitz 警告污染 JSONL、孤立替代字；smoke 三條舊 600 字分段預期改 2000。
+- 2026-10-10 文字轉語音：模式列收窄、生成上限預設 30000、參考音逐字稿用 ASR 自動填（失敗退回手動）。
+- 2026-10-10 文字轉語音四模式卡片排版、鍵盤切換、變聲只顯示適用欄位；語音標記九組中英配對。
+- 2026-10-10 Local SI 執行環境排版（文字／狀態／操作三欄）。
+- 2026-10-10 預覽接回正式資料（`dev-sandbox --packed --with-chats`，models junction 共用）；清理舊打包與測試資料 42.7 GiB。
+- 2026-10-10 Breeze-TTS-2 Q8 文字轉語音頁（設計／克隆／指導／變聲、收藏聲音、WAV 匯出），獨立 breeze-server。
+- 2026-10-10 發行 v1.43.0、v1.44.0（NSIS 三件套已上傳）。
+- 2026-10-10 AI 紀錄：緊湊排版、完整單頁自動接續、長標題摘要、Ctrl+F 搜尋、側欄複製路徑。
+- 2026-10-10 語音頁：三欄等寬、紀錄加長、功能合卡、錄音／字幕音源（麥克風／系統／混音）。
+- 2026-10-10 終端機：切回一定重畫（尺寸沒變不送 resize）；分頁標題用 Grok `generated_title`，側欄狀態跟 `events.jsonl`。
+- 2026-10-10 Claude `/resume` 改綁（pid 檔優先，停住才看較新 jsonl）；Codex 重複命中不重播；OpenCode 單一按鈕；Grok `--minimal --no-alt-screen`；AGY 綁程序對話庫。
+- 2026-10-09 五家 resume 後清單與跳轉：搜目前畫面、略過 system-reminder；Codex 標題只有資料夾名時改綁唯一較新紀錄；改綁成功才通知分頁重讀。
+- 2026-10-09 全螢幕 CLI 原生捲動：OpenCode 用 `OPENCODE_TUI_CONFIG` 外掛跳轉；全螢幕且 CLI 收滑鼠時 AxonDeck 讓出捲軸。
+- 2026-10-08 終端機對話導覽（右側滑入清單、提問／回答跳轉、只捲動運行中的 CLI，不替換成保存文字）。
+- 2026-10-08 實際 CLI 接續入口：用 CLI 回報的明確標題辨識舊對話，重名不猜。事故：舊 robocopy /MIR 清掉預覽 user-data 並穿 junction 刪模型 → 加 `/XJ`＋排除 user-data（`test-pack-preview-data.js`）。
+- 2026-10-08 終端機重複貼上：xterm handler `return false` 不擋原生 paste → 補 `preventDefault`、忽略 repeat。
+- 2026-10-08 專案側欄 Git 狀態四顆 chip、提交紀錄 30 筆。
+- 2026-10-08 Local SI 推薦名稱拿掉 CPU／GPU；0.6B ASR 改 GGUF，兩顆共用 router。
+- 2026-10-08 檔案頁右鍵「複製圖片」（`explorer:copyImage`）。
+- 2026-10-07 檔案頁方格縮圖整片閃：載入按快取鍵去重、重試預算按鍵算、無變化不重畫。
+- 2026-10-07 CC Proxy：CLI 版本搬去設定、MCP 四家讀寫（smol-toml）、Skills 與記憶分頁；發行 v1.42.0。
+- 2026-10-07 Local SI 執行環境：API 網址複製、統計改名、推論兩欄；模型庫併進執行環境。
+- 2026-10-06 終端機開了就消失（先掛分頁再等 PTY）；本地模型搬進 Local SI、推論自動、Index-Translate；改走共用 llama-server router（GPU 切模型 Access Violation）。
+- 2026-10-06 改名 AxonDeck＋新 logo（舊名相容點見 AGENTS.md）。
+- 2026-10-06 頂排 SI／Local SI、CC Proxy 精簡、CLI 背景安裝與更新、系統監控處理程序（網路欄、圖示、欄位拖曳）。
+- 2026-10-06 AGY 接 Claude Code：攤平 `anyOf`、tool id、先查即時型錄；閘道自動開關；媒體縮圖 `TypeOverlay`。
+- 2026-10-04 全專案讀碼掃 bug（61 條查證後修，未修的列在待辦）；檔案頁右欄雙擊（`event.detail === 2`）；Grok Cloudflare（後改 `grok-clearance.js`）；文件精簡。
+- 2026-10-03／04 v1.39.0：網頁版 AI、Google 登入、記憶體回收；專案搜尋逐行讀、UFFS 閒置休眠、五家 AI 紀錄與終端機接續。
 
-# 2026-10-08 — 專案側邊 Git 狀態一次看懂＋提交紀錄加到 30 筆
+# 2026-10-11 — PDF 翻譯：亂碼、1GB、速度、警告、介面
 
-- [x] main `git.js`：`LOG_LIMIT = 30`（`parseLog` 上限與 `log -n` 同一個數字）；`status()` 多回 `unpushed`（有上游＝ahead，沒有上游＝`rev-list --count HEAD --not --remotes`，失敗回 0）
-- [x] renderer：分支列加 `●N 未提交`／`↑N 未推送`／`↓N 待拉`／`無上游` 四顆 chip；四組標題加狀態說明（不斷 e2e 按字找的 `變更`／`最近提交`）；log 見底加「只列出最近 30 筆」
-- [x] 回歸：`test-workspace.js`（上限 30、截斷、unpushed 三路）＋`test-workspace-ui.js`（新 [F4] 9 項）；新斷言先在舊碼紅過（主檔 3 FAIL、UI 檔 9 FAIL）再綠
-- [x] 全套 `run-tests.js` 116/116；真 repo 實測：23 改＋1 新增分組正確、log 回 30 筆、unpushed 為 0（與遠端同步）
+- [x] 亂碼：worker 以 `-I` 啟動忽略 `PYTHONIOENCODING`，正式路徑 stdin 用 cp950 解譯文 → 中文全亂碼（也是大量「縮小字體」的來源）；改在程式內設 UTF-8。
+- [x] 1.1GB：每段譯文各嵌一份 Droid Sans Fallback（3.5MB）；每頁 `subset_fonts`、最後 `garbage=4` 重寫 → 1.6MB。
+- [x] 速度：版面只跑 PP-DocLayoutV3（不再整頁 VL）；有文字層的區塊不 OCR（原本數學多的段落被整塊 OCR 蓋回去）；翻譯一頁並行送出，雲端 4 段＋429／5xx 退避重試。
+- [x] 警告：數學變數、函數名（cos、exp）、微分（dx、Mdx）不送翻譯；段落合併不蓋到留著的數學字。
+- [x] 介面：chip 上有「翻譯檔案／停止」，進度／警告／另存移到譯文格；主「翻譯」只翻文字，可同時用。
+- [x] worker 在 Windows 用 detached 啟動，避免從終端機開 App 時被 llama 的 Ctrl-C 波及。
 
-## Review
+## Review（PDF 翻譯）
 
-- 中途用 Edit 改到 `parseLog` 的 `%x1f` 分隔判斷（新字串的跳脫被吃掉變空字串，整段 log 解析全滅）。修法：含跳脫／控制字元的行一律走暫存腳本按行處理、分隔符改 `String.fromCharCode(31)` 共用 `sep`——跟 `tasks/lessons.md` 既有那條一致，以後照做。
-- e2e 沒重跑（`electron:pack`＋`e2e-workspace-cdp`）：改動只加 chip／title／尾註，所有 e2e 按字找的文字與 ID 都沒動；要發版前再跑一次打包版確認。
+- 實測 CH1_ODE（22 頁，雲端 gemini-3.5-flash-lite）：約 10 分 → 約 3 分 20 秒；1.1GB → 1.6MB；警告 682／217／45 → 0 未轉換、12 縮小、1 放不下（修亂碼後同譯文重放）；輸出頁面目視中文正常、公式保留。
+- 驗證：`npm run lint`、`test-pdf-translate-worker.py` 5 組、`test-pdf-translate.js`、真模型 `probe-pdf-translate.js`（PDF＋圖片走 VL OCR）、打包版 `e2e-pdf-translate-cdp.js` 31 項。
+- 短片段上下文：80 字以下附整頁原文當 `reference`（雲端放 system prompt，本地忽略）；實測第 1 頁 Physical→物理、Formulation→建立模型、Interpretation→解釋，提示要求只翻片段本身，避免把參考裡的鄰近字帶進譯文。
 
-# 2026-10-08 — Local SI 推薦模型名稱
+# 2026-10-11 — Index-Translate 譯文修補
 
-- [x] 移除推薦模型名稱的 CPU／GPU 標籤，確認本地選單只列推薦模型。
-- [x] 驗證 NVIDIA 8GB 自動判斷與模型／執行環境分離。
-- [x] 使用者選擇 0.6B 換 GGUF：兩顆 ASR 共用 router，保留設定 key；真音訊驗 GPU／CPU。
-- [x] 重打包並跑 Local SI CDP。
-- [ ] 同步 `dist/win-unpacked`：已開啟的 `axondeck-preview` 鎖住 exe，待使用者決定是否關閉。
+- [x] 行首「A. 」被 `stripPromptLeak` 當答題標籤刪掉 → 原文也是「A. 」開頭時保留；「1. 」被模型吃掉 → Index 也走剝標記再貼回。
+- [x] 殘留英文（populations）、日文假名（振り子）→ 偵測到才用 instTrans 約束格式重翻。
+- [x] 日文新字體（補関數）→ `jpKanjiToTw` 逐字轉，排除臺灣常用字；專案 287 個檔案驗過只轉真正的日文／簡體字。
 
-## Review（Local SI 推薦模型）
+## Review（Index 修補）
 
-- `test-settings-consistency` 15/15、`test-asr-router`、`test-model-scope`、`test-hfmodels` 178/178、dictation 2/2 支、error-hygiene 85/85、temp-hygiene 與 diff --check 通過。推薦名稱檢查修前紅、修後綠。
-- `probe-asr-auto.js` 來源與打包 asar 各驗 GPU／CPU：0.6B／1.7B 都正確轉出繁中並保留另一 scope 模型；CPU 是模擬沒有合格裝置，推論本身真 CPU。
-- 0.6B 官方 GGUF 與 mmproj 已下載到原模型資料夾，兩份官方 SHA256 相符；舊 ONNX 未覆寫。原設定 key 保留。
-- `electron:pack` asar 269 支 src 一致、打包版 `e2e-hf-cdp` 51/51；同步預覽 exe 因另一份已開啟預覽被鎖而等待，安裝版未動。
-- 既有 `e2e-stt-cdp` 19/20：唯一失敗是設定分區仍預期 3 個，現況含 CLI 版本為 4 個；與本次修改無關，未改該預期。
+- 60 段實測：漏翻英文、假名、「A.」「1.」全部修正；PDF 第 1 頁實跑正常。
+- 沒修：用詞偏大陸（增長），opencc twp 只在偵測到簡體時才套，套在繁體上會把「參數」改成「引數」；詞義錯（Exact equations→正確方程）是 2B 模型本身的限制。
+- `e2e-linguaforge-list.js` 原本失敗（11 行剩 8 行）：沒編號的多行併成一段，0.8B 只翻第一行；`translatePacked` 行數變少就逐行重翻，已通過。
 
-# 2026-10-08 — 檔案頁右鍵「複製圖片」（貼進對話框）
+# 2026-10-11 — 翻譯術語表
 
-- [x] main `explorer:copyImage`：`resolveExisting` 驗路徑＋副檔名白名單（SVG 除外）＋20MB 上限＋讀檔逾時 10 秒；`raw-fs` 讀檔、`nativeImage.createFromBuffer`→`clipboard.writeImage`；ipc／preload／main 白名單三份對齊
-- [x] renderer：`explorer-dnd.js` 有 `act.copyImage` 才列「複製圖片」；`explorer-page.js` `canCopyImage`（單一本機點陣圖，壓縮檔／手機／回收筒不給）＋成功 toast 提示去對話框 Ctrl+V
-- [x] 回歸 `scripts/test-explorer-copy-image.js`（14 項：成功寫剪貼簿一次＋6 種拒絕＋選單列不列＋三份清單＋呼叫點）
-- [x] `run-tests.js explorer` 24/24、`test-ipc-invoke`、`test-error-hygiene`、`test-temp-hygiene` 全綠
+- [x] 自訂術語（翻譯頁頁首卡片，預設內建數理清單）＋內建國家教育研究院學術名詞庫（理工 45 科、54.6 萬條片語）。
+- [x] 雲端：system prompt 附原文出現的術語，多候選依上下文挑；Index：唯一譯名用 instTrans 術語約束；LinguaForge 不套。
+- [x] PDF 翻譯快照帶上術語設定；README 補資料來源與授權。
+- [x] 順手修：LinguaForge 多行併段只翻第一行（`e2e-linguaforge-list.js` 原本失敗）→ 行數變少就逐行重翻。
 
-## Review
+## Review（術語表）
 
-- 對話框本來就吃剪貼簿圖片（`chat-page.js onPaste`→`addAttachments`），所以只要把圖寫進系統剪貼簿圖片格，不用改聊天頁。
-- `paths.fail` 的訊息是代碼（message＝code），測試要斷 `userMessage`，斷 message 會只看到 `BAD_PATH`。
+- 實測：Index 的正確方程→正合方程、同質→齊次、調和振動子→諧振子、增長→成長、直接整合→直接積分；雲端 Growth→成長。一般新聞句不會被套術語（單字不收）。
+- 驗證：`test-glossary.js`、`test-strip-prompt-leak.js`、`e2e-linguaforge-list.js`、lint、打包版 `e2e-pdf-translate-cdp.js`。
+- 限制：內建詞庫是學術用語，部分詞偏某學科（physical system→物理系統／實體系統）；Index 對多候選的詞不套用。
 
-# 2026-10-07 — 檔案頁方格縮圖整片閃爍（像一直重新載入）
+# 2026-10-11 — 參考 cc-switch 修復 CC Proxy
 
-> 根因：`paintList()` 整批重建 DOM，而 `explorer-icons.js` 用 pane 物件判過期＋重試預算掛在 element 上。
-> 重畫一次就丟掉載入中的縮圖請求、重試預算歸零再要一次；監看／點選又頻繁觸發整批重畫 → 縮圖永遠在「 fallback → 載入 → 被丟掉」循環。
+- [x] 比對 cc-switch df40d53c 與本機切換、設定、代理呼叫鏈；保留既有翻譯修改。
+- [x] 重現並修復 Responses 工具 strict、訊息順序及串流假成功。
+- [x] 502／503／504 延遲半秒重試一次，不強制換憑證、不重播已開始的串流；429 不重試。
+- [x] CC Switch 單元 4/4 支、gateway E2E 78/78、SSE 邊界、error-hygiene 85/85、lint 通過。
+- [x] 真實 Claude Code 2.1.296 → Codex gpt-5.6-luna：純文字、串流、Bash 工具往返、非串流全通過；正式設定與憑證雜湊未變。
+- [ ] 打包與打包版 CDP：`npm run electron:pack` 被既有 dist/win-unpacked 預覽程序擋下，未關閉使用者程序。
 
-- [x] 量測：vm 回歸測試先紅（重畫中 resolve 要照收、不重複要圖、重試預算跨重畫共用）
-- [x] 修 `explorer-icons.js`：載入按快取鍵去重＋遲到結果寫快取並補畫現行列＋重試預算按鍵算（30 秒冷卻）
-- [x] 修 `explorer-page.js`：`browseFingerprint`（放 `explorer-browse.js`＋單元測試）；監看 silent 重讀無變化不重畫；選取只就地改列
-- [x] 驗收：`run-tests.js` 115/115＋`electron:pack`（asar 269 支一致）＋打包版 `e2e-explorer-cdp` exit 0＋`e2e-explorer-dual-cdp` 52/52
+## Review（CC Proxy）
 
-## Review
+- 參考 cc-switch df40d53c 的 Responses strict:false、串流終止處理與有限重試；測試先重現 3 個轉換失敗、6 個串流假成功，再修正。
+- 實測曾遇一次 Claude 工具請求 503；同一流程重跑及最終驗證皆成功。無法保證排除上游服務持續故障。
+- 修正既有真流量 probe 還讀已移除 ANTHROPIC_MODEL 的問題，改用 Sonnet 模型設定。未 commit／push／發版；執行中的版本尚未套用。
 
-- 中途改壞一行 `if (pathKey(dirPath) === THIS_PC)`（loadSecond）：`test-explorer-page-state` vm 轉換直接 SyntaxError，修回後綠。教訓：改 `if` 包裝時確認條件行還在。
-- 兩個舊 e2e 斷言早已跟不上行為（與本次無關，順手修）：C11 還在看全域 `tile`（v1.37.0 起改存 `folderViews`，todo 早有記錄）；dual [7] 還在等刪除確認框（v1.39.3 起回收筒不問，`git show 629a74f` 確認）。
-- dual [7] 卡住時先懷疑自己的改動，重跑必現後才去查 `deleteItems` 確認邏輯＋git 歷史定位——對的順序。
+# 2026-10-11 — PDF 翻譯加速與警告清零
 
-# 2026-10-07 — CC Proxy：CLI搬家、MCP四家、Skills與記憶
+- [x] 前後頁重疊：這頁等翻譯時先做下一頁版面偵測並送出請求。
+- [x] 雲端整頁合併送翻（<<編號>>），漏段／原樣／殘留英文再單獨翻；跟公式同一行的片段單獨翻（合併時模型會搬字：「下列函數的 n 線性獨立性」）。
+- [x] 放不下：先往右延伸（同行下一個字、框線、頁面右界），再縮到 3pt；縮寫原樣、公式跳過不算沒翻到；Index 約束格式外洩改一般格式重翻。
 
-> 使用者拍板：版本搬去設定並移除分頁；MCP 四家都讀寫（claude/codex/grok/opencode，agy 先不做）；skills 啟用開關＋記憶檔可編輯。
+## Review（加速與警告）
 
-- [x] 後端 MCP 四家：`mcp-homes.js`（canonical spec↔各家格式；codex/grok TOML 走新依賴；未知鍵原樣保留；codex/claude 停用放 store，grok/opencode 用原生 enabled）。
-- [x] 後端 skills＋記憶：`skills.js`（四家 skills 清單讀 SKILL.md、停用用 `.disabled/` 搬移；記憶檔讀寫 CLAUDE.md/AGENTS.md/MEMORY.md，路徑驗證不跳脫）。
-- [x] IPC＋preload＋service 接線（`ccswitch:*` 新 channel，白名單測試同步）。
-- [x] 前端：設定頁加 CLI 版本區（CC Proxy 移除 version 分頁）；MCP 分頁加四家切換；新增 Skills 與記憶分頁。
-- [x] 單元測試（新跑＋舊跑）；`electron:pack`＋打包版 `e2e-ccswitch-cdp`＋smoke。
-- [x] TOML 依賴選型已定（見 Review）。
+- CH1_ODE 22 頁：雲端約 199 秒 → 125～146 秒（公式多時合併比例低）；Index 約 118～152 秒（受 CPU 負載影響）。瓶頸是版面偵測約 4.3 秒／頁。
+- 警告：使用者那份 7 頁講義 31 未轉換／9 放不下／3 縮小 → 0／0／1；CH1_ODE 雲端 0／0／9、Index 0／0／12。
+- 本地模型：前後頁重疊已讓翻譯藏在偵測時間裡；Index 合併送翻對齊 31/32 但會冒「係」，不採用。
+- 驗證：worker 測試（含跨頁回覆）、`test-pdf-translate.js`、lint、真模型實跑雲端與 Index。
 
-## Review（選型，先記。中途停下換方法不超過兩次）
+# 2026-10-11 — 數學不翻、較小版面模型評估、片段品質
 
-- Codex：`~/.codex/config.toml` 的 `[mcp_servers.<id>]`（command／args／`env_vars`＋`[.<id>.env]`）；無 enabled 證據→停用放我方 store。
-- Grok：`~/.grok/config.toml` 的 `[mcp_servers.<id>]`，stdio 用 `.env`、remote 用 `.headers`，原生 `enabled`。
-- OpenCode：`~/.config/opencode/opencode.json` 的 `mcp`（v1 扁平；local／remote＋`environment`＋`enabled`）。
-- Grok 記憶是 `~/.grok/MEMORY.md`；codex 記憶用 `~/.codex/AGENTS.md`；`~/.claude/skills` 是 symlink 指到 `~/.agents/skills`（兩邊看到同一份，UI 要標共用）。
-- TOML 庫：`smol-toml`（零依賴、parse＋stringify 保鍵序；註解不保留，寫前備份＋原子替換比照既有）。
+- [x] 每個詞都是數學記號的片段（「, sin」「cos x, exp」）不送翻譯。
+- [x] 評估較小版面模型（不是量化，是同系列較小的模型）：S 0.34 秒／M 1.32／L 2.34／plus-L 3.26（V3 4.5）；S、M 公式框只抓到約一半，L、plus-L 把標題與句子誤判成公式、留下英文（22 頁中 14／9 頁）→ 維持 V3。
+- [x] 跟公式同行的片段試過附整行原文：模型把公式也翻進去（n 重複、$n$），已撤回。
+- [x] 雲端合併譯文逐段簡轉繁；opencc「證明瞭」修正；冒出的 $ 拿掉；術語、程式碼原樣保留不算沒翻到。
 
-## Review（驗收）
+## Review（數學與片段）
 
-- 單元：`test-mcp-homes` 31、`test-skills` 28 全過； commit 前全套 `run-tests.js` 115/115。
-- 打包版 `e2e-ccswitch-cdp` 144/144（含新的四家路徑、Skills、設定頁 CLI 區）。
-- 途中修的三個 bug：canonical 轉換掉 command／url（codex 第一筆讀不到）、http 該吃 headers 不是 env、`test-cli-install` 用註解標記切程式碼（標題改名把它弄斷，已恢復）。
-- 教訓：這台有設 `GROK_HOME`，測家目錄的測試一定要把 env 指到暫存；TOML 測試種子要用單引號字串（雙引號反斜線是跳脫）。
-- 2026-10-07 續：記憶搬上／Skills 搬下、兩顆「開資料夾」走檔案頁新分頁、共用家藏記憶。`e2e-ccswitch-cdp` 149/149、`run-tests.js` 115/115。長任務（pack／e2e／全套測試）改放後台跑，使用者傳訊息不再被卡。
-- 2026-10-07 續：Local SI 子分頁改執行環境／推薦／探索（預設執行環境）。`e2e-hf-cdp` 50/50。
-- 2026-10-07 續：發行 v1.42.0（commit a2d0018＋tag 已推；NSIS 三件套已上傳 GitHub release）。
+- 使用者那份講義 7 頁：0 警告、54 秒；Prompt Engineering 白皮書 8 頁：版面與譯文正常、45 秒；CH1_ODE 22 頁：0 未轉換、0 放不下、9 縮小。
+- 驗證：worker 測試、`test-pdf-translate.js`、`test-strip-prompt-leak.js`（含 opencc）、`test-glossary.js`、lint、打包版介面測試。
 
-# 2026-10-07 — 執行環境：API 複製、統計改名、推論兩欄
 
-- [x] 啟動卡 API 列：OpenAI／Anthropic URL＋複製、已載入模型 id＋複製（只在執行中顯示）。
-- [x] 統計改名：預填充速度／解碼速度／輸入 tokens／輸出 tokens。
-- [x] 推論面板內容左右兩欄（窄螢幕自動疊回一欄）。
-- [x] `electron:pack`＋打包版 `e2e-hf-cdp.js` 重跑。
+# 2026-10-11 — 雲端模型設定合併
 
-## Review
+- [x] 合併供應商草稿與原子儲存，保留舊 ASR／聊天模型選取。
+- [x] 模型能力辨識、手動用途選擇、功能頁路由與選單整理。
+- [x] 預設 OpenRouter；AGY 啟動自動帶入 Antigravity 與指定兩模型。
+- [x] 雲端文字轉語音生成、取消、播放與匯出。
+- [x] 移除底部「儲存設定」，雲端設定改自動儲存。
+- [x] 設定側欄新增「外觀」（主題＋終端機外觀＋預覽），「基本」重排、更新區加大。
+- [x] 邏輯測試、lint、打包與隔離介面驗收。
 
-- 複製走 `terminal:clipboardWrite`（main 寫剪貼簿，沒焦點也成），按鈕按完變「已複製」1.2 秒。ID 都沒動，e2e 不用改。
-- API／統計只在 router 執行中展開（統計還要已載入模型才有 `/metrics`）；e2e 測不到這段，打包版 50/50 全過只保證沒撞壞舊版面。
-- `electron:pack` asar 267 支一致。
+## Review（雲端模型設定合併）
 
-# 2026-10-06 — Local SI 模型庫併進執行環境
+- Codex 中途用量用完，Claude 接手收尾：修外觀預覽 lint（`electronAPI` 未定義）、雲端語音與預覽被 CSP 擋（`data:` 播放／`fetch(data:)`）、語音頁模組晚載入時切換「語音來源」沒反應。
+- 舊 e2e 跟上新設計：chat（用途下拉取代生圖勾選、改種 `cloudProviders`）、smoke／stt（四個分區、無儲存列）、visual（模型列對齊）。
+- 驗證：`npm run lint`、`run-tests.js` 132/132、`test-cloud-providers` 14/14、`test-cloud-tts`、打包版 `e2e-cloud-models-cdp`／`e2e-chat-cdp` 75／`e2e-cdp-smoke` 22／`e2e-visual-cdp` 59 全過。
+- 預覽／沙箱／e2e（帶 `--user-data-dir`）啟動會把使用者的開機啟動改寫成 dist 預覽版：`migrateLoginItemName` 與開機設定 IPC 對這類實例停用；登錄值已改回安裝版。預覽一律用 `dev-sandbox.js --packed`（寫進 AGENTS.md）。
+- `e2e-stt-cdp` 沒過：腳本還寫死「推薦模型 4 項、兩組」（10/06 的狀態），實際已是 7 項、4 組（語音生成／語音辨識／翻譯／PDF 文件辨識），是舊斷言過期，與本次無關。
 
-- [x] 拿掉「模型庫」子分頁，本機模型與資料夾放進「執行環境」。
-- [x] 啟動縮成一般按鈕，旁邊選模型載入或卸載；畫面上的載入上限拿掉。
-- [x] 「這台機器」改成占用：CPU%、記憶體已用／總量、GPU% 與 VRAM。log 獨立一塊。
-- [x] 改 e2e 斷言（三個子分頁、模型卡在執行環境、啟動鈕跟一般按鈕一樣高）。
+# 2026-10-11 — Haiku 5.5 用量單價
 
-## Review
+- [x] 查證官方一般／長上下文及快取單價，追查計費 caller。
+- [x] 補內建價格、逐請求分級、舊統計自動重掃與相關驗證。
+- [x] 跑用量測試、lint、打包與隔離驗收，記錄結果。
 
-- 子分頁剩探索／推薦／執行環境。上面一列是啟動、狀態與載入／卸載，下面左本機模型、右占用，推論與 log 各自一塊。
-- 開發預覽量過 1280 與 390：啟動約 39×66、占用有 CPU／記憶體／兩張卡、窄螢幕按鈕沒有被拉高。沙箱 userData，沒碰使用者的模型。打包版 `e2e-hf-cdp.js` 已重跑：50/50 全過；`electron:pack` asar 267 支一致。
+## Review（Haiku 5.5 用量單價）
 
-# 2026-10-06 — 終端機開了就消失
+- 官方 100K 以下 input/output/read/5m/1h：$0.10/$0.50/$0.01/$0.125/$0.20；超過 100K：$0.50/$2.50/$0.05/$0.625/$1，皆為 USD/1M tokens。
+- `node scripts/test-code-usage.js` 174/174；`node scripts/test-code-usage-persistence.js` 通過；`npm run lint` 通過。
+- `npm run electron:pack` 通過（300 支 src asar 比對）；`node scripts/e2e-usage-cdp.js` 25/25，包含 80 筆混合級距的計費與拆帳。
+- `npx electron scripts/probe-code-usage-audit.js` 真實資料獨立對帳全部通過；Haiku 5.5 實際 80 次、13,627,912 tokens，手算與 App 均約 $1.01。只寫隔離暫存，不改正式統計檔。
+- 已重新開啟原有沙箱預覽；未 commit/push、未發版或覆蓋正式安裝版。
 
-- [x] 開終端機先掛分頁再等 PTY；還原途中已開的分頁不要被存檔搶回去。
-- [x] 對話載入晚回來時，主區已經換成工作區就不再切回聊天。
-- [x] 還活著但沒有分頁的終端機補回分頁；側欄圖示點一下打開。
+# 2026-10-11 — 功能頁獨立視窗
 
-## Review
+- [x] 每頁只保留一份畫面，使用 WebContentsView 在主視窗與獨立視窗間搬移。
+- [x] 導覽列右鍵彈出；最小化／關閉收回；保留輸入、執行中工作與跨頁入口。
+- [x] 驗證 IPC 邊界、生命週期、全頁彈出／收回；lint、打包與隔離 CDP。
 
-- 當時 VoiceInk 的 Codex（`t_muwgo930_thhhke`）程序還在終端機宿主裡，`tabsState` 只剩 Grok 那一格，所以側欄有圖示、畫面沒有。之後依要求只關掉這顆，Miroxen 那棵沒動。
-- `node scripts/test-terminal-reopen.js` 修前紅（分頁掛在 `terminal.open` 之後），修後通過。另過 `test-chat-image-memory.js`、`test-workspace-ui.js`。隨 v1.41.0 發行。
+## Review（功能頁獨立視窗）
 
-# 2026-10-06 — 本地模型搬進 Local SI、推論自動、Index-Translate
+- 修：原生最小化（Win+↓、工作列）在 `minimize` 事件內同步 `destroy` 會卡死主程序 → `setImmediate` 後再收回；單元測試補「事件內未 destroy」斷言。
+- smoke 兩項在同一段 eval 內先點導覽再讀畫面，新架構下讀到的是舊頁 → 切頁拆成前一步。
+- 驗證：`node scripts/run-tests.js` 133/133；`electron:pack`（含 lint）通過、asar 302 支一致；打包版 `e2e-page-windows-cdp` 全過（10 頁＋跨頁＋雙視窗＋原生最小化）、`e2e-cdp-smoke` 22/22。
+- 注意：`AXONDECK_TEST_SOURCE=1` 需要先開 vite（5173）；測試中途卡死時會留孤兒 nvidia-smi 咬住 9287。
 
-- [x] 探索模型卡：HTML `<table>` 被剝成直排數字 → `hub.htmlTablesToMarkdown` 先轉成 markdown 表格。
-- [x] `models.js`：拿掉 Qwen3.5 0.8B／4B，加 Index-Translate-2B Q4_K_M；舊 key 遷移。
-- [x] `local-llm.js`：Index 官方翻譯 prompt；GPU 自動（NVIDIA ≥8GB VRAM 才 GPU，否則 CPU），不再看 `llmGpu`。
-- [x] 設定頁「本地模型」整段拿掉；Local SI 新增「推薦」子分頁（ASR 兩顆＋翻譯兩顆）；推論方式／CUDA 環境併進「執行環境」。
-- [x] Local SI 自動配置：進頁沒裝執行環境就自動裝建議的那顆。
-- [x] 清掉本機 qwen35translate／qwen354b 模型資料夾。
-- [x] 最終 router 版重新打包並重跑 packaged CDP：Local SI 51、語音頁 20、smoke 22 全過；打包版 Index → LinguaForge → Index 實際 GPU 翻譯正常。
-- [x] 實測 GPU 切模型遇 native context.dispose Access Violation → 改共用 llama-server router；GPU／模擬不合格硬體的真 CPU 翻譯各 5 項通過。
-- [x] Index Q4_K_M 下載完成、官方 SHA-256 相符；舊 Qwen 本機資料夾已不存在。
+# 2026-10-12 — 拆掉 CC Proxy 頁
 
-## Review
+- [x] 專案右側欄「埠號」→「Port」，分「網頁」在上（可點）、「其他服務」在下（main 端 HTTP 探測）
+- [x] 額度條拿掉同步診斷（按鈕、彈窗、IPC 整條）
+- [x] MCP＋Skills 與記憶合成一頁，右側欄第五顆「MCP/Skills」→ 在目前專案開分頁（tab kind `cc-tools`）
+- [x] AGY 反代搬到設定頁新分類
+- [x] 供應商、用量統計併進額度條：條左邊兩顆按鈕，點開從條上方展開抽屜；條加高到 34px
+- [x] 刪 CC Proxy nav 與頁面；app.js／agy-page／e2e／CONTEXT／AGENTS 跟著改
+- [x] 驗證：lint、單元（usage／ccswitch／workspace／mcp／skills／agy）、打包、打包版 CDP（smoke 22、ccswitch 147、agy 34、usage 25）全過；截圖看過寬窄兩種
+- Review：`e2e-usage-cdp` 原本點別頁再點回來，在功能頁多視窗模式下會把 CDP 帶到別的 renderer，改成同頁重畫；`e2e-usage.js`（打真上游）沒跑。
 
-- `npm run electron:pack` 成功，asar 266 支 src 與原始碼相符；真實 HF 模型卡表格已檢查截圖。
-- `npx electron scripts/e2e-local-translate-settings.js` 與 `--cpu` 各通過 5 項實際翻譯／遷移；CPU 是模擬未偵測到合格 GPU，推論本身走真 CPU。未驗實際低 VRAM 電腦與 CUDA router。
-- `node scripts/run-tests.js`：110/112；本次新增 safe-rm 引用造成的 `test-download-callers.js` 載入失敗已修正並單獨重跑通過。`test-chat-image-memory.js` 的剝除器不認得 `export { a as b }`，已改成整行拿掉；`node scripts/test-chat-image-memory.js` 通過（快取 6291528 字元）。
-- `git diff --check` 通過；隨 v1.41.0 發行。
+## 追加（2026-10-12）
 
-# 2026-10-06 — 改名 AxonDeck＋新 logo
+- [x] Port：「網頁」只收真的點得開的（2xx HTML／3xx），按鈕「開啟」放每列最右邊
+- [x] 設定頁 AGY 反代圖示改用 Antigravity 標誌（原本誤用 Claude）
+- [x] 用量統計重排：兩欄固定高度（左總計＋趨勢、右分佈自己捲），分佈明細改成一種 token 一格
+- [x] 預覽開不了終端機：08c4413 的 `term-themes.js` 對已經是 `blob:` 的桌布再 `atob` 一次丟例外；有設桌布的設定才會中（測試用全新設定所以沒抓到）
+- Review：`e2e-terminal-cdp`／`e2e-chat-cdp` 原本靠點 CC Proxy 再點回聊天來「切走再回來」，功能頁多視窗下同一個 eval 點回聊天不會真的切回 → 改走 `pages.navigate`。terminal 68/68、usage 25、smoke 22 過；`e2e-chat-cdp` 剩「兩個請求都送到上游」（測試仍寫舊的 `chatProviders`，疑 08c4413 起就壞，未比對）；`e2e-workspace-cdp` 每次掛的項目不同（hover／焦點類，未處理）。
+- [x] 功能頁右鍵彈出的視窗標題帶頁名（`檔案 — AxonDeck`），工作列分得出是哪一頁（原本全叫 AxonDeck）
+- [x] 滑鼠側鍵在功能頁之間退錯頁：每個功能頁 renderer 載入時讀到 index.html 預設的 chat，多記一步假足跡 → 功能頁模式下只記自己那頁，跨頁交給 main `pages.history`
+- [x] 工作區檔案樹就地新增／改名時，跑到一半的監看重畫醒來會把正在打字的那列刪掉 → 開始打字先作廢進行中的重畫（`treeSeq`）
+- [x] e2e 跟上功能頁多視窗：`e2e-visual-cdp` 切頁拆成獨立一步；`e2e-workspace-cdp` 開焦點模擬
+- [x] 同專案多開分頁：每顆終端機右上角的對話紀錄各看各的——一筆對話只綁給一個還在跑的分頁；agy「目錄最後開過的對話」只在單一分頁時才拿來猜（`agent-resume.js`／`agent-processes.js`／`agent-live-session.js`，單元測試補一則）
+- Review（全面掃描）：單元 133/133；打包版 e2e 32 支先全跑一輪，失敗的 11 支拿 HEAD 打包重跑，失敗點完全相同＝既有問題（多半是 f9a2460 功能頁多視窗後測試沒跟上、或 08c4413／1757312 等改版後斷言過時）。本次改壞的只有 speech 寫死 10 頁、stt 的設定分區數，已修。逐支修正測試後再全跑一輪確認。
+- [x] 設定頁切走時沒存的修改當下就存：背景 renderer 計時器被節流，450ms 的存檔會延到幾秒後，拿舊草稿蓋掉這段期間別處寫進來的 `cloudProviders`（聊天頁掃描、AGY 自動加的供應商）。`e2e-chat-cdp` 時好時壞就是這個；補了回歸檢查
+- [x] 工作區檔案樹：開始就地打字先作廢進行中的監看重畫（`treeSeq`），不然打到一半那列會被刪掉
+- Review（第二輪全跑）：e2e 32 支先 30 過，剩 chat（上面那個真 bug）與 workspace（測試跟「重開專案自動展開資料夾」互相抵消）；兩個都修完單獨連跑通過，最後再全跑一輪。
 
-- [x] 機械改名 VoiceInk → AxonDeck（含 native 路徑、exe、csproj、crate），tasks/ 歷史不動。
-- [x] 保留舊名（升級不斷線）：`com.voiceink.app`、userData `%APPDATA%oiceink`、媒體 ProgID `VoiceInk.Media.*`、終端機 host 舊 pipe 前綴、媒體 mutex。
-- [x] 舊資料銜接：開機自啟動路徑、Claude hooks 舊標記、HF `voiceink-meta.json`、更新快取、工作列釘選、感測器排程（Grok）、媒體登錄檔與資料夾（Codex）。
-- [x] GitHub repo 改名 AxonDeck（舊網址 301，舊版 `releases.atom`／`latest.yml` 實測轉得到）。
-- [x] logo：去白底透明 PNG、ico、頂欄 logo＋漸層字、README 橫幅。頂排 SI → Super Intelligence（兩行疊字）。
-- [x] Git 面板：暫存的改名（git mv）只顯示 +N 沒有 −N → 暫存 numstat 帶 `-M`、parseNumstat 認改名列。
-- [x] 單元 111/111；打包 CDP chat 75、sysmon 114、workspace 196。
 
-## Review
+# 2026-10-13 — 設定「安裝」
 
-- 機械改名後要逐一找「寫進使用者電腦」的名字：資料夾、登錄檔、排程、hooks、模型 meta 檔、更新快取、開機自啟動路徑；改名但不銜接 = 升級後資料不見或殘留孤兒。
-- 測試腳本裡指向「這台電腦真實 userData」的路徑不能跟著改名（真實資料夾仍叫 voiceink）。
-- `resources/` 的舊名建置產物不會自己消失，要手動清，否則一起被打包。
+- [ ] 查證常用程式來源與靜默參數，建立已安裝／更新查詢及背景工作。
+- [ ] 串接 main／IPC／preload／設定分頁，呈現搜尋、狀態、安裝／更新／解除安裝。
+- [ ] 驗證真實唯讀盤點、操作邊界與 UI，跑 lint、打包及隔離 CDP。
 
-# 2026-10-06 — 頂排改名、CC Proxy 精簡、CLI 自動安裝、處理程序、語音頁合併
+## 2026-10-13 — 圖示與安裝紀錄修復
 
-- [x] 頂排：AI → SI（換 SI 單色圖示）、HF模型 → Local SI。
-- [x] CC Proxy：拿掉頁首重新整理（點子分頁即重讀）、「供應商」標題、卡片文字精簡、主模型（兜底）；Opus／Sonnet／Haiku 三格並排、只顯示模型 id；各家預設模型更新；OpenRouter 只列文字＋工具＋一年內。
-- [x] CLI 版本：未安裝自動安裝（含環境）、安裝／更新背景靜默（Codex）；Antigravity 版本清單查證。
-- [x] 系統監控處理程序：網路欄、欄名總占用％、欄位拖曳換序、程序圖示（Codex）。
-- [x] 語音轉文字：檔案轉入＋錄音機合併左右兩欄、錄音拖進轉入區、拿掉最近四筆；即時字幕可切系統聲音／麥克風（Grok）。單元：test-stt-archive 33、ipc-invoke 11、error-hygiene 85、test-dictation 120。未打包、未跑 CDP。
-- [x] 打包＋CDP 驗收：ccswitch、sysmon 114、chat 75、smoke 過；捷徑開檔回歸修好（explorer 單元 23）。
-- [ ] 重新打包時 pack-preview 報 `src/main/agy/anthropic.js` asar 對不上，待查；stt／recorder CDP 待重跑。
+- [x] 對照 WinGet、登錄檔與 MSIX，保留版本／架構／安裝範圍的唯一身分。
+- [x] 修復圖示候選、ICO／DLL 取圖與通用圖退路，涵蓋三個清單。
+- [x] 釐清失效移除程式，提供精確錯誤與有備份的紀錄清理。
+- [x] 驗證單元、真實唯讀盤點、lint、shell build、打包與隔離 CDP。
 
-# 2026-10-06 — CC Proxy 改版＋AGY 新模型路由＋單價＋媒體縮圖
+Review：281 筆各自身分不再誤判重複（DirectX x86／x64 分開）；233 筆用本機圖示、其餘官網標誌，無白紙圖；雷電移除程式已遺失改提供「清除失效紀錄」（先備份、資料變動就拒絕）。lint、四支單元測試、打包版 CDP e2e 全過。
 
-- [x] AGY：`claude-opus-5-5` 等帳號裡真的有的 ID 被前綴規則改回 `claude-opus-4-6-thinking` → 先比對即時型錄（同家族同代優先、淘汰跟 replacedBy）。
-- [x] 單價：`claude-sonnet-5.5`、`gpt-6.1-sol`。
-- [x] CC代理 → CC Proxy；AGY 反代搬成子分頁；閘道開關拿掉改自動開關；AGY 執行中自動加入供應商；設定彈窗收進階設定＋「儲存並啟用」。
-- [x] 七家供應商真流量（Codex 子代理）＋真 Claude Code 經閘道／AGY。
-- [x] 媒體播放器關聯檔案的 Explorer 縮圖。
-- [x] `electron:pack` ＋ `e2e-ccswitch-cdp`／`e2e-agy-cdp`／`e2e-cdp-smoke`。
+## 2026-10-13 — 安裝下載加速與常用程式
 
-## Review
+- [x] 直接下載：各節點先抓 1 MB 測速，最快的先用；支援 Range 的大檔切 8 MB 小塊、16 線並行、單塊重試 3 次。
+- [x] NVIDIA 加 us／international／uk 官方節點；修正從 pwsh 7 啟動時 PSModulePath 讓驗簽失敗。
+- [x] 常用程式加入 WinRAR、Free Download Manager（20 項）。
 
-- AGY 接 Claude Code 原本整個不能用（不只新模型）：① 工具 schema 有 `anyOf` 時 Claude 模型上游一律 400（對照實驗：同型別 pattern、string|number 都 400，單一 pattern 200）→ 送 Claude 時攤平；② tool_use／tool_result 沒帶 id → 第二輪 400；③ 新 ID 被靜態前綴規則改回舊模型。真 `claude -p`（opus-5-5）純文字回 OK、Bash 工具往返回 hi-from-tool。
-- 七家（`probe-ccswitch-claude-e2e.js`）：Grok／Codex／OpenRouter 文字／串流／工具全 200；Ollama 402（方案）、OpenCode Go 403（無訂閱）、Command Code 400（餘額）是帳號阻擋。Codex 子代理修了 OpenCode Go 標頭與 Codex／OpenCode 的「測試」鈕。
-- 縮圖：ProgID 沒 `TypeOverlay` 時 Explorer 把預設圖示（App logo）疊在縮圖角落（微軟文件）→ 設空字串。Grok 子代理的 190 行處理器複製沒解到這個症狀，已改回並清掉它在 HKCU 留下的 27 筆預覽處理器副本。
-- 驗證：單元 test-ccswitch 263、gateway 60、agy-mappers 57、code-usage 158、usage 40、error-hygiene 85、ipc-invoke 11；e2e-ccswitch-gateway 48；打包版 e2e-ccswitch-cdp 138、e2e-agy-cdp 34、smoke 22；`cargo test --bin voiceink-media` 14。
-- 既有：`e2e-agy-cdp.js` 印完 ALL PASS 後 node 不會自己結束。
-
-# 2026-10-04 — 全專案讀碼掃 bug
-
-- [x] 檔案總管（自己讀）：右欄捲動空白、方格虛擬清單、右欄開檔／刪除／改名／捷徑作用到左欄、鍵盤處理兩次、雙欄圖示互搶、搬移先量整棵樹、zip／手機暫存不清、net use 卡主程序。
-- [x] Codex（gpt-6.1-sol high）讀 main 兩組、Grok（grok-4.7 high）讀 main＋renderer 兩組，共 61 條，逐條自己讀碼查證後修。
-- [ ] 未修（需硬體或判斷）：SATA SMART 用 access=0 開磁碟（要重編 probe＋SATA＋管理員才驗得了）；網頁版 AI 會記住同站非對話頁（對話網址格式不確定，怕擋掉正常對話）；網頁時長寫入失敗不重試（有 busy_timeout，跨小時重試會重複算）；檔案轉錄 validateFilePath 同步 stat（檔案剛由對話框選出）。
-
-## Review
-
-- 主要修正：CC 閘道（OAuth 未處理 rejection／續期覆寫別帳號／重登綁定失效／CLI 憑證被換／上游卡住關不掉／SSE 失敗當成功／Chat 丟圖片／tool_choice）、用量（AGY 晚完成漏算、Grok rewind 重算、o1 被丟）、HF（fit 開成 llama-server、bench 帶不支援的 -c、多卡只用一張、0 MiB 當全空、分片匯入、下載中換資料夾）、效能調整（溫度 null 變 0 不還原、功耗預設被壓半、每核 CO 蓋掉全核、每核鎖頻清不掉）、Git（方括號檔名、無 HEAD 取消暫存）、工作區（NAS 離線卡 main、拖曳殘留、Monaco 首次跳行、PDF／音訊改名、快速開檔串專案、Ctrl+G 換專案丟字）、其他（語音整理丟尾段、熱鍵停用後又掛上、ASR 互卸、聊天新圖被 prune、翻譯預熱互卸、LinguaForge 單行清單、字幕紀錄同步讀、麥克風開兩條、更新連點、hfModelsDir 驗證、OC 拖曳／風扇存檔／登入輪詢／HF 搜尋競態、終端機路徑折行、diff 檔頭誤判、使用時長下一頁）。
-- 驗證：相關單元測試全過（code-usage 一條舊預期就是 rewind 重算，改成新預期）；`llama-bench -c` 實測報 invalid parameter；`git --literal-pathspecs checkout` 實測不動到 `a1.js`；`electron:pack` 256 支 src 一致；打包版 `e2e-explorer-dual-cdp`、`e2e-workspace-cdp` 196/196、`e2e-cdp-smoke` 22/22。
-
-# 2026-10-04 — 檔案頁右欄雙擊打不開
-
-- [x] 真滑鼠重現：右欄雙擊檔案不開、資料夾進不去；左欄正常。
-- [x] 修 `onSecondListClick` 認 `detail === 2`，拿掉容器上的 dblclick；補真滑鼠回歸 [4b]。
-
-## Review
-
-- 根因：右欄第一下 click 會 `paintSecondPane()` 換掉整批列，第二下的 dblclick 落在拿掉的舊列上，傳不到 `#exSecondList` 的委派監聽。左欄每列自己掛監聽所以沒事。舊測試用合成 dblclick 直接打在列上，從來沒抓到。
-- 驗證：`e2e-explorer-dual-cdp.js` 修前 [4b] FAIL、修後 52/52；探針確認右欄雙擊 txt 會開、資料夾會進去；`electron:pack` 256 支 src 一致。
-- 既有無關問題：`e2e-explorer-cdp.js` 停在「放大後的大小存得進 explorer.json」（v1.37.0 起大小改存在各資料夾的 `folderViews`，測試還在看全域 `tile`）。
-
-# 2026-10-04 — Grok 網頁版卡 Cloudflare 驗證
-
-- [x] 重現：App 內開 grok.com 一直停在「正在執行安全驗證」並重載。
-- [x] 對照實驗找變因、只改 Grok 分區、補單元測試、更新預覽包。
-
-## Review
-
-- 對照實驗（同一 session 設定，只換 UA）：偽裝成 Chrome、縮版號、多帶 `voiceink/x` 都卡住；Electron 原樣識別（含 `Electron/43.4.1`、完整版號）約 8 秒過。Cloudflare 認得出 Electron，偽裝反而被當機器人。
-- 修法：`ai-web.js` 新增 `userAgentFor(partition, fallback)`，`persist:ai-grok` 只拿掉 App 名字；其他三家與工作區瀏覽器維持 Chrome 識別（Google 登入要用）。`main.js` 把 partition 傳進 `setupSession`。
-- 驗證：`node scripts/test-ai-web.js` PASS（新增 Grok／ChatGPT 兩條）；用改好的 `setupSession` 實開 grok.com 兩次都 8 秒內進首頁；`npm run electron:pack` 驗 256 支 src 與 asar 一致。
-
-# 2026-10-04 — 文件精簡
-
-- [x] AGENTS.md 671 → 190 行、CONTEXT.md 900 → 154 行、lessons.md 243 → 約 150 行、todo.md 1230 → 本檔；刪掉已完成的歷史流水帳、跟 AGENTS 重複的教訓、過時描述（nav「聊天」→「AI」、Grok 需真人點 Cloudflare 等）。
-
-# 2026-10-04 — v1.39.0：AI 入口、網頁對話與記憶體
-
-- AI 頁加入 ChatGPT／Gemini／Claude／Grok 網頁版，每按一次新增一則存進 `chats.json` 的 `web`；對話與資料夾改整列右鍵選單。
-- Google 登入：`accounts.google.com` 整頁導覽換非瀏覽器識別走精簡版；Claude 的 Google 登入在 App 內開小視窗。
-- 記憶體：網頁藏 5 分鐘或超過 3 則就收；工作區背景瀏覽器分頁閒置 10 分鐘拆。打包 CDP 實測 App 1383MB → 697MB。
-- 驗證：test-ai-web／chat-sidebar／image-memory、error hygiene 85/0、IPC 11/0、workspace UI 183/0；打包 CDP chat 74/0、smoke 22/0、workspace 192/0。
-
-# 2026-10-03 — 搜尋記憶體、五種 AI 紀錄與終端機接續（併入 v1.39.0）
-
-- 專案搜尋逐行讀：RSS 峰值 204.9 → 118.4MB；UFFS 閒置 60 秒休眠（943MB → 2MB）。首次載索引峰值仍約 2.6GB。
-- 五種 AI 紀錄分頁讀到最後；五種 AI 終端機重開接回原程序或原對話。
-- 限制：Antigravity CLI 部分工具結果非明文；多個同工具終端機同時產生對話時無法判定歸屬就不接。
-
-## 既有已知問題（不屬於最近改動）
-
-- `test-temp-hygiene.js` 報 `test-usage.js:824,844` 直接用 `os.tmpdir()`。
-# 2026-10-06 — 系統監控處理程序升級
-
-- [x] 實測 Windows 網路來源與權限；沿用感測器 sidecar，不新增 UAC。
-- [x] 補取樣器執行檔路徑、網路資料與整機總占用；圖示非同步快取。
-- [x] 處理程序表拆檔，加入圖示、總占用、固定名稱欄與可保存的拖曳順序。
-- [x] 跑全部 test-sysmon、IPC／錯誤檢查、Rust 測試、build:probe 與 parity。
-
-## Review（處理程序）
-
-- 13 支 test-sysmon 全過（主測試 188/0），IPC 11/0、error-hygiene 85/0、sensors-lifecycle 通過；cargo test 53/0。
-- build:probe、build:sensors 成功，resources 更新；Rust／PowerShell parity ALL PASS，含路徑／建立時間。Windows 執行檔別名以實際檔案比對。
-- probe-sysmon-network：未提權；ETW 與 SetPerTcpConnectionEStats 都回 5（Access denied），正確回不可讀。ETW x64 ABI、TCP／UDP v4／v6 事件解析通過。probe-sysmon-icons：真 Electron small 圖示 data URI 946 字元。
-- 依範圍未打包、未跑 CDP；未跳新 UAC，因此提權 sidecar 的真實吞吐尚未驗證。新增網路只沿用既有 sidecar 啟動方式；收集失敗／過期／事件遺失皆顯示「—」。
-
-# 2026-10-06 — CLI 版本背景安裝與更新
-
-- [x] 查官方安裝方式與 agy manifest（唯讀）；不執行本機安裝／更新。
-- [x] main 固定指令、補 Node/npm、重讀 PATH、工具鎖與 10 分鐘逾時。
-- [x] 版本列安裝／更新／進度／摘要；移除終端機與 updateCommand IPC。
-- [x] mock spawn、CC Proxy、IPC 與錯誤回歸；不打包、不跑 CDP。
-
-## Review（CLI）
-
-- test-cli-install 37/37、test-ccswitch 266/266、test-ccswitch-cli-models 7/7、test-ipc-invoke 11/11、test-error-hygiene 85/85；10 檔語法與指定檔案 diff --check 通過。
-- agy 官方 install.ps1 的公開 Windows manifest 回傳 1.2.17；本機 agy --version 同為 1.2.17，update --help 未提供 --check。
-- 依本次範圍未實際安裝／更新、未打包／CDP；真實安裝器與權限行為尚未驗證。
-
-# 2026-10-08 — 終端機重複貼上
-
-- [x] 追查鍵盤與右鍵貼上，新增會先失敗的重現。
-- [x] 最小修正重複觸發，保留文字、圖片與連續貼上。
-- [x] 跑相關回歸、打包與隔離 CDP 驗證。
-
-## Review（重複貼上）
-
-- 根因：xterm custom key handler 的 return false 不會取消 Chromium 原生 paste；App 非同步貼上與原生貼上各送一次。補 preventDefault，Ctrl+V／Ctrl+Shift+V／Alt+V 忽略 repeat；再次按鍵仍能貼上相同內容。未改 PTY 傳送與 JS／Rust 宿主。
-- 修復前 test-terminal-ui 新斷言失敗；舊包真按鍵加一次 repeat 送出 4 份文字。修復後 `node scripts/run-tests.js terminal` 8/8 支、`node scripts/test-terminal-ui.js` 13/13、指定檔案 `git diff --check` 通過。
-- 使用既有 pack-preview 流程，只在記憶體把 PREVIEW 改為 dist/terminal-paste-qa，保留正在使用的 win-unpacked；asar 269 支 src 比對通過，另驗 terminal-page.js 與 source 完全一致。
-- `AXONDECK_EXE=dist/terminal-paste-qa/AxonDeck.exe` 跑 e2e-terminal-cdp：真按鍵、repeat、再次貼同樣內容、真右鍵、文字／圖片／直接語音插入皆通過。完整首輪 64 passed／2 failed：nav 既有預期 10、實際 9；9000 字斷言誤抓舊畫面數字，補本測試畫面清理。
-- 最後以 Node Module 執行同支 CDP 的建立／貼上／9000 字區段，保留 finally 清理，33 passed／1 failed；唯一失敗是無關的 nav 數量。7 條新增真操作斷言與 9000 字皆通過。使用者同時複製文字曾干擾重跑，新增測試固定本實例 service.clipboardText，原生 paste 仍讀真正系統剪貼簿，收尾還原。
-- 測試自己的程序已收掉。未替換現行安裝版／正在執行的預覽版，未 commit／push／發版。
+Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z-Library 2.3 → 43 MB/s（主節點卡死改走較快節點）；NVIDIA 已達約 100 MB/s 線路上限。winget 自身下載器不受影響，wininet／DO 比較未得出有效結果。

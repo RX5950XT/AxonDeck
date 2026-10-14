@@ -321,6 +321,20 @@ async function folderSize(dirPath, token, opts) {
     throw paths.fail('BAD_PATH', '這不是資料夾')
   }
   if (st.isSymbolicLink()) return doneEmpty(full, job, input.onProgress)
+  try {
+    return await measure(full, job, input)
+  } finally {
+    dropJob(job)
+  }
+}
+
+/**
+ * 算一個已驗證過的資料夾；不碰 `current`，讓清單的子資料夾大小（dir-sizes.js）跟詳情面板各算各的。
+ * @param {string} full
+ * @param {{ token: string, cancelled: boolean, kill?: (() => void) | null }} job
+ * @param {{ maxFiles?: number, maxDepth?: number, maxMs?: number, exe?: string, onProgress?: (info: object) => void }} input
+ */
+async function measure(full, job, input) {
   const state = newState(full, job, input)
   try {
     const native = input.exe ? await walkNative(input.exe, full, state) : false
@@ -331,7 +345,6 @@ async function folderSize(dirPath, token, opts) {
       if (!state.reason) state.reason = 'cancel'
     }
     emitProgress(state, true)
-    dropJob(job)
   }
   return snapshot(state)
 }
@@ -339,6 +352,8 @@ async function folderSize(dirPath, token, opts) {
 module.exports = {
   folderSize,
   folderSizeCancel,
+  measure,
+  cancelJob,
   MAX_FILES,
   MAX_DEPTH,
   MAX_MS,

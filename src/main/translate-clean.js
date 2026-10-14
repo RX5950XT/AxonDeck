@@ -34,9 +34,10 @@ function stripThink(text) {
  * 剝除系統提示／SFT 指令洩漏（不可進 UI 譯文）
  * 常見：複誦 "You are a professional translator."、"翻譯成繁體中文："、`譯者：` 標籤
  * @param {string} raw
+ * @param {boolean} [keepAnswer] 原文本來就以「A. 」開頭（大綱編號），不當成答題標籤剝掉
  * @returns {string}
  */
-function stripPromptLeak(raw) {
+function stripPromptLeak(raw, keepAnswer = false) {
   let t = String(raw || '').replace(/^﻿/, '').trim()
   if (!t) return t
 
@@ -56,8 +57,9 @@ function stripPromptLeak(raw) {
     // 括號式 meta
     t = t.replace(/^【(?:系統|指令|前文|本段)】[^\n\r]*(?:\r?\n)?/u, '')
     // 說話者／輸出標籤（persona 自稱：譯者、翻譯員…）
+    if (!keepAnswer) t = t.replace(/^A\.[ \t]+/, '')
     t = t.replace(
-      /^(?:A\.[ \t]+|Answer:[ \t]*|Output:[ \t]*|(?:譯文|譯者|翻譯者|翻譯員|譯員)[：:][ \t]*|Translat(?:ion|or)[：:][ \t]*)/iu,
+      /^(?:Answer:[ \t]*|Output:[ \t]*|(?:譯文|譯者|翻譯者|翻譯員|譯員)[：:][ \t]*|Translat(?:ion|or)[：:][ \t]*)/iu,
       ''
     )
     t = t.trim()
@@ -97,10 +99,11 @@ function stripWrappingQuotes(input) {
  * @param {string} [source] 原文；用來判斷列點是否為原文本來就有（有就別動）
  */
 function stripTranslationNoise(raw, source = '') {
-  let t = stripPromptLeak(String(raw || '').trim())
+  const keepAnswer = /^[ \t]*A\.[ \t]/.test(source || '')
+  let t = stripPromptLeak(String(raw || '').trim(), keepAnswer)
   t = stripWrappingQuotes(t)
   // 引號剝完後可能又露出指令前綴
-  t = stripPromptLeak(t)
+  t = stripPromptLeak(t, keepAnswer)
   // 原文沒有列點，譯文卻自己編號 → 模型把譯文寫成清單，剝掉編號留內容
   if (t.includes('\n') || /^[ \t]*\d{1,2}[.、)][ \t]+/.test(t)) {
     if (!/^[ \t]*\d{1,2}[.、)][ \t]+/m.test(source || '')) {

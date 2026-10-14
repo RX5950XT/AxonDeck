@@ -12,6 +12,8 @@ function electronShell() {
 const { resolveProbeExe } = require('./native-probe')
 const types = new Map(Object.entries(formats).flatMap(([kind, list]) => list.map((ext) => [ext, kind])))
 let theme = () => 'dark'
+/** 文字／程式碼交給 AxonDeck 編輯器視窗（main 注入；回 true＝已接手） */
+let editorOpener = async () => false
 let associationInitPromise = null
 // 改名後要再跑一次 Rust 的狀態搬移與重新登記；舊版的 1 不能跳過它。
 const ASSOCIATION_MARKER = '2'
@@ -26,17 +28,30 @@ function fail(message) {
   return error
 }
 function setThemeGetter(getter) { theme = getter }
-async function initializedMarker(file) {
+function setEditorOpener(opener) { editorOpener = opener }
+const openEditor = (file) => editorOpener(file)
+async function initializedMarker(file, expected = ASSOCIATION_MARKER) {
   let handle
   try {
     handle = await fs.open(file, 'r')
     const buffer = Buffer.alloc(16)
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-    return bytesRead === 1 && buffer.toString('utf8', 0, bytesRead) === ASSOCIATION_MARKER
+    return bytesRead === 1 && buffer.toString('utf8', 0, bytesRead) === expected
   } catch (error) {
     if (error.code === 'ENOENT') return false
     throw error
   } finally { if (handle) await handle.close() }
+}
+
+function runAssociation(exe, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(exe, args, { detached: true, windowsHide: true, stdio: 'ignore', shell: false })
+    child.once('error', () => reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
+    child.once('spawn', () => child.unref())
+    child.once('close', (code) => code === 0
+      ? resolve()
+      : reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
+  })
 }
 
 /** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。Linux 無原生媒體 sidecar（用 App 內播放視窗）。 */
@@ -49,22 +64,17 @@ async function initializeAssociations(options = {}) {
     const updateManifest = path.join(resourcesPath, 'app-update.yml')
     if (!await fs.access(updateManifest).then(() => true, () => false)) return false
 
-    const marker = path.join(userDataPath, 'media-associations-initialized')
-    const alreadyInitialized = await initializedMarker(marker)
-    if (alreadyInitialized) return true
-
     const exe = path.join(resourcesPath, 'media', 'axondeck-media.exe')
-    await fs.access(exe)
-    await fs.mkdir(userDataPath, { recursive: true })
-    await new Promise((resolve, reject) => {
-      const child = spawn(exe, ['--initialize'], { detached: true, windowsHide: true, stdio: 'ignore', shell: false })
-      child.once('error', () => reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
-      child.once('spawn', () => child.unref())
-      child.once('close', (code) => code === 0
-        ? resolve()
-        : reject(Object.assign(new Error('MEDIA_ASSOCIATION_INIT_FAILED'), { code: 'MEDIA_ASSOCIATION_INIT_FAILED' })))
-    })
-    await fs.writeFile(marker, ASSOCIATION_MARKER, 'utf8')
+    // 媒體與文字／程式碼編輯器各記各的：舊版已初始化媒體的使用者，更新後仍要補一次編輯器
+    // 編輯器 '3'：.ts 從媒體移交給編輯器，1.46.0 已初始化過的要再跑一次（Rust 只改還指著媒體的那幾個）
+    for (const [name, args, version] of [['media-associations-initialized', ['--initialize'], ASSOCIATION_MARKER], ['editor-associations-initialized', ['--editor', '--initialize'], '3']]) {
+      const marker = path.join(userDataPath, name)
+      if (await initializedMarker(marker, version)) continue
+      await fs.access(exe)
+      await fs.mkdir(userDataPath, { recursive: true })
+      await runAssociation(exe, args)
+      await fs.writeFile(marker, version, 'utf8')
+    }
     return true
   })()
   try {
@@ -155,19 +165,22 @@ async function openWithSystem(file) {
   return 'UNSUPPORTED'
 }
 
-/** 與 shell.openPath 的回傳方式相同；所有媒體入口共用這條分流。 */
+/** 與 shell.openPath 的回傳方式相同；所有開檔入口共用這條分流（媒體→播放器、文字→編輯器、其餘→系統）。 */
 async function openPath(file) {
   if (await openMedia(file)) return ''
+  if (await openEditor(file)) return ''
   return openWithSystem(file)
 }
 
 module.exports = {
   mediaKind,
   openMedia,
+  openEditor,
   openPath,
   openWithSystem,
   resolveMediaExe,
   setThemeGetter,
+  setEditorOpener,
   initializeAssociations,
   shutdown
 }

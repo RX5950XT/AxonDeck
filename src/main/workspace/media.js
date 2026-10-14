@@ -55,6 +55,15 @@ function localUrlFor(full) {
 }
 
 /**
+ * 獨立編輯視窗的 Markdown 圖片基準網址：每層資料夾各一段，`![](img/a.png)` 這種相對路徑才解得開；
+ * 收到時一樣走 `~local` 的 `resolveLocal` 把關，而且只送媒體副檔名。
+ * @param {string} full 本機絕對路徑
+ */
+function localBaseFor(full) {
+  return `${SCHEME}://${TOKEN}/${LOCAL_ID}/${String(full || '').split(/[\\/]/).map(encodeURIComponent).join('/')}`
+}
+
+/**
  * 解析 `Range: bytes=a-b`。只支援單一區段（瀏覽器的媒體與 pdf.js 都只送一段）。
  * @param {string | null} header
  * @param {number} size
@@ -129,4 +138,4 @@ function register(protocol, rootOf, resolveLocal) {
   })
 }
 
-module.exports = { SCHEME, PRIVILEGES, LOCAL_ID, urlFor, localUrlFor, parseRange, register }
+module.exports = { SCHEME, PRIVILEGES, LOCAL_ID, urlFor, localUrlFor, localBaseFor, parseRange, register }

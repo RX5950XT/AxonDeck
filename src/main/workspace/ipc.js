@@ -24,7 +24,7 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
     invoke(event, () => service.listProjects())
   ))
   ipcMain.handle('workspace:addProject', (event) => invoke(event, async () => {
-    const win = getWindow()
+    const win = getWindow(event)
     if (!win) return null
     const result = await dialog.showOpenDialog(win, {
       title: '選擇專案資料夾',
@@ -44,9 +44,6 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ))
   ipcMain.handle('workspace:reorderProjects', (event, ids) => (
     invoke(event, () => service.reorderProjects(ids))
-  ))
-  ipcMain.handle('workspace:projectPath', (event, id) => (
-    invoke(event, () => service.projectPath(id))
   ))
 
   // ── 檔案 ──
@@ -121,9 +118,6 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:gitStageAll', (event, id) => (
     invoke(event, () => service.gitStageAll(id))
   ))
-  ipcMain.handle('workspace:gitUnstageAll', (event, id) => (
-    invoke(event, () => service.gitUnstageAll(id))
-  ))
   ipcMain.handle('workspace:gitDiscard', (event, id, relPath) => (
     invoke(event, () => service.gitDiscard(id, relPath))
   ))
@@ -179,8 +173,7 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   // ── 資料夾監看（別人改了檔案，畫面自己更新）──
   ipcMain.handle('workspace:watch', (event, id) => invoke(event, () => (
     service.watchProject(id, (payload) => {
-      const win = getWindow()
-      if (win && !win.isDestroyed()) win.webContents.send('workspace:changed', payload)
+      if (!event.sender.isDestroyed()) event.sender.send('workspace:changed', payload)
     })
   )))
   ipcMain.handle('workspace:unwatch', (event) => (

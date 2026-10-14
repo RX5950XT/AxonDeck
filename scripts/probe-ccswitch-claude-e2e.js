@@ -202,7 +202,7 @@ async function main() {
       if (!raw) throw new Error('MISSING_PROVIDER')
       const provider = { ...providers.sanitizeAll([raw])[0] }
       if (useDefaults) for (const key of Object.keys(providers.MODEL_FIELDS)) provider[key] = ''
-      provider.model = provider.model || preset.env.ANTHROPIC_MODEL
+      provider.model = provider.sonnetModel || preset.env.ANTHROPIC_DEFAULT_SONNET_MODEL
       snapshot.currentId = provider.id
       // 預設測試的選擇也只留在複本，resolveRoute 仍走正式 providers 資料流。
       if (useDefaults) snapshot.providers = snapshot.providers.map((p) => p.id === provider.id ? provider : p)

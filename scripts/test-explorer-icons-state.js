@@ -117,7 +117,7 @@ async function testGridAsksThumbForAnyFile() {
 
 async function testStaleFinallyUsesCurrentQueueContext() {
   const oldRequests = []
-  const first = [1, 2, 3, 4].map((n) => element(`C:\\old-${n}.pdf`))
+  const first = [1, 2, 3, 4, 5, 6].map((n) => element(`C:\\old-${n}.pdf`))
   const next = element('C:\\new.pdf')
   let readOld = 0
   let readNew = 0
@@ -129,7 +129,7 @@ async function testStaleFinallyUsesCurrentQueueContext() {
     readOld += 1
     return Promise.resolve({ ok: true, data: { url: 'old-read' } })
   })
-  assert.equal(oldRequests.length, 4)
+  assert.equal(oldRequests.length, 6)
 
   env.context.paintFileIcons(host(false, [next]), () => {
     readNew += 1
@@ -139,7 +139,7 @@ async function testStaleFinallyUsesCurrentQueueContext() {
 
   oldRequests[0].resolve({ ok: true, data: { url: PNG } })
   await flush()
-  assert.equal(oldRequests.length, 4)
+  assert.equal(oldRequests.length, 6)
   assert.equal(readOld, 0)
   assert.equal(readNew, 1)
 }

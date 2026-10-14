@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, ipcMain, session, desktopCapturer, screen, shell, dialog,
-  Menu, Tray, nativeImage, protocol, webContents
+  Menu, Tray, nativeImage, protocol, webContents, net
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -25,7 +25,9 @@ if (adminHostArg) {
 const models = require('./models')
 const chat = require('./chat')
 const modelScope = require('./model-scope')
+const glossary = require('./glossary')
 const chatStore = require('./chat-store')
+const scriptLaunch = require('./script-launch')
 const chatParams = require('./chat-params')
 const { sanitizeTtsVoices, DEFAULT_TTS_VOICES, VOICES_BY_LANG, listVoices } = require('./tts-voices')
 
@@ -51,6 +53,10 @@ const linuxPlayerProtocol = process.platform === 'linux' ? require('./media-linu
 protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, ...(linuxPlayerProtocol ? [linuxPlayerProtocol.PRIVILEGES] : [])])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
+const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
+const { registerAppInstallerIpc } = require('./app-installer/ipc')
+const { registerBreezeIpc } = require('./breeze-tts/ipc')
+const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
 const { registerCodeUsageIpc } = require('./codeusage/ipc')
 const { registerDictationIpc } = require('./dictation/ipc')
@@ -89,6 +95,7 @@ const loadEngine = lazyLoad('./engine')
 const loadFileTranscribe = lazyLoad('./file-transcribe')
 const loadEdgeTts = lazyLoad('./edge-tts')
 const loadCloudAsr = lazyLoad('./cloud-asr')
+const loadCloudTts = lazyLoad('./cloud-tts')
 const loadChatModels = lazyLoad('./chat-models')
 const loadChatImages = lazyLoad('./chat-images')
 const loadUsage = lazyLoad('./usage')
@@ -100,6 +107,27 @@ let dictationMod = null
 let terminalMod = null
 let workspaceMod = null
 let explorerMod = null
+let breezeMod = null
+let pdfTranslateMod = null
+
+async function loadPdfTranslate() {
+  if (!store) await initStore()
+  if (!pdfTranslateMod) pdfTranslateMod = require('./pdf-translate')
+  pdfTranslateMod.init({ store, send: (channel, payload) => {
+    sendToPages(channel, payload)
+  } })
+  return pdfTranslateMod
+}
+
+function loadBreeze() {
+  if (!breezeMod) {
+    breezeMod = require('./breeze-tts')
+    breezeMod.init({ send: (channel, payload) => {
+      sendToPages(channel, payload)
+    } })
+  }
+  return breezeMod
+}
 let sysmonMod = null
 let screentimeMod = null
 let ccSwitchMod = null
@@ -111,6 +139,12 @@ let storeReady = null
 
 // 主視窗
 let mainWindow = null
+let pageWindows = null
+
+function sendToPages(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+  pageWindows?.broadcast(channel, payload)
+}
 // 字幕視窗
 let subtitleWindow = null
 // 系統匣圖示（第一次縮到背景才建立）
@@ -119,6 +153,10 @@ let tray = null
 let store = null
 const mediaPlayer = require('./media-player')
 mediaPlayer.setThemeGetter(() => store?.get('theme') || 'dark')
+const editorWindow = require('./editor-window')
+const browserWindow = require('./browser-window')
+mediaPlayer.setEditorOpener((file) => editorWindow.open(file))
+editorWindow.registerIpc()
 /** 正在執行 before-quit 卸載 */
 let isQuitting = false
 /** Windows 正在關機／重新開機／登出 */
@@ -131,7 +169,11 @@ dictationHud.configure({ isDev, preload: path.join(__dirname, '../preload/preloa
 
 // 開機自啟動時帶的旗標：靜靜地縮在系統匣，不要跳一扇窗出來
 const HIDDEN_FLAG = '--hidden'
-const startHidden = process.argv.includes(HIDDEN_FLAG)
+// Windows 檔案關聯（點兩下 .md／.json…）：`AxonDeck.exe "--open-file=<路徑>"`，只開編輯視窗、主視窗留在系統匣
+const OPEN_FILE_FLAG = '--open-file='
+const openFileArg = (argv) => argv.find((a) => typeof a === 'string' && a.startsWith(OPEN_FILE_FLAG))?.slice(OPEN_FILE_FLAG.length) || ''
+const startupFile = openFileArg(process.argv)
+const startHidden = process.argv.includes(HIDDEN_FLAG) || Boolean(startupFile)
 
 // 預覽／CDP 會帶 --user-data-dir。Chromium 有時還沒套到 app.getPath('userData')
 // 就先跑到 requestSingleInstanceLock，會跟安裝版搶同一把鎖、視窗直接自己關掉。
@@ -139,6 +181,8 @@ const userDataArg = process.argv.find((a) => typeof a === 'string' && a.startsWi
 const userDataDir = (
   (userDataArg ? userDataArg.slice('--user-data-dir='.length) : '')
   || app.commandLine.getSwitchValue('user-data-dir')
+  // 專案腳本用 BROWSER 叫起來的（只帶網址、不能帶參數）：交給啟動腳本的那一份
+  || (scriptLaunch.urlArg(process.argv) && process.env[scriptLaunch.USER_DATA_ENV])
   || ''
 ).replace(/^["']|["']$/g, '')
 if (userDataDir) app.setPath('userData', userDataDir)
@@ -168,15 +212,42 @@ app.setAppUserModelId('com.voiceink.app')
  * 第二份會用同一個埠 autoStart 反代（EADDRINUSE），還會跟第一份搶
  * chats.json／usage.json／agy-logs.db。第二份改成把既有視窗叫出來就好。
  */
-const hasInstanceLock = app.requestSingleInstanceLock()
+// 專案腳本裡的 `start <網址>` 會帶 --axondeck-start 叫一份 AxonDeck 起來（script-launch.js）：
+// 不是網址回 3、App 沒在跑回 4，腳本都會改照原樣 start；是網址就照下面交給第一份
+const scriptStart = process.argv.includes(scriptLaunch.START_FLAG)
+const scriptUrl = scriptLaunch.urlArg(process.argv)
+const gotInstanceLock = scriptStart && !scriptUrl
+  ? false
+  : app.requestSingleInstanceLock({ project: process.env[scriptLaunch.PROJECT_ENV] || '' })
+const hasInstanceLock = gotInstanceLock && !scriptStart
+if (scriptStart && (!scriptUrl || gotInstanceLock)) app.exit(scriptUrl ? 4 : 3)
 // 用 app.quit() 而不是 app.exit()：exit 是立刻砍掉自己，會來不及讓「我來過了」這個
 // 通知送達第一份，症狀是藏在系統匣時再點捷徑有時叫不出視窗（實測時好時壞）。
-if (!hasInstanceLock) app.quit()
-app.on('second-instance', () => showMainWindow())
+else if (!hasInstanceLock) app.quit()
+app.on('second-instance', (_event, argv, _cwd, data) => {
+  // 專案腳本（BROWSER 或 start）開的網址：開成那個專案的瀏覽器分頁
+  const url = scriptLaunch.forwardedUrl(argv.slice(1))
+  if (url) return openInProjectBrowser(url, typeof data?.project === 'string' ? data.project : '')
+  const file = openFileArg(argv)
+  if (!file) return showMainWindow()
+  openFromShell(file)
+})
+
+/** 命令列帶來的檔案：編輯器不接的格式（或開失敗）退回叫出主視窗，不吞掉這次點擊 */
+function openFromShell(file) {
+  if (!app.isReady()) return
+  editorWindow.open(file)
+    .then((opened) => { if (!opened) showMainWindow() })
+    .catch((err) => { console.warn('[editor] open failed:', err?.code || 'OPEN_FAILED'); showMainWindow() })
+}
 
 /** electron-store 允許的 key（防任意讀寫／XSS 後改 apiUrl 外洩 key） */
 const STORE_ALLOWLIST = new Set([
   'translator',
+  'translateGlossary',
+  'translateGlossaryBuiltin',
+  // 文字轉語音的讀音字典：[{ word, sound }]
+  'speechPronunciations',
   'captionDisplayMode',
   'asrEngine',
   'asrApiUrl',
@@ -200,6 +271,7 @@ const STORE_ALLOWLIST = new Set([
   'localTranslateModel',
   'asrModelKey',
   'chatProviders',
+  'cloudProviders',
   'chatProviderId',
   'chatModelId',
   'translateProviderId',
@@ -219,13 +291,16 @@ const STORE_ALLOWLIST = new Set([
   'hfModelsDir',
   'hfModelsMax',
   'hfAutoStart',
-  // 三個子分頁各自的模型選擇（值的格式見 model-scope.js）
+  // 轉錄與即時字幕共用 file*／live*（寫任何一邊都會抄到另一邊）。語音輸入各自存
   'fileAsr',
   'fileLlm',
   'liveAsr',
   'liveLlm',
-  // 即時字幕音源：system（系統 loopback）／mic（麥克風）。別的值讀寫都收成 system
+  // 轉錄與即時字幕共用的目標語言。auto＝不翻譯
+  'sttLanguage',
+  // 字幕音源：system／mic／both，非法值維持原本預設 system。
   'liveAudioSource',
+  'recAudioSource',
   'dictationAsr',
   'dictationLlm',
   // 終端機外觀：配色 key、桌布檔名（**檔名不是路徑**，圖片本體在 <userData>/terminal-bg/）、
@@ -244,7 +319,8 @@ const THEME_VALUES = new Set(['dark', 'light'])
 const TERM_THEME_VALUES = new Set(['black', 'app', 'dracula', 'solarized'])
 
 const TRANSLATE_TARGET_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko'])
-const MAX_TRANSLATE_CHARS = 1500
+/** 本地一次送進 8192 ctx 的上限：約 2000 字原文，輸出另留空間 */
+const MAX_TRANSLATE_CHARS = 2000
 const MAX_CLOUD_TRANSLATE_CHARS = 200000
 const DEFAULT_LLM_KEY = 'linguaforge08q4'
 const DEFAULT_ASR_MODEL_KEY = 'qwen3asr'
@@ -253,6 +329,8 @@ const RETIRED_MODEL_KEYS = models.RETIRED_MODEL_KEYS
 
 /** 語音輸入的整理語言（跟翻譯的目標語言同一組） */
 const DICTATION_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko'])
+/** 轉錄與即時字幕共用。auto＝辨識完不翻譯 */
+const STT_LANGS = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko', 'auto'])
 
 /**
  * 某一頁的 LLM 選擇：''（不使用）／`local:<llm key>`／`cloud:<供應商 id>:<模型 id>`。
@@ -362,7 +440,7 @@ async function loadDictation() {
     dictationMod.setStore(store)
     dictationMod.configure({
       emit: (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dictation:event', payload)
+        sendToPages('dictation:event', payload)
       },
       transcribe: (req) => transcribeSamples('dictation', req)
     })
@@ -378,7 +456,7 @@ function loadTerminal() {
   if (!terminalMod) {
     terminalMod = require('./terminal/service')
     terminalMod.setEmitter((channel, payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+      sendToPages(channel, payload)
     })
   }
   return terminalMod
@@ -403,7 +481,7 @@ function loadExplorer() {
     explorerMod.configure({
       userDataPath: app.getPath('userData'),
       send: (channel, payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+        sendToPages(channel, payload)
       }
     })
   }
@@ -463,7 +541,7 @@ function loadSysmon() {
   if (!sysmonMod) {
     sysmonMod = require('./sysmon').createSysmonService()
     sysmonMod.setEmitter((payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sysmon:event', payload)
+      sendToPages('sysmon:event', payload)
     })
   }
   // 每次都重帶：風扇設定要 store，而 loadSysmon 可能比 initStore 早發生
@@ -486,7 +564,7 @@ function loadHfModels() {
       userDataPath: app.getPath('userData'),
       store: store || undefined,
       onEvent: (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('hfmodels:event', payload)
+        sendToPages('hfmodels:event', payload)
       }
     })
   }
@@ -615,6 +693,10 @@ async function initStore() {
     storeReady = (async () => {
       const Store = (await import('electron-store')).default
       store = new Store()
+      if (!store.has('cloudProviders') && !store.has('chatProviders') && !store.has('asrClouds')
+        && !['chatApiUrl', 'chatApiKey', 'chatModels', 'asrApiUrl', 'asrApiKey', 'asrModelId', 'apiUrl', 'apiKey', 'modelId'].some((key) => store.has(key))) {
+        require('./cloud-providers').write(store, require('./cloud-providers').read(store))
+      }
       migrateChatSystemPrompt()
       migrateChatProviders()
       chat.setStore(store)
@@ -743,7 +825,7 @@ function migrateAsrClouds(asrCloudMod) {
  * @returns {string[]}
  */
 function translateProviderModels() {
-  const list = chat.allProviders()
+  const list = chat.textProviders()
   const wanted = String(store.get('translateProviderId', '') || '')
   return (list.find((p) => p.id === wanted) || list[0])?.models || []
 }
@@ -780,7 +862,8 @@ function mainBackgroundColor() {
  */
 function assertMainWindowSender(event) {
   if (!mainWindow || mainWindow.isDestroyed()) return false
-  return event.sender === mainWindow.webContents
+  return (event.sender === mainWindow.webContents || pageWindows?.owns(event.sender))
+    && event.senderFrame === event.sender.mainFrame
 }
 
 /** 關視窗要不要留在背景（反代不中斷）。預設開，隨時可在設定關掉。 */
@@ -855,6 +938,10 @@ function createMainWindow() {
 
   // 隱藏 File/Edit/View… 系統選單列
   mainWindow.setMenu(null)
+  pageWindows = require('./page-windows').createPageWindows({
+    main: mainWindow, isDev, icon: APP_ICON, background: mainBackgroundColor,
+    secure: attachWindowSecurity, hidden: startHidden
+  })
 
   mainWindow.once('ready-to-show', () => {
     bootLog('ready-to-show')
@@ -863,14 +950,15 @@ function createMainWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     bootLog('did-finish-load')
     scheduleBackgroundServices()
+    pageWindows.navigate({ page: 'chat' }).catch(() => console.error('[pages] 初始頁面載入失敗'))
   })
 
   // 載入頁面（先掛事件，避免 loadFile 太快把 ready-to-show 漏掉）
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools()
+    mainWindow.loadURL('http://localhost:5173/?host=1')
+    if (!startHidden) mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { host: '1' } })
   }
 
   const sendMaximized = () => {
@@ -891,7 +979,7 @@ function createMainWindow() {
     mainWindow.hookWindowMessage(0x0219, () => {
       clearTimeout(deviceTimer)
       deviceTimer = setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('explorer:devicesChanged')
+        sendToPages('explorer:devicesChanged')
       }, 1500)
     })
   }
@@ -921,17 +1009,49 @@ function createMainWindow() {
 }
 
 /**
- * 禁止任意導覽／開窗；外連改系統瀏覽器
+ * 外連留在 App 裡：交給 chat 頁開成專案瀏覽器分頁（放哪個專案由 renderer 決定），
+ * 把那個視窗叫到前面。功能頁還沒建好或開不起來才退回系統瀏覽器。
+ * @param {string} url 已確認是 http(s)
+ * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
+ * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的（Telegram 等），開在 Browser 模式
+ */
+function openInProjectBrowser(url, project = '', target = '') {
+  const outside = () => { shell.openExternal(url).catch(() => {}) }
+  if (!pageWindows) return outside()
+  pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target }).then(() => {
+    const win = pageWindows.host(pageWindows.contents('chat'))
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }).catch(outside)
+}
+
+/**
+ * 在哪裡點就開在哪裡：AI 頁自己（含裡面的 webview）交給它依主區決定，其他頁一律開在 Browser 模式
+ * @param {Electron.WebContents} contents
+ * @returns {'' | 'browser'}
+ */
+function linkTarget(contents) {
+  const chat = pageWindows?.contents('chat')
+  return chat && (contents === chat || contents.hostWebContents === chat) ? '' : 'browser'
+}
+
+/** @param {string} url */
+function isWebUrl(url) {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' || u.protocol === 'http:'
+  } catch { return false }
+}
+
+/**
+ * 禁止任意導覽／開窗；外連改開專案瀏覽器分頁
  * @param {BrowserWindow} win
  */
 function attachWindowSecurity(win) {
   win.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const u = new URL(url)
-      if (u.protocol === 'https:' || u.protocol === 'http:') {
-        shell.openExternal(url).catch(() => {})
-      }
-    } catch { /* ignore bad url */ }
+    if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(win.webContents))
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
@@ -955,6 +1075,8 @@ function attachWindowSecurity(win) {
     try {
       const url = new URL(params.src)
       if (url.protocol === 'http:' || url.protocol === 'https:' || url.href === 'about:blank') return
+      // Browser 模式的首頁／新分頁：Infinity New Tab Pro 自己的頁面（只放行這個擴充功能、這個 partition）
+      if (url.protocol === 'chrome-extension:' && url.hostname === NEWTAB_EXTENSION_ID && params.partition === 'persist:wsbrowser') return
     } catch { /* 無效網址一律拒絕 */ }
     event.preventDefault()
   })
@@ -1042,7 +1164,7 @@ function createSubtitleWindow() {
     if (subtitleWindow !== win) return
     subtitleWindow = null
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('subtitle:closed')
+      sendToPages('subtitle:closed')
     }
   })
 }
@@ -1055,9 +1177,12 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
     throw new Error(`不允許的設定鍵: ${key}`)
   }
   if (!store) await initStore()
+  if (key === 'cloudProviders') return require('./cloud-providers').read(store)
   const val = store.get(key, defaultValue)
   if (key === 'ttsVoices') return sanitizeTtsVoices(val)
   if (key === 'ttsRate') return sanitizeTtsRate(val)
+  if (key === glossary.KEY) return glossary.read(store)
+  if (key === glossary.BUILTIN_KEY) return val !== false
   if (key === 'translator') {
     return TRANSLATOR_VALUES.has(val) ? val : (TRANSLATOR_VALUES.has(defaultValue) ? defaultValue : 'local')
   }
@@ -1094,7 +1219,7 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   }
   if (key === 'translateProviderId') {
     if (val === chat.LOCAL_PROVIDER_ID) return val
-    const list = chat.sanitizeProviders(store.get('chatProviders', []))
+    const list = chat.textProviders()
     return list.some((p) => p.id === val) ? val : (list[0]?.id || '')
   }
   if (key === 'translateModelId') {
@@ -1114,7 +1239,9 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   if (key === 'chatParams') return chatParams.sanitize(val)
   if (key === 'dictationEnabled') return val === true
   if (key === 'dictationLang') return DICTATION_LANGS.has(val) ? val : 'zh-TW'
-  if (key === 'liveAudioSource') return val === 'mic' ? 'mic' : 'system'
+  if (key === 'liveAudioSource') return ['mic', 'both'].includes(val) ? val : 'system'
+  if (key === 'recAudioSource') return ['system', 'both'].includes(val) ? val : 'mic'
+  if (key === 'sttLanguage') return STT_LANGS.has(val) ? val : 'zh-TW'
   if (key === 'fileAsr' || key === 'liveAsr' || key === 'dictationAsr') {
     // 帶著雲端 ASR 設定清單去驗：不帶的話 `cloud:<設定>:<模型>` 會被當成不認得而降級
     return modelScope.sanitizeAsr(val, modelScope.cloudsOf(store))
@@ -1132,13 +1259,39 @@ ipcMain.handle('store:set', async (event, key, value) => {
     throw new Error(`不允許的設定鍵: ${key}`)
   }
   if (!store) await initStore()
+  if (key === 'cloudProviders') {
+    const { chatProviders, asrClouds } = require('./cloud-providers').write(store, value)
+    reconcileProviderSelection(chatProviders, 'chatProviderId', 'chatModelId')
+    reconcileProviderSelection(chat.textProviders(chatProviders), 'translateProviderId', 'translateModelId')
+    const activeAsr = store.get('asrCloudId', '')
+    store.set('asrCloudId', asrClouds.some((p) => p.id === activeAsr) ? activeAsr : (asrClouds[0]?.id || ''))
+    modelScope.reconcileAll(store)
+    return true
+  }
   // ttsVoices 深度校驗（五語 + allowlist shortName）
   if (key === 'ttsVoices') {
     store.set(key, sanitizeTtsVoices(value))
     return true
   }
+  if (key === 'speechPronunciations') {
+    const clean = (v) => typeof v === 'string' ? v.trim().slice(0, 50) : ''
+    const list = Array.isArray(value) ? value.slice(0, 200).map((item) => ({ word: clean(item?.word), sound: clean(item?.sound) })) : []
+    store.set(key, list.filter((item) => item.word && item.sound))
+    return true
+  }
   if (key === 'ttsRate') {
     store.set(key, sanitizeTtsRate(value))
+    return true
+  }
+  if (key === glossary.KEY) {
+    // null＝恢復內建清單
+    const text = glossary.sanitize(value)
+    if (text === null) store.delete(key)
+    else store.set(key, text)
+    return true
+  }
+  if (key === glossary.BUILTIN_KEY) {
+    store.set(key, value !== false)
     return true
   }
   if (key === 'translator') {
@@ -1223,13 +1376,13 @@ ipcMain.handle('store:set', async (event, key, value) => {
     // 供應商可能被刪掉或改名 → 選取與模型都要跟著收斂，否則聊天請求會被自己的驗證擋下。
     // 翻譯用的是同一份清單，所以兩組選擇都要收
     reconcileProviderSelection(list, 'chatProviderId', 'chatModelId')
-    reconcileProviderSelection(list, 'translateProviderId', 'translateModelId')
+    reconcileProviderSelection(chat.textProviders(list), 'translateProviderId', 'translateModelId')
     // 三個子分頁的 LLM 選擇都是「供應商 id + 模型 id」的字串，同樣可能指到已刪掉的那一組
     modelScope.reconcileAll(store)
     return true
   }
   if (key === 'chatProviderId' || key === 'translateProviderId') {
-    const list = chat.allProviders()
+    const list = key === 'translateProviderId' ? chat.textProviders() : chat.allProviders()
     const active = list.find((p) => p.id === value) || list[0] || null
     store.set(key, active?.id || '')
     // 換供應商就換模型池，舊選擇不再有效
@@ -1286,16 +1439,33 @@ ipcMain.handle('store:set', async (event, key, value) => {
     return true
   }
   if (key === 'liveAudioSource') {
-    store.set(key, value === 'mic' ? 'mic' : 'system')
+    store.set(key, ['mic', 'both'].includes(value) ? value : 'system')
+    return true
+  }
+  if (key === 'recAudioSource') {
+    store.set(key, ['system', 'both'].includes(value) ? value : 'mic')
+    return true
+  }
+  if (key === 'sttLanguage') {
+    store.set(key, STT_LANGS.has(value) ? value : 'zh-TW')
     return true
   }
   if (key === 'fileAsr' || key === 'liveAsr' || key === 'dictationAsr') {
-    store.set(key, modelScope.sanitizeAsr(value, modelScope.cloudsOf(store)))
+    const clean = modelScope.sanitizeAsr(value, modelScope.cloudsOf(store))
+    if (key === 'dictationAsr') store.set(key, clean)
+    else {
+      store.set('fileAsr', clean)
+      store.set('liveAsr', clean)
+    }
     return true
   }
   if (key === 'fileLlm' || key === 'liveLlm' || key === 'dictationLlm') {
-    const scope = key.slice(0, -3)
-    store.set(key, sanitizeScopedLlm(scope, value))
+    if (key === 'dictationLlm') store.set(key, sanitizeScopedLlm('dictation', value))
+    else {
+      const clean = sanitizeScopedLlm('file', value)
+      store.set('fileLlm', clean)
+      store.set('liveLlm', clean)
+    }
     return true
   }
   if (key === 'closeToTray') {
@@ -1327,26 +1497,43 @@ ipcMain.handle('store:set', async (event, key, value) => {
 // ===== 主視窗控制（frameless）=====
 ipcMain.handle('window:minimize', (event) => {
   if (!assertMainWindowSender(event)) return false
+  if (pageWindows?.dock(event.sender)) return true
   mainWindow.minimize()
   return true
 })
 
 ipcMain.handle('window:toggleMaximize', (event) => {
   if (!assertMainWindowSender(event)) return false
-  if (mainWindow.isMaximized()) mainWindow.unmaximize()
-  else mainWindow.maximize()
-  return mainWindow.isMaximized()
+  const win = pageWindows.host(event.sender)
+  if (win.isMaximized()) win.unmaximize()
+  else win.maximize()
+  return win.isMaximized()
 })
 
 ipcMain.handle('window:close', (event) => {
   if (!assertMainWindowSender(event)) return false
+  if (pageWindows?.dock(event.sender)) return true
   mainWindow.close()
   return true
 })
 
 ipcMain.handle('window:isMaximized', (event) => {
   if (!assertMainWindowSender(event)) return false
-  return mainWindow.isMaximized()
+  return pageWindows.host(event.sender).isMaximized()
+})
+
+ipcMain.handle('pages:ready', (event) => assertMainWindowSender(event) && pageWindows.ready(event.sender))
+ipcMain.handle('pages:history', (event, delta) => {
+  if (!assertMainWindowSender(event) || ![-1, 1].includes(delta)) return false
+  return pageWindows.history(delta)
+})
+ipcMain.handle('pages:navigate', async (event, request, detach) => {
+  if (!assertMainWindowSender(event)) return { ok: false, error: { message: '無法操作功能視窗' } }
+  try {
+    return { ok: true, data: await pageWindows.navigate(request, detach === true) }
+  } catch {
+    return { ok: false, error: { message: '功能視窗開啟失敗，請稍後再試' } }
+  }
 })
 
 // ===== 開機自啟動 =====
@@ -1371,7 +1558,9 @@ const APP_LOGIN_ITEM = 'com.voiceink.app'
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 
 function migrateLoginItemName() {
-  if (isDev) return
+  // 帶 --user-data-dir 的是預覽／沙箱／e2e：getLoginItemSettings 比對的是自己的 exe 路徑，
+  // 會判成「沒開」而把使用者的開機啟動改寫成 dist 裡的預覽版（實際發生過）
+  if (isDev || userDataDir) return
   try {
     if (app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin) return
     // 系統工具一律指名 System32：PATH 上可能擺著 MSYS 的同名執行檔
@@ -1390,13 +1579,13 @@ function migrateLoginItemName() {
 
 ipcMain.handle('system:getStartup', (event) => {
   if (!assertMainWindowSender(event)) return { openAtLogin: false, supported: false }
-  if (isDev) return { openAtLogin: false, supported: false }
+  if (isDev || userDataDir) return { openAtLogin: false, supported: false }
   return { openAtLogin: app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin === true, supported: true }
 })
 
 ipcMain.handle('system:setStartup', (event, enabled) => {
   if (!assertMainWindowSender(event)) return { openAtLogin: false, supported: false }
-  if (isDev) return { openAtLogin: false, supported: false }
+  if (isDev || userDataDir) return { openAtLogin: false, supported: false }
   app.setLoginItemSettings({ ...LOGIN_ITEM_OPTIONS, openAtLogin: enabled === true })
   return { openAtLogin: app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin === true, supported: true }
 })
@@ -1437,7 +1626,7 @@ ipcMain.handle('system:installCudaEnv', async (event) => {
   }
   const send = (p) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('system:cudaInstallProgress', p)
+      sendToPages('system:cudaInstallProgress', p)
     }
   }
   try {
@@ -1449,12 +1638,6 @@ ipcMain.handle('system:installCudaEnv', async (event) => {
     return { ok: false, message: e.message || String(e) }
   }
 })
-
-ipcMain.handle('system:openCudaDownloadPage', async () => {
-  return loadCudaEnv().openCudaDownloadPage()
-})
-
-ipcMain.handle('llm:loadInfo', () => loadLocalLlm().getLoadInfo())
 
 // 語音輸入的桌面指示器。
 // 狀態只信主視窗（錄音在那一側）；指示器自己只送得出 ✕／✓ 兩個動作，而且要證明
@@ -1483,13 +1666,6 @@ ipcMain.handle('subtitle:show', () => {
   return true
 })
 
-ipcMain.handle('subtitle:hide', () => {
-  if (subtitleWindow) {
-    subtitleWindow.hide()
-  }
-  return true
-})
-
 ipcMain.handle('subtitle:close', () => {
   if (subtitleWindow) {
     subtitleWindow.close()
@@ -1497,7 +1673,7 @@ ipcMain.handle('subtitle:close', () => {
   }
   // 通知主視窗字幕已關閉，讓 UI 同步更新
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('subtitle:closed')
+    sendToPages('subtitle:closed')
   }
   return true
 })
@@ -1525,14 +1701,19 @@ ipcMain.handle('models:status', () => models.status())
 ipcMain.handle('models:download', async (event, key) => {
   return models.download(key, (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('models:progress', progress)
+      sendToPages('models:progress', progress)
     }
   })
 })
 
 ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 
-ipcMain.handle('models:delete', (event, key) => models.remove(key))
+ipcMain.handle('models:delete', async (event, key) => {
+  if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
+    ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
+  if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
+  return models.remove(key)
+})
 
 ipcMain.handle('models:openFolder', (event, key) => models.openFolder(key))
 
@@ -1545,7 +1726,7 @@ ipcMain.handle('localAsr:transcribeFile', async (event, req) => {
   const engine = modelScope.readAsr(store, 'file').engine
   const onProgress = (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('localAsr:fileProgress', progress)
+      sendToPages('localAsr:fileProgress', progress)
     }
   }
   if (engine === 'cloud') {
@@ -1573,7 +1754,7 @@ ipcMain.handle('translate', async (event, text, targetLang, opts) => {
     throw new Error(`不支援的目標語言: ${lang}`)
   }
   // scope 是白名單：renderer 只能說「我是哪一頁」，模型與金鑰仍由 main 從 store 取
-  return loadLocalLlm().translate(store, trimmed, lang, { ...(opts || {}), scope })
+  return loadLocalLlm().translate(store, trimmed, lang, { ...(opts || {}), scope, signal: undefined })
 })
 
 // ===== Edge TTS =====
@@ -1603,9 +1784,9 @@ ipcMain.handle('tts:synthesize', async (event, req) => {
 })
 
 /**
- * 設定頁的語音試聽：唸固定的一句範例，用「使用者當下選到但還沒儲存」的語音。
- * `voice` 是新增的參數，但它一樣是 main 的固定表白名單（`tts-voices.js`），
- * 不是自由字串；語速仍讀 store（滑桿未儲存時前端會一併送 rate）。
+ * 翻譯頁的語音試聽：唸固定的一句範例。
+ * `voice` 一樣是 main 的固定表白名單（`tts-voices.js`），不是自由字串。
+ * 語速用前端送來的 rate（滑桿當下的值）；正式朗讀則讀 store。
  */
 ipcMain.handle('tts:preview', async (event, req) => {
   if (!store) await initStore()
@@ -1728,10 +1909,10 @@ ipcMain.handle('chat:providerOptions', async () => {
  */
 ipcMain.handle('chat:scanModels', async (event, providerId) => {
   if (!store) await initStore()
-  const providers = chat.sanitizeProviders(store.get('chatProviders', []))
+  const providers = require('./cloud-providers').read(store)
   const provider = providers.find((p) => p.id === providerId)
   if (!provider) return { ok: false, code: 'NO_PROVIDER', error: '找不到這個供應商' }
-  return loadChatModels().fetchModels({ apiUrl: provider.apiUrl, apiKey: provider.apiKey })
+  return loadChatModels().fetchModels({ apiUrl: provider.apiUrl, apiKey: provider.apiKey, includeTypes: true })
 })
 ipcMain.handle('chat:send', async (event, req) => {
   if (!store) await initStore()
@@ -1750,7 +1931,6 @@ registerUsageIpc({
     load: (...args) => loadUsage().load(...args),
     sync: (...args) => loadUsage().sync(...args),
     saveSettings: (...args) => loadUsage().saveSettings(...args),
-    getDiagnostics: (...args) => loadUsage().getDiagnostics(...args),
     redeemCodexReset: (...args) => loadUsage().redeemCodexReset(...args),
     publicError: (error) => loadUsage().publicError(error)
   },
@@ -1784,6 +1964,8 @@ registerTerminalIpc({
   service: {
     catalog: (...args) => loadTerminal().catalog(...args),
     listSessions: (...args) => loadTerminal().listSessions(...args),
+    conversation: (...args) => loadTerminal().conversation(...args),
+    navJump: (...args) => loadTerminal().navJump(...args),
     // 宿主是不是更新前的舊程式碼（漏這兩支＝更新後 pty.js 的修正永遠不會生效）
     hostState: (...args) => loadTerminal().hostState(...args),
     restartHost: (...args) => loadTerminal().restartHost(...args),
@@ -1815,7 +1997,7 @@ registerTerminalIpc({
   },
   isMainSender: assertMainWindowSender,
   dialog,
-  getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
+  getWindow: (event) => (mainWindow && !mainWindow.isDestroyed() ? pageWindows.host(event?.sender || pageWindows.contents('chat')) : null)
 })
 
 // ===== 專案工作區 =====
@@ -1833,7 +2015,6 @@ registerWorkspaceIpc({
     saveTabsState: (...args) => loadWorkspace().saveTabsState(...args),
     getTabsState: (...args) => loadWorkspace().getTabsState(...args),
     getFileMtime: (...args) => loadWorkspace().getFileMtime(...args),
-    projectPath: (...args) => loadWorkspace().projectPath(...args),
     listDir: (...args) => loadWorkspace().listDir(...args),
     readFile: (...args) => loadWorkspace().readFile(...args),
     writeFile: (...args) => loadWorkspace().writeFile(...args),
@@ -1853,7 +2034,6 @@ registerWorkspaceIpc({
     gitStage: (...args) => loadWorkspace().gitStage(...args),
     gitUnstage: (...args) => loadWorkspace().gitUnstage(...args),
     gitStageAll: (...args) => loadWorkspace().gitStageAll(...args),
-    gitUnstageAll: (...args) => loadWorkspace().gitUnstageAll(...args),
     gitDiscard: (...args) => loadWorkspace().gitDiscard(...args),
     gitCommit: (...args) => loadWorkspace().gitCommit(...args),
     gitPush: (...args) => loadWorkspace().gitPush(...args),
@@ -1876,7 +2056,7 @@ registerWorkspaceIpc({
   },
   isMainSender: assertMainWindowSender,
   dialog,
-  getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
+  getWindow: (event) => (mainWindow && !mainWindow.isDestroyed() ? pageWindows.host(event?.sender || pageWindows.contents('chat')) : null)
 })
 
 // ===== 整機檔案總管 =====
@@ -1909,6 +2089,7 @@ registerExplorerIpc({
     createEntry: (...args) => loadExplorer().createEntry(...args),
     renameEntry: (...args) => loadExplorer().renameEntry(...args),
     removeEntry: (...args) => loadExplorer().removeEntry(...args),
+    removeEntries: (...args) => loadExplorer().removeEntries(...args),
     restoreEntry: (...args) => loadExplorer().restoreEntry(...args),
     purgeEntry: (...args) => loadExplorer().purgeEntry(...args),
     emptyRecycle: (...args) => loadExplorer().emptyRecycle(...args),
@@ -1935,12 +2116,11 @@ registerExplorerIpc({
     uffsStatus: (...args) => loadExplorer().uffsStatus(...args),
     uffsSearch: (...args) => loadExplorer().uffsSearch(...args),
     uffsCancel: (...args) => loadExplorer().uffsCancel(...args),
-    uffsInstall: (...args) => loadExplorer().uffsInstall(...args),
-    uffsCancelInstall: (...args) => loadExplorer().uffsCancelInstall(...args),
-    uffsInstallBroker: (...args) => loadExplorer().uffsInstallBroker(...args),
     uffsEnsure: (...args) => loadExplorer().uffsEnsure(...args),
     folderSize: (...args) => loadExplorer().folderSize(...args),
-    folderSizeCancel: (...args) => loadExplorer().folderSizeCancel(...args)
+    folderSizeCancel: (...args) => loadExplorer().folderSizeCancel(...args),
+    dirSizesScan: (...args) => loadExplorer().dirSizesScan(...args),
+    dirSizesCancel: (...args) => loadExplorer().dirSizesCancel(...args)
   },
   isMainSender: assertMainWindowSender
 })
@@ -1955,19 +2135,18 @@ registerHfModelsIpc({
     inspect: (...args) => loadHfModels().inspect(...args),
     preview: (...args) => loadHfModels().preview(...args),
     detail: (...args) => loadHfModels().detail(...args),
-    install: (...args) => loadHfModels().install(...args),
+    install: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().install(...args) },
     cancelInstall: (...args) => loadHfModels().cancelInstall(...args),
     listLocal: (...args) => loadHfModels().listLocal(...args),
-    removeLocal: (...args) => loadHfModels().removeLocal(...args),
+    removeLocal: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().removeLocal(...args) },
     pickAndImport: (...args) => loadHfModels().pickAndImport(...args),
     openModelsDir: (...args) => loadHfModels().openModelsDir(...args),
     rescan: (...args) => loadHfModels().rescan(...args),
-    updateModelSettings: (...args) => loadHfModels().updateModelSettings(...args),
-    refreshFit: (...args) => loadHfModels().refreshFit(...args),
-    tune: (...args) => loadHfModels().tune(...args),
-    autoTune: (...args) => loadHfModels().autoTune(...args),
-    cancelTune: (...args) => loadHfModels().cancelTune(...args),
-    chooseModelsDir: (...args) => loadHfModels().chooseModelsDir(...args),
+    updateModelSettings: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().updateModelSettings(...args) },
+    refreshFit: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().refreshFit(...args) },
+    tune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().tune(...args) },
+    autoTune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().autoTune(...args) },
+    chooseModelsDir: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().chooseModelsDir(...args) },
     setToken: (...args) => loadHfModels().setToken(...args),
     tokenStatus: (...args) => loadHfModels().tokenStatus(...args),
     hardwareInfo: (...args) => loadHfModels().hardwareInfo(...args),
@@ -1980,16 +2159,105 @@ registerHfModelsIpc({
       return status
     },
     stopRuntime: (...args) => {
+      pdfTranslateMod?.assertIdle()
       const status = loadHfModels().stopRuntime(...args)
       hfLocalModelIds = []
       return status
     },
     currentDevice: (...args) => loadHfModels().currentDevice(...args),
-    applyPresets: (...args) => loadHfModels().applyPresets(...args),
+    applyPresets: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().applyPresets(...args) },
     loadModel: (...args) => loadHfModels().loadModel(...args),
-    unloadModel: (...args) => loadHfModels().unloadModel(...args),
+    unloadModel: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().unloadModel(...args) },
     refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+/**
+ * Linux／macOS：「安裝」分頁靠 WinGet 與 Windows 解除安裝紀錄，沒有對應實作——
+ * 回固定的中文說明，不去跑 winget／reg.exe。
+ */
+const APP_INSTALLER_UNSUPPORTED = 'Linux 版暫不支援「安裝」分頁：常用程式的安裝、更新與解除安裝靠 Windows 的 WinGet。請改用發行版的套件管理員（apt、dnf、pacman）或 Flatpak。'
+function unsupportedAppInstaller() {
+  const failNow = () => { throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: APP_INSTALLER_UNSUPPORTED }) }
+  return {
+    snapshot: () => ({ categories: [], checkedAt: null, scanning: false, scanError: APP_INSTALLER_UNSUPPORTED, busy: false, iconsStamp: 0,
+      batch: null, jobs: [], installed: [], catalog: [], unsupported: true }),
+    refresh: failNow, start: failNow, upgradeAll: failNow, icons: async () => ({})
+  }
+}
+let appInstaller = null
+function loadAppInstaller() {
+  if (!appInstaller && process.platform !== 'win32') appInstaller = unsupportedAppInstaller()
+  if (!appInstaller) appInstaller = require('./app-installer').createInstaller({
+    cacheDir: path.join(app.getPath('userData'), 'app-installers'),
+    notify: (state) => sendToPages('appInstaller:state', state)
+  })
+  return appInstaller
+}
+registerAppInstallerIpc({
+  ipcMain,
+  service: {
+    snapshot: () => loadAppInstaller().snapshot(),
+    refresh: () => loadAppInstaller().refresh(),
+    start: (request) => loadAppInstaller().start(request),
+    upgradeAll: () => loadAppInstaller().upgradeAll(),
+    icons: () => loadAppInstaller().icons()
+  },
+  isMainSender: assertMainWindowSender
+})
+
+registerCloudTtsIpc({
+  ipcMain,
+  service: {
+    status: async () => { await initStore(); return loadCloudTts().status() },
+    generate: async (options) => { await initStore(); return loadCloudTts().generate(options) },
+    cancel: (options) => loadCloudTts().cancel(options),
+    saveAudio: (options) => loadCloudTts().saveAudio(options)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+registerBreezeIpc({
+  ipcMain,
+  service: {
+    status: () => loadBreeze().status(),
+    generate: (options) => loadBreeze().generate(options),
+    cancel: (options) => loadBreeze().cancel(options),
+    pickAudio: (options) => loadBreeze().pickAudio(options),
+    voices: () => loadBreeze().voices(),
+    saveVoice: (options) => loadBreeze().saveVoice(options),
+    removeVoice: (options) => loadBreeze().removeVoice(options),
+    saveAudio: (options) => loadBreeze().saveAudio(options),
+    importRecording: (options) => loadBreeze().importRecording(options),
+    trimAudio: (options) => loadBreeze().trimAudio(options),
+    saveTake: (options) => loadBreeze().saveTake(options),
+    loadTake: (options) => loadBreeze().loadTake(options),
+    listTakes: () => loadBreeze().listTakes(),
+    removeTake: (options) => loadBreeze().removeTake(options)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+/** PDF 版面翻譯的 Python 執行環境（paddlepaddle＋uv）目前只鎖了 Windows wheel；其他平台回固定中文說明。 */
+const PDF_TRANSLATE_UNSUPPORTED = 'Linux 版暫不支援 PDF／圖片保留版面翻譯：版面辨識的 Python 執行環境目前只提供 Windows 版。一般文字翻譯不受影響。'
+async function loadPdfTranslateChecked() {
+  if (process.platform !== 'win32') {
+    throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: PDF_TRANSLATE_UNSUPPORTED })
+  }
+  return loadPdfTranslate()
+}
+registerPdfTranslateIpc({
+  ipcMain,
+  service: {
+    pick: async () => (await loadPdfTranslateChecked()).pick(),
+    inspect: async (filename) => (await loadPdfTranslateChecked()).inspect(filename),
+    pasteImage: async (payload) => (await loadPdfTranslateChecked()).pasteImage(payload),
+    start: async (options) => (await loadPdfTranslateChecked()).start(options),
+    cancel: async (jobId) => (await loadPdfTranslateChecked()).cancel(jobId),
+    status: async () => (await loadPdfTranslateChecked()).status(),
+    save: async (jobId) => (await loadPdfTranslateChecked()).save(jobId)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2025,7 +2293,6 @@ registerSysmonIpc({
     fanResetAll: (...args) => loadSysmon().fanResetAll(...args),
     fanTaskStatus: (...args) => loadSysmon().fanTaskStatus(...args),
     fanTaskInstall: (...args) => loadSysmon().fanTaskInstall(...args),
-    fanTaskRemove: (...args) => loadSysmon().fanTaskRemove(...args),
     ocStatus: (...args) => loadSysmon().ocStatus(...args),
     ocSetDraft: (...args) => loadSysmon().ocSetDraft(...args),
     ocApply: (...args) => loadSysmon().ocApply(...args),
@@ -2041,7 +2308,7 @@ registerSysmonIpc({
     // `scripts/probe-dictation-latency.js` 有量），所以它只能是「跑測試那幾秒」的暫時狀態。
     setGpuStress: (active) => {
       if (!mainWindow || mainWindow.isDestroyed()) return { active: false }
-      mainWindow.webContents.setBackgroundThrottling(active !== true)
+      pageWindows.contents('sysmon')?.setBackgroundThrottling(active !== true)
       return { active: active === true }
     }
   },
@@ -2158,10 +2425,126 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 // webview guest 的 popup 走不到主視窗那條 attachWindowSecurity（那是掛在
-// 主視窗 webContents 上），一律在 app 層補上：http(s) 交給系統瀏覽器，其餘擋掉。
+// 主視窗 webContents 上），一律在 app 層補上：http(s) 開成專案瀏覽器分頁，其餘擋掉。
 // 網頁版 AI 與工作區瀏覽器的分區（whenReady 時登記）：session → partition 名稱
 const aiWebPartitions = new Map()
+/** Browser 模式首頁／新分頁用的擴充功能（Infinity New Tab Pro）；renderer 的 browser-page.js 也寫了同一個 ID */
+const NEWTAB_EXTENSION_ID = 'nnnkddnnlpamobajfibfdgfnbcnkgngh'
+/** 工作區瀏覽器的 Chrome 擴充功能（whenReady 時建） @type {ReturnType<typeof import('./browser-extensions').createBrowserExtensions> | null} */
+let browserExtensions = null
+
+/**
+ * 「擴充功能」選單；結果用對話框告訴使用者
+ * @param {Electron.WebContents | null} tab 目前那顆瀏覽器 webview
+ * @param {Electron.BrowserWindow | null} parent
+ * @param {Electron.Rectangle} [anchor] popup 要對齊的位置（視窗內座標），沒給就靠右上
+ */
+function browserExtensionItems(tab, parent, anchor) {
+  if (!browserExtensions) return []
+  const notify = (message) => {
+    const opts = { type: 'info', title: '擴充功能', message }
+    ;(parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)).catch(() => {})
+  }
+  const width = parent && !parent.isDestroyed() ? parent.getContentBounds().width : 800
+  return browserExtensions.menuItems({ tab, parent, notify, anchor: anchor || { x: width - 48, y: 40, width: 32, height: 32 } })
+}
+
+/** 畫面傳來的瀏覽器 webview id：只認掛在這個視窗裡的 guest */
+function senderGuest(event, guestId) {
+  const guest = Number.isInteger(guestId) ? webContents.fromId(guestId) : null
+  return guest && guest.hostWebContents === event.sender ? guest : null
+}
+
+/** 畫面傳來的按鈕位置（視窗內座標）；格式不對回 undefined */
+function anchorRect(anchor) {
+  return anchor && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(anchor[k]))
+    ? { x: Math.round(anchor.x), y: Math.round(anchor.y), width: Math.round(anchor.width), height: Math.round(anchor.height) }
+    : undefined
+}
+
+ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor) => {
+  if (!assertMainWindowSender(event)) return false
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  Menu.buildFromTemplate(browserExtensionItems(senderGuest(event, guestId), parent, anchorRect(anchor))).popup(parent ? { window: parent } : {})
+  return true
+})
+
+// Browser 模式的分頁彈出成獨立視窗（工作列顯示網頁標題）；給了 guestId 就連歷史、捲動、表單一起搬
+ipcMain.handle('workspace:browserPopout', async (event, url, title, guestId, slot) => {
+  if (!assertMainWindowSender(event) || typeof url !== 'string' || !isWebUrl(url)) return false
+  await browserWindow.open(url, typeof title === 'string' ? title.slice(0, 200) : '', senderGuest(event, guestId),
+    Number.isInteger(slot) && slot > 0 ? slot : 0)
+  return true
+})
+
+// 彈出視窗的工具列：只能操作自己那扇窗的網頁
+ipcMain.handle('browserWindow:navigate', (event, action, url) => browserWindow.navigate(event.sender, action, url))
+ipcMain.handle('browserWindow:extensionActions', (event) => {
+  const page = browserWindow.pageOf(event.sender)
+  return page && browserExtensions ? browserExtensions.actions(page.id) : []
+})
+ipcMain.handle('browserWindow:extensionActivate', (event, extensionId, anchor) => {
+  const page = browserWindow.pageOf(event.sender)
+  const rect = anchorRect(anchor)
+  if (!page || !rect || typeof extensionId !== 'string' || !browserExtensions) return false
+  browserExtensions.activate(extensionId, page, rect)
+  return true
+})
+ipcMain.handle('browserWindow:extensionsMenu', (event, anchor) => {
+  const page = browserWindow.pageOf(event.sender)
+  const win = browserWindow.windowOf(event.sender)
+  if (!page || !win) return false
+  Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor))).popup({ window: win })
+  return true
+})
+
+// 工具列圖示列：圖示、標題、徽章；按下去開 popup（或送 action.onClicked）
+ipcMain.handle('workspace:extensionActions', (event, guestId) => {
+  if (!assertMainWindowSender(event) || !browserExtensions) return []
+  return browserExtensions.actions(senderGuest(event, guestId)?.id ?? -1)
+})
+
+ipcMain.handle('workspace:extensionActivate', (event, guestId, extensionId, anchor) => {
+  const tab = assertMainWindowSender(event) ? senderGuest(event, guestId) : null
+  const rect = anchorRect(anchor)
+  if (!tab || !rect || typeof extensionId !== 'string' || !browserExtensions) return false
+  browserExtensions.activate(extensionId, tab, rect)
+  return true
+})
+
+/**
+ * 網頁的右鍵選單＋F5（瀏覽器分頁多一組「擴充功能」）。webview 與彈出視窗的網頁共用。
+ * @param {Electron.WebContents} contents
+ * @param {() => BrowserWindow | null} hostWindow
+ * @param {boolean} isBrowser
+ */
+function attachWebMenu(contents, hostWindow, isBrowser) {
+  require('./web-context-menu').attachWebContextMenu(contents, {
+    openUrl: openInProjectBrowser,
+    isWebUrl,
+    extraItems: isBrowser ? (params) => [
+      ...(browserExtensions?.contextMenuItems(contents, params) || []),
+      { label: '擴充功能', submenu: browserExtensionItems(contents, hostWindow()) }
+    ] : undefined
+  })
+}
+
 app.on('web-contents-created', (_event, contents) => {
+  // 網頁版 AI 與工作區瀏覽器：右鍵選單＋F5 重新整理（工作區瀏覽器多一組「擴充功能」，也登記成擴充功能看得到的分頁）
+  if (contents.getType() === 'webview' && aiWebPartitions.has(contents.session)) {
+    const isBrowser = aiWebPartitions.get(contents.session) === 'persist:wsbrowser'
+    const hostWindow = () => {
+      const host = contents.hostWebContents
+      return host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null
+    }
+    if (isBrowser) {
+      contents.once('did-attach', () => {
+        const win = hostWindow()
+        if (win && browserExtensions) browserExtensions.attachTab(contents, win)
+      })
+    }
+    attachWebMenu(contents, hostWindow, isBrowser)
+  }
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
   if (contents.getType() === 'webview') {
@@ -2178,9 +2561,12 @@ app.on('web-contents-created', (_event, contents) => {
       if (host && !host.isDestroyed()) host.send('nav:side', back ? -1 : 1)
     })
   }
-  contents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url, disposition }) => {
     const partition = aiWebPartitions.get(contents.session)
-    if (partition && require('./ai-web').isLoginPopup(url)) {
+    // 比照 Chrome 開成小視窗、保留 opener，第三方登入才收得到 postMessage 回傳的結果（Infinity 新分頁的 Google 登入等）：
+    // 帶視窗大小的 window.open（new-window）、先開空白頁再導過去的寫法、登入／授權頁。其餘連結才轉成分頁
+    const popup = (disposition === 'new-window' && isWebUrl(url)) || url === 'about:blank'
+    if (partition && (popup || require('./ai-web').isLoginPopup(url))) {
       // 登入小視窗留在 App 裡、同一個分區，登完網站才收得到結果；一樣沙箱、沒有 preload
       return {
         action: 'allow',
@@ -2190,12 +2576,8 @@ app.on('web-contents-created', (_event, contents) => {
         }
       }
     }
-    try {
-      const u = new URL(url)
-      if (u.protocol === 'https:' || u.protocol === 'http:') {
-        shell.openExternal(url).catch(() => {})
-      }
-    } catch { /* ignore bad url */ }
+    // Telegram 等 AI 頁以外的 webview 點的連結開在 Browser 模式
+    if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(contents))
     return { action: 'deny' }
   })
 })
@@ -2208,11 +2590,35 @@ app.whenReady().then(() => {
   // 網頁版 AI 的四個登入分區＋工作區瀏覽器：瀏覽器特徵補成跟 Chrome 一樣（登入、hCaptcha、Cloudflare 才不會當成
   // 內嵌瀏覽器擋掉）、權限只給用得到的、登入小視窗在 App 內開
   const aiWeb = require('./ai-web')
+  // 跟 navigator.languages 同一份（Electron 用 App 語系＋系統偏好語言排出來的）
+  const languages = [...new Set([app.getLocale(), ...app.getPreferredSystemLanguages()].filter(Boolean))].join(',')
   for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
     const ses = session.fromPartition(partition)
-    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js') })
+    aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js'), languages })
     aiWebPartitions.set(ses, partition)
   }
+  browserExtensions = require('./browser-extensions').createBrowserExtensions({
+    session: session.fromPartition('persist:wsbrowser'),
+    dir: path.join(app.getPath('userData'), 'browser-extensions'),
+    fetch: (url) => net.fetch(url),
+    chromeVersion: process.versions.chrome,
+    aliasPreload: path.join(__dirname, '../preload/crx-browser-alias.js'),
+    identityPreload: path.join(__dirname, '../preload/crx-identity.js'),
+    openUrl: openInProjectBrowser,
+    onActionsChanged: () => {
+      sendToPages('workspace:extensionsChanged')
+      browserWindow.broadcast('browserWindow:extensionsChanged')
+    }
+  })
+  // uBlock Origin Lite、Raindrop.io、Infinity New Tab Pro、ScriptCat、Read Frog
+  const DEFAULT_EXTENSIONS = [
+    'ddkjiahejlhfcafbddmgiahcphecmpfh', 'ldgfbffkinooeloadekpmfoklnobpien', NEWTAB_EXTENSION_ID,
+    'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb'
+  ]
+  browserExtensions.loadInstalled()
+    .catch((error) => console.warn('[browser-ext] 載入失敗:', error))
+    .then(() => browserExtensions.ensureDefaults(DEFAULT_EXTENSIONS))
+    .finally(() => browserExtensions.startAutoUpdate())
   // Grok 的 Cloudflare 擋 Electron：碰到驗證頁就請系統的 Edge／Chrome 過一次，把通行證帶回來（grok-clearance.js）
   const grokSes = session.fromPartition('persist:ai-grok')
   require('./grok-clearance').install(grokSes, {
@@ -2245,6 +2651,33 @@ app.whenReady().then(() => {
 
   createMainWindow()
   bootLog('window created')
+  editorWindow.configure({
+    isDev,
+    preload: path.join(__dirname, '../preload/preload.js'),
+    icon: APP_ICON,
+    secure: attachWindowSecurity,
+    theme: () => store?.get('theme') || 'dark',
+    imageBase: (file) => workspaceMedia.localBaseFor(file),
+    forceClose: () => sessionEnding
+  })
+  browserWindow.configure({
+    isDev,
+    icon: APP_ICON,
+    preload: path.join(__dirname, '../preload/browser-window-preload.js'),
+    secure: attachWindowSecurity,
+    theme: () => store?.get('theme') || 'dark',
+    isQuitting: () => isQuitting || sessionEnding,
+    onDock: (info) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      sendToPages('browserPopout:dock', info)
+      showMainWindow()
+    },
+    attach: (contents, win) => {
+      browserExtensions?.attachTab(contents, win)
+      attachWebMenu(contents, () => (win.isDestroyed() ? null : win), true)
+    }
+  })
+  if (startupFile) openFromShell(startupFile)
   setImmediate(() => {
     mediaPlayer.initializeAssociations({
       isPackaged: app.isPackaged,
@@ -2259,7 +2692,7 @@ app.whenReady().then(() => {
   setImmediate(() => {
     try {
       require('./terminal/claude-hooks').start(app.getPath('userData'), (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('terminal:agent', payload)
+        sendToPages('terminal:agent', payload)
       }, { writeSettings: !userDataDir })
     } catch (err) {
       console.error('[claude-hook] start failed:', err && err.code ? err.code : 'START_FAILED')
@@ -2272,7 +2705,7 @@ app.whenReady().then(() => {
       updater.configure({
         autoUpdate: store.get('autoUpdate', true) !== false,
         onStatus: (s) => {
-          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', s)
+          sendToPages('update:status', s)
         }
       })
       setTimeout(() => updater.checkQuietly(), 20000)
@@ -2314,8 +2747,8 @@ app.whenReady().then(() => {
  */
 function flushWorkspaceDrafts() {
   return new Promise((resolve) => {
-    const win = mainWindow
-    if (!win || win.isDestroyed()) {
+    const contents = pageWindows?.contents('chat')
+    if (!contents || contents.isDestroyed()) {
       resolve(true)
       return
     }
@@ -2325,12 +2758,12 @@ function flushWorkspaceDrafts() {
       resolve(ok)
     }
     const onDone = (event, ok) => {
-      if (event.sender !== win.webContents) return
+      if (event.sender !== contents) return
       done(ok !== false)
     }
     const timer = setTimeout(() => done(true), 3000)
     ipcMain.on('workspace:draftsFlushed', onDone)
-    win.webContents.send('workspace:flushDrafts')
+    contents.send('workspace:flushDrafts')
   })
 }
 
@@ -2397,6 +2830,9 @@ app.on('before-quit', (e) => {
     ? ccSwitchMod.stopGateway().catch((err) => console.error('[ccswitch] gateway stop failed:', err))
     : Promise.resolve()
   const stopAgy = Promise.all([
+    pdfTranslateMod ? pdfTranslateMod.shutdown() : Promise.resolve(),
+    loadCloudTts().shutdown(),
+    breezeMod ? breezeMod.shutdown() : Promise.resolve(),
     stopTerminal,
     stopExplorer,
     stopSysmon,

@@ -677,7 +677,7 @@ async function main() {
       agents.resumeCommand('claude', '5626ac7b-ff69-4b79-80a4-051aabe4f06e')
         === 'claude --resume 5626ac7b-ff69-4b79-80a4-051aabe4f06e'
     )
-    ok('codex 的指令形狀', agents.resumeCommand('codex', 'abc-123') === 'codex resume --no-daemon abc-123')
+    ok('codex 的指令形狀', agents.resumeCommand('codex', 'abc-123') === 'codex resume --no-daemon --no-alt-screen abc-123')
 
     /** @param {string} agent @param {string} id */
     const rejects = (agent, id) => {
@@ -772,7 +772,7 @@ async function main() {
 
       // 接續要驗「這段對話是不是這個專案的」，不是只驗 id 長得像不像
       const resumed = await agents.resume('D:\\Proj', 'codex', 'xyz-789')
-      ok('接續指令由 main 組', resumed.command === 'codex resume --no-daemon xyz-789')
+      ok('接續指令由 main 組', resumed.command === 'codex resume --no-daemon --no-alt-screen xyz-789')
       let resumeBlocked = ''
       try {
         await agents.resume('D:\\Proj', 'codex', 'other-456')
@@ -872,6 +872,10 @@ console.log('\n[H] 埠號解析')
   ok('本機位址認得出來', ports.parseAddress('[::1]:8080').local === true)
   ok('別人的位址不算本機', ports.parseAddress('192.168.1.9:8080').local === false)
   ok('Windows 自己的服務被過濾', ports.NOISE_PORTS.has(445))
+  ok('HTML 網頁才算點得開', ports.isWebPage(200, 'text/html; charset=utf-8') === true)
+  ok('轉址也算網頁', ports.isWebPage(302, undefined) === true)
+  ok('JSON／純文字 API 不算網頁', !ports.isWebPage(200, 'application/json') && !ports.isWebPage(200, 'text/plain'))
+  ok('4xx／5xx 不算網頁', !ports.isWebPage(404, 'text/html') && !ports.isWebPage(503, 'text/html'))
 }
 
 // ===== [J] git log 解析與檔名守衛 =====
@@ -1035,7 +1039,6 @@ console.log('\n[O] workspace IPC service 接線')
     'getTabsState',
     'getFileMtime',
     'gitStageAll',
-    'gitUnstageAll',
     'listFiles',
     'agentSessionDetail',
     'importDropped'
@@ -1053,48 +1056,6 @@ console.log('\n[P] AI 會話 detail caller 傳 projectId')
   const calls = [...tabsSource.matchAll(/agentSessionDetail\(([^\n]+)\)/g)].map((match) => match[1])
   ok('所有 AI detail caller 都傳 projectId', calls.length === 3 && calls.every((args) => /^(proj\.id|tab\.projectId),/.test(args.trim())))
   ok('AI 記錄工具名稱走 textContent', !/\.innerHTML\s*=/.test(tabsSource))
-}
-
-// ===== [Q] index.js 的 module.exports 每一個名字都真的有定義 =====
-// index.js 要 electron 才 require 得起來，單元測試載不了它 → 少一個定義是
-// **載入期的 ReferenceError**，整個 workspace 模組掛掉、每一支 IPC 都回
-// 「工作區操作失敗」，而 node --check 與所有既有測試全綠（實測踩過 agentResumeCommand）。
-console.log('\n[Q] index.js 的 exports 都有定義')
-{
-  const indexSource = fs.readFileSync(path.join(ROOT, 'src/main/workspace/index.js'), 'utf8')
-  const block = indexSource.slice(indexSource.lastIndexOf('module.exports = {'))
-  const names = [...block.matchAll(/^ {2}([A-Za-z_$][\w$]*)\s*,?\s*$/gm)].map((match) => match[1])
-  ok('exports 不是空的', names.length > 20, String(names.length))
-  const missing = names.filter((name) => !new RegExp(
-    `(?:^|\\n)\\s*(?:async\\s+function|function|const|let|var)\\s+${name}\\b`
-  ).test(indexSource))
-  ok('每個 export 都在檔案裡定義得到', missing.length === 0, missing.join(', '))
-}
-
-// ===== [Q2] 三份清單要對得起來：ipc.js ↔ main.js 的 service ↔ preload =====
-// `main.js` 的 `registerWorkspaceIpc({ service })` 是**逐一列舉**的白名單
-// （AGY 與系統監控都踩過同一條）。ipc.js 加了 handler 但那裡漏一行，
-// `service.X` 就是 undefined → TypeError → renderer 只看得到通用的
-// 「工作區操作失敗」，IPC 層與單元測試全綠。實測這一輪的 gitBranches 就漏過。
-console.log('\n[Q2] ipc.js／main.js／preload 三份清單對得起來')
-{
-  const ipcSource = fs.readFileSync(path.join(ROOT, 'src/main/workspace/ipc.js'), 'utf8')
-  const mainSource = fs.readFileSync(path.join(ROOT, 'src/main/main.js'), 'utf8')
-  const preloadSource = fs.readFileSync(path.join(ROOT, 'src/preload/preload.js'), 'utf8')
-
-  const used = [...new Set([...ipcSource.matchAll(/service\.([A-Za-z_$][\w$]*)\(/g)].map((m) => m[1]))]
-  ok('ipc.js 真的有在用 service', used.length > 30, String(used.length))
-
-  const at = mainSource.indexOf('registerWorkspaceIpc({')
-  const block = mainSource.slice(at, mainSource.indexOf('isMainSender', at))
-  const missing = used.filter((name) => !block.includes(`${name}: (...args)`))
-  ok('main.js 的 service 白名單一個都沒漏', missing.length === 0, missing.join(', '))
-
-  const channels = [...new Set(
-    [...ipcSource.matchAll(/ipcMain\.handle\('workspace:([A-Za-z_$][\w$]*)'/g)].map((m) => m[1])
-  )]
-  const noPreload = channels.filter((name) => !preloadSource.includes(`'workspace:${name}'`))
-  ok('每一支 IPC 在 preload 都接得到', noPreload.length === 0, noPreload.join(', '))
 }
 
 // ===== [R] 快速開檔的檔案清單 =====

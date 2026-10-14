@@ -9,6 +9,7 @@ const fsp = require('../raw-fs').promises
 const path = require('path')
 const paths = require('./paths')
 const recycle = require('./recycle')
+const dirSizes = require('./dir-sizes')
 
 const MAX_ENTRIES = 2000
 const MAX_PAGE_SIZE = 2000
@@ -443,10 +444,21 @@ async function listDir(dirPath, rawOpts) {
   const page = pageOptions(rawOpts)
   const source = await readDirectoryEntries(full, opts)
   const sortKey = `${opts.by}:${opts.desc ? '1' : '0'}`
-  let sorted = source.sorted.get(sortKey)
-  if (!sorted) {
-    sorted = sortEntries(source.entries, opts)
-    source.sorted.set(sortKey, sorted)
+  let sorted
+  if (rawOpts && rawOpts.dirSizes === true) {
+    // 資料夾大小會陸續算出來：只留最新一版的排序，舊版不累積
+    const sizedKey = `${sortKey}:${dirSizes.version()}`
+    if (source.sizedKey !== sizedKey) {
+      source.sized = sortEntries(dirSizes.apply(source.entries), opts)
+      source.sizedKey = sizedKey
+    }
+    sorted = source.sized
+  } else {
+    sorted = source.sorted.get(sortKey)
+    if (!sorted) {
+      sorted = sortEntries(source.entries, opts)
+      source.sorted.set(sortKey, sorted)
+    }
   }
   const total = sorted.length
   const entries = sorted.slice(page.offset, page.offset + page.limit)

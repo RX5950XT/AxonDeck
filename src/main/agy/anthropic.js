@@ -1,6 +1,6 @@
 'use strict'
 
-const { randomUUID } = require('crypto')
+const stream = require('../anthropic-stream')
 const {
   finishReasonOf,
   firstCandidate,
@@ -183,173 +183,23 @@ function toGeminiRequest(body, mapped) {
 
 // ===== 回應：Gemini → Anthropic =====
 
-function createCollector(model) {
-  return {
-    id: `msg_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
-    model,
-    text: '',
-    reasoning: '',
-    calls: [],
-    usage: null,
-    finish: '',
-    started: false,
-    blockIndex: -1,
-    blockType: ''
-  }
-}
+/** @param {string} model */
+const createCollector = (model) => stream.createCollector(model, STOP_REASONS)
+const { closeStream, toResponse, errorStream } = stream
 
-function event(type, payload) {
-  return `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`
-}
-
-function closeBlock(collector) {
-  if (collector.blockType === '') return ''
-  const out = event('content_block_stop', {
-    type: 'content_block_stop',
-    index: collector.blockIndex
-  })
-  collector.blockType = ''
-  return out
-}
-
-function openBlock(collector, type, block) {
-  let out = closeBlock(collector)
-  collector.blockIndex += 1
-  collector.blockType = type
-  out += event('content_block_start', {
-    type: 'content_block_start',
-    index: collector.blockIndex,
-    content_block: block
-  })
-  return out
-}
-
-function messageStart(collector) {
-  collector.started = true
-  return event('message_start', {
-    type: 'message_start',
-    message: {
-      id: collector.id,
-      type: 'message',
-      role: 'assistant',
-      model: collector.model,
-      content: [],
-      stop_reason: null,
-      stop_sequence: null,
-      usage: { input_tokens: collector.usage?.input ?? 0, output_tokens: 0 }
-    }
-  })
-}
-
-/** 吃一格上游 SSE，回傳要往客戶端寫的 Anthropic 事件（可能是空字串） */
+/** 吃一格上游 SSE，拆成中性 delta 交給 anthropic-stream，回傳要往客戶端寫的事件（可能是空字串） */
 function consume(collector, payload) {
   const inner = unwrapEnvelope(payload)
   if (!inner) return ''
-
-  const usage = usageFrom(inner)
-  if (usage) collector.usage = usage
-
+  const usage = usageFrom(inner) || undefined
   const candidate = firstCandidate(inner)
-  if (!candidate) return ''
+  if (!candidate) return stream.apply(collector, { usage })
 
   const { text, reasoning, calls } = splitParts(candidate)
-  const reason = finishReasonOf(candidate)
-  if (reason) collector.finish = reason
-
-  let out = ''
-  if (!collector.started && (text || reasoning || calls.length)) out += messageStart(collector)
-
-  if (reasoning) {
-    if (collector.blockType !== 'thinking') {
-      out += openBlock(collector, 'thinking', { type: 'thinking', thinking: '' })
-    }
-    collector.reasoning += reasoning
-    out += event('content_block_delta', {
-      type: 'content_block_delta',
-      index: collector.blockIndex,
-      delta: { type: 'thinking_delta', thinking: reasoning }
-    })
-  }
-
-  if (text) {
-    if (collector.blockType !== 'text') {
-      out += openBlock(collector, 'text', { type: 'text', text: '' })
-    }
-    collector.text += text
-    out += event('content_block_delta', {
-      type: 'content_block_delta',
-      index: collector.blockIndex,
-      delta: { type: 'text_delta', text }
-    })
-  }
-
-  for (const call of calls) {
-    const id = `toolu_${randomUUID().replace(/-/g, '').slice(0, 24)}`
-    collector.calls.push({ id, name: call.name, args: call.args })
-    // Gemini 一次給完整 args，不需要拆成多格 input_json_delta
-    out += openBlock(collector, 'tool_use', {
-      type: 'tool_use', id, name: call.name, input: {}
-    })
-    out += event('content_block_delta', {
-      type: 'content_block_delta',
-      index: collector.blockIndex,
-      delta: { type: 'input_json_delta', partial_json: JSON.stringify(call.args) }
-    })
-  }
-
-  return out
-}
-
-function stopReasonFor(collector) {
-  if (collector.calls.length) return 'tool_use'
-  return STOP_REASONS[collector.finish] || 'end_turn'
-}
-
-function closeStream(collector) {
-  let out = collector.started ? '' : messageStart(collector)
-  out += closeBlock(collector)
-  out += event('message_delta', {
-    type: 'message_delta',
-    delta: { stop_reason: stopReasonFor(collector), stop_sequence: null },
-    usage: { output_tokens: collector.usage?.output ?? 0 }
-  })
-  out += event('message_stop', { type: 'message_stop' })
-  return out
-}
-
-function toResponse(collector) {
-  const content = []
-  if (collector.reasoning) content.push({ type: 'thinking', thinking: collector.reasoning })
-  if (collector.text) content.push({ type: 'text', text: collector.text })
-  for (const call of collector.calls) {
-    content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.args })
-  }
-  if (!content.length) content.push({ type: 'text', text: '' })
-
-  return {
-    id: collector.id,
-    type: 'message',
-    role: 'assistant',
-    model: collector.model,
-    content,
-    stop_reason: stopReasonFor(collector),
-    stop_sequence: null,
-    usage: {
-      input_tokens: collector.usage?.input ?? 0,
-      output_tokens: collector.usage?.output ?? 0,
-      ...(collector.usage?.cached ? { cache_read_input_tokens: collector.usage.cached } : {})
-    }
-  }
-}
-
-/**
- * 串流中途出錯：Anthropic 的錯誤事件型別是 `error`。
- * 先把開著的 content block 收掉——已經送出 `content_block_start` 卻沒有對應的
- * `content_block_stop`，會讓照著協議追蹤區塊狀態的客戶端停在半開狀態。
- */
-function errorStream(collector, code) {
-  return closeBlock(collector) +
-    event('error', { type: 'error', error: { type: 'api_error', message: code } })
+  // Gemini 一格裡依序是 thinking → 正文 → 工具；用量與結束原因跟第一個 delta 一起送
+  const deltas = [{ usage, finish: finishReasonOf(candidate) || undefined, reasoning }, { text },
+    ...calls.map((call) => ({ toolCall: { name: call.name, args: JSON.stringify(call.args) } }))]
+  return deltas.map((delta) => stream.apply(collector, delta)).join('')
 }
 
 module.exports = {

@@ -1,5 +1,5 @@
 /**
- * 打包版 CDP：語音轉文字合併頁 ＋ 設定頁四分區 ＋ 語音試聽
+ * 打包版 CDP：語音轉文字合併頁 ＋ 設定頁三分區 ＋ 翻譯頁語音試聽
  * 用法：node scripts/e2e-stt-cdp.js（會自己啟動 dist/win-unpacked/AxonDeck.exe）
  *
  * 這支會改到三個子分頁各自的模型選擇（`fileAsr`／`fileLlm`／`liveAsr`／`liveLlm`／
@@ -9,11 +9,11 @@
 const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const { tempDir } = require('./lib/test-temp')
-const os = require('os')
-const fs = require('fs')
 const http = require('http')
 
 const PORT = 9243
+/** main 程序的 inspector：用來把 --hidden 的視窗不搶焦點地顯示出來 */
+const INSPECT_PORT = 9244
 // Windows 偶爾會有別的東西鎖住 dist/win-unpacked（打包失敗、防毒掃描中），
 // 這時可以打包到別的資料夾再用 AXONDECK_EXE 指過去，測試不必等鎖放掉
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
@@ -86,6 +86,8 @@ class Cdp {
 
   close() { try { this.ws.close() } catch { /* ignore */ } }
 }
+require('./lib/page-cdp').followMainPage(Cdp)
+
 
 async function waitFor(action, timeoutMs, label) {
   const deadline = Date.now() + timeoutMs
@@ -97,7 +99,7 @@ async function waitFor(action, timeoutMs, label) {
 }
 
 async function main() {
-  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(EXE, [`--remote-debugging-port=${PORT}`, `--inspect=127.0.0.1:${INSPECT_PORT}`, `--user-data-dir=${USER_DATA_DIR}`, '--hidden'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let processLog = ''
   child.stdout.on('data', (c) => { processLog += c })
   child.stderr.on('data', (c) => { processLog += c })
@@ -124,6 +126,17 @@ async function main() {
     })()
     cdp = new Cdp(target.webSocketDebuggerUrl)
     await cdp.connect()
+    // 功能頁是掛在主視窗上的 WebContentsView：--hidden 的視窗不收合成滾輪（dispatchMouseEvent 會一直等），
+    // 跟真的使用一樣不搶焦點地顯示出來
+    let inspectorTarget = null
+    await waitFor(async () => {
+      const list = await getJson(`http://127.0.0.1:${INSPECT_PORT}/json/list`).catch(() => [])
+      inspectorTarget = list[0] || null
+      return inspectorTarget
+    }, 15000, 'main inspector')
+    const mainCdp = new Cdp(inspectorTarget.webSocketDebuggerUrl)
+    await mainCdp.connect()
+    await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().find(w => /index\\.html/.test(w.webContents.getURL()))?.showInactive()`)
     await cdp.eval("window.electronAPI.store.set('sysmonSensors', false)")
     await waitFor(
       () => cdp.eval(`document.readyState === 'complete' && typeof window.electronAPI?.store?.get === 'function'`),
@@ -143,31 +156,30 @@ async function main() {
     await waitFor(() => cdp.eval(`!!document.getElementById('fileAsrModel')?.options.length`), 10000, '模型選單填好')
 
     const layout = await cdp.eval(`(() => ({
-      subtabs: [...document.querySelectorAll('#sttSubtabs .subtab')].map((b) => b.dataset.subtab),
-      activePanel: document.querySelector('#page-stt .subtab-panel.active')?.id || '',
-      activeCount: document.querySelectorAll('#page-stt .subtab-panel.active').length,
+      noSubtabs: document.querySelectorAll('#sttSubtabs .subtab').length === 0,
+      noHeader: !document.querySelector('#page-stt .page-header'),
       hasDropZone: !!document.querySelector('#stt-file #dropZone'),
       hasRecorder: !!document.querySelector('#stt-file #recList'),
       noRecordingPick: !document.getElementById('recordingPickGroup'),
       liveSources: [...(document.getElementById('liveAudioSource')?.options || [])].map((o) => o.value),
-      hasLiveBtn: !!document.querySelector('#stt-live #startLiveBtn'),
+      hasLiveBtn: !!document.querySelector('#stt-file #startLiveBtn'),
       hasDictation: !!document.querySelector('#stt-dictation #dictationEnabledInput'),
-      // 舊的兩個 nav 分頁與 section 都不該還在
+      dictVisible: (document.getElementById('dictationEnabledInput')?.offsetHeight || 0) > 0,
+      dropVisible: (document.getElementById('dropZone')?.offsetHeight || 0) > 0,
       noOldNav: !document.querySelector('[data-page="transcribe"], [data-page="live"]'),
       noOldSections: !document.getElementById('page-transcribe') && !document.getElementById('page-live')
     }))()`)
     ok(
-      '檔案與錄音／即時字幕／語音輸入合併成一頁的子分頁',
-      JSON.stringify(layout?.subtabs) === JSON.stringify(['file', 'live', 'dictation']) &&
-        layout.activePanel === 'stt-file' && layout.activeCount === 1 &&
+      '轉錄、字幕、語音輸入在同一頁，沒有標題列和子分頁',
+      layout?.noSubtabs && layout.noHeader &&
         layout.hasDropZone && layout.hasRecorder && layout.noRecordingPick &&
-        JSON.stringify(layout.liveSources) === JSON.stringify(['system', 'mic']) &&
-        layout.hasLiveBtn && layout.hasDictation &&
+        JSON.stringify(layout.liveSources) === JSON.stringify(['system', 'mic', 'both']) &&
+        layout.hasLiveBtn && layout.hasDictation && layout.dictVisible && layout.dropVisible &&
         layout.noOldNav && layout.noOldSections,
       JSON.stringify(layout)
     )
 
-    // 三個子分頁各自有自己的模型選單，而且都在自己的面板裡（不在共用的標題列）
+    // 共用模型在轉錄這側，語音輸入的模型在自己那一區（不在頁面標題列）
     const bars = await cdp.eval(`(() => {
       const inPanel = (panelId, selectId) => {
         const panel = document.getElementById(panelId)
@@ -177,8 +189,8 @@ async function main() {
       return {
         fileAsr: inPanel('stt-file', 'fileAsrModel'),
         fileLlm: inPanel('stt-file', 'fileLlmModel'),
-        liveAsr: inPanel('stt-live', 'liveAsrModel'),
-        liveLlm: inPanel('stt-live', 'liveLlmModel'),
+        lang: inPanel('stt-file', 'liveLanguage'),
+        source: inPanel('stt-file', 'liveAudioSource'),
         dictAsr: inPanel('stt-dictation', 'dictationAsrModel'),
         dictLlm: inPanel('stt-dictation', 'dictationLlmSelect'),
         noSharedBar: !document.getElementById('sttModelBar') && !document.getElementById('sttModelHint'),
@@ -186,22 +198,85 @@ async function main() {
         translateInsideHeader: !!document.querySelector('#page-translate .page-header #translateModelBar')
       }
     })()`)
-    ok('三個子分頁各自有 ASR 與 LLM 選單、都在自己的面板裡',
-      bars?.fileAsr && bars.fileLlm && bars.liveAsr && bars.liveLlm && bars.dictAsr && bars.dictLlm,
+    ok('轉錄頁有共用的辨識、翻譯、目標語言，語音輸入另有自己的',
+      bars?.fileAsr && bars.fileLlm && bars.lang && bars.source && bars.dictAsr && bars.dictLlm,
       JSON.stringify(bars))
     ok('標題旁不再有共用的模型選單',
       bars?.noSharedBar && bars.headerHasNoSelect && bars.translateInsideHeader, JSON.stringify(bars))
 
-    const switched = await cdp.eval(`(async () => {
-      document.querySelector('#sttSubtabs [data-subtab="live"]').click()
-      await new Promise((r) => setTimeout(r, 400))
-      const live = document.querySelector('#page-stt .subtab-panel.active')?.id
-      document.querySelector('#sttSubtabs [data-subtab="file"]').click()
-      await new Promise((r) => setTimeout(r, 400))
-      return { live, back: document.querySelector('#page-stt .subtab-panel.active')?.id }
-    })()`)
-    ok('子分頁可以來回切', switched?.live === 'stt-live' && switched?.back === 'stt-file',
-      JSON.stringify(switched))
+    ok('拖入音訊時仍有目標回饋', await cdp.eval(`(() => {
+      const zone = document.getElementById('dropZone')
+      const transition = zone.style.transition
+      zone.style.transition = 'none'
+      const before = getComputedStyle(zone).backgroundColor
+      zone.classList.add('dragover')
+      const after = getComputedStyle(zone).backgroundColor
+      zone.classList.remove('dragover')
+      zone.style.transition = transition
+      return before !== after
+    })()`))
+
+    for (const width of [1440, 1000, 760, 560]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false })
+      const size = await cdp.eval(`(() => {
+        const content = document.querySelector('.content')
+        content.scrollTop = 0
+        const board = document.querySelector('.stt-board')
+        return {
+          height: board.offsetHeight, overflow: content.scrollWidth > content.clientWidth + 1,
+          columns: getComputedStyle(board).gridTemplateColumns.split(' ').length,
+          actions: ['.stt-drop', '.stt-rec-hero', '.stt-live-card'].map((s) => {
+            const r = document.querySelector(s).getBoundingClientRect()
+            return { width: r.width, top: r.top }
+          }),
+          records: ['.stt-txlog', '.stt-recs', '.stt-column > .live-history'].map((s) => {
+            const r = document.querySelector(s).getBoundingClientRect()
+            return { width: r.width, top: r.top, height: r.height }
+          }),
+          dict: [...document.querySelectorAll('.stt-dict .dict-panel')].map((e) => e.offsetHeight),
+          dictTitle: document.querySelector('.stt-dict .dict-panel h3').textContent,
+          noLiveHints: !document.getElementById('liveCaptionDisplayGroup') && !document.getElementById('liveTranslatorHint'),
+          controls: ['recStartBtn', 'startLiveBtn', 'recStatus', 'liveStatus', 'recAudioSource', 'liveAudioSource'].map((id) => {
+            const element = document.getElementById(id)
+            const visible = element.tagName === 'SELECT' ? element.closest('.custom-select').querySelector('.custom-select-trigger') : element
+            const r = visible.getBoundingClientRect()
+            return { width: r.width, height: r.height, top: r.top }
+          }),
+          groups: document.querySelectorAll('.stt-board > .stt-column').length,
+          gap: parseFloat(getComputedStyle(board).columnGap),
+          grouped: [['dropZone', 'resultText'], ['recStartBtn', 'recList'], ['startLiveBtn', 'liveHistoryList']].every(([top, bottom]) =>
+            document.getElementById(top).closest('.stt-column') === document.getElementById(bottom).closest('.stt-column')),
+          rect: { x: content.getBoundingClientRect().x + 20, y: 400 }
+        }
+      })()`)
+      ok(`${width}px 語音頁留足閱讀高度、沒有橫向溢出`,
+        size.height > 1000 && size.records.every((r) => r.height >= 440) && !size.overflow &&
+        size.columns === (width > 900 ? 3 : 1) && size.dict.every((h) => h >= 560) &&
+        size.dictTitle === '語音輸入紀錄' && size.noLiveHints && size.groups === 3 &&
+        size.gap === 12 && size.grouped, JSON.stringify(size))
+      if (width > 900) {
+        const equalRow = (items) => items.every((r) =>
+          Math.abs(r.width - items[0].width) < 1 && Math.abs(r.top - items[0].top) < 1)
+        ok(`${width}px 開始區與紀錄區各自等寬並排`, equalRow(size.actions) && equalRow(size.records), JSON.stringify(size))
+        const [rec, live, recStatus, liveStatus, recSource, liveSource] = size.controls
+        ok(`${width}px 錄音與字幕按鈕等大，狀態與音源對齊`,
+          equalRow([rec, live]) && Math.abs(rec.height - live.height) < 1 &&
+          Math.abs(recStatus.top - liveStatus.top) < 1 && Math.abs(recSource.top - liveSource.top) < 1,
+          JSON.stringify(size.controls))
+      }
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseWheel', x: size.rect.x, y: size.rect.y, deltaX: 0, deltaY: 10000
+      })
+      await waitFor(() => cdp.eval('document.querySelector(".content").scrollTop > 0'), 5000, '語音頁滾輪')
+      ok(`${width}px 真滾輪可到最下方的個人字典`, await cdp.eval(`(() => {
+        const content = document.querySelector('.content')
+        const panel = document.getElementById('dictationTerms').getBoundingClientRect()
+        const bottom = content.getBoundingClientRect().bottom
+        return content.scrollTop > 0 && panel.bottom <= bottom + 1 && panel.bottom > 0
+      })()`))
+    }
+    await cdp.send('Emulation.clearDeviceMetricsOverride')
+    await cdp.eval('document.querySelector(".content").scrollTop = 0')
 
     // ---- 模型選單：選了要寫回自己那一個 store key ----
     const asrValues = await cdp.eval(
@@ -224,9 +299,9 @@ async function main() {
       await new Promise((r) => setTimeout(r, 500))
       return await window.electronAPI.store.get('fileAsr', null)
     })()`)
-    ok('選 GPU 模型會寫回 fileAsr', wroteGpu === 'local:qwen3asrgpu', String(wroteGpu))
+    ok('選 GPU 模型會同時寫回 fileAsr 與 liveAsr', wroteGpu === 'local:qwen3asrgpu', String(wroteGpu))
 
-    // 這是這次改動的核心：三頁各存各的，改一頁不可以動到另外兩頁
+    // 轉錄與即時字幕共用一份；語音輸入仍分開
     const isolated = await cdp.eval(`(async () => {
       const set = async (id, value) => {
         const sel = document.getElementById(id)
@@ -234,63 +309,54 @@ async function main() {
         sel.dispatchEvent(new Event('change'))
         await new Promise((r) => setTimeout(r, 400))
       }
-      // 雲端選項現在是「哪一組設定的哪一顆模型」（cloud:設定id:模型id），
-      // 寫死 'cloud' 會設不進去（沒有這個 option）→ 取選單裡真的存在的第一個雲端項
-      const cloudValue = [...document.getElementById('liveAsrModel').options]
-        .map((o) => o.value).find((v) => v.startsWith('cloud'))
-      await set('liveAsrModel', cloudValue)
       await set('dictationAsrModel', 'local:qwen3asr')
       await set('fileLlmModel', 'local:linguaforge08q4')
-      await set('liveLlmModel', 'local:indextranslate2b')
       const keys = ['fileAsr', 'liveAsr', 'dictationAsr', 'fileLlm', 'liveLlm']
-      const out = { cloudValue }
+      const out = {}
       for (const k of keys) out[k] = await window.electronAPI.store.get(k, null)
       return out
     })()`)
     ok(
-      '三個子分頁的 ASR 選擇互不干擾',
-      isolated?.fileAsr === 'local:qwen3asrgpu' && isolated?.liveAsr === isolated?.cloudValue &&
+      '辨識模型寫下去，即時字幕跟著走，語音輸入不動',
+      isolated?.fileAsr === 'local:qwen3asrgpu' && isolated?.liveAsr === 'local:qwen3asrgpu' &&
         isolated?.dictationAsr === 'local:qwen3asr',
       JSON.stringify(isolated)
     )
     ok(
-      '檔案轉錄與即時字幕的翻譯模型也各存各的',
-      isolated?.fileLlm === 'local:linguaforge08q4' && isolated?.liveLlm === 'local:indextranslate2b',
+      '翻譯模型也是檔案與即時字幕同一份',
+      isolated?.fileLlm === 'local:linguaforge08q4' && isolated?.liveLlm === 'local:linguaforge08q4',
       JSON.stringify(isolated)
     )
 
     // ---- 翻譯與 TTS 頁是另一組（全域 key），不被子分頁的選擇帶著跑 ----
-    const translatePage = await cdp.eval(`(async () => {
+    // 功能頁各自一個 renderer：切頁要獨立一步，下一個 eval 才會落在新頁上
+    await cdp.eval(`(async () => {
       await window.electronAPI.store.set('translator', 'local')
       await window.electronAPI.store.set('localTranslateModel', 'linguaforge08q4')
-      document.querySelector('[data-page="translate"]').click()
-      await new Promise((r) => setTimeout(r, 900))
-      return document.getElementById('translatePageModel')?.value || ''
     })()`)
+    await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)
+    await sleep(900)
+    const translatePage = await cdp.eval(`document.getElementById('translatePageModel')?.value || ''`)
     ok('翻譯與 TTS 頁用自己的全域設定（不跟子分頁共用）',
       translatePage === 'local:linguaforge08q4', String(translatePage))
 
     // 回語音轉文字頁，確認重讀後畫面跟 store 對得上
-    const reread = await cdp.eval(`(async () => {
-      document.querySelector('[data-page="stt"]').click()
-      await new Promise((r) => setTimeout(r, 900))
-      return {
-        file: document.getElementById('fileAsrModel')?.value || '',
-        live: document.getElementById('liveAsrModel')?.value || '',
-        dict: document.getElementById('dictationAsrModel')?.value || ''
-      }
-    })()`)
-    ok('重新進頁時三個選單各自讀回自己的值',
-      reread?.file === 'local:qwen3asrgpu' && reread?.live === isolated?.cloudValue &&
-        reread?.dict === 'local:qwen3asr',
+    await cdp.eval(`document.querySelector('[data-page="stt"]').click(), 'ok'`)
+    await sleep(900)
+    const reread = await cdp.eval(`({
+      file: document.getElementById('fileAsrModel')?.value || '',
+      dict: document.getElementById('dictationAsrModel')?.value || ''
+    })`)
+    ok('重新進頁時共用選單與語音輸入各自讀回自己的值',
+      reread?.file === 'local:qwen3asrgpu' && reread?.dict === 'local:qwen3asr',
       JSON.stringify(reread))
 
     // ---- 未安裝的模型要標出來 ----
+    await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)
+    await sleep(700)
     const notReady = await cdp.eval(`(async () => {
       const status = await window.electronAPI.models.status()
       const missing = Object.values(status.models).filter((m) => !m.downloaded).map((m) => m.key)
-      document.querySelector('[data-page="translate"]').click()
-      await new Promise((r) => setTimeout(r, 700))
       const labels = [...document.getElementById('translatePageModel').options].map((o) => o.textContent)
       return { missing, marked: labels.filter((l) => l.includes('未安裝')).length }
     })()`)
@@ -304,11 +370,14 @@ async function main() {
     await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
     for (let i = 0; i < 50; i++) {
       await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
-      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 4')) break
+      if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length >= 4')) break
       await sleep(200)
     }
-    await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length === 4'), 15000, '推薦模型清單')
-    // ---- 設定頁三分區 ----
+    // 推薦清單會隨版本加模型（e2e-hf-cdp 驗確切的那幾顆），這裡只要載得出來
+    await waitFor(() => cdp.eval('document.querySelectorAll("#hf-recommend .model-item").length >= 4'), 15000, '推薦模型清單')
+    // 分組標題只畫在 Local SI 那個 renderer：要在這一頁讀，切到設定頁就讀不到了
+    const recommendGroups = await cdp.eval(`[...document.querySelectorAll('#hf-recommend .model-group-title')].map((el) => el.textContent)`)
+    // ---- 設定頁四分區（語音朗讀在翻譯頁）----
     await cdp.eval(`document.querySelector('[data-page="settings"]').click(), 'ok'`)
     await sleep(900)
     const settings = await cdp.eval(`(() => {
@@ -324,51 +393,104 @@ async function main() {
         gpuInLocal: !document.getElementById('llmGpuSegment'),
         // ASR 的推論方式跟著模型走，不再有執行緒選項
         noThreads: !document.getElementById('asrThreadsSegment'),
-        // 模型清單依 kind 分組
-        groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((el) => el.textContent),
         modelListInLocal: !!document.querySelector('#hf-recommend #modelList'),
         // 三組雲端端點都在雲端模型分區
         cloudChat: !!document.querySelector('#set-cloud #chatApiUrlInput'),
         // 翻譯與聊天共用同一組供應商，不再有第二份 URL／Key 欄位
         noSeparateTranslate: !document.getElementById('apiUrlInput') && !document.getElementById('modelIdInput'),
-        cloudAsr: !!document.querySelector('#set-cloud #asrApiUrlInput')
+        // 語音轉文字模型改用同一份供應商、依用途分流，不再有獨立端點欄位
+        noSeparateAsr: !document.getElementById('asrApiUrlInput')
       }
     })()`)
     ok(
-      '設定頁只剩三個分區且順序正確',
-      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'voice', 'basic']) &&
-        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('語音朗讀') && settings.titles[2].includes('基本'),
+      '設定頁五個分區且順序正確（AGY 反代從 CC Proxy 搬過來）',
+      JSON.stringify(settings?.order) === JSON.stringify(['cloud', 'basic', 'appearance', 'agy', 'install', 'cli']) &&
+        settings.titles[0].includes('雲端模型') && settings.titles[1].includes('基本') &&
+        settings.titles[2].includes('外觀') && settings.titles[3].includes('AGY') && settings.titles[4].includes('CLI'),
       JSON.stringify(settings?.titles)
     )
     ok('設定頁沒有手動 GPU 開關，模型清單已搬進推薦',
       settings?.removed && settings.gpuInLocal && settings.noThreads && settings.modelListInLocal,
       JSON.stringify(settings))
-    ok('推薦模型清單依語音辨識／翻譯分組',
-      JSON.stringify(settings?.groups) === JSON.stringify(['語音辨識', '翻譯']),
-      JSON.stringify(settings?.groups))
+    // 確切的分組（含語音生成、PDF）由 e2e-hf-cdp 驗；這裡只管語音轉文字用到的兩組
+    ok('推薦模型清單有語音辨識與翻譯兩組',
+      recommendGroups.includes('語音辨識') && recommendGroups.includes('翻譯'),
+      JSON.stringify(recommendGroups))
     ok('雲端翻譯併入聊天供應商（沒有第二份端點欄位）',
       settings?.noSeparateTranslate === true,
       JSON.stringify(settings))
-    ok('共用供應商與語音轉文字端點都在「雲端模型」',
-      settings?.cloudChat && settings.cloudAsr, JSON.stringify(settings))
+    ok('統一供應商在「雲端模型」，沒有獨立的語音轉文字端點',
+      settings?.cloudChat && settings.noSeparateAsr, JSON.stringify(settings))
 
-    // ---- 語音試聽 ----
-    await cdp.eval(`document.querySelector('#settingsNav [data-section="voice"]').click(), 'ok'`)
-    await sleep(500)
+    // ---- 語音試聽（翻譯頁）----
+    await cdp.eval(`document.querySelector('[data-page="translate"]').click(), 'ok'`)
+    await sleep(700)
     const previewUi = await cdp.eval(`(() => {
-      const btns = [...document.querySelectorAll('.tts-preview-btn')]
+      const page = document.getElementById('page-translate')
+      const btns = [...page.querySelectorAll('.tts-preview-btn')]
       return {
         count: btns.length,
         langs: btns.map((b) => b.dataset.ttsPreview),
         // 每顆鈕都要跟同一列的下拉在一起
         pairedWithSelect: btns.every((b) => !!b.closest('.tts-voice-row')?.querySelector('select[data-tts-lang]')),
-        hasApi: typeof window.electronAPI.tts.preview === 'function'
+        hasApi: typeof window.electronAPI.tts.preview === 'function',
+        notInSettings: !document.querySelector('#page-settings .tts-preview-btn'),
+        noKo: !page.querySelector('#ttsVoiceKo, [data-tts-preview="ko"], [data-tts-lang="ko"]'),
+        noPreviewHint: !page.textContent.includes('試聽用的是'),
+        nav: document.querySelector('[data-page="translate"] .nav-text')?.textContent.trim(),
+        noPageTitle: !page.querySelector('h1, .page-desc'),
+        modelLeft: (() => {
+          const bar = document.getElementById('translateModelBar')
+          const pageRect = page.getBoundingClientRect()
+          const rect = bar?.getBoundingClientRect()
+          return !!bar && bar.parentElement?.firstElementChild === bar && !!rect && rect.left - pageRect.left < 80
+        })(),
+        summary: page.querySelector('.translate-voice > summary')?.textContent.trim(),
+        // 收合時內容不進版面；裡層 offsetHeight 在 Chromium 仍可能有值，只量外框
+        collapsed: page.querySelector('.translate-voice')?.open === false
+          && (page.querySelector('.translate-voice')?.offsetHeight || 99) < 56,
+        paired: (() => {
+          const chip = document.querySelector('#translateModelBar .model-chip')
+          const summary = document.querySelector('.translate-voice > summary')
+          const lang = document.querySelector('.translate-lang-bar')
+          if (!chip || !summary || !lang) return null
+          const a = chip.getBoundingClientRect()
+          const b = summary.getBoundingClientRect()
+          const before = lang.getBoundingClientRect().top
+          const range = document.createRange()
+          range.selectNodeContents(summary)
+          const textW = range.getBoundingClientRect().width
+          const cs = getComputedStyle(summary)
+          const expected = textW
+            + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+            + (parseFloat(cs.columnGap || cs.gap) || 0)
+            + 6 + 2
+          summary.click()
+          const card = document.querySelector('.translate-voice .settings-card')
+          const floated = getComputedStyle(card).position === 'absolute'
+          const still = Math.abs(lang.getBoundingClientRect().top - before) < 1
+          summary.click()
+          return {
+            sameTop: Math.abs(a.top - b.top) < 2,
+            fitsLabel: Math.abs(b.width - expected) < 8,
+            chipWider: a.width > b.width + 24,
+            floated,
+            still
+          }
+        })()
       }
     })()`)
     ok(
-      '五種語言都有試聽鈕且接得到 IPC',
-      previewUi?.count === 5 && previewUi.pairedWithSelect && previewUi.hasApi &&
-        JSON.stringify(previewUi.langs) === JSON.stringify(['zh-TW', 'zh-CN', 'en', 'ja', 'ko']),
+      '翻譯頁 EdgeTTS 預設收合，設定頁不再有語音朗讀',
+      previewUi?.count === 4 && previewUi.pairedWithSelect && previewUi.hasApi &&
+        previewUi.notInSettings && previewUi.nav === '翻譯' && previewUi.noPageTitle === true &&
+        previewUi.modelLeft === true &&
+        previewUi.summary === 'EdgeTTS' && previewUi.collapsed === true &&
+        previewUi.noKo === true && previewUi.noPreviewHint === true &&
+        previewUi.paired?.sameTop === true && previewUi.paired?.fitsLabel === true &&
+        previewUi.paired?.chipWider === true &&
+        previewUi.paired?.floated === true && previewUi.paired?.still === true &&
+        JSON.stringify(previewUi.langs) === JSON.stringify(['zh-TW', 'zh-CN', 'en', 'ja']),
       JSON.stringify(previewUi)
     )
 

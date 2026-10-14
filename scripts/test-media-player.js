@@ -7,7 +7,7 @@ const { EventEmitter } = require('node:events')
 
 async function main() {
   const registration = fs.readFileSync(path.join(__dirname, '../native/axondeck-probe/src/bin/axondeck-media/registration.rs'), 'utf8')
-  assert.match(registration, /const PROGID_PREFIX: &str = "VoiceInk\.Media\.";/, '改名後必須保留 Windows 已雜湊的 ProgID')
+  assert.match(registration, /prefix: "VoiceInk\.Media\."/, '改名後必須保留 Windows 已雜湊的 ProgID')
   const calls = []
   const associationLaunches = []
   const storedFiles = new Map()
@@ -15,7 +15,7 @@ async function main() {
   const userDataPath = path.resolve('C:/users/test/AppData/Roaming/axondeck')
   const updateManifest = path.join(resourcesPath, 'app-update.yml')
   const initMarker = path.join(userDataPath, 'media-associations-initialized')
-  const initExitCodes = [1, 0, 0]
+  const initExitCodes = [1, 0, 0, 0, 0]
   let hasUpdateManifest = true
   let markerReadFileCalls = 0
   const markerReads = []
@@ -52,10 +52,11 @@ async function main() {
       if (name === 'electron') return { shell: { openPath: async (file) => { calls.push({ system: file }); return '' } } }
       if (name === 'child_process') return { spawn: (exe, args, options) => {
         calls.push({ exe, args, options }); const child = new EventEmitter(); child.unref = () => {}
-        if (args[0] === '--initialize') associationLaunches.push({ exe, args, options })
+        const init = args.includes('--initialize')
+        if (init) associationLaunches.push({ exe, args, options })
         queueMicrotask(() => {
           child.emit('spawn')
-          if (args[0] === '--initialize') queueMicrotask(() => child.emit('close', initExitCodes.shift(), null))
+          if (init) queueMicrotask(() => child.emit('close', initExitCodes.shift(), null))
         })
         return child
       } }
@@ -89,8 +90,14 @@ async function main() {
   await assert.rejects(api.openMedia('relative.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')
   await assert.rejects(api.openMedia(path.resolve('missing.png')), (error) => error.code === 'MEDIA_OPEN_FAILED')
   await assert.rejects(api.openMedia('https://example.com/image.png'), (error) => error.code === 'MEDIA_OPEN_FAILED')
-  assert.equal(await api.openPath(path.resolve('doc.txt')), '')
-  assert.equal(calls.at(-1).system, path.resolve('doc.txt'))
+  assert.equal(await api.openPath(path.resolve('doc.docx')), '')
+  assert.equal(calls.at(-1).system, path.resolve('doc.docx'))
+  const edited = []
+  api.setEditorOpener(async (target) => { edited.push(target); return target.endsWith('.md') })
+  assert.equal(await api.openPath(path.resolve('readme.md')), '')
+  assert.deepEqual(edited, [path.resolve('readme.md')], '文字檔交給編輯器、不落到系統預設程式')
+  assert.notEqual(calls.at(-1).system, path.resolve('readme.md'))
+  api.setEditorOpener(async () => false)
 
   // Linux：交給 App 內播放視窗；它不接手（沒有能播的後端）就回 false，openPath 改走系統開啟（勿 throw）
   {
@@ -147,8 +154,9 @@ async function main() {
   assert.equal(storedFiles.has(initMarker), false, '初始化失敗要能重試')
   assert.equal(await api.initializeAssociations(initOptions), true)
   assert.equal(await api.initializeAssociations(initOptions), true)
-  assert.equal(associationLaunches.length, 2, '已成功的 installed 初始化只背景執行一次')
+  assert.equal(associationLaunches.length, 3, '已成功的 installed 初始化只背景執行一次（媒體＋編輯器）')
   assert.equal(Array.from(associationLaunches[1].args).join(' '), '--initialize')
+  assert.equal(Array.from(associationLaunches[2].args).join(' '), '--editor --initialize')
   assert.equal(associationLaunches[1].options.detached, true)
   assert.equal(associationLaunches[1].options.windowsHide, true)
   assert.equal(associationLaunches[1].options.stdio, 'ignore')
@@ -156,15 +164,25 @@ async function main() {
   const nextLaunch = { ...context, module: { exports: {} } }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), nextLaunch)
   assert.equal(await nextLaunch.module.exports.initializeAssociations(initOptions), true)
-  assert.equal(associationLaunches.length, 2, '下次啟動讀到成功標記後不再 spawn')
+  assert.equal(associationLaunches.length, 3, '下次啟動讀到成功標記後不再 spawn')
   assert.equal(markerReadFileCalls, 0, '初始化標記不得無上限讀取')
   assert.ok(markerReads.length > 0 && markerReads.every((size) => size <= 16))
   storedFiles.set(initMarker, '1')
   const upgraded = { ...context, module: { exports: {} } }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), upgraded)
   assert.equal(await upgraded.module.exports.initializeAssociations(initOptions), true)
-  assert.equal(associationLaunches.length, 3, '舊成功標記也要執行改名搬移；Rust 初始化狀態仍保護使用者選擇')
+  assert.equal(associationLaunches.length, 4, '舊成功標記也要執行改名搬移；Rust 初始化狀態仍保護使用者選擇')
+  assert.equal(Array.from(associationLaunches[3].args).join(' '), '--initialize', '編輯器已初始化過就不再重跑')
   assert.equal(storedFiles.get(initMarker), '2')
+  const editorMarker = path.join(userDataPath, 'editor-associations-initialized')
+  assert.equal(storedFiles.get(editorMarker), '3')
+  storedFiles.set(editorMarker, '2')
+  initExitCodes.push(0)
+  const tsHandover = { ...context, module: { exports: {} } }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), tsHandover)
+  assert.equal(await tsHandover.module.exports.initializeAssociations(initOptions), true)
+  assert.equal(Array.from(associationLaunches.at(-1).args).join(' '), '--editor --initialize', '1.46.0 的編輯器標記要再跑一次，接手 .ts')
+  assert.equal(storedFiles.get(editorMarker), '3')
   console.log('media-player：格式、路徑、獨立程序、開啟入口、初始化重試與背景 once PASS')
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

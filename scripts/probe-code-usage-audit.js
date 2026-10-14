@@ -26,8 +26,6 @@ const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
 const ROOT = path.join(__dirname, '..')
-const DAY_MS = 86_400_000
-const RANGE_DAYS = 30
 
 let failed = 0
 function ok(name, cond, detail = '') {
@@ -54,10 +52,10 @@ function walk(dir, out) {
 /**
  * 從原始 jsonl 自己重算一次（不經過 codeusage 的任何程式碼）。
  * @param {number} from 毫秒
- * @param {(raw: string) => string} normalize
+ * @param {object} pricing
  * @returns {Map<string, object>}
  */
-function handCount(from, normalize) {
+function handCount(from, pricing) {
   const seen = new Set()
   /** @type {Map<string, object>} */
   const byModel = new Map()
@@ -88,12 +86,23 @@ function handCount(from, normalize) {
         if (seen.has(id)) continue
         seen.add(id)
       }
-      const model = normalize(rawModel)
+      const model = pricing.normalizeModel(rawModel)
       const acc = byModel.get(model) || {
-        requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0
+        requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, costUsd: 0
       }
       const write1h = Number(usage.cache_creation?.ephemeral_1h_input_tokens) || 0
       const writeTotal = Number(usage.cache_creation_input_tokens) || 0
+      const turn = {
+        input: Number(usage.input_tokens) || 0, output: Number(usage.output_tokens) || 0,
+        cacheRead: Number(usage.cache_read_input_tokens) || 0,
+        cacheWrite: Math.max(0, writeTotal - write1h), cacheWrite1h: write1h
+      }
+      let price = pricing.priceFor(model)
+      if (price?.longContext && turn.input + turn.cacheRead + turn.cacheWrite + turn.cacheWrite1h > price.longContext.threshold) {
+        price = price.longContext
+      }
+      const cost = pricing.costOf(turn, price)
+      acc.costUsd = cost === null || acc.costUsd === null ? null : acc.costUsd + cost
       acc.requests += 1
       acc.input += Number(usage.input_tokens) || 0
       acc.output += Number(usage.output_tokens) || 0
@@ -198,7 +207,7 @@ app.whenReady().then(async () => {
     console.log('\n[B] App 算的（codeusage.sync + stats）')
     await codeusage.sync()
     const stats = await codeusage.stats({ range: '30d', provider: 'claude' })
-    const hand = handCount(stats.from, pricing.normalizeModel)
+    const hand = handCount(stats.from, pricing)
     console.log(`  ${stats.models.length} 顆模型、${stats.summary.requests} 次請求、$${stats.summary.costUsd.toFixed(2)}`)
 
     console.log('\n[C] 逐模型對帳')
@@ -208,8 +217,7 @@ app.whenReady().then(async () => {
     let handCost = 0
     for (const [model, mine] of [...hand.entries()].sort((a, b) => b[1].requests - a[1].requests)) {
       const app_ = stats.models.find((m) => m.key === model)
-      const price = pricing.priceFor(model)
-      const cost = pricing.costOf(mine, price)
+      const cost = mine.costUsd
       // 不是模型名的 id（`m` 那種）App 刻意不收，手算這邊沒有這條規則 → 不比也不算進總額
       if (pricing.isJunkModel(model)) {
         console.log(`  SKIP ${model}（不是模型名，App 刻意不收）`)

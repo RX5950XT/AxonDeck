@@ -1,0 +1,42 @@
+'use strict'
+
+/** node scripts/test-glossary.js：術語表解析與比對 */
+const assert = require('assert/strict')
+const glossary = require('../src/main/glossary')
+
+const entries = glossary.parse(glossary.DEFAULT_GLOSSARY)
+const targets = (text) => glossary.match(entries, text).map((term) => term.target).sort()
+
+assert.deepEqual(targets('Exact equations'), ['正合方程'])
+assert.deepEqual(targets('Inexact equations and integrating factors'), ['積分因子', '非正合方程'].sort())
+assert.deepEqual(targets('2. Linear (and nonlinear) ODEs'), ['非線性', '線性'].sort())
+assert.deepEqual(targets('Homogeneous and inhomogeneous linear ODEs'), ['齊次', '線性', '非齊次'].sort())
+assert.deepEqual(targets('First-Order Ordinary Differential Equations'), ['常微分方程'])
+assert.deepEqual(targets('Suppose that P(t) is the number of individuals'), [])
+assert.deepEqual(glossary.parse('a=\n=b\nno equals\n  x = y  ').map((e) => [e.source, e.target]), [['x', 'y']])
+assert.deepEqual(glossary.match(glossary.parse('C++=C 加加'), 'learn c++ today').map((t) => t.target), ['C 加加'])
+
+const store = (value) => ({ get: () => value })
+assert.equal(glossary.read(store(undefined)), glossary.DEFAULT_GLOSSARY)
+assert.equal(glossary.read(store('')), '')
+assert.equal(glossary.sanitize(null), null)
+assert.equal(glossary.sanitize(42), glossary.DEFAULT_GLOSSARY)
+console.log('PASS 術語表：解析、字界與複數、長詞優先、讀寫預設')
+
+// 內建學術名詞庫（國家教育研究院）
+const settings = (values) => ({ get: (key) => values[key] })
+const withBuiltin = glossary.load(settings({}))
+const terms = (text, g = withBuiltin) => Object.fromEntries(glossary.find(g, text).map((t) => [t.source, t.targets]))
+const found = terms('The harmonic oscillators and integrating factors of a mathematical model depend on voltage.')
+assert.deepEqual(found['integrating factor'], ['積分因子'], '自訂詞優先、只給一個譯名')
+assert.ok(found['harmonic oscillator']?.includes('諧振子'), '內建多候選、複數還原')
+assert.ok(found['mathematical model']?.[0] === '數學模型')
+assert.ok(!('on voltage' in found), '頭尾是功能詞的片語不收')
+assert.ok(!('chinese' in terms('Chinese models')) && !('paper' in terms('the morning paper')), '單字不收')
+assert.deepEqual(terms('ordinary differential equations', glossary.load(settings({ translateGlossary: '' })))['ordinary differential equation'], ['常微分方程'], '只差「式」的譯名合併')
+assert.equal(glossary.find(glossary.load(settings({ translateGlossaryBuiltin: false, translateGlossary: '' })), 'harmonic oscillator').length, 0)
+const long = 'The general solution of the nonhomogeneous linear system follows from the eigenvalues of the coefficient matrix. '.repeat(200)
+const started = Date.now()
+glossary.find(withBuiltin, long)
+assert.ok(Date.now() - started < 500, `長文比對太慢 ${Date.now() - started}ms`)
+console.log('PASS 內建學術名詞庫：多候選、複數、功能詞片語、多義單字、開關、速度')

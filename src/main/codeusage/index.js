@@ -6,7 +6,7 @@
  * 跟「額度」頁不同：那邊看的是**訂閱還剩多少**（官方 API），這裡看的是
  * **本機記錄裡實際用掉多少 token、跑了幾次、大概花多少錢**。
  *
- * 資料一律折成「每小時 × 供應商 × 模型」的桶子存進 `<userData>/code-usage.json`，
+ * 資料一律折成「每小時 × 供應商 × 模型 × 價格級距」的桶子存進 `<userData>/code-usage.json`，
  * 原始事件不留（幾十萬筆，留了只是白佔硬碟）。時間範圍是 main 的白名單，
  * renderer 只送 key——跟 `agy/logs.js` 的統計同一套規矩。
  *
@@ -90,14 +90,15 @@ async function getStore() {
 // ===== 桶子 =====
 
 /**
- * 桶子的 key：`小時起點|供應商|正規化模型`
+ * 桶子的 key：`小時起點|供應商|正規化模型`；長上下文加 `|long`。
  * @param {number} ts
  * @param {string} provider
  * @param {string} model
+ * @param {boolean} [longContext]
  * @returns {string}
  */
-function bucketKey(ts, provider, model) {
-  return `${Math.floor(ts / HOUR_MS) * HOUR_MS}|${provider}|${model}`
+function bucketKey(ts, provider, model, longContext = false) {
+  return `${Math.floor(ts / HOUR_MS) * HOUR_MS}|${provider}|${model}${longContext ? '|long' : ''}`
 }
 
 /**
@@ -117,13 +118,18 @@ function addEvent(buckets, provider, event) {
   const hasCost = Number.isFinite(event.costUsd) && event.costUsd > 0
   // 只有 unknown 且 0 token 的空事件（取消請求遺留）才丟棄；有具體模型名的即便 token 為 0 也是真實請求
   if (model === 'unknown' && totalTokens === 0 && !hasCost) return
-  const key = bucketKey(event.ts, provider, model)
+  const promptTokens = (event.input || 0) + (event.cacheRead || 0)
+    + (event.cacheWrite || 0) + (event.cacheWrite1h || 0)
+  const threshold = pricing.priceFor(model)?.longContext?.threshold
+  const longContext = Number.isFinite(threshold) && promptTokens > threshold
+  const key = bucketKey(event.ts, provider, model, longContext)
   let bucket = buckets.get(key)
   if (!bucket) {
     bucket = {
       ts: Math.floor(event.ts / HOUR_MS) * HOUR_MS,
       provider,
       model,
+      longContext,
       input: 0,
       output: 0,
       reasoning: 0,
@@ -181,10 +187,12 @@ function loadBuckets(raw) {
       : null
     // 0 token 且無實際花費的 unknown 幽靈桶子（例如被取消的請求遺留的 unknown 桶）直接濾除
     if (model === 'unknown' && totalTokens === 0 && !reportedCost) continue
-    buckets.set(`${ts}|${provider}|${model}`, {
+    const longContext = item.longContext === true && Boolean(pricing.priceFor(model)?.longContext)
+    buckets.set(bucketKey(ts, provider, model, longContext), {
       ts,
       provider,
       model,
+      longContext,
       input,
       output,
       reasoning,

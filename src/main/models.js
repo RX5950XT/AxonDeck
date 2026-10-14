@@ -16,6 +16,26 @@ const { removeTreeSync } = require('./safe-rm')
  * 不需要 CUDA／cuDNN。CUDA 版另外要 239MB＋373MB cudart，先不做第二套。
  */
 const LLAMA_BUILD = 'b10666'
+const BREEZE_BUILD = 'v0.1.0'
+/**
+ * Breeze-TTS-2 官方預建：Windows x64 zip、Linux x64 tar.gz（glibc ≥ 2.35，需 libvulkan1；沒 GPU 會退 CPU）。
+ * 官方沒有 Linux arm64／macOS 產物，這些平台不列 Breeze。
+ */
+function breezeRuntime() {
+  if (HOST.platform === 'win32') {
+    const dir = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
+    return { dir, file: `${dir}.zip`, totalBytes: 73809893,
+      check: ['breeze-server.exe', 'breeze-cli.exe', 'libbreeze.dll'], binary: 'breeze-server.exe',
+      sha256: '1c5178577a9fb90e84b43269880d17acafd466030abf615c6df4ccc163eac0d8' }
+  }
+  if (HOST.platform === 'linux' && HOST.arch === 'x64') {
+    const dir = `breeze-tts-2-${BREEZE_BUILD}-linux-x64-vulkan`
+    return { dir, file: `${dir}.tar.gz`, totalBytes: 72195854,
+      check: ['breeze-server', 'breeze-cli'], binary: 'breeze-server',
+      sha256: '41f309bea160cdeb3c01721f97ea66125b4047a5726b01fd5559f1abb608b2a0' }
+  }
+  return null
+}
 
 /**
  * 模型 registry
@@ -82,8 +102,90 @@ function llamaCudaRuntime() {
 
 const _llamaVulkan = llamaVulkanRuntime()
 const _llamaCuda = llamaCudaRuntime()
+const _breeze = breezeRuntime()
 
 const MODELS = {
+  paddleocrvl16: {
+    label: 'PaddleOCR-VL-1.6 · 文件辨識',
+    kind: 'ocr',
+    runtime: 'llama',
+    requires: 'llamaruntime',
+    description: '辨識文字、公式、表格與圖表，和翻譯模型共用 llama.cpp。',
+    totalBytes: 1817539616,
+    base: 'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/',
+    files: ['PaddleOCR-VL-1.6-GGUF.gguf', 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf'],
+    gguf: 'PaddleOCR-VL-1.6-GGUF.gguf',
+    mmproj: 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf',
+    fileBytes: { 'PaddleOCR-VL-1.6-GGUF.gguf': 935769056, 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': 881770560 },
+    sha256: {
+      'PaddleOCR-VL-1.6-GGUF.gguf': 'f3ae46ec885050acf4b3d31944431e1fd90d50664fb09126af4a3c050ba14ee8',
+      'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': '204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a'
+    }
+  },
+  // PDF 版面翻譯的 Python 執行環境只鎖了 Windows wheel（paddlepaddle win_amd64＋uv.exe），其他平台不列
+  ...(HOST.platform === 'win32' ? {
+  ppdoclayoutv3: {
+    label: 'PP-DocLayoutV3 · 版面辨識',
+    kind: 'ocr',
+    runtime: 'pdf',
+    requires: 'pdfruntime',
+    description: '找出段落、公式、表格與圖表的位置。',
+    totalBytes: 132004944,
+    base: 'https://huggingface.co/PaddlePaddle/PP-DocLayoutV3/resolve/main/',
+    files: ['inference.json', 'inference.pdiparams', 'inference.yml'],
+    fileBytes: { 'inference.json': 1196890, 'inference.pdiparams': 130806572, 'inference.yml': 1482 },
+    sha256: {
+      'inference.json': '2b68367c5b312a03de5a6e1642c597c8f95165a7e40cd59c6700cf4a5042f4fd',
+      'inference.pdiparams': '70bd316b0582769ec968829fd1feb1a6a58b7c941b938327e551b6b12b45c137',
+      'inference.yml': '506fcfac13b3b546ae40d7886b44126420f392adb694e3f8bb6a6286a1f90fdc'
+    }
+  },
+  pdfruntime: {
+    label: 'PDF 文件執行環境（PaddleOCR / PyMuPDF）',
+    kind: 'runtime',
+    runtime: 'pdf',
+    description: '自帶 Python；版面辨識走 CPU，文字辨識共用 llama.cpp。',
+    totalBytes: 800000000,
+    files: []
+  },
+  pdfruntimegpu: {
+    label: 'PDF GPU 加速（NVIDIA）',
+    kind: 'runtime',
+    runtime: 'pdf',
+    gpu: true,
+    description: '版面辨識改用顯示卡，約快 45 倍（整份 PDF 約快 2～3 倍）；裝了就自動使用，約 2.5 GB 下載、5 GB 空間。',
+    totalBytes: 5000000000,
+    files: []
+  },
+  } : {}),
+  ...(_breeze ? {
+  breezetts2q8: {
+    label: 'Breeze-TTS-2 · Q8_0',
+    kind: 'tts',
+    runtime: 'breeze',
+    requires: 'breezeruntime',
+    description: '中英文語音生成、聲音設計、語音克隆、語氣指導、聲音收藏、串流與實驗性語音轉換。',
+    licenseUrl: 'https://huggingface.co/BreezeBlue/Breeze-TTS-2/blob/main/LICENSE',
+    totalBytes: 3568844480,
+    base: 'https://huggingface.co/HoppouAI/Breeze-TTS-2.cpp/resolve/main/',
+    files: ['breeze-tts-2-q8_0.gguf'],
+    gguf: 'breeze-tts-2-q8_0.gguf',
+    sha256: { 'breeze-tts-2-q8_0.gguf': 'a02bcc4b69b0601032727f8040c4942149b1b73aa0f69022fe5aaa6a8f0ef879' }
+  },
+  breezeruntime: {
+    label: `Breeze-TTS-2 執行環境（${BREEZE_BUILD}）`,
+    kind: 'runtime',
+    runtime: 'breeze',
+    description: '語音生成專用；Vulkan 與 CPU，和 llama.cpp 分開。',
+    totalBytes: _breeze.totalBytes,
+    base: `https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/${BREEZE_BUILD}/`,
+    files: [_breeze.file],
+    archive: true,
+    check: _breeze.check.map(name => `${_breeze.dir}/${name}`),
+    binary: `${_breeze.dir}/${_breeze.binary}`,
+    sha256: { [_breeze.file]: _breeze.sha256 }
+  },
+  } : {}),
   qwen3asr: {
     label: 'Qwen3-ASR 0.6B · Q8_0',
     kind: 'asr',
@@ -97,7 +199,7 @@ const MODELS = {
     mmproj: 'mmproj-Qwen3-ASR-0.6B-Q8_0.gguf',
     requires: 'llamaruntime'
   },
-  /** 大顆的那個：走 llama-server（Vulkan GPU），需要 llamaruntime 一起裝 */
+  /** 大顆的那個：跟 0.6B 共用同一顆 llama-server（CUDA 或 Vulkan 擇一） */
   qwen3asrgpu: {
     label: 'Qwen3-ASR 1.7B · Q8_0',
     kind: 'asr',
@@ -160,6 +262,9 @@ const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 
 /** 本地 ASR 模型 key 白名單（順序：推薦在前） */
 const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
+
+/** 只有 GGUF OCR 送進 router；版面模型由 PDF 執行環境載入。 */
+const OCR_MODEL_KEYS = ['paddleocrvl16']
 
 /**
  * @param {unknown} key
@@ -238,8 +343,24 @@ function modelDir(key) {
 function isDownloaded(key) {
   const def = MODELS[key]
   if (!def) return false
+  if (def.runtime === 'pdf' && def.kind === 'runtime') {
+    return !activeDownloads.has(key) && require('./pdf-translate/runtime').isReady(modelDir(key), def.gpu ? 'gpu' : 'cpu')
+  }
+  if (def.kind === 'ocr' && activeDownloads.has(key)) return false
+  if (def.kind === 'tts' && activeDownloads.has(key)) return false
   const want = def.check || def.files
-  return want.every(f => fs.existsSync(path.join(modelDir(key), f)))
+  return want.every(f => {
+    const target = path.join(modelDir(key), f)
+    if (def.fileBytes?.[f]) {
+      try { return fs.statSync(target).isFile() && fs.statSync(target).size === def.fileBytes[f] }
+      catch { return false }
+    }
+    if (def.runtime !== 'breeze') return fs.existsSync(target)
+    try {
+      const stat = fs.statSync(target)
+      return stat.isFile() && stat.size > 0 && (def.archive || stat.size === def.totalBytes)
+    } catch { return false }
+  })
 }
 
 /**
@@ -254,6 +375,8 @@ function status() {
       kind: def.kind,
       totalBytes: def.totalBytes,
       requires: def.requires || null,
+      description: def.description || '',
+      licenseUrl: def.licenseUrl || '',
       downloaded: isDownloaded(key),
       downloading: activeDownloads.has(key)
     }
@@ -337,11 +460,36 @@ async function download(key, onProgress) {
   }
 
   try {
+    if (def.runtime === 'pdf' && def.kind === 'runtime') {
+      await require('./pdf-translate/runtime').install({ dir: modelDir(key), signal: controller.signal, variant: def.gpu ? 'gpu' : 'cpu',
+        onProgress: progress => onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
+          ...progress, cancellable: true }) })
+      activeDownloads.delete(key)
+      return status()
+    }
+    const dependency = key === 'paddleocrvl16' ? 'ppdoclayoutv3'
+      : (def.runtime === 'breeze' || (def.runtime === 'pdf' && def.kind === 'ocr')) ? def.requires : null
+    if (dependency && (!isDownloaded(dependency)
+      || (key === 'paddleocrvl16' && !isDownloaded('pdfruntime')))) {
+      const cancelDependency = () => cancelDownload(dependency)
+      controller.signal.addEventListener('abort', cancelDependency, { once: true })
+      try {
+        await download(dependency, progress => {
+          onProgress(progress)
+          onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
+            stage: key === 'paddleocrvl16' ? '準備 PDF 辨識模型與執行環境…'
+              : def.runtime === 'pdf' ? '準備 PDF 執行環境…' : '準備語音執行環境…',
+            cancellable: progress.cancellable ?? !progress.stage })
+        })
+      }
+      finally { controller.signal.removeEventListener('abort', cancelDependency) }
+      if (controller.signal.aborted) throw new Error('下載已取消')
+    }
     for (const file of def.files) {
       const dest = path.join(modelDir(key), file)
       await fsp.mkdir(path.dirname(dest), { recursive: true })
 
-      if (fs.existsSync(dest)) {
+      if (!def.sha256?.[file] && fs.existsSync(dest)) {
         received += (await fsp.stat(dest)).size
         emit(true)
         continue
@@ -351,6 +499,8 @@ async function download(key, onProgress) {
       const result = await downloadFile({
         url: def.base + file,
         dest,
+        expectedBytes: def.fileBytes?.[file] || (def.sha256?.[file] && def.files.length === 1 ? def.totalBytes : undefined),
+        sha256: def.sha256?.[file],
         signal: controller.signal,
         onProgress: (info) => {
           received = completed + info.received
@@ -439,6 +589,7 @@ module.exports = {
   MODELS,
   LLM_MODEL_KEYS,
   ASR_MODEL_KEYS,
+  OCR_MODEL_KEYS,
   LLAMA_BUILD,
   isLlmKey,
   isAsrKey,

@@ -8,6 +8,9 @@ import { blockMouseReporting } from './term-mouse.js'
 import { bindTermCopy, handleCopyKey } from './term-copy.js'
 import { applyAppearance, normalizeAppearance, DEFAULT_TERM_BG_OPACITY } from './term-themes.js'
 import { detectScreen, mergeState, viewportLines } from './term-agent.js'
+import { terminalTabTitle } from './term-title.js'
+import { bindConversationNav } from './term-conversation.js'
+import { bindTermScrollbar, scrollAiViewport } from './term-scrollbar.js'
 import {
   initWsTabs, showSurface, trackTerminal, ensureLiveTerminalTabs, paintTerminalTab, currentProjectId
 } from './ws-tabs.js'
@@ -62,6 +65,7 @@ let catalog = { shells: [], presets: [], maxSessions: 20, supportsAdmin: true, d
  * @typedef {{
  *   term: Terminal, fit: FitAddon, search: SearchAddon, pane: HTMLElement, disposeIme: () => void,
  *   webgl: import('@xterm/addon-webgl').WebglAddon | null,
+ *   conversation: ReturnType<typeof bindConversationNav>,
  *   seq: number, ready: boolean, writing: boolean, queue: Array<{ seq: number, data: string }>
  * }} Pane
  */
@@ -134,13 +138,25 @@ function stateLabel(item) {
  * @param {string} id
  */
 /**
- * 分頁上顯示的名字。使用者自己改過就一定用他改的；沒改過才讓前景程式自己報的
- * 標題（OSC 0/2，例如 `npm run build`）蓋上去——不然改完名字下一秒就被蓋掉。
- * @param {{ renamed?: boolean, title: string, osTitle?: string }} item
+ * 分頁上顯示的名字。使用者自己改過就一定用他改的。沒改過時，有意義的 OSC 標題
+ * （例如 `npm run build`）蓋過工作階段名稱；`grok` 這類通用名稱改用對話標題。
+ * @param {{ renamed?: boolean, title?: string, osTitle?: string, agentTitle?: string }} item
  * @returns {string}
  */
 function displayTitle(item) {
-  return item.renamed ? item.title : (item.osTitle || item.title)
+  return terminalTabTitle(item)
+}
+
+/** @param {string} id */
+function trackedTitle(id) {
+  const item = items.find((entry) => entry.id === id)
+  return (item && displayTitle(item)) || '終端機'
+}
+
+// 忙碌圖示每秒換好幾個。去掉之後標題沒變，就不要重讀對話、也不要重掃程序。
+const TITLE_SPINNER = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]/g
+function stableTitle(title) {
+  return String(title || '').replace(TITLE_SPINNER, '').replace(/\s+/g, ' ').trim()
 }
 
 function pushTabState(id) {
@@ -160,7 +176,7 @@ function pushTabState(id) {
 
 /** 側欄與分頁看到的是合併後的狀態，宿主原值留在 `item.state` */
 function displayedItems() {
-  return items.map((item) => ({ ...item, state: viewOf(item) }))
+  return items.map((item) => ({ ...item, state: viewOf(item), title: displayTitle(item) }))
 }
 
 /** 全部推一次（清單重讀之後） */
@@ -479,7 +495,7 @@ function attachRenderer(term) {
       const pane = [...panes.values()].find((entry) => entry.term === term)
       if (pane) pane.webgl = null
       requestAnimationFrame(() => {
-        if (![...panes.values()].some((entry) => entry.term === term)) return
+        if (!term.element?.isConnected) return
         const next = attachRenderer(term)
         if (pane) pane.webgl = next
       })
@@ -566,6 +582,7 @@ async function pasteClipboardImage(term, id) {
 }
 
 function createPane(id) {
+  const nativeMouse = ['opencode', 'grok'].includes(items.find(item => item.id === id)?.preset)
   const pane = document.createElement('div')
   pane.className = 'term-pane'
   pane.dataset.id = id
@@ -586,7 +603,8 @@ function createPane(id) {
     cursorBlink: true,
     fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, "微軟正黑體", monospace',
     fontSize,
-    scrollback: 5000,
+    scrollback: 50000,
+    smoothScrollDuration: 0,
     // CLI 送的 OSC 8 超連結：不給這個的話 xterm 會先跳系統的 confirm() 再 window.open()（見 term-links.js）
     linkHandler: oscLinkHandler(id),
     // 告訴 xterm 對面是 ConPTY（VS Code 也這樣設）：終端機拉高時 ConPTY 是在底下補空白列，
@@ -604,15 +622,25 @@ function createPane(id) {
   const unicode11 = new Unicode11Addon()
   term.loadAddon(unicode11)
   term.unicode.activeVersion = '11'
-  // CLI 想開滑鼠回報就擋掉：開起來的話左鍵拖曳會被送給 CLI，連反白都不會出現
-  // ——使用者說的「選取文字自動複製壞掉」就是這個（見 `term-mouse.js`）。
-  blockMouseReporting(term)
-  term.open(pane)
+  const cliMouse = () => term.modes.mouseTrackingMode !== 'none'
+  const screen = document.createElement('div')
+  screen.className = 'term-screen'
+  screen.dataset.id = id
+  pane.append(screen)
+  term.open(screen)
+  blockMouseReporting(term, deltaY => applyFontSize(fontSize + (deltaY < 0 ? 1 : -1)))
   // 寫完一幀再看畫面底部（Claude 想很久時宿主的靜默計時會誤判成做完）
   term.onWriteParsed(() => scheduleScreenScan(id))
+  term.onWriteParsed(() => {
+    const fullscreen = term.buffer.active.type === 'alternate'
+    if (pane.classList.contains('has-native-tui') === fullscreen) return
+    pane.classList.toggle('has-native-tui', fullscreen)
+    const entry = panes.get(id)
+    if (entry) fitAndSync(id, entry)
+  })
   const webgl = attachRenderer(term)
   registerTermLinks(term, id)
-  initTerminalDrop(pane, term, id)
+  initTerminalDrop(screen, term, id)
   term.onData((data) => {
     writeToPty(id, data)
   })
@@ -624,8 +652,10 @@ function createPane(id) {
 
   term.attachCustomKeyEventHandler((event) => {
     if (event.isComposing) return true
+    // 五家 AI 的一般畫面：PageUp／PageDown 翻頁、End 回最底（見 term-scrollbar.js）
+    if (scrollAiViewport(term, event, items.find(item => item.id === id)?.preset)) return false
     // 複製：有選取時的 Ctrl+C、Ctrl+Shift+C、Ctrl+Insert（見 `term-copy.js`）。沒選取的 Ctrl+C 照舊中斷
-    if (handleCopyKey(term, event)) return false
+    if ((!cliMouse() || term.hasSelection()) && handleCopyKey(term, event)) return false
     if (event.ctrlKey && !event.altKey && !event.metaKey) {
       // 切分頁／開關分頁交給工作區（workspace-page.js 的 onGlobalKeydown）。
       // xterm 收了只會送一個 Tab 或 ^T／^W 進 shell，跟使用者要的完全不同
@@ -634,7 +664,7 @@ function createPane(id) {
       // Ctrl+F 搜尋。PSReadLine 的 Windows 編輯模式沒有綁 Ctrl+F（實測
       // `Get-PSReadLineKeyHandler -Bound` 沒有這一條），拿來當搜尋不會擋到編輯。
       // Ctrl+Shift+F 也收：那是 Windows 終端機的習慣。
-      if (event.key === 'f' || event.key === 'F') {
+      if ((event.key === 'f' || event.key === 'F') && !(nativeMouse && term.buffer.active.type === 'alternate' && !event.shiftKey)) {
         if (event.type === 'keydown') showFind(true)
         return false
       }
@@ -681,14 +711,14 @@ function createPane(id) {
   const disposeImeCaret = bindImeCaret(term)
 
   // 一般終端機的習慣：選起來就進剪貼簿；右鍵有選取就複製、沒有就貼上（見 `term-copy.js`）
-  const disposeCopy = bindTermCopy(term, pane, () => void pasteFromClipboard(term, { fallbackKey: false, id }))
-  const disposeIme = () => { disposeImeCaret(); disposeCopy() }
+  const disposeCopy = bindTermCopy(term, screen, () => void pasteFromClipboard(term, { fallbackKey: false, id }), cliMouse)
   // 右鍵是終端機自己的（貼上），不可以同時當成滑鼠事件轉給 CLI：AI CLI 開著 SGR 滑鼠回報時
   // 會收到右鍵，然後自己再貼一次系統剪貼簿——使用者看到的就是同一段貼了兩份。
   // 攔在 capture：xterm 的滑鼠處理掛在 pane 底下的 screen 元素上。
   for (const type of ['mousedown', 'mouseup']) {
-    pane.addEventListener(type, (event) => {
+    screen.addEventListener(type, (event) => {
       if (event.button !== 2) return
+      if (cliMouse() && !event.shiftKey) return
       // 連 native 的焦點轉移一起擋：不然 textarea 會 blur 一次，CLI 收到假的失焦／回焦重畫
       event.preventDefault()
       event.stopPropagation()
@@ -707,11 +737,41 @@ function createPane(id) {
   })
 
   /** @type {Pane} */
-  const entry = { term, fit, search, pane, disposeIme, webgl, seq: 0, ready: false, writing: false, queue: [] }
+  const conversation = bindConversationNav({
+    pane, term, read: cursor => electronAPI.terminal.conversation(id, cursor), reload: () => restorePaneHistory(id),
+    requestJump: (text, role, index) => electronAPI.terminal.navJump(id, { text, role, index }).then(result => result?.ok && result.data === true)
+  })
+  const disposeScrollbar = bindTermScrollbar({ pane, term })
+  const disposeIme = () => { disposeImeCaret(); disposeCopy(); disposeScrollbar() }
+  const entry = { term, fit, search, pane, disposeIme, conversation, webgl, seq: 0, ready: false, writing: false, queue: [] }
   panes.set(id, entry)
   // 登記好了才畫得出來（`order`、並排狀態都要有這一格在 `panes` 裡才算得出來）
   paintPanes()
   return entry
+}
+
+/** CLI 內改選舊對話時，補回同一 xterm；PTY 與輸入不重啟，期間輸出先排隊。 */
+async function restorePaneHistory(id) {
+  const entry = panes.get(id)
+  if (!entry) return
+  if (entry.restoring) return entry.restoring
+  if (!entry.ready) return
+  entry.restoring = (async () => {
+    entry.ready = false
+    try {
+      await writeOutput(entry, '')
+      const snapshot = await call(electronAPI.terminal.open(id, entry.term.cols, entry.term.rows), '讀取終端機畫面失敗')
+      if (panes.get(id) !== entry) return
+      entry.term.reset()
+      await entry.conversation.restore()
+      if (snapshot.buffer) await writeOutput(entry, snapshot.buffer)
+      entry.seq = snapshot.seq
+    } finally {
+      entry.ready = true
+      if (panes.get(id) === entry) await drainOutput(entry)
+    }
+  })()
+  try { await entry.restoring } finally { entry.restoring = null }
 }
 
 /**
@@ -790,6 +850,7 @@ function disposePane(id) {
   writeChains.delete(id)
   visibleIds = visibleIds.filter((key) => key !== id)
   entry.disposeIme()
+  entry.conversation.dispose()
   entry.term.dispose()
   entry.pane.remove()
   paintPanes()
@@ -820,7 +881,7 @@ async function openSession(id, isActive = () => true) {
   showHost(true)
   // 先掛分頁再等 PTY。等的期間專案還原或對話載入會把畫面搶走，
   // 分頁沒掛上的話這顆就只剩側欄圖示，程序還在跑、點不回去。
-  trackTerminal(id, items.find((item) => item.id === id)?.title || '終端機')
+  trackTerminal(id, trackedTitle(id))
 
   let entry = panes.get(id)
   const fresh = !entry
@@ -836,8 +897,10 @@ async function openSession(id, isActive = () => true) {
   // 新開的那一格由下面的 `terminal.open` 直接帶尺寸過去；切回舊的要補一次 resize
   // （被藏起來的期間版面可能被拉過，見 `fitAndSync`）。
   if (fresh) fitPane(entry)
-  else fitAndSync(id, entry)
-  entry.term.scrollToBottom()
+  else {
+    fitAndSync(id, entry)
+    void entry.conversation.refresh()
+  }
   const isCurrent = () => currentId === id && currentProjectId() === projectId
     && panes.get(id) === entry && !hostEl.classList.contains('hidden') && isActive()
 
@@ -849,10 +912,12 @@ async function openSession(id, isActive = () => true) {
       )
       // 掛上之後、快照回來之前收到的片段先排隊，免得順序顛倒；
       // 快照本身已含 seq 以前的內容，重疊的要丟掉。
+      await entry.conversation.restore()
       if (snapshot.buffer) await writeOutput(entry, snapshot.buffer)
       entry.seq = snapshot.seq
       entry.ready = true
       await drainOutput(entry)
+      void entry.conversation.refresh()
       scanScreen(id)
     } catch {
       const active = isCurrent()
@@ -867,11 +932,10 @@ async function openSession(id, isActive = () => true) {
   }
 
   if (!isCurrent()) return
-  entry.term.scrollToBottom()
-  entry.term.focus()
+  entry.conversation.focus()
   try { localStorage.setItem('termLastSession', id) } catch { /* 版面偏好不影響工作階段 */ }
   // 分頁列要有這一格（還原專案分頁時也走這裡）
-  trackTerminal(id, items.find((item) => item.id === id)?.title || '終端機')
+  trackTerminal(id, trackedTitle(id))
   await reloadList()
 }
 
@@ -901,11 +965,12 @@ function fitPane(entry) {
 function fitAndSync(id, entry) {
   const before = `${entry.term.cols}x${entry.term.rows}`
   fitPane(entry)
+  // 畫布可能需要重畫，即使切回來的欄列數沒變。
+  try { entry.term.refresh(0, entry.term.rows - 1) } catch { /* 還沒 open */ }
   // 拖側欄寬度時 ResizeObserver 一秒送幾十次，欄列數其實大多沒變：
   // 每一次都往 main 送 resize 等於連累 ConPTY 一起重排。
   if (`${entry.term.cols}x${entry.term.rows}` === before) return
   try { entry.webgl?.clearTextureAtlas() } catch { /* DOM renderer 沒有 atlas */ }
-  try { entry.term.refresh(0, entry.term.rows - 1) } catch { /* 還沒 open */ }
   void electronAPI.terminal.resize(id, entry.term.cols, entry.term.rows)
 }
 
@@ -1147,7 +1212,7 @@ async function checkHostRuntime() {
  */
 function writeOutput(entry, data) {
   const id = entry.pane?.dataset?.id || ''
-  const arm = () => { if (id) scheduleScreenScan(id) }
+  const arm = () => { if (id) scheduleScreenScan(id); entry.conversation?.changed() }
   if (document.hidden && typeof entry.term._core?._writeBuffer?.writeSync === 'function') {
     entry.term._core._writeBuffer.writeSync(data)
     arm()
@@ -1168,7 +1233,7 @@ async function drainOutput(entry) {
   if (!entry.ready || entry.writing) return
   entry.writing = true
   try {
-    while (entry.queue.length) {
+    while (entry.ready && entry.queue.length) {
       // 排隊的片段先接成一段再寫。AI CLI 串流時一秒有上百個小封包，
       // 逐段等 xterm 解析完＝每段都排一次 timer，畫面就是一格一格地跳。
       let seq = entry.seq
@@ -1213,11 +1278,48 @@ function onStatus(payload) {
   item.exitCode = payload.exitCode
   // 前景程式自己報的標題與工作目錄。**空的不要蓋回去**：清單只送「現在知道的」，
   // 收到一次空值就把好不容易撈到的標題洗掉，分頁名字會一直閃。
-  if (payload.osTitle) item.osTitle = payload.osTitle
+  if (payload.osTitle) {
+    item.osTitle = payload.osTitle
+    const stable = stableTitle(payload.osTitle)
+    if (stable && stable !== item.stableTitle) {
+      item.stableTitle = stable
+      if (item.preset && item.preset !== 'shell') panes.get(payload.id)?.conversation.changed()
+    }
+  }
   if (payload.liveCwd) item.liveCwd = payload.liveCwd
   // 未讀與 Git 重讀看的是合併後的狀態（畫面／hook 還說在跑就不算做完）。
   // 「在不在看」的定義在 `isWatching`。
   publishView(payload.id, prev)
+}
+
+/**
+ * @param {{ id?: string, title?: string } | null | undefined} item
+ * @param {unknown} title
+ * @returns {boolean}
+ */
+function rememberTitle(item, title) {
+  if (!item || typeof title !== 'string') return false
+  const next = title.trim()
+  if ((item.agentTitle || '') === next) return false
+  item.agentTitle = next
+  return true
+}
+
+function onSession(payload) {
+  const item = items.find((entry) => entry.id === payload?.id)
+  if (item && typeof payload.sessionId === 'string') item.agentSessionId = payload.sessionId
+  if (item && rememberTitle(item, payload?.title)) {
+    pushTabState(item.id)
+    setTerminalStatuses(displayedItems())
+  }
+  panes.get(payload?.id)?.conversation?.changed()
+}
+
+function onTitle(payload) {
+  const item = items.find((entry) => entry.id === payload?.id)
+  if (!rememberTitle(item, payload?.title)) return
+  pushTabState(item.id)
+  setTerminalStatuses(displayedItems())
 }
 
 export function initTerminalPage() {
@@ -1271,6 +1373,8 @@ export function initTerminalPage() {
   electronAPI.terminal.onData(onData)
   electronAPI.terminal.onStatus(onStatus)
   electronAPI.terminal.onAgent?.(onAgent)
+  electronAPI.terminal.onSession?.(onSession)
+  electronAPI.terminal.onTitle?.(onTitle)
 
   // Ctrl+G：CLI 要開編輯器改提示詞。main 那邊把它導到 App 自己的編輯分頁
   // （見 `terminal/editor-bridge.js`），這裡只負責把分頁開出來。
@@ -1310,35 +1414,9 @@ async function restorePreviousTerminals() {
   if (currentId || await workspace.restoreLastProject(last.projectId)) return
   if (currentProjectId()) return
   const unassigned = items.filter(item => !item.projectId)
-  for (const item of unassigned) trackTerminal(item.id, item.title)
+  for (const item of unassigned) trackTerminal(item.id, displayTitle(item) || '終端機')
   const target = unassigned.find(item => item.id === last.id) || unassigned[unassigned.length - 1]
   if (target) await openSession(target.id)
-}
-
-/**
- * 開一個新工作階段並送出一行指令。
- *
- * 給 Claude Code 頁的「更新 CLI」用：整個 npm 安裝過程使用者看得到，出錯也自己看得懂，
- * 比 App 偷偷在背景裝全域套件好。指令字串由 main 的固定表組出來（`ccswitch:updateCommand`），
- * 這裡只負責轉交。
- *
- * @param {string} title 側欄顯示的名稱
- * @param {string} command 送出的那一行（不含換行）
- * @returns {Promise<string>} 新工作階段的 id
- */
-export async function runInNewTerminal(title, command) {
-  initTerminalPage()
-  const created = await call(electronAPI.terminal.create({
-    shell: shellSelect?.value || '',
-    preset: 'shell',
-    cwd: cwdInput?.value || '',
-    projectId: currentProjectId(),
-    title
-  }), '建立終端機失敗')
-  await reloadList()
-  await openSession(created.id)
-  await electronAPI.terminal.write(created.id, `${command}\r`)
-  return created.id
 }
 
 /**
@@ -1358,6 +1436,7 @@ export async function openTerminalSession(id, isActive = () => true) {
  * @returns {boolean} 找不到有焦點的終端機就回 false（呼叫端會換別的方式）
  */
 export function pasteIntoFocusedTerminal(text) {
+  if (!document.activeElement?.closest?.('.term-screen')) return false
   const pane = /** @type {HTMLElement | null} */ (document.activeElement)?.closest?.('.term-pane')
   const entry = pane instanceof HTMLElement ? panes.get(pane.dataset.id || '') : null
   if (!entry || !text) return false
@@ -1372,10 +1451,6 @@ export function refreshTerminalPage() {
   // 回到這一頁＝看到了目前這個階段，未讀點該清掉
   if (currentId) unread.delete(currentId)
   void reloadList()
-  // 分頁剛顯示，這一幀才量得到尺寸
-  panes.get(currentId)?.term.scrollToBottom()
-  requestAnimationFrame(() => {
-    fitVisible()
-    panes.get(currentId)?.term.scrollToBottom()
-  })
+  // 分頁剛顯示，這一幀才量得到尺寸。不把捲軸拉回最底，對話跳轉的位置才留得住。
+  requestAnimationFrame(fitVisible)
 }

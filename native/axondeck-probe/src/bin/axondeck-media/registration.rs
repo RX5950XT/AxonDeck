@@ -9,10 +9,59 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_ABANDO
 use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject, ReleaseMutex};
 use windows::Win32::UI::Shell::*;
 
-const CAPABILITIES: &str = "Software\\AxonDeck\\Media\\Capabilities";
 const INITIALIZED_VALUE: &str = "DefaultsInitialized";
-// Windows UserChoice 的 Hash 綁定 ProgID；改這個字串會使使用者已選的預設程式失效。
-const PROGID_PREFIX: &str = "VoiceInk.Media.";
+
+/// 一組由 AxonDeck 接管的格式：媒體交給本播放器，文字／程式碼交給 AxonDeck 主程式的編輯器。
+pub struct Suite {
+    key: &'static str,
+    name: &'static str,
+    description: &'static str,
+    /// `Software\Classes\Applications\<app>`：開啟方式清單裡的那一筆
+    app: &'static str,
+    // Windows UserChoice 的 Hash 綁定 ProgID；改這個字串會使使用者已選的預設程式失效。
+    prefix: &'static str,
+    backups: &'static str,
+    formats: fn() -> &'static Value,
+    command: fn() -> String,
+    icon: fn() -> String,
+    label: fn(&str) -> &'static str,
+    /// 只有媒體有改名前（VoiceInk）的狀態要搬
+    legacy: bool,
+    /// 舊版接管、現在已移交別組的格式：舊備份裡出現時略過，不還原也不算不合法
+    retired: &'static [&'static str],
+}
+pub static MEDIA: Suite = Suite {
+    key: "Software\\AxonDeck\\Media", name: "AxonDeck Media",
+    description: "AxonDeck 原生圖片、動畫、影片與音樂播放器",
+    app: "axondeck-media.exe", prefix: "VoiceInk.Media.", backups: "association-backups",
+    formats: engine::formats,
+    command: || format!("\"{}\" -- \"%1\"", engine::runtime().join("axondeck-media.exe").display()),
+    icon: || format!("{},0", engine::runtime().join("icon.ico").display()),
+    label: |kind| match kind { "image" => "AxonDeck Media 圖片", "video" => "AxonDeck Media 影片", "audio" => "AxonDeck Media 音樂", _ => "AxonDeck Media 播放清單" },
+    legacy: true,
+    retired: &[".ts"],
+};
+/// resources\media\axondeck-media.exe → 安裝目錄的 AxonDeck.exe
+fn app_exe() -> PathBuf { engine::runtime().parent().and_then(Path::parent).map(|dir| dir.join("AxonDeck.exe")).unwrap_or_default() }
+fn editor_formats() -> &'static Value {
+    static FORMATS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    FORMATS.get_or_init(|| serde_json::from_str(include_str!("../../../../../src/main/editor-formats.json")).expect("embedded editor format list"))
+}
+pub static EDITOR: Suite = Suite {
+    key: "Software\\AxonDeck\\Editor", name: "AxonDeck Editor",
+    description: "AxonDeck 文字、Markdown 與程式碼預覽編輯器",
+    app: "AxonDeck.exe", prefix: "AxonDeck.Editor.", backups: "editor-association-backups",
+    formats: editor_formats,
+    command: || format!("\"{}\" \"--open-file=%1\"", app_exe().display()),
+    icon: || format!("{},0", app_exe().display()),
+    label: |kind| match kind { "markdown" => "Markdown 文件", "json" => "JSON 檔案", "config" => "設定檔", "code" => "程式碼檔案", _ => "文字檔" },
+    legacy: false,
+    retired: &[],
+};
+impl Suite {
+    fn capabilities(&self) -> String { format!("{}\\Capabilities", self.key) }
+    fn application(&self) -> String { format!("Software\\Classes\\Applications\\{}", self.app) }
+}
 // 舊版與新版可能同時在設定關聯，必須共用同一把鎖。
 const DEFAULTS_MUTEX: &str = "Local\\VoiceInkMediaDefaults-";
 struct DefaultsLock(HANDLE);
@@ -38,10 +87,9 @@ impl DefaultsLock {
 impl Drop for DefaultsLock {
     fn drop(&mut self) { unsafe { let _ = ReleaseMutex(self.0); let _ = CloseHandle(self.0); } }
 }
-fn command() -> String { format!("\"{}\" -- \"%1\"", engine::runtime().join("axondeck-media.exe").display()) }
-fn registered(root: HKEY) -> Option<String> {
+fn registered(s: &Suite, root: HKEY) -> Option<String> {
     let mut text = [0u16; 32768]; let mut bytes = size_of_val(&text) as u32;
-    let result = unsafe { RegGetValueW(root, w!("Software\\Classes\\Applications\\axondeck-media.exe\\shell\\open\\command"),
+    let result = unsafe { RegGetValueW(root, PCWSTR(wide(&format!("{}\\shell\\open\\command", s.application())).as_ptr()),
         None, RRF_RT_REG_SZ, None, Some(text.as_mut_ptr().cast()), Some(&mut bytes)) };
     result.is_ok().then(|| String::from_utf16_lossy(&text[..text.iter().position(|&v| v == 0).unwrap_or(text.len())]))
 }
@@ -55,49 +103,50 @@ pub(super) fn put(root: HKEY, path: &str, name: &str, value: &str) -> windows::c
         let _ = RegCloseKey(key); result
     }
 }
-pub fn register(machine: bool) -> windows::core::Result<()> {
+pub fn register(s: &Suite, machine: bool) -> windows::core::Result<()> {
     let _lock = DefaultsLock::acquire().map_err(|_| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), "預設關聯忙碌"))?;
     let root = if machine { HKEY_LOCAL_MACHINE } else { HKEY_CURRENT_USER };
-    migration::state(root)?;
+    if s.legacy { migration::state(root)?; }
     let _ = migration::data_dir();
-    let command = command();
-    put(root, CAPABILITIES, "ApplicationName", "AxonDeck Media")?;
-    put(root, CAPABILITIES, "ApplicationDescription", "AxonDeck 原生圖片、動畫、影片與音樂播放器")?;
-    put(root, CAPABILITIES, "ApplicationIcon", &format!("{},0", engine::runtime().join("icon.ico").display()))?;
-    put(root, "Software\\RegisteredApplications", "AxonDeck Media", CAPABILITIES)?;
-    put(root, "Software\\Classes\\Applications\\axondeck-media.exe", "FriendlyAppName", "AxonDeck Media")?;
-    put(root, "Software\\Classes\\Applications\\axondeck-media.exe\\DefaultIcon", "", &engine::runtime().join("icon.ico").to_string_lossy())?;
-    put(root, "Software\\Classes\\Applications\\axondeck-media.exe\\shell\\open\\command", "", &command)?;
-    for (kind, formats) in engine::formats().as_object().unwrap() {
-        let prog = format!("{PROGID_PREFIX}{kind}");
-        let label = match kind.as_str() { "image" => "圖片", "video" => "影片", "audio" => "音樂", _ => "播放清單" };
-        put(root, &format!("Software\\Classes\\{prog}"), "", &format!("AxonDeck Media {label}"))?;
-        put(root, &format!("Software\\Classes\\{prog}\\DefaultIcon"), "", &engine::runtime().join("icon.ico").to_string_lossy())?;
+    let command = (s.command)();
+    let icon = (s.icon)();
+    let (capabilities, application) = (s.capabilities(), s.application());
+    put(root, &capabilities, "ApplicationName", s.name)?;
+    put(root, &capabilities, "ApplicationDescription", s.description)?;
+    put(root, &capabilities, "ApplicationIcon", &icon)?;
+    put(root, "Software\\RegisteredApplications", s.name, &capabilities)?;
+    put(root, &application, "FriendlyAppName", s.name)?;
+    put(root, &format!("{application}\\DefaultIcon"), "", &icon)?;
+    put(root, &format!("{application}\\shell\\open\\command"), "", &command)?;
+    for (kind, formats) in (s.formats)().as_object().unwrap() {
+        let prog = format!("{}{kind}", s.prefix);
+        put(root, &format!("Software\\Classes\\{prog}"), "", (s.label)(kind))?;
+        put(root, &format!("Software\\Classes\\{prog}\\DefaultIcon"), "", &icon)?;
         // 沒有 TypeOverlay 時，檔案總管會把預設圖示（我們的 logo）疊在縮圖右下角；空字串＝不疊
         put(root, &format!("Software\\Classes\\{prog}"), "TypeOverlay", "")?;
         put(root, &format!("Software\\Classes\\{prog}\\shell\\open\\command"), "", &command)?;
         for ext in formats.as_array().unwrap() {
             let ext = format!(".{}", ext.as_str().unwrap());
-            put(root, &format!("{CAPABILITIES}\\FileAssociations"), &ext, &prog)?;
+            put(root, &format!("{capabilities}\\FileAssociations"), &ext, &prog)?;
             put(root, &format!("Software\\Classes\\{ext}\\OpenWithProgids"), &prog, "")?;
-            put(root, "Software\\Classes\\Applications\\axondeck-media.exe\\SupportedTypes", &ext, "")?;
+            put(root, &format!("{application}\\SupportedTypes"), &ext, "")?;
         }
     }
-    migration::cleanup(root)?;
+    if s.legacy { migration::cleanup(root)?; }
     unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, None, None); }
     Ok(())
 }
-pub fn unregister(machine: bool) -> windows::core::Result<()> {
+pub fn unregister(s: &Suite, machine: bool) -> windows::core::Result<()> {
     let _lock = DefaultsLock::acquire().map_err(|_| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), "預設關聯忙碌"))?;
     let root = if machine { HKEY_LOCAL_MACHINE } else { HKEY_CURRENT_USER };
     // 舊安裝／預覽版不可刪掉另一份播放器後來登記的開啟方式。
-    if registered(root).is_some_and(|value| !value.eq_ignore_ascii_case(&command())) { return Ok(()); }
-    migration::state(root)?;
+    if registered(s, root).is_some_and(|value| !value.eq_ignore_ascii_case(&(s.command)())) { return Ok(()); }
+    if s.legacy { migration::state(root)?; }
     let _ = migration::data_dir();
     if !machine {
-        let file = backup_path();
-        if let Some(file) = file { restore_defaults(Path::new(&file)).map_err(|_| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), "無法還原預設關聯"))?; }
-        for (ext, prog) in extensions() {
+        let file = backup_path(s);
+        if let Some(file) = file { restore_defaults(s, Path::new(&file)).map_err(|_| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), "無法還原預設關聯"))?; }
+        for (ext, prog) in extensions(s) {
             if association(&ext) == prog { clear_choice(&ext).map_err(|_| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), "無法還原預設關聯"))?; }
             if legacy_default(&ext).ok().flatten().as_deref() == Some(&prog) { delete_legacy(&ext).map_err(|_| windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), "無法還原預設關聯"))?; }
         }
@@ -109,8 +158,8 @@ pub fn unregister(machine: bool) -> windows::core::Result<()> {
         }
     };
     unsafe {
-        for (kind, formats) in engine::formats().as_object().unwrap() {
-            let prog = format!("{PROGID_PREFIX}{kind}");
+        for (kind, formats) in (s.formats)().as_object().unwrap() {
+            let prog = format!("{}{kind}", s.prefix);
             check(RegDeleteTreeW(root, PCWSTR(wide(&format!("Software\\Classes\\{prog}")).as_ptr())));
             for ext in formats.as_array().unwrap() {
                 let mut key = HKEY::default();
@@ -122,18 +171,18 @@ pub fn unregister(machine: bool) -> windows::core::Result<()> {
                 }
             }
         }
-        for path in ["Software\\AxonDeck\\Media", "Software\\Classes\\Applications\\axondeck-media.exe"] {
-            check(RegDeleteTreeW(root, PCWSTR(wide(path).as_ptr())));
+        for path in [s.key.to_owned(), s.application()] {
+            check(RegDeleteTreeW(root, PCWSTR(wide(&path).as_ptr())));
         }
         let mut key = HKEY::default();
         let opened = RegOpenKeyExW(root, w!("Software\\RegisteredApplications"), None, KEY_SET_VALUE, &mut key);
         check(opened);
         if opened.is_ok() {
-            check(RegDeleteValueW(key, w!("AxonDeck Media"))); let _ = RegCloseKey(key);
+            check(RegDeleteValueW(key, PCWSTR(wide(s.name).as_ptr()))); let _ = RegCloseKey(key);
         }
         SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, None, None);
     }
-    migration::cleanup(root)?;
+    if s.legacy { migration::cleanup(root)?; }
     if let Some(error) = failure { Err(error) } else { Ok(()) }
 }
 fn association(ext: &str) -> String {
@@ -151,26 +200,26 @@ fn legacy_default(ext: &str) -> Result<Option<String>, String> {
     result.ok().map_err(|_| "無法備份原預設關聯")?;
     Ok(Some(String::from_utf16_lossy(&buffer[..buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len())])))
 }
-fn backup_path() -> Option<String> {
+fn backup_path(s: &Suite) -> Option<String> {
     let mut buffer = [0u16; 32768]; let mut bytes = size_of_val(&buffer) as u32;
-    let result = unsafe { RegGetValueW(HKEY_CURRENT_USER, w!("Software\\AxonDeck\\Media"), w!("DefaultsBackup"),
+    let result = unsafe { RegGetValueW(HKEY_CURRENT_USER, PCWSTR(wide(s.key).as_ptr()), w!("DefaultsBackup"),
         RRF_RT_REG_SZ, None, Some(buffer.as_mut_ptr().cast()), Some(&mut bytes)) };
     result.is_ok().then(|| {
         let file = String::from_utf16_lossy(&buffer[..buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len())]);
         migration::backup_file(Path::new(&file)).to_string_lossy().into_owned()
     })
 }
-fn defaults_initialized() -> windows::core::Result<bool> {
+fn defaults_initialized(s: &Suite) -> windows::core::Result<bool> {
     let mut text = [0u16; 16]; let mut bytes = size_of_val(&text) as u32;
-    let result = unsafe { RegGetValueW(HKEY_CURRENT_USER, w!("Software\\AxonDeck\\Media"),
+    let result = unsafe { RegGetValueW(HKEY_CURRENT_USER, PCWSTR(wide(s.key).as_ptr()),
         PCWSTR(wide(INITIALIZED_VALUE).as_ptr()), RRF_RT_REG_SZ, None, Some(text.as_mut_ptr().cast()), Some(&mut bytes)) };
     if result == ERROR_FILE_NOT_FOUND || result == ERROR_PATH_NOT_FOUND { return Ok(false); }
     result.ok()?;
     Ok(String::from_utf16_lossy(&text[..text.iter().position(|&v| v == 0).unwrap_or(text.len())]) == "1")
 }
-fn extensions() -> Vec<(String, String)> {
-    engine::formats().as_object().unwrap().iter().flat_map(|(kind, formats)| {
-        formats.as_array().unwrap().iter().map(move |ext| (format!(".{}", ext.as_str().unwrap()), format!("{PROGID_PREFIX}{kind}")))
+fn extensions(s: &Suite) -> Vec<(String, String)> {
+    (s.formats)().as_object().unwrap().iter().flat_map(|(kind, formats)| {
+        formats.as_array().unwrap().iter().map(move |ext| (format!(".{}", ext.as_str().unwrap()), format!("{}{kind}", s.prefix)))
     }).collect()
 }
 fn initialize_with(
@@ -233,34 +282,34 @@ fn set_choice(ext: &str, prog: &str) -> Result<(), String> {
 fn save_report(folder: &Path, report: &Value) -> Result<(), String> {
     std::fs::write(folder.join("report.json"), serde_json::to_vec_pretty(report).unwrap()).map_err(|_| "無法寫入關聯備份".into())
 }
-fn backup() -> Result<(PathBuf, Value), String> {
-    let root = migration::data_dir().ok_or("找不到使用者資料夾")?.join("association-backups");
+fn backup(s: &Suite) -> Result<(PathBuf, Value), String> {
+    let root = migration::data_dir().ok_or("找不到使用者資料夾")?.join(s.backups);
     std::fs::create_dir_all(&root).map_err(|_| "無法建立關聯備份")?;
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "系統時間不正確")?.as_millis();
     let folder = root.join(format!("{stamp}-{}", std::process::id()));
     std::fs::create_dir(&folder).map_err(|_| "無法建立關聯備份")?;
     let mut entries = Vec::new();
-    for (ext, expected) in extensions() {
+    for (ext, expected) in extensions(s) {
         entries.push(json!({"extension":ext,"expected":expected,"before":association(&ext),"legacyBefore":legacy_default(&ext)?}));
     }
-    let report = json!({"version":1,"player":engine::runtime().join("axondeck-media.exe"),"backup":folder,"entries":entries});
+    let report = json!({"version":1,"player":(s.command)(),"backup":folder,"entries":entries});
     save_report(&folder, &report)?;
     let output = Command::new("reg.exe").args(["export", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts"])
         .arg(folder.join("file-exts.reg")).arg("/y").creation_flags(0x08000000).output().map_err(|_| "無法備份 Windows 關聯")?;
     if !output.status.success() { return Err("Windows 關聯備份失敗，未切換預設".into()); }
     Ok((folder, report))
 }
-pub fn defaults() -> Result<usize, String> {
+pub fn defaults(s: &Suite) -> Result<usize, String> {
     let _lock = DefaultsLock::acquire()?;
-    migration::state(HKEY_CURRENT_USER).map_err(|_| "無法搬移播放器狀態")?;
-    let formats = extensions();
+    if s.legacy { migration::state(HKEY_CURRENT_USER).map_err(|_| "無法搬移播放器狀態")?; }
+    let formats = extensions(s);
     if formats.iter().all(|(ext, prog)| association(ext) == *prog) {
-        register(false).map_err(|_| "無法登記播放器")?;
+        register(s, false).map_err(|_| "無法登記播放器")?;
         return Ok(formats.len());
     }
-    let (folder, mut report) = backup()?;
-    register(false).map_err(|_| "無法登記播放器")?;
-    put(HKEY_CURRENT_USER, "Software\\AxonDeck\\Media", "DefaultsBackup", &folder.join("report.json").to_string_lossy())
+    let (folder, mut report) = backup(s)?;
+    register(s, false).map_err(|_| "無法登記播放器")?;
+    put(HKEY_CURRENT_USER, s.key, "DefaultsBackup", &folder.join("report.json").to_string_lossy())
         .map_err(|_| "無法登記關聯備份")?;
     let entries = report["entries"].as_array_mut().unwrap();
     for entry in entries.iter_mut() {
@@ -288,37 +337,54 @@ pub fn defaults() -> Result<usize, String> {
     }
     let total = entries.len(); report["matched"] = json!(matched); save_report(&folder, &report)?;
     if matched != total {
-        let restored = restore_report(&folder.join("report.json"), true);
+        let restored = restore_report(s, &folder.join("report.json"), true);
         return Err(if restored.is_ok() { "預設切換未完全生效，已還原並保留備份" } else { "預設切換未完全生效，還原失敗；原設定備份已保留" }.into());
     }
     Ok(matched)
 }
 /// 首次安裝替使用者套用有備份的預設；成功後只重新登記，不再覆蓋後來的選擇。
-pub fn initialize() -> Result<(), String> {
+pub fn initialize(s: &Suite) -> Result<(), String> {
     let _lock = DefaultsLock::acquire()?;
-    migration::state(HKEY_CURRENT_USER).map_err(|_| "無法搬移播放器狀態")?;
-    let initialized = defaults_initialized().map_err(|_| "無法讀取初始化狀態")?;
+    if s.legacy { migration::state(HKEY_CURRENT_USER).map_err(|_| "無法搬移播放器狀態")?; }
+    let initialized = defaults_initialized(s).map_err(|_| "無法讀取初始化狀態")?;
     initialize_with(
         initialized,
-        || defaults().map(|_| ()),
-        || register(false).map_err(|_| "無法登記播放器".into()),
-        || put(HKEY_CURRENT_USER, "Software\\AxonDeck\\Media", INITIALIZED_VALUE, "1")
+        || defaults(s).map(|_| ()),
+        || register(s, false).map_err(|_| "無法登記播放器".into()),
+        || put(HKEY_CURRENT_USER, s.key, INITIALIZED_VALUE, "1")
             .map_err(|_| "無法儲存初始化狀態".into()),
-    )
+    )?;
+    adopt_from_media(s)
 }
-pub fn restore_defaults(file: &Path) -> Result<usize, String> {
+/// 從媒體移交給編輯器的格式（.ts）：還是我們當初設的媒體預設才改，使用者自己選了別的程式就不碰。
+fn adopt_from_media(s: &Suite) -> Result<(), String> {
+    if s.legacy { return Ok(()); }
+    let mut changed = false;
+    for (ext, prog) in extensions(s) {
+        if !MEDIA.retired.contains(&ext.as_str()) || !association(&ext).starts_with(MEDIA.prefix) { continue; }
+        put(HKEY_CURRENT_USER, &format!("Software\\Classes\\{ext}"), "", &prog).map_err(|_| "無法寫入預設關聯")?;
+        set_choice(&ext, &prog)?;
+        changed = true;
+    }
+    if changed { unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, None, None); } }
+    Ok(())
+}
+pub fn restore_defaults(s: &Suite, file: &Path) -> Result<usize, String> {
     let _lock = DefaultsLock::acquire()?;
-    restore_report(&migration::backup_file(file), false)
+    restore_report(s, &migration::backup_file(file), false)
 }
-fn restore_report(file: &Path, rollback: bool) -> Result<usize, String> {
+fn restore_report(s: &Suite, file: &Path, rollback: bool) -> Result<usize, String> {
     if std::fs::metadata(file).map_err(|_| "找不到關聯備份")?.len() > 2 * 1024 * 1024 { return Err("關聯備份過大".into()); }
     let bytes = std::fs::read(file).map_err(|_| "無法讀取關聯備份")?;
     let report: Value = serde_json::from_slice(&bytes).map_err(|_| "關聯備份格式不正確")?;
     let entries = report["entries"].as_array().ok_or("關聯備份格式不正確")?;
-    let allowed = extensions();
+    let allowed = extensions(s);
     let mut seen = std::collections::HashSet::new();
-    if report["version"] != 1 || entries.len() != allowed.len() { return Err("關聯備份版本不正確".into()); }
-    for entry in entries {
+    if report["version"] != 1 { return Err("關聯備份版本不正確".into()); }
+    // 格式清單會增減（例如 .ts 從媒體移給編輯器）：舊備份少了新格式照常還原，已移交的略過
+    let entries: Vec<&Value> = entries.iter()
+        .filter(|entry| !entry["extension"].as_str().is_some_and(|ext| s.retired.contains(&ext))).collect();
+    for entry in entries.iter() {
         let ext = entry["extension"].as_str().ok_or("關聯備份格式不正確")?;
         let before = entry["before"].as_str().ok_or("關聯備份格式不正確")?;
         let legacy = &entry["legacyBefore"];
@@ -420,14 +486,28 @@ mod tests {
     }
 
     #[test]
+    fn media_and_editor_never_claim_the_same_extension() {
+        let media: std::collections::HashSet<_> = extensions(&MEDIA).into_iter().map(|(ext, _)| ext).collect();
+        let editor = extensions(&EDITOR);
+        assert!(!editor.is_empty());
+        for (ext, _) in editor { assert!(!media.contains(&ext), "{ext} 同時被媒體與編輯器接管"); }
+    }
+    #[test]
+    fn retired_media_extensions_moved_to_editor() {
+        for ext in MEDIA.retired {
+            assert!(!extensions(&MEDIA).iter().any(|(e, _)| e == ext), "{ext} 已移交，媒體不可再接管");
+            assert!(extensions(&EDITOR).iter().any(|(e, _)| e == ext), "{ext} 移交後要由編輯器接管");
+        }
+    }
+    #[test]
     fn invalid_backup_cannot_change_associations() {
-        let formats = extensions();
+        let formats = extensions(&MEDIA);
         let before: Vec<_> = formats.iter().map(|(ext, _)| association(ext)).collect();
         let mut entries: Vec<_> = formats.iter().map(|(ext, prog)| json!({"extension":ext,"expected":prog,"before":"Unknown","legacyBefore":null})).collect();
         entries.last_mut().unwrap()["extension"] = json!(".txt");
         let file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("target/invalid-media-backup-{}.json", std::process::id()));
         std::fs::write(&file, serde_json::to_vec(&json!({"version":1,"entries":entries})).unwrap()).unwrap();
-        let result = restore_defaults(&file);
+        let result = restore_defaults(&MEDIA, &file);
         std::fs::remove_file(file).unwrap();
         assert!(result.is_err());
         let after: Vec<_> = formats.iter().map(|(ext, _)| association(ext)).collect();

@@ -42,6 +42,10 @@ function createScreentimeService(deps = {}) {
   let pendingApps = []
 
   const observer = createObserver({ onTick: handleTick, spawnFn: deps.spawnFn })
+  // Linux：X11 xprop／Wayland 各家合成器的前景 PID（observer-linux.js）；Windows 不載入
+  const linuxObserver = hostPlatform === 'linux'
+    ? (deps.linuxObserver || require('./observer-linux').createLinuxObserver)({ onTick: handleTick })
+    : null
   const web = createWebServer({
     onNotify: handleWeb,
     port: deps.port,
@@ -143,6 +147,7 @@ function createScreentimeService(deps = {}) {
     running = true
     generation++
     if (hostPlatform === 'win32') observer.start()
+    else if (linuxObserver) linuxObserver.start()
     startWeb()
     watchPower()
     return status()
@@ -165,6 +170,7 @@ function createScreentimeService(deps = {}) {
     generation++
     flushApp()
     observer.stop()
+    if (linuxObserver) linuxObserver.stop()
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
     return web.stop()
   }
@@ -176,14 +182,17 @@ function createScreentimeService(deps = {}) {
   }
 
   function status() {
-    // Linux／macOS：無前景視窗 observer（probe／PowerShell），勿假裝在記錄
-    const supported = hostPlatform === 'win32'
+    // Linux：偵測完才知道支不支援（偵測中先當支援、recording=false）；macOS 沒有 observer，勿假裝在記錄
+    const linuxSupport = linuxObserver ? linuxObserver.support : null
+    const supported = hostPlatform === 'win32' || Boolean(linuxSupport && linuxSupport.supported !== false)
+    const watching = hostPlatform === 'win32' ? observer.running : Boolean(linuxObserver && linuxObserver.running)
     return {
       supported,
-      note: supported ? '' : 'Linux 尚未支援前景視窗時長觀測（使用時長圖表不會自動累積）。',
+      note: supported ? '' : (linuxSupport?.note || '此平台尚未支援前景視窗時長觀測（使用時長圖表不會自動累積）。'),
+      observerBackend: linuxSupport?.backend || '',
       webEnabled,
-      recording: supported && observer.running,
-      observer: supported && observer.running,
+      recording: supported && watching,
+      observer: supported && watching,
       webListening: web.listening,
       webClients: web.clients,
       webError: web.lastError,

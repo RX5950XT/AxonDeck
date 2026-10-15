@@ -4,6 +4,15 @@
 
 ## 待辦／未解
 
+### 2026-10-16 — 系統監控總覽重排＋壓力測試併入效能調整
+
+- [x] 總覽：CPU 整列、其餘半寬兩欄（不用 dense，免得硬碟卡跑到儲存總表上面）、規格表欄窄列緊、子清單收成一排膠囊。
+- [x] 總覽去重：規格表不再重抄標題列讀數／副標／其他卡已有的值（記憶體用量、GPU VRAM／時脈、網路速率與主機名、主機板 BIOS／插槽、顯示器、系統名稱與開機時間、儲存「各硬碟即時速率」、CPU 快取階層）。
+- [x] 壓力測試併入「效能與壓力測試」分頁：CPU／GPU 即時儀表只留效能調整那份，加「記憶體與硬碟」列，四張測試卡一排，拿掉「壓力測試」分頁。順手修 `renderGaugeRow` 第一次建 DOM 不填值。
+- [x] 更新 `e2e-sysmon-cdp.js`、`e2e-sysmon-fans-cdp.js` 與 CONTEXT。
+- Review：`npm run lint` 通過；`test-sysmon*.js` 14 支全過；打包後 `e2e-sysmon-cdp` 113/113、`e2e-sysmon-fans-cdp` 23/23、`e2e-sysmon-oc-cdp` 18/18。1500px 寬截圖總覽高度 4556→2608px。CPU／GPU 風扇轉速不再出現在壓測頁（總覽與風扇分頁有）。
+- [x] 各寬度適配：總覽欄數改看面板寬（container query：<820 一欄、≥1700 三欄），卡片標題列看卡片自己的寬（<780 收曲線、<620 讀數換第二行、<320 規格表上下排）；壓測卡 4／2／1 欄；系統監控最大寬 1400→2000。截圖 760／900／1280／1920／2560 無水平溢出；`e2e-sysmon-cdp` 113、`e2e-sysmon-disk-cdp` 17、`e2e-screentime-cdp` 19、`e2e-visual-cdp` 54 全過。
+
 ### 2026-10-16 — 全庫死碼清理＋子代理找 bug
 
 - [x] 死碼：knip（找不到沒用的檔）＋自寫交叉比對；約 200 個「只在檔內用卻多匯出」的名字拿掉 export，刪 `MIN_GUARANTEED_DURATION_SEC`、STT 頁已不存在的子分頁切換（`showSubtab`／`currentSubtab`／`stt-subtab-changed`）、bench 量不到的「關掉投機解碼」候選。

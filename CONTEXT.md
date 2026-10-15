@@ -15,7 +15,7 @@ nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
 | 翻譯 | `translate` | local（LinguaForge）／cloud 翻譯；EdgeTTS 與模型按鈕同一排、按鈕寬度貼文字，展開浮在內容上。語音是繁中、簡中、英文、日文 |
 | 文字轉語音 | `speech` | Breeze-TTS-2 Q8：聲音設計、語音克隆、語氣指導、保存聲音、實驗性變聲；整段／逐句／字幕配音、讀音字典、錄音與裁切參考音、版本保留與單句重做、串流試聽與 WAV 匯出 |
-| 系統監控 | `sysmon` | 總覽／使用時長／處理程序／壓力測試／風扇／效能調整／磁碟空間 |
+| 系統監控 | `sysmon` | 總覽／使用時長／處理程序／風扇／效能與壓力測試／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
 | 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
 
@@ -131,6 +131,8 @@ native/
 ### 系統監控
 - 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；nvidia-smi 常駐；多 GPU 各自一卡。
 - 提權感測器 sidecar 走排程工作，斷線一直重拉；風扇曲線每秒重送；效能調整不開機自動套用。
+- 總覽：CPU 整列，其餘卡片依面板寬一／二／三欄（container query 掛在 `#sysmon-overview` 與各卡，不掛有下拉選單的分頁——container 會變成 fixed 定位基準）；規格表不重抄標題列讀數／副標／別張卡已有的值，子清單收成一排膠囊。
+- 效能與壓力測試同一分頁：CPU／GPU 即時儀表只有 `sysmon-oc.js` 那份，`sysmon-page.js` 只畫「記憶體與硬碟」列與四張測試卡。
 - 處理程序：`sysmon-procs.js` 管理圖示、整機占用與保存的欄序（名稱固定第一欄）；取樣器帶執行檔路徑，main 非同步快取圖示。網路沿用感測器 sidecar 的 Kernel-Network ETW（TCP／UDP、IPv4／IPv6），未啟用、權限不足、遺失事件或資料過期顯示「—」，不新增 UAC。
 - 磁碟空間：`axondeck-probe disk-tree` 平行掃＋treemap，刪除只丟回收筒。強制結束權限不足會跳一次 UAC。
 

@@ -1234,12 +1234,10 @@
                   aria-selected="false" aria-controls="sysmon-screentime">使用時長</button>
                 <button type="button" class="sysmon-tab" data-subtab="processes" role="tab"
                   aria-selected="false" aria-controls="sysmon-processes">處理程序</button>
-                <button type="button" class="sysmon-tab" data-subtab="stress" role="tab"
-                  aria-selected="false" aria-controls="sysmon-stress">壓力測試</button>
                 <button type="button" class="sysmon-tab" data-subtab="fans" role="tab"
                   aria-selected="false" aria-controls="sysmon-fans">風扇控制</button>
                 <button type="button" class="sysmon-tab" data-subtab="oc" role="tab"
-                  aria-selected="false" aria-controls="sysmon-oc">效能調整</button>
+                  aria-selected="false" aria-controls="sysmon-oc">效能與壓力測試</button>
                 <button type="button" class="sysmon-tab" data-subtab="disk" role="tab"
                   aria-selected="false" aria-controls="sysmon-disk">磁碟空間</button>
               </nav>
@@ -1321,24 +1319,70 @@
                 <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 
-              <!-- 壓力測試：CPU／GPU／記憶體／磁碟四項，上方一條即時負載與溫度儀錶 -->
-              <div id="sysmon-stress" class="sysmon-panel" role="tabpanel">
-                <div class="sysmon-stress-gaugeboard" role="status" aria-live="off"
-                  aria-label="壓力測試即時負載與溫度">
-                  <section class="sysmon-gauge-group">
-                    <h3>CPU</h3>
-                    <div id="sysmonStressCpu" class="sysmon-gauges sysmon-gauges-cpu"></div>
+              <!--
+                風扇控制：左邊是通用機殼示意圖（晶片給不出實體位置，所以是槽位＋使用者指派，
+                配一顆「識別」按鈕讓人用聽的認），右邊是可拖點的轉速曲線。
+                內容全部由 sysmon-fans.js 產生。
+              -->
+              <div id="sysmon-fans" class="sysmon-panel" role="tabpanel">
+                <div class="fan-bar">
+                  <label class="fan-switch">
+                    <input type="checkbox" id="fanEnabled" />
+                    <span class="fan-switch-track" aria-hidden="true"></span>
+                    <span class="fan-switch-text">接管風扇</span>
+                  </label>
+                  <span id="fanStatus" class="fan-status" role="status" aria-live="polite"></span>
+                  <span class="fan-bar-spacer"></span>
+                  <button type="button" id="fanTaskBtn" class="btn btn-secondary btn-sm" hidden>建立排程工作</button>
+                  <button type="button" id="fanResetBtn" class="btn btn-secondary btn-sm">全部還原 BIOS</button>
+                </div>
+                <div id="fanNotices" class="fan-notices"></div>
+                <div class="fan-layout">
+                  <section class="fan-card fan-chassis-card">
+                    <header class="fan-card-head">
+                      <h2>機殼配置</h2>
+                      <span class="fan-card-hint">斜上方視角示意圖</span>
+                    </header>
+                    <div id="fanChassis" class="fan-chassis"></div>
+                    <p class="fan-hint">位置靠聽的：用「識別」讓那顆全速轉幾秒。</p>
                   </section>
-                  <section class="sysmon-gauge-group">
-                    <h3>GPU</h3>
-                    <div id="sysmonStressGpu" class="sysmon-gpu-gauges"></div>
+                  <section class="fan-card fan-list-card">
+                    <header class="fan-card-head">
+                      <h2>風扇通道</h2>
+                      <span class="fan-card-hint">點一列展開設定</span>
+                    </header>
+                    <div id="fanList" class="fan-list"></div>
+                    <div id="fanEditor" class="fan-editor" hidden></div>
                   </section>
-                  <section class="sysmon-gauge-group">
+                </div>
+              </div>
+
+              <!--
+                效能與壓力測試：上面是即時儀表（套用或壓測時看得到時脈／功耗／溫度在動），
+                中間一排四項壓力測試，下面兩欄是 Ryzen Master／Afterburner 的可調項。套用是按鈕。
+              -->
+              <div id="sysmon-oc" class="sysmon-panel" role="tabpanel">
+                <div class="oc-bar">
+                  <span id="ocStatus" class="oc-status" role="status" aria-live="polite"></span>
+                  <span class="oc-bar-spacer"></span>
+                  <button type="button" id="ocResetBtn" class="btn btn-secondary btn-sm">還原出廠</button>
+                  <button type="button" id="ocApplyBtn" class="btn btn-primary btn-sm">套用</button>
+                </div>
+                <div id="ocNotices" class="oc-notices"></div>
+                <div class="oc-dash" id="ocDash" role="status" aria-live="off" aria-label="效能調整即時儀表">
+                  <section class="oc-dash-group">
+                    <h3>處理器即時</h3>
+                    <div id="ocCpuGauges" class="sysmon-gauges"></div>
+                    <div id="ocCpuCores" class="oc-coregrid" aria-label="每核時脈"></div>
+                    <p class="oc-spark-legend"><i class="oc-spark-swatch is-clock"></i>時脈（這一分鐘）<i class="oc-spark-swatch is-temp"></i>溫度</p>
+                    <canvas id="ocCpuSpark" class="oc-spark" width="640" height="56" aria-hidden="true"></canvas>
+                  </section>
+                  <div id="ocGpuDashHost" class="oc-gpu-dash-host"></div>
+                  <section class="oc-dash-group">
                     <h3>記憶體與硬碟</h3>
                     <div id="sysmonStressDisks" class="sysmon-gauges sysmon-gauges-disk"></div>
                   </section>
                 </div>
-
                 <div class="sysmon-stress-grid">
                   <section class="sysmon-stress-card">
                     <h2>CPU 壓力測試</h2>
@@ -1426,69 +1470,7 @@
                     <div id="sysmonBenchResult" class="sysmon-bench-result" role="status" aria-live="polite"></div>
                   </section>
                 </div>
-              </div>
-
-              <!--
-                風扇控制：左邊是通用機殼示意圖（晶片給不出實體位置，所以是槽位＋使用者指派，
-                配一顆「識別」按鈕讓人用聽的認），右邊是可拖點的轉速曲線。
-                內容全部由 sysmon-fans.js 產生。
-              -->
-              <div id="sysmon-fans" class="sysmon-panel" role="tabpanel">
-                <div class="fan-bar">
-                  <label class="fan-switch">
-                    <input type="checkbox" id="fanEnabled" />
-                    <span class="fan-switch-track" aria-hidden="true"></span>
-                    <span class="fan-switch-text">接管風扇</span>
-                  </label>
-                  <span id="fanStatus" class="fan-status" role="status" aria-live="polite"></span>
-                  <span class="fan-bar-spacer"></span>
-                  <button type="button" id="fanTaskBtn" class="btn btn-secondary btn-sm" hidden>建立排程工作</button>
-                  <button type="button" id="fanResetBtn" class="btn btn-secondary btn-sm">全部還原 BIOS</button>
-                </div>
-                <div id="fanNotices" class="fan-notices"></div>
-                <div class="fan-layout">
-                  <section class="fan-card fan-chassis-card">
-                    <header class="fan-card-head">
-                      <h2>機殼配置</h2>
-                      <span class="fan-card-hint">斜上方視角示意圖</span>
-                    </header>
-                    <div id="fanChassis" class="fan-chassis"></div>
-                    <p class="fan-hint">位置靠聽的：用「識別」讓那顆全速轉幾秒。</p>
-                  </section>
-                  <section class="fan-card fan-list-card">
-                    <header class="fan-card-head">
-                      <h2>風扇通道</h2>
-                      <span class="fan-card-hint">點一列展開設定</span>
-                    </header>
-                    <div id="fanList" class="fan-list"></div>
-                    <div id="fanEditor" class="fan-editor" hidden></div>
-                  </section>
-                </div>
-              </div>
-
-              <!--
-                效能調整：上面是即時儀表（套用後看得到時脈／功耗／溫度在動），
-                下面兩欄是 Ryzen Master／Afterburner 的可調項。套用是按鈕。
-              -->
-              <div id="sysmon-oc" class="sysmon-panel" role="tabpanel">
-                <div class="oc-bar">
-                  <span id="ocStatus" class="oc-status" role="status" aria-live="polite"></span>
-                  <span class="oc-bar-spacer"></span>
-                  <button type="button" id="ocResetBtn" class="btn btn-secondary btn-sm">還原出廠</button>
-                  <button type="button" id="ocApplyBtn" class="btn btn-primary btn-sm">套用</button>
-                </div>
-                <div id="ocNotices" class="oc-notices"></div>
                 <p class="oc-hint">PBO／Curve Optimizer／功耗與時脈牆；只這次開機有效，過熱即還原。</p>
-                <div class="oc-dash" id="ocDash" role="status" aria-live="off" aria-label="效能調整即時儀表">
-                  <section class="oc-dash-group">
-                    <h3>處理器即時</h3>
-                    <div id="ocCpuGauges" class="sysmon-gauges"></div>
-                    <div id="ocCpuCores" class="oc-coregrid" aria-label="每核時脈"></div>
-                    <p class="oc-spark-legend"><i class="oc-spark-swatch is-clock"></i>時脈（這一分鐘）<i class="oc-spark-swatch is-temp"></i>溫度</p>
-                    <canvas id="ocCpuSpark" class="oc-spark" width="640" height="56" aria-hidden="true"></canvas>
-                  </section>
-                  <div id="ocGpuDashHost" class="oc-gpu-dash-host"></div>
-                </div>
                 <div class="oc-layout">
                   <section class="oc-card" id="ocCpuCard">
                     <header class="oc-card-head">

@@ -6891,7 +6891,6 @@ h6.md-h { font-size: 14px; }
 .settings-card,
 .settings-footer,
 .sysmon-block,
-.sysmon-gauges,
 .sysmon-table,
 .hf-panel,
 .ex-sidebar,
@@ -8593,7 +8592,7 @@ h6.md-h { font-size: 14px; }
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 1400px;
+  max-width: 2000px;
   margin: 0 auto;
 }
 
@@ -9356,6 +9355,10 @@ h6.md-h { font-size: 14px; }
 .sysmon-panel { display: none; }
 .sysmon-panel.active { display: block; }
 
+/* 總覽的欄數跟著面板寬度走（不看視窗寬度）。只掛在總覽：
+   container 會變成 position: fixed 的基準，其他分頁有下拉選單不能掛 */
+#sysmon-overview { container: sysmon-overview / inline-size; }
+
 /* ── 總覽區塊（漸進式揭露）──────────────────────────────────────
    收起 = 標題 + 三四個關鍵讀數 + 歷史曲線 + 一條進度條；展開才長出
    視覺化明細、規格表與感測器讀數。同性質的長清單再包一層 <details>。
@@ -9367,16 +9370,17 @@ h6.md-h { font-size: 14px; }
   gap: 10px;
 }
 
-@media (min-width: 900px) {
-  .sysmon-blocks {
-    grid-template-columns: 1fr 1fr;
-  }
-  .sysmon-block[data-span="2"] {
-    grid-column: 1 / -1;
-  }
+@container sysmon-overview (min-width: 820px) {
+  .sysmon-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sysmon-block[data-span="2"] { grid-column: 1 / -1; }
+}
+
+@container sysmon-overview (min-width: 1700px) {
+  .sysmon-blocks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 .sysmon-block {
+  container: sysmon-block / inline-size;
   --block-accent: var(--accent-primary);
   --spark-line: var(--block-accent);
   --spark-fill: color-mix(in srgb, var(--block-accent) 18%, transparent);
@@ -9388,9 +9392,9 @@ h6.md-h { font-size: 14px; }
 .sysmon-block-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -9510,8 +9514,8 @@ h6.md-h { font-size: 14px; }
 .sysmon-block-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 12px 14px 14px;
   border-top: 1px solid var(--border-light);
 }
 
@@ -9601,8 +9605,8 @@ h6.md-h { font-size: 14px; }
 /* 值會折行，所以欄要寬一點（折得少）、列距要鬆一點（折了才看得出是同一組） */
 .sysmon-spec-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 7px 26px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 4px 22px;
   margin: 0;
   font-size: 12px;
 }
@@ -9610,8 +9614,8 @@ h6.md-h { font-size: 14px; }
 /* 每一組 dt/dd 包在 div 裡（HTML 允許），否則多欄流版會把標籤與值拆散 */
 .sysmon-spec-grid > div {
   display: grid;
-  grid-template-columns: minmax(74px, 108px) 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(64px, 92px) 1fr;
+  gap: 10px;
   align-items: baseline;
   min-width: 0;
 }
@@ -9621,7 +9625,7 @@ h6.md-h { font-size: 14px; }
   min-width: 0;
   color: var(--text-tertiary);
   overflow-wrap: anywhere;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 /* 值一律完整顯示：截成「…」的規格表等於沒有那筆資料。
@@ -9632,16 +9636,26 @@ h6.md-h { font-size: 14px; }
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
-.sysmon-sub {
+.sysmon-subs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--border-light);
 }
 
+.sysmon-sub { min-width: 0; }
+.sysmon-sub[open] { flex-basis: 100%; }
+
 .sysmon-sub > summary {
-  padding: 2px 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
@@ -9649,14 +9663,19 @@ h6.md-h { font-size: 14px; }
   cursor: pointer;
 }
 
+.sysmon-sub[open] > summary {
+  border-color: transparent;
+  background: var(--surface-subtle);
+}
+
 .sysmon-sub > summary::-webkit-details-marker { display: none; }
 
 .sysmon-sub > summary::before {
   content: '';
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 9px;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
   border-right: 2px solid var(--text-tertiary);
   border-bottom: 2px solid var(--text-tertiary);
   transform: rotate(-45deg);
@@ -9667,58 +9686,14 @@ h6.md-h { font-size: 14px; }
 .sysmon-sub > summary:hover { color: var(--text-primary); }
 .sysmon-sub .sysmon-spec-grid { padding: 8px 0 4px 16px; }
 
-/* ── 壓力測試上方的即時儀錶 ───────────────────────────────────── */
-
-/* 三個分組：CPU 一排（負載／功耗／溫度／轉速）、GPU 一排（同四格）、
-   記憶體與各硬碟一排（硬碟一顆一格）。auto-fit 會依寬度亂折，
-   同一組指標就被拆到兩排去，所以固定欄數 */
-.sysmon-stress-gaugeboard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.sysmon-gauge-group > h3 {
-  margin: 0 4px 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.04em;
-}
+/* ── 效能與壓力測試的即時儀表（外框由 .oc-dash-group 提供，這裡不再套卡片）── */
 
 .sysmon-gauges {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px 22px;
-  padding: 12px 18px;
+  gap: 8px 22px;
 }
 
-.sysmon-gpu-gauges {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-@media (min-width: 900px) {
-  .sysmon-gpu-gauges:has(.sysmon-gpu-gauge-card:nth-child(2)) {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-.sysmon-gpu-gauge-card {
-  padding: 10px 14px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--surface-glass);
-  min-width: 0;
-}
-.sysmon-gpu-gauge-card > h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-.sysmon-gpu-gauge-card .sysmon-gauges { padding: 0; }
 .sysmon-gpu-pick {
   display: flex;
   flex-wrap: wrap;
@@ -9899,30 +9874,29 @@ h6.md-h { font-size: 14px; }
 
 /* ── 壓力測試 ───────────────────────────────────────────────────── */
 
+/* 四項測試排成一排（窄一點兩兩一排），操作列用 margin-top: auto 對齊到底 */
 .sysmon-stress-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
 .sysmon-stress-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  padding: 18px;
+  padding: 12px 14px;
 }
 
-/* 說明文字長度不一樣，靠它把四張卡的操作列壓到同一條水平線上 */
-.sysmon-stress-desc { flex: 1 1 auto; }
-
-.sysmon-stress-card h2 { font-size: 16px; font-weight: 700; }
+.sysmon-stress-card h2 { font-size: 14px; font-weight: 700; }
 
 .sysmon-stress-desc {
   margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.65;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .sysmon-stress-row {
@@ -9933,7 +9907,7 @@ h6.md-h { font-size: 14px; }
 }
 
 .sysmon-stress-row > label {
-  flex: 0 0 84px;
+  flex: 0 0 64px;
   color: var(--text-tertiary);
   font-size: 12px;
 }
@@ -9944,7 +9918,7 @@ h6.md-h { font-size: 14px; }
 
 .sysmon-stress-row > output {
   flex: 0 0 auto;
-  min-width: 62px;
+  min-width: 48px;
   color: var(--text-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -9956,6 +9930,7 @@ h6.md-h { font-size: 14px; }
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: auto;
 }
 
 .sysmon-stress-stat {
@@ -9987,27 +9962,38 @@ h6.md-h { font-size: 14px; }
 
 #sysmonKillDialog { width: min(460px, 92vw); }
 
-@media (max-width: 900px) {
-  .sysmon-stress-grid { grid-template-columns: 1fr; }
-
-  /* 窄版先犧牲歷史曲線：關鍵讀數比趨勢重要，而且它本來就只是輔助 */
-  .sysmon-block-spark { display: none; }
-  .sysmon-block-stats { gap: 12px; }
-
-  /* 處理程序保持全部欄位可見；窄版由表格水平捲動。 */
+@media (max-width: 1280px) {
+  .sysmon-stress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
+  .sysmon-stress-grid { grid-template-columns: 1fr; }
   .sysmon-tbody { height: min(46vh, 420px); }
   .sysmon-search { width: 100%; }
+  /* 處理程序保持全部欄位可見；窄版由表格水平捲動。 */
+}
 
-  .sysmon-block-head { flex-wrap: wrap; }
+/* 標題列排法看卡片自己的寬度：半寬卡在 900 寬的視窗裡跟全寬卡在手機寬一樣窄 */
+@container sysmon-block (max-width: 780px) {
+  /* 先犧牲歷史曲線：關鍵讀數比趨勢重要，而且它本來就只是輔助 */
+  .sysmon-block-spark { display: none; }
+  .sysmon-block-stats { gap: 12px; }
+}
+
+@container sysmon-block (max-width: 620px) {
+  /* 讀數換到第二行，標題（硬碟型號這種長名字）才不會被擠成「A…」 */
+  .sysmon-block-head { flex-wrap: wrap; row-gap: 6px; }
   .sysmon-block-stats {
     order: 3;
     width: 100%;
-    justify-content: space-between;
+    gap: 20px;
+    padding-left: 21px;
   }
+  .sysmon-stat { align-items: flex-start; }
   .sysmon-block-value { min-width: 0; }
+}
+
+@container sysmon-block (max-width: 320px) {
   .sysmon-spec-grid > div { grid-template-columns: 1fr; gap: 0; }
 }
 

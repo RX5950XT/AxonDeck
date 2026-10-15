@@ -27,7 +27,7 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
     const duplicate = installed.filter((candidate) => candidate.id === row.id && candidate.version === row.version).length > 1
     const exact = !!(row.productCode || row.packageFullName) || !duplicate
     const note = row.missingUninstaller ? '解除安裝程式已遺失；可清除失效紀錄，程式檔案不會刪除。'
-      : !exact ? '安裝紀錄缺少唯一識別，暫時無法操作。' : row.framework ? '共用執行環境；其他程式可能需要此元件。' : ''
+      : !exact ? '安裝紀錄缺少唯一識別，暫時無法操作。' : ''
     return { name: row.name, id: row.id, version: row.version, source: row.source, architecture: row.architecture, scope: row.scope,
       key: row.key, catalogKey: entry?.key, site: iconSiteFor(row), category: categoryFor(row), available,
       canUninstall: !row.truncated && exact && !row.missingUninstaller,

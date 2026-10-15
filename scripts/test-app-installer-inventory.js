@@ -11,7 +11,7 @@ const { createInstaller } = require('../src/main/app-installer')
 
 async function main() {
   const rows = [1, 2].map(() => ({ id: 'Microsoft.DirectX', name: 'DirectX', version: '9' }))
-  const records = ['x64', 'x86'].map((architecture) => ({ kind: 'msix', name: 'DirectX', version: '9', architecture, scope: 'user', packageFullName: `DirectX_9_${architecture}__test`, framework: true }))
+  const records = ['x64', 'x86'].map((architecture) => ({ kind: 'msix', name: 'DirectX', version: '9', architecture, scope: 'user', packageFullName: `DirectX_9_${architecture}__test` }))
   const merged = mergeInventory(rows, records)
   assert.equal(merged.length, 2)
   assert.notEqual(merged[0].identity, merged[1].identity)
@@ -20,6 +20,12 @@ async function main() {
   const edgeRows = [{ name: 'Edge', id: 'Microsoft.Edge', version: '2' }, { name: 'Edge', id: 'MSIX\\Edge_1_x64__test', version: '1' }]
   assert.equal(mergeInventory(edgeRows, [{ name: 'Edge', kind: 'registry', version: '2', registryPath: 'edge-registry' },
     { name: 'Edge', kind: 'msix', version: '1', packageFullName: 'Edge_1_x64__test' }]).length, 2, 'desktop and packaged apps remain separate')
+  // 共用執行環境、與傳統安裝同名的自簽身分套件（Edge／Google App）不另列
+  assert.equal(mergeInventory(rows, records.map((x) => ({ ...x, framework: true }))).length, 0, 'frameworks hidden')
+  const google = mergeInventory([{ name: 'Google', id: 'ARP\\User\\X64\\{G}', version: '1' }, { name: 'Google', id: 'MSIX\\WGA_1_neutral__t', version: '1' }],
+    [{ name: 'Google', kind: 'registry', version: '1', productCode: '{G}', scope: 'user', architecture: 'x64', registryPath: 'g' },
+      { name: 'Google', kind: 'msix', version: '1', packageFullName: 'WGA_1_neutral__t', signature: 'Developer' }])
+  assert.deepEqual(google.map((x) => x.kind), ['registry'], 'identity package folds into its desktop install')
   const sdk = { kind: 'registry', name: '.NET SDK 8.0.425 (x64)', version: '8.4.2526', productCode: '{SDK}', registryPath: 'HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SDK', scope: 'machine', architecture: 'x64' }
   const sdkRows = mergeInventory([{ name: sdk.name, id: 'SDK.8', version: '8.0.425' }], [sdk])
   assert.equal(sdkRows[0].productCode, '{SDK}')

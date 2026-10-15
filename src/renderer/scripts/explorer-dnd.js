@@ -96,7 +96,9 @@ export function bindDropTarget(el, destFn, onDrop, onHover) {
       }, HOVER_ENTER_MS)
     }
   })
-  el.addEventListener('dragleave', () => {
+  el.addEventListener('dragleave', (event) => {
+    // 在列裡的子元素之間移動也會冒泡 dragleave：沒真的離開就別重設懸停計時
+    if (event.relatedTarget instanceof Node && el.contains(event.relatedTarget)) return
     stopTimer()
     el.classList.remove('is-drop')
   })
@@ -115,7 +117,7 @@ export function clearDrop() {
 }
 
 /** 殼層也有、但 App 自己做過的動詞——再畫一次會變成兩份「開啟／複製」。 */
-export const SKIP_SHELL_VERBS = new Set([
+const SKIP_SHELL_VERBS = new Set([
   'open', 'cut', 'copy', 'paste', 'pastelink', 'delete', 'rename', 'link', 'copyaspath', 'properties'
 ])
 

@@ -408,7 +408,8 @@ async function readSseStream(res, onDelta, onActivity, maxBuffer = MAX_SSE_BUFFE
     buffer += done ? decoder.decode() + "\n" : decoder.decode(value, { stream: true })
     if (buffer.length > maxBuffer) {
       await reader.cancel().catch(() => {})
-      return content.slice(0, MAX_INPUT_CHARS)
+      // 不能當成功回覆：使用者會以為這就是完整內容（已收到的部分由 handleStreamError 存下）
+      throw Object.assign(new Error('SSE line too long'), { code: 'SSE_TOO_LONG' })
     }
     const lines = buffer.split('\n')
     buffer = lines.pop() ?? ''
@@ -725,6 +726,7 @@ async function handleStreamError(error, entry, conversationId, acc) {
     if (entry.reason === 'timeout') return { ok: false, error: '回應逾時', aborted: true }
     return { ok: true, content: acc.partial, aborted: true }
   }
+  if (error?.code === 'SSE_TOO_LONG') return { ok: false, error: '回應資料過大，內容已截斷' }
   console.error('[chat] stream request failed')
   return { ok: false, error: '連線失敗：請檢查 API 設定與網路狀態' }
 }
@@ -777,12 +779,10 @@ module.exports = {
   isBusy,
   activeConversationIds,
   buildMessages,
-  sanitizeModels,
   sanitizePrompts,
   sanitizeProviders,
   allProviders,
   textProviders,
-  localProvider,
   LOCAL_PROVIDER_ID,
   providerFromLegacy,
   readProvider,
@@ -793,7 +793,6 @@ module.exports = {
   DEFAULT_CHAT_MODEL,
   MAX_INPUT_CHARS,
   MAX_CONTEXT_CHARS,
-  MAX_PROMPTS,
   MAX_PROMPT_CONTENT,
   MAX_PROVIDERS,
   MAX_PROVIDER_MODELS

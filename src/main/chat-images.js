@@ -149,5 +149,4 @@ module.exports = {
   release,
   isValidName,
   MAX_IMAGES_PER_MESSAGE,
-  MAX_IMAGE_BYTES
 }

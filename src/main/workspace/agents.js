@@ -375,8 +375,9 @@ async function codexTitles(home) {
     }
     return titles
   } catch (error) {
-    if (error.code === 'ENOENT') return new Map()
-    throw error
+    // Codex 寫入中會鎖住檔案；沒有標題不該讓整份 AI 記錄失敗
+    if (error.code !== 'ENOENT') console.error('[workspace] 讀 Codex 標題失敗:', error.code || error)
+    return new Map()
   }
 }
 
@@ -661,24 +662,18 @@ function resumeCommand(agent, sessionId) {
 module.exports = {
   AGENTS,
   MAX_SESSIONS,
-  WINDOW_DAYS,
   ID_RE,
   EDIT_TOOLS,
   claudeHomes,
   codexHomes,
-  existingDirs,
-  sourceLabel,
   dedupeSessions,
   latestPerAgent,
   codexFileArg,
-  findSessionFile,
   resume,
   encodeClaudeDir,
   looksLikePrompt,
-  claudeTitle,
   codexHead,
   samePath,
-  normalizeProjectFile,
   sessions,
   list: sessions,
   resumeCommand,

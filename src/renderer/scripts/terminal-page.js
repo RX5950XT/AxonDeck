@@ -743,6 +743,20 @@ function createPane(id) {
   return entry
 }
 
+/**
+ * 開／接回 PTY。main 在送出 open 前要先找可接續的對話，AI 終端機這段會等一陣子；
+ * 期間版面一變，那次 resize 宿主還沒有這個工作階段就被丟掉（或被 open 帶的舊尺寸蓋回），
+ * CLI 會照舊寬度畫在新寬度上，畫面就破了。回來時尺寸不同就補送一次。
+ */
+async function openPty(id, entry, message) {
+  const { cols, rows } = entry.term
+  const snapshot = await call(electronAPI.terminal.open(id, cols, rows), message)
+  if (entry.term.cols !== cols || entry.term.rows !== rows) {
+    void electronAPI.terminal.resize(id, entry.term.cols, entry.term.rows)
+  }
+  return snapshot
+}
+
 /** CLI 內改選舊對話時，補回同一 xterm；PTY 與輸入不重啟，期間輸出先排隊。 */
 async function restorePaneHistory(id) {
   const entry = panes.get(id)
@@ -753,7 +767,7 @@ async function restorePaneHistory(id) {
     entry.ready = false
     try {
       await writeOutput(entry, '')
-      const snapshot = await call(electronAPI.terminal.open(id, entry.term.cols, entry.term.rows), '讀取終端機畫面失敗')
+      const snapshot = await openPty(id, entry, '讀取終端機畫面失敗')
       if (panes.get(id) !== entry) return
       entry.term.reset()
       await entry.conversation.restore()
@@ -782,6 +796,12 @@ function paintPanes() {
     entry.pane.classList.toggle('is-active', at >= 0)
     entry.pane.classList.toggle('is-current', id === currentId && visibleIds.length > 1)
     entry.pane.style.order = at >= 0 ? String(at) : ''
+    // 看不到的格子不留 WebGL：每格一張整窗大小的畫布吃幾十 MB 顯示記憶體，
+    // 開到十幾格還會撞上 Chromium 每頁 16 個 context 的上限。切回來再接，xterm 會整片重畫
+    if (at < 0 && entry.webgl) {
+      entry.webgl.dispose()
+      entry.webgl = null
+    } else if (at >= 0 && !entry.webgl) entry.webgl = attachRenderer(entry.term)
   }
 }
 
@@ -824,7 +844,7 @@ export async function toggleTerminalSplit(id) {
  * @param {string} id
  * @returns {boolean}
  */
-export function isTerminalSplit(id) {
+function isTerminalSplit(id) {
   return visibleIds.length > 1 && visibleIds.includes(id)
 }
 
@@ -899,10 +919,7 @@ async function openSession(id, isActive = () => true) {
 
   if (fresh) {
     try {
-      const snapshot = await call(
-        electronAPI.terminal.open(id, entry.term.cols, entry.term.rows),
-        '開啟終端機失敗'
-      )
+      const snapshot = await openPty(id, entry, '開啟終端機失敗')
       // 掛上之後、快照回來之前收到的片段先排隊，免得順序顛倒；
       // 快照本身已含 seq 以前的內容，重疊的要丟掉。
       await entry.conversation.restore()
@@ -1304,7 +1321,7 @@ function onTitle(payload) {
   setTerminalStatuses(displayedItems())
 }
 
-export function initTerminalPage() {
+function initTerminalPage() {
   if (initialized) return
   initialized = true
   initWsTabs()

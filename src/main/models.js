@@ -499,7 +499,6 @@ module.exports = {
   LLM_MODEL_KEYS,
   ASR_MODEL_KEYS,
   OCR_MODEL_KEYS,
-  LLAMA_BUILD,
   isLlmKey,
   isAsrKey,
   RETIRED_MODEL_KEYS,

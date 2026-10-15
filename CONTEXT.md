@@ -43,7 +43,7 @@ src/main/
   pdf-translate/     index.js（工作／來源保護）／ipc.js／protocol.js／runtime.js（隔離 Python）／worker.py（逐頁 OCR 與 PDF 替換）
   ccswitch/          claude-settings.js、providers.js（routeFor）、models-scan.js、mcp.js、versions.js、gateway/
   codeusage/         scan.js（游標）、parsers.js（五家）、pricing.js（RULES_VERSION）
-  usage/             七家額度、claude-auth.js（續期）、codex-reset.js（app-server 兌換）
+  usage/             七家額度、claude-auth.js（續期）、claude-accounts.js（Claude 多帳號）、codex-reset.js（app-server 兌換）
   agy/               server.js、轉換器、catalog.js／model-map.js、credential.js（renewViaCli）、logs.js
   sysmon/            sampler.js、metrics.js、gpu.js、sensors.js（提權 sidecar）、fans.js、oc.js、disktree.js、stress.js
   screentime/        Tai 相容 SQLite、前景觀測、8908 WebSocket
@@ -105,7 +105,7 @@ native/
 - 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI；IPC 分段讀取，renderer 自動接成完整單頁，後續只重讀末段。標題／接續／複製路徑與概況／工具統計共用置頂區塊，長標題可展開；Ctrl+F 搜尋全文與工具內容，Enter／Shift+Enter／F3 前後跳轉，命中工具自動展開，Esc 關閉。
 - 終端機 PTY 在獨立宿主（`<userData>/terminal-host/`），App 重開／更新只斷線；五種 AI CLI 重開時接回原程序，程序已結束就用記住的對話 ID 接續（Claude 靠 hook，其他靠啟動前紀錄基準）。
 - Claude 狀態：hook（`<userData>/claude-hook/`）＋畫面判斷 → 分頁顯示運行中／等你回答／閒置。
-- 其他：WebGL renderer、搜尋、字級、最多 3 格並排、OSC 標題與 cwd、連結（CLI 自己換行的網址／路徑也接得起來：接續列縮排不算、上一列要寫到附近最長列的寬度才算被切斷）、Ctrl+G 用 App 內編輯分頁、剪貼簿截圖貼路徑、桌布與配色、管理員終端機。Codex 預設指令 `codex --no-daemon`（避免彈外部視窗）。
+- 其他：WebGL renderer、搜尋、字級、最多 3 格並排、OSC 標題與 cwd、連結（CLI 自己換行的網址／路徑也接得起來：接續列縮排不算、上一列要寫到附近最長列的寬度才算被切斷）、Ctrl+G 用 App 內編輯分頁、剪貼簿截圖貼路徑、桌布與配色、管理員終端機。Codex 預設指令 `codex --no-daemon`（避免彈外部視窗）；兩種宿主把 npm 套件內 codex.exe 的資料夾排到 PATH 最前，直接跑原生檔，別處「殺光 node.exe」不會連帶收掉 Codex。
 - 終端機右緣：`term-scrollbar.js` 與滑鼠滾輪共用 xterm 的實際列號；`term-conversation.js` 右上角滑入展開、離開收合，只列提問／最終回答（略過 Grok 的 system-reminder 注入），點選同步 `scrollToLine`，全螢幕的 alternate buffer 也照目前畫面定位，不送逐段滾輪、不建立第二份終端機。main 依已驗證 session id 讀正式紀錄；同視窗切換對話時，OpenCode 用 `OC | 標題`（含狀態前綴與結尾省略）、Codex 先去掉忙碌圖示再對唯一明確標題；標題只有資料夾名稱時，改看這次程序開始後、這個目錄裡唯一且較新的紀錄。Grok 先對 `~/.grok/active_sessions.json` 裡同一個 grok.exe、同一個目錄、開檔時間不早於這次程序的最新 session（OSC 標題一直停在 `grok` 也會改綁）；標題以 `標題 - grok` 結尾時同樣改綁。分頁在 OSC 只是 `grok` 這類通用名稱時顯示該對話 `summary.json` 的 `generated_title`（沒有就用 `session_summary`），使用者改過的名字仍優先。側欄與分頁的運行狀態跟該對話 `events.jsonl` 的回合與權限，回合結束就離開運行中。Antigravity 對該次 agy.exe 的 cli log，取最後一筆 `Streaming conversation`；這次 log 沒有對話代碼、且這個目錄只有一個 agy 分頁時，才改用這個目錄在 `last_conversations.json` 的那一筆。同專案多開分頁時各看各的：一筆對話只綁給一個還在跑的分頁（`agent-resume.js` 的 `claimed` 記擁有者），那個分頁的 CLI 關了才放行給新分頁接續。工作區路徑和終端機目錄不同時，仍綁定這次程序已證實的對話庫並顯示紀錄。終端機清單與專案裡的同一頁會改讀該段最新內容並繼續更新。改綁寫入後通知該分頁重讀，面板關著也換；進行中的掃描不把已經讀過的舊標題交給後到的查詢。Claude 由 PTY 子程序對應 `sessions/<pid>.json`（`/resume` 會改這份）。離開的對話若在同一秒再寫入 jsonl，仍以 pid 檔為準；pid 檔沒跟著改、專案 jsonl 又晚了兩秒以上，且這個目錄只有一支 Claude 時，才改綁那份較新的紀錄。其他可讀明確 resume 參數。啟動與恢復：Codex `--no-alt-screen`、Grok `--minimal --no-alt-screen`；JS／Rust 宿主均給 Claude `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`。OpenCode 維持全螢幕，宿主以 `OPENCODE_TUI_CONFIG` 載入 `opencode/navigation.mjs`（右緣拖曳軌用實際內容高度；對話清單只留 AxonDeck 右上角那一顆，外掛不再畫第二顆。依訊息 ID 跳轉；點任何一則都停在該則開頭，後面的輸出留在下面。xterm 找不到時寫 `terminal-nav/<id>.json`，外掛把內部捲軸移到該則；1.18.35 的回答沒有節點 ID 時，只接受同一提問內第一行唯一吻合的區塊）。專案側欄的 AI 紀錄每家各留最新 30 筆，面板開著時會再讀。全螢幕只收起 AxonDeck 捲軸，對話清單留著；點擊、拖曳與滾輪交給 CLI，Shift＋拖曳仍做本地選取。本機 Antigravity 已備份設定並設 `altScreenMode: never`（其他機器仍需同項 CLI 設定）。一般緩衝區保留 50000 列。經使用者同意，開啟時將正式保存的提問／回答（移除 ANSI 控制碼）逐頁補入同一個 xterm 的上方，再接原 PTY 畫面與即時輸出；以 marker 定位重複提問，保留可輸入的原 CLI。若 CLI 內切換舊對話後目標尚未載入，點選會補回保存紀錄與原 PTY 快照（期間即時輸出排隊、按 seq 去重），再一次跳轉；不重啟 PTY。超過緩衝區上限或仍無法定位時明示找不到。已運行的 CLI 要重啟接回後才套用原生模式。
 
 ### 檔案頁
@@ -136,6 +136,7 @@ native/
 
 ### 額度與用量統計
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
+- Claude 官方訂閱多帳號：併在「Claude 官方訂閱」那張供應商卡裡（第二行是目前帳號；存兩個以上時卡片拉成整列、列出各帳號可切換／移除），終端機登入過的帳號自動記下、卡上「＋ 帳號」走隔離的 `claude auth login`；切換＝換 `.credentials.json` 的 `claudeAiOauth`＋`.claude.json` 的 `oauthAccount`，正在用第三方供應商會順便切回官方。存兩個以上時 Claude 詳情卡一個帳號一段（`profiles`），條上那顆仍是使用中的帳號。
 - 額度條左邊兩顆按鈕「供應商」「用量統計」（顯示目前供應商、目前範圍花費），點開從條上方展開不透明抽屜（疊在內容上、不推擠終端機；點條外或 Esc 收起，彈窗與選單內的點擊不算）。同步診斷已整條拿掉（按鈕、彈窗、IPC）。
 - 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。
 - 用量統計抽屜：左邊總計（花費＋四種 token，色點兼圖例）在上、趨勢填滿下方；右邊依工具／依模型，每列明細一種 token 一格。整塊固定高度、分佈在自己那欄捲；抽屜窄於 760px（container query）改成一欄往下疊。
@@ -188,6 +189,7 @@ native/
 | `dictations.json` | 語音輸入紀錄與字典 |
 | `recordings/`／`live-transcripts/` | 錄音（webm）／即時字幕逐字稿（jsonl） |
 | `usage.json`／`code-usage.json` | 額度快取／用量桶＋游標 |
+| `claude-accounts.json` | Claude 各帳號登入快照（含 token，不進 allowlist） |
 | `agy-logs.db` | AGY 流量日誌 |
 | `claude-backup/` | `~/.claude/settings.json` 寫入前備份 |
 | `models/`／`hf-models/`／`hf-presets.ini` | 模型與執行環境／HF 模型庫／router preset |

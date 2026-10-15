@@ -359,8 +359,6 @@ function getTabsState(id) {
 module.exports = {
   MAX_NAME,
   MAX_DRAFT_CHARS,
-  normalizePath,
-  normalizeName,
   pathExists,
   sanitizeAll,
   list,

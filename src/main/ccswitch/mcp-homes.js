@@ -469,9 +469,10 @@ async function upsertToml(home, rawId, rawSpec, enabled = true) {
       throw fail('MCP_LIMIT', `MCP 伺服器最多 ${mcp.MAX_SERVERS} 台`)
     }
     if (enabled) {
+      // 先寫 live 再從停用清單拿掉：live 寫失敗時設定還留在停用清單
+      writeTomlFile(file, { ...root, mcp_servers: { ...servers, [id]: toTomlServer(home, spec, parsed.rest, true) } }, `mcp-${home}`)
       delete disabled[id]
       await writeCodexDisabled(disabled)
-      writeTomlFile(file, { ...root, mcp_servers: { ...servers, [id]: toTomlServer(home, spec, parsed.rest, true) } }, `mcp-${home}`)
     } else {
       if (id in servers) {
         const next = { ...servers }
@@ -666,7 +667,6 @@ module.exports = {
   TEMPLATES: mcp.TEMPLATES,
   configure,
   homes,
-  mcpFile,
   list,
   upsert,
   toggle,

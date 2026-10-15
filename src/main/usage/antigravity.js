@@ -364,12 +364,9 @@ async function syncAntigravity({
 
 module.exports = {
   applyAntigravityQuota,
-  antigravityHeaders,
   fetchLoadCodeAssist,
   mergeExpectedWindows,
   parseCredential,
-  parseModelsFallback,
-  parseQuotaSummary,
   readAntigravityCredential,
   refreshAccessToken,
   resolveCredentialScriptPath,

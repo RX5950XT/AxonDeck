@@ -145,7 +145,8 @@ function readAntigravity(sinceMs, dbPath) {
       ts: Number(row.ts) || 0,
       endTs: Number(row.end_ts) || 0,
       model: String(row.mapped_model || row.model || 'unknown'),
-      input: Number(row.input_tokens) || 0,
+      // Gemini 的 promptTokenCount 已含快取，扣掉才不會重複計價
+      input: Math.max(0, (Number(row.input_tokens) || 0) - (Number(row.cached_tokens) || 0)),
       output: Number(row.output_tokens) || 0,
       reasoning: Number(row.thought_tokens) || 0,
       cacheRead: Number(row.cached_tokens) || 0,
@@ -166,7 +167,6 @@ function readAntigravity(sinceMs, dbPath) {
 
 module.exports = {
   MAX_ROWS,
-  opencodeDbPath,
   readOpencode,
   readAntigravity
 }

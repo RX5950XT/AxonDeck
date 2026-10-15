@@ -11,6 +11,7 @@
  */
 
 const os = require('os')
+const path = require('path')
 const { nativeImage, BrowserWindow } = require('electron')
 const host = require('./shell-host')
 const paths = require('./paths')
@@ -142,9 +143,13 @@ async function menu(spec) {
         return { token: 0, items: [] }
       }
     }
+    // sidecar 用第一筆的資料夾解析所有子項目：跨資料夾多選（搜尋結果）時，別的檔名會被套到
+    // 第一個資料夾裡同名的檔案上。只送跟第一筆同資料夾的
+    const parentKey = (p) => path.dirname(p).toLowerCase()
+    const sameDir = list.filter((p) => parentKey(p) === parentKey(list[0]))
     const result = await s.send({
       op: 'menu',
-      paths: list,
+      paths: sameDir,
       dir,
       extended: input.extended === true
     })
@@ -326,7 +331,5 @@ module.exports = {
   thumbOf,
   attrsOf,
   propsOf,
-  toPng,
-  mapNode,
   hwndOf
 }

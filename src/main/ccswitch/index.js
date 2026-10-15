@@ -428,11 +428,8 @@ function runCliTask(key) { return cliVersion.runTask(key) }
 function cliTaskStatus(key) { return cliVersion.taskStatus(key) }
 
 module.exports = {
-  DEFAULT_GATEWAY_PORT,
   configure,
-  gatewayInfo,
   gatewayStatus,
-  startGateway,
   stopGateway,
   autoStartGateway,
   catalog,

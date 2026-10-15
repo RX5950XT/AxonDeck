@@ -133,7 +133,10 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
       for (let key = queue.shift(); key; key = queue.shift()) {
         const row = installed.find((item) => item.key === key)
         let phase = 'failed'
-        if (row && decorate(row).canUpgrade) {
+        // 排隊期間使用者可能已對同一筆按了單獨更新：別再開第二個 WinGet 去撞它
+        const busy = jobs.some((job) => active(job) && job.key === key)
+        if (busy) phase = 'skipped'
+        else if (row && decorate(row).canUpgrade) {
           const { job, done } = launch({ action: 'upgrade', key }, { ...row, entry: catalogFor(row) })
           await done
           phase = jobs.find((item) => item.id === job.id)?.phase

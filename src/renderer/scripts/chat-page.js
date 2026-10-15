@@ -347,8 +347,13 @@ async function handleNew(folderId = '', site = '') {
     return
   }
   setChatPaneMode('chat')
-  openSeq += 1
+  const seq = ++openSeq
   const conv = await electronAPI.chat.create(folderId)
+  // 建立途中點了別的對話：主區已經是那一則，只把新對話補進側欄
+  if (seq !== openSeq) {
+    await sidebar.reload()
+    return
+  }
   currentId = conv.id
   currentIsWeb = false
   noteLocation()
@@ -698,7 +703,8 @@ function startEdit(wrap, index) {
   }
   const submit = async () => {
     save.disabled = true
-    const conv = await electronAPI.chat.editMessage(convId, index, area.value)
+    // 丟例外也要把送出鈕放回來
+    const conv = await electronAPI.chat.editMessage(convId, index, area.value).catch(() => null)
     if (!conv) {
       save.disabled = false
       showToast('這則訊息現在不能編輯', 'error')
@@ -758,9 +764,9 @@ function armMessageDelete(btn, index) {
   clearTimeout(Number(btn.dataset.timer))
   const convId = currentId
   void (async () => {
-    const ok = await electronAPI.chat.deleteMessage(convId, index)
+    const ok = await electronAPI.chat.deleteMessage(convId, index).catch(() => false)
     if (!ok) showToast('這則訊息現在不能刪除', 'error')
-    const conv = await electronAPI.chat.get(convId)
+    const conv = await electronAPI.chat.get(convId).catch(() => null)
     if (conv && convId === currentId) showConversation(conv)
     await sidebar.reload()
   })()

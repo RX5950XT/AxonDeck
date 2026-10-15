@@ -854,7 +854,7 @@ function bindEvents() {
   renderModelCatalog()
 }
 
-export async function initAgyPage() {
+async function initAgyPage() {
   if (initialized) return
   initialized = true
   bindEvents()

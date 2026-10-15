@@ -1673,6 +1673,13 @@ function renderBlocks() {
     }
     updateBody(b, desc)
   })
+  // 這輪沒出現的（例如顯示卡少一張）要拿掉，不然舊數值會凍結在畫面上
+  const ids = new Set(descs.map((desc) => desc.id))
+  for (const [id, b] of blocks) {
+    if (ids.has(id)) continue
+    b.el.remove()
+    blocks.delete(id)
+  }
 }
 
 // ===== 進程表 =====
@@ -2417,7 +2424,8 @@ async function runBench() {
   $('sysmonBenchStop').disabled = false
   showBenchResult(`準備中…（${drive}）`)
   const sizeMb = Number($('sysmonBenchSize')?.value || 1024)
-  const res = await electronAPI.sysmon.diskBench({ drive, sizeMb })
+  // 丟例外也要把 benching 收回來，不然測速鈕會一直鎖著
+  const res = await electronAPI.sysmon.diskBench({ drive, sizeMb }).catch(() => null)
   state.benching = false
   $('sysmonBenchStart').disabled = false
   $('sysmonBenchStop').disabled = true

@@ -280,9 +280,10 @@ async function upsert(rawId, rawSpec, enabled = true) {
       error.userMessage = `MCP 伺服器最多 ${MAX_SERVERS} 台`
       throw error
     }
+    // 先寫進 live 再從停用清單拿掉：live 寫失敗時設定還留在停用清單
+    writeLive({ ...live, [id]: wrapForWindows(spec) })
     delete disabled[id]
     await writeDisabled(disabled)
-    writeLive({ ...live, [id]: wrapForWindows(spec) })
   } else {
     if (id in live) {
       const next = { ...live }

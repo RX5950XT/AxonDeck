@@ -355,7 +355,6 @@ async function remove(projectId, treePath) {
 
 module.exports = {
   TIMEOUT_MS,
-  MAX_TREES,
   parseList,
   parseDirty,
   checkBranch,

@@ -17,10 +17,12 @@
  */
 
 const { execFile } = require('child_process')
+const path = require('path')
 const http = require('http')
 
 /** 單次指令逾時 */
 const TIMEOUT_MS = 8000
+const SYSTEM32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
 /** 最多列幾個埠 */
 const MAX_PORTS = 200
 /** HTTP 探測逾時：本機服務該立刻回，等不到就當不是網頁 */
@@ -139,8 +141,8 @@ function isWebPage(status, contentType) {
  */
 async function list() {
   const [netstat, tasks] = await Promise.all([
-    run('netstat', ['-ano', '-p', 'TCP']),
-    run('tasklist', ['/FO', 'CSV', '/NH'])
+    run(path.join(SYSTEM32, 'netstat.exe'), ['-ano', '-p', 'TCP']),
+    run(path.join(SYSTEM32, 'tasklist.exe'), ['/FO', 'CSV', '/NH'])
   ])
   const ports = parseNetstat(netstat)
   const names = parseTasklist(tasks)
@@ -155,7 +157,6 @@ async function list() {
 
 module.exports = {
   NOISE_PORTS,
-  MAX_PORTS,
   parseAddress,
   parseNetstat,
   parseTasklist,

@@ -294,7 +294,9 @@ fn backup(s: &Suite) -> Result<(PathBuf, Value), String> {
     }
     let report = json!({"version":1,"player":(s.command)(),"backup":folder,"entries":entries});
     save_report(&folder, &report)?;
-    let output = Command::new("reg.exe").args(["export", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts"])
+    // 指名 System32：裸檔名會先搜應用程式目錄
+    let reg = format!("{}\\System32\\reg.exe", std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into()));
+    let output = Command::new(reg).args(["export", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts"])
         .arg(folder.join("file-exts.reg")).arg("/y").creation_flags(0x08000000).output().map_err(|_| "無法備份 Windows 關聯")?;
     if !output.status.success() { return Err("Windows 關聯備份失敗，未切換預設".into()); }
     Ok((folder, report))

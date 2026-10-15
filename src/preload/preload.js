@@ -237,7 +237,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('usage:load'),
     sync: () => ipcRenderer.invoke('usage:sync'),
     saveSettings: (settings) => ipcRenderer.invoke('usage:saveSettings', settings),
-    redeemCodexReset: (creditId) => ipcRenderer.invoke('usage:redeemCodexReset', creditId)
+    redeemCodexReset: (creditId) => ipcRenderer.invoke('usage:redeemCodexReset', creditId),
+    claudeAccounts: () => ipcRenderer.invoke('usage:claudeAccounts'),
+    claudeSwitch: (id) => ipcRenderer.invoke('usage:claudeSwitch', id),
+    claudeRemove: (id) => ipcRenderer.invoke('usage:claudeRemove', id),
+    claudeLogin: () => ipcRenderer.invoke('usage:claudeLogin'),
+    claudeLoginCancel: () => ipcRenderer.invoke('usage:claudeLoginCancel')
   },
 
   // ===== AGY 反向代理 =====

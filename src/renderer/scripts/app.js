@@ -452,7 +452,7 @@ function normalizeTtsRate(v) {
  * @param {unknown} v
  * @returns {'linguaforge08q4'|'indextranslate2b'}
  */
-export function normalizeLocalTranslateModel(v) {
+function normalizeLocalTranslateModel(v) {
   return LLM_KEY_SET.has(/** @type {string} */ (v))
     ? /** @type {'linguaforge08q4'|'indextranslate2b'} */ (v)
     : 'linguaforge08q4'
@@ -462,7 +462,7 @@ export function normalizeLocalTranslateModel(v) {
  * @param {unknown} v
  * @returns {'qwen3asr'|'qwen3asrgpu'}
  */
-export function normalizeAsrModelKey(v) {
+function normalizeAsrModelKey(v) {
   return v === 'qwen3asrgpu' ? 'qwen3asrgpu' : 'qwen3asr'
 }
 
@@ -543,9 +543,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   initNavHistory()
   // 終端機跟聊天共用這一頁：側欄的終端機清單啟動時就要接上（動態 import，不卡啟動）
-  document.addEventListener('stt-subtab-changed', () => {
-    activateSttSubtab()
-  })
   // 語音輸入的熱鍵是全域的，停在哪一頁都要收得到 → 啟動就掛，不等使用者切過去
   import('./dictation.js')
     .then((m) => m.initDictation())
@@ -1046,7 +1043,7 @@ export function switchPage(pageName, subtab = '') {
   if (pageName === 'stt') {
     loadSttPage().then((m) => {
       m.refreshSttPage()
-      activateSttSubtab(m.currentSubtab())
+      activateSttSubtab()
     })
   }
   if (pageName === 'translate') {

@@ -127,7 +127,6 @@ function matchesSearchFilters(hit, filters) {
 }
 
 module.exports = {
-  SEARCH_TYPES,
   sanitizeSearchFilters,
   classifySearchType,
   matchesSearchFilters

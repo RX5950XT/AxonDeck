@@ -334,7 +334,6 @@ function parseGrokLine(line, state) {
 
 module.exports = {
   MAX_LINE,
-  USD_TICKS,
   newState,
   toMs,
   uuidv7Ms,

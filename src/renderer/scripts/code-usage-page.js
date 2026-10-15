@@ -437,9 +437,15 @@ function addPriceRow() {
 
 // ===== 生命週期 =====
 
+let refreshSeq = 0
+
 async function refresh() {
+  const seq = ++refreshSeq
   try {
-    latest = await call(electronAPI.codeusage.stats({ range }), '讀取用量統計失敗')
+    const data = await call(electronAPI.codeusage.stats({ range }), '讀取用量統計失敗')
+    // 連點兩個範圍時，慢回來的舊範圍不能蓋掉新的
+    if (seq !== refreshSeq) return
+    latest = data
     render()
     if (latest?.needsRescan && !syncing) {
       void runSync()

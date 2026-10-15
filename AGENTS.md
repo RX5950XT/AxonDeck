@@ -62,7 +62,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 遞迴刪除一律 `safe-rm.js` 的 `removeTreeSync`（腳本用 `test-temp.js`）：Node 24 的 `rmSync({recursive})` 會穿過 junction 刪掉對面真資料。守門 `test-temp-hygiene.js`。
 - 碰使用者任意路徑用 `raw-fs.js`（＝`original-fs`）：Electron `fs` 碰過 `.asar` 就鎖到關 App。App 自己的資源不要用它讀。
 - 雲端錯誤只記狀態摘要；上游 body／token／`error.message` 不進 console／IPC／UI。代理只透傳 429，其餘 502。回歸 `test-error-hygiene.js`。
-- 不收 renderer 給的網址（上游位址由 main 從 store 取）；圖片只收 `data:` URI（防 SSRF）。外部 CLI 憑證只讀不寫，唯一例外是 Claude 的 `~/.claude/.credentials.json`。
+- 不收 renderer 給的網址（上游位址由 main 從 store 取）；圖片只收 `data:` URI（防 SSRF）。外部 CLI 憑證只讀不寫，例外只有：Claude 的 `~/.claude/.credentials.json`（續期、切帳號）與 `~/.claude.json` 的 `oauthAccount`（只在切帳號時換這一欄）；Codex 的 `~/.codex/auth.json` 在閘道續期後寫回 tokens（refresh token 用一次就作廢，不寫回 CLI 會被登出；寫前重讀，CLI 已換過就不蓋）。
 - 工作區檔案只走 `workspace/files.js` 的 `resolveIn`（`{ projectId, relPath }`＋分隔符比對＋兩邊 `realpathSync.native`）；整機檔案走 `explorer/paths.js` 的 `resolveAbs`。
 - git 一律 `spawn(..., { shell: false })`＋陣列參數＋`GIT_TERMINAL_PROMPT=0`；stderr 不透傳（含遠端 URL／token）。
 - 主程序不准對可能是網路路徑的東西做同步 I/O（NAS 睡著 → AppHang）；一律 `fs.promises`＋逾時（`drives.js` 的 `withTimeout`）。
@@ -159,6 +159,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重；Grok ticks 一律 1 USD = 1e10。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
 - `mergeExpectedWindows` 只能由 `usage/index.js` 呼叫，空窗不 merge（會生出假的 100%）。
 - Claude token 自己續（`usage/claude-auth.js`）：兩把鎖、鎖內重讀、CAS 寫回、原子替換；額度 API 要報 `claude-code/<版本>` UA，429 不重試並冷卻。Grok／Antigravity 靠代跑 CLI 續期並確認 token 真的換了。
+- Claude 多帳號（`usage/claude-accounts.js`）：使用中的帳號以 CLI 檔案為準、每次同步／切換前抄回快照，**快照絕不拿去續期**；只有沒在用的帳號由我們續、寫回自己的 store。續期、抄快照、切換排同一條隊，切換另拿 claude-auth 的兩把鎖。新增帳號在暫存 `CLAUDE_CONFIG_DIR` 跑 `claude auth login --claudeai`。回歸 `test-claude-accounts.js`。
 - Codex 重置兌換只走官方 `codex app-server`，測試絕不真的兌換。Grok `tier: 1`＝SuperGrok，其他不猜。
 
 ### 系統監控／風扇／效能調整

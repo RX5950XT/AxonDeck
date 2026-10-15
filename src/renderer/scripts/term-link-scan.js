@@ -6,7 +6,7 @@
  */
 
 /** 一條邏輯行最多接幾折（超長輸出不值得為了畫底線整份掃過去） */
-export const MAX_WRAP_ROWS = 50
+const MAX_WRAP_ROWS = 50
 
 // 全形／CJK 標點與表意文字：網址裡幾乎不會出現，黏在前後就是無關的字。
 const CJK = '\u3000-\u303F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF'

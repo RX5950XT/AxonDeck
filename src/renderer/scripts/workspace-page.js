@@ -2039,29 +2039,31 @@ function gitRow(project, file, side, ambiguous) {
 
   const git = electronAPI.workspace
   const refresh = () => void renderGit()
+  // main 失敗回 { ok: false } 不會 throw：走 call() 才會跳出原因，不然按了沒反應也沒訊息
+  const runGit = (promise, message) => void call(promise, message).catch(() => {}).finally(refresh)
   const untracked = side === 'untracked'
   if (side === 'conflict') {
     // 衝突檔案只給一顆「解決了」＝`git add`。捨棄不放在這裡：
     // 合併到一半按下去救不回來，而且那不是這一列該做的事
     row.append(act('解決了', '把這個檔案標成已解決（git add）', (btn) => {
       btn.disabled = true
-      void git.gitStage(project.id, file.path).then(refresh)
+      runGit(git.gitStage(project.id, file.path), '標成已解決失敗')
     }))
   } else if (side === 'staged') {
     row.append(act('取消', '取消暫存', (btn) => {
       btn.disabled = true
-      void git.gitUnstage(project.id, file.path).then(refresh)
+      runGit(git.gitUnstage(project.id, file.path), '取消暫存失敗')
     }))
   } else {
     row.append(
       act('暫存', '加入暫存區', (btn) => {
         btn.disabled = true
-        void git.gitStage(project.id, file.path).then(refresh)
+        runGit(git.gitStage(project.id, file.path), '暫存失敗')
       }),
       act(untracked ? '刪' : '捨棄', untracked ? '刪掉這個未追蹤的檔案' : '退回上一次提交的版本（救不回來）', (btn) => {
         armDiscard(btn, () => {
           btn.disabled = true
-          void git.gitDiscard(project.id, file.path).then(refresh)
+          runGit(git.gitDiscard(project.id, file.path), '捨棄失敗')
         })
       })
     )
@@ -2125,7 +2127,6 @@ async function renderGit() {
   // 最後都會回到這裡重畫，所以共用快取的失效點放這一個就夠。
   invalidateGitStatus()
   const seq = projectSeq
-  if (el.gitHub) el.gitHub.disabled = true
   let status
   try {
     status = await call(electronAPI.workspace.gitStatus(project.id), '讀不到 Git 狀態')
@@ -2535,7 +2536,9 @@ function gitGroup(files, side, project, host, ambiguous) {
       btn.disabled = true
       // 一個一個送：main 的 stage/unstage 只吃單一相對路徑，而且失敗的那個不該
       // 把整組拖下水（`allSettled` 不是 `all`）
-      await Promise.allSettled(files.map((file) => bulk.run(project.id, file.path)))
+      const results = await Promise.allSettled(files.map((file) => bulk.run(project.id, file.path)))
+      const failed = results.filter((r) => r.status === 'rejected' || !r.value?.ok).length
+      if (failed) showToast(`${failed} 個檔案沒處理成功`, 'error')
       void renderGit()
     })
     head.appendChild(btn)
@@ -3023,7 +3026,7 @@ function setGitSection(btn, body, open) {
   body.hidden = !open
 }
 
-export function initWorkspacePage() {
+function initWorkspacePage() {
   if (initialized) return
   initialized = true
   initWsTabs()

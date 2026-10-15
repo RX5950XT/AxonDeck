@@ -11166,6 +11166,54 @@ h6.md-h { font-size: 14px; }
   flex: 1 1 auto;
 }
 
+/* 官方訂閱存了兩個以上帳號：那張卡拉成整列，裡面列出各帳號 */
+.cc-tile.is-wide {
+  grid-column: 1 / -1;
+}
+
+.cc-acct-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px;
+}
+
+.cc-acct-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-secondary);
+  font-size: 12px;
+  cursor: default;
+}
+
+.cc-acct-email {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-acct-plan {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.cc-acct-switch {
+  flex: none;
+}
+
+.cc-tile-login {
+  flex: 0 0 auto;
+}
+
 /* 「＋」那一格：唯一的新增入口 */
 .cc-tile.is-add {
   border-style: dashed;
@@ -15161,6 +15209,42 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   background-color: var(--surface-glass-strong);
   box-shadow: var(--shadow);
   user-select: text;
+}
+
+/* Claude 多帳號：詳情卡裡一個帳號一段，段與段之間一條細線 */
+.usage-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.usage-profile + .usage-profile {
+  padding-top: 9px;
+  border-top: 1px solid var(--border-light);
+}
+
+.usage-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.usage-profile-email {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-profile-plan {
+  margin-left: auto;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* 雲端模型：模型名稱與用途對齊，操作不藏在 hover。 */

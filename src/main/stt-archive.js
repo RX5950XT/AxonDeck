@@ -235,5 +235,4 @@ module.exports = {
   appendTranscript,
   readTranscript,
   deleteTranscript,
-  parseTranscript
 }

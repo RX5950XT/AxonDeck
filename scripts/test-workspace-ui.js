@@ -63,7 +63,7 @@ check('不支援檔案有檔案總管按鈕', hasId('wsEditorUnsupportedRevealBt
 check('變更檔編輯器有未提交變更按鈕', hasId('wsEditorDiffBtn'))
 check('未提交變更按鈕會開既有 Diff', /editorDiffBtn[\s\S]*openDiffTab/.test(tabs))
 check('IDE 狀態列有接到 renderer', /el\.ideStatusbar\s*=\s*document\.getElementById\('wsIdeStatusbar'\)/.test(tabs))
-check('空白瀏覽器分頁會回到 about:blank', /if \(!href\)[\s\S]*guest\.setAttribute\('src', 'about:blank'\)/.test(browserPainter))
+check('空白瀏覽器分頁會回到新分頁頁面', /if \(!href\)[\s\S]*guest\.setAttribute\('src', NEWTAB_URL\)/.test(browserPainter))
 check('檔案樹有 Git 狀態標記', /ws-tree-status/.test(workspacePage))
 check('檔案樹會讀 Git 狀態', /loadTreeGitStatus/.test(workspacePage))
 check('點 Git 狀態標記會開 Diff', /openDiffTab\(project, entry\.rel/.test(workspacePage))

@@ -809,12 +809,6 @@ function validateKillPid(pid) {
 
 module.exports = {
   SORT_KEYS,
-  PROTECTED_PIDS,
-  MEMORY_TYPES,
-  ATA_ATTRS,
-  NVME_FEATURES,
-  PORT_TYPES,
-  kelvinToC,
   smartHealth,
   createFrameParser,
   parseStatic,

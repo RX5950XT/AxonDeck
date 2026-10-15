@@ -458,7 +458,7 @@ function hasLinguisticContent(text) {
  * @param {string} text
  * @returns {'zh-TW'|'zh-CN'|'en'|'ja'|'ko'}
  */
-export function detectScriptLang(text) {
+function detectScriptLang(text) {
   const t = text || ''
   if (/[\u3040-\u30ff]/.test(t)) return 'ja'
   if (/[\uac00-\ud7af]/.test(t)) return 'ko'

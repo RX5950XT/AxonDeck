@@ -128,7 +128,6 @@ function resetStoreForTests() {
 }
 
 module.exports = {
-  cloneDefaults,
   loadState,
   resetStoreForTests,
   sanitizeSettings,

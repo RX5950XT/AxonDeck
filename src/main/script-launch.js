@@ -264,9 +264,11 @@ async function launchScript(file) {
  */
 function projectIdOf(projects, file) {
   const norm = (p) => path.resolve(p).toLowerCase()
+  // 磁碟根（`d:\`）本身就以分隔符結尾，不能再補一個
+  const prefix = (p) => (norm(p).endsWith(path.sep) ? norm(p) : norm(p) + path.sep)
   const target = norm(file)
   const hit = projects
-    .filter((p) => p?.path && (target.startsWith(norm(p.path) + path.sep) || target === norm(p.path)))
+    .filter((p) => p?.path && (target.startsWith(prefix(p.path)) || target === norm(p.path)))
     .sort((a, b) => b.path.length - a.path.length)[0]
   return hit?.id || ''
 }

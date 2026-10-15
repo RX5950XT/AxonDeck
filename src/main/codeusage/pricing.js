@@ -56,7 +56,8 @@ const PER_TOKENS = 1_000_000
  *    v7 那條「4.6 是 1e9」是拿實收價去反推單價表推錯的，會把 4.6 灌水 10 倍。
  */
 // v11：Haiku 5.5 依逐請求輸入長度分桶，舊桶需要重掃才能分開兩級單價。
-const RULES_VERSION = 11
+// v12：AGY 的輸入扣掉快取讀取（promptTokenCount 本來就含快取），舊桶重算。
+const RULES_VERSION = 12
 
 /**
  * @typedef {object} Price
@@ -344,11 +345,8 @@ function needsFullRescan(storedVersion) {
 }
 
 module.exports = {
-  PER_TOKENS,
   RULES_VERSION,
   needsFullRescan,
-  BUILTIN_PRICES,
-  ALIASES,
   normalizeModel,
   isJunkModel,
   priceFor,

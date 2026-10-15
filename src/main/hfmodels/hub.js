@@ -341,5 +341,5 @@ function stripFrontMatter(text) {
 
 module.exports = {
   isRepoId, isRepoPath, searchModels, listFiles, fileUrl, peekFile, modelCard, readme,
-  stripFrontMatter, stripHtml, htmlTablesToMarkdown, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
+  htmlTablesToMarkdown, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
 }

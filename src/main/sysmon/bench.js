@@ -116,7 +116,7 @@ async function runDiskBench(req, onProgress = () => {}) {
     busy = false
     if (handle) { try { await handle.close() } catch { /* 已經關了 */ } }
     // 測試檔一定要刪掉，中途取消或失敗也一樣——不然使用者磁碟就多一個 GB 的垃圾
-    try { fs.unlinkSync(target) } catch { /* 檔案本來就沒建起來 */ }
+    await fs.promises.unlink(target).catch(() => { /* 檔案本來就沒建起來 */ })
   }
 }
 

@@ -1937,6 +1937,11 @@ registerUsageIpc({
     sync: (...args) => loadUsage().sync(...args),
     saveSettings: (...args) => loadUsage().saveSettings(...args),
     redeemCodexReset: (...args) => loadUsage().redeemCodexReset(...args),
+    listClaudeAccounts: () => loadUsage().listClaudeAccounts(),
+    switchClaudeAccount: (id) => loadUsage().switchClaudeAccount(id),
+    removeClaudeAccount: (id) => loadUsage().removeClaudeAccount(id),
+    loginClaudeAccount: () => loadUsage().loginClaudeAccount(),
+    cancelClaudeLogin: () => loadUsage().cancelClaudeLogin(),
     publicError: (error) => loadUsage().publicError(error)
   },
   isMainSender: assertMainWindowSender

@@ -318,8 +318,6 @@ module.exports = {
   SCAN_WINDOW_DAYS,
   MAX_FILE_BYTES,
   MAX_FILES,
-  collectFiles,
-  streamFile,
   scanSource,
   pruneCursors
 }

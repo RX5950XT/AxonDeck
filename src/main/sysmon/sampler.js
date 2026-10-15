@@ -29,6 +29,8 @@ const IDLE_INTERVAL_MS = 30_000
 /** 一輪 ~310ms，逾時給到 8 秒純粹是防它真的卡死 */
 const TICK_TIMEOUT_MS = 8000
 const STATIC_TIMEOUT_MS = 45_000
+/** 硬體清單查詢失敗後多久再試 */
+const STATIC_RETRY_MS = 60_000
 const READY_TIMEOUT_MS = 15_000
 const RESTART_BASE_MS = 1000
 const RESTART_MAX_MS = 30_000
@@ -150,6 +152,20 @@ function createSampler(deps = {}) {
   }
 
   function handleFrame(frame) {
+    // probe 這一輪自己出錯（`#ERR|…`）：不能拿空資料蓋掉硬體清單或上一輪的差值基準
+    const failed = String(frame.rows[0] || '').startsWith('#ERR|')
+    if (failed && frame.kind === 'static') {
+      staticPending = false
+      watchdog = clearTimer(watchdog)
+      // 一分鐘後下一輪 tick 再問一次，不要每輪都重查
+      setTimeout(() => { staticRequested = false }, STATIC_RETRY_MS).unref?.()
+      return
+    }
+    if (failed && frame.kind === 'tick') {
+      inFlight = false
+      watchdog = clearTimer(watchdog)
+      return
+    }
     if (frame.kind === 'static') {
       staticInfo = metrics.parseStatic(frame.rows)
       staticPending = false

@@ -541,7 +541,6 @@ async function reset() {
 module.exports = {
   PROVIDERS,
   STAT_RANGES,
-  RETENTION_DAYS,
   HOUR_MS,
   DAY_MS,
   configure,

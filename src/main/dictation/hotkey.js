@@ -272,7 +272,5 @@ module.exports = {
   isRecording,
   reset,
   RIGHT_ALT,
-  ESCAPE,
   NEUTRALIZER,
-  LONG_PRESS_MS
 }

@@ -67,6 +67,9 @@ let loginTimer = 0
 let loginSeq = 0
 let loginProvider = ''
 let agyRunning = false
+/** Claude 官方訂閱存起來的帳號（不含 token） */
+let claudeAccounts = []
+let claudeLoginBusy = false
 
 // ===== 共用小工具 =====
 
@@ -220,7 +223,7 @@ async function reloadGateway() {
 async function reloadProviders() {
   const data = await call(electronAPI.ccswitch.listProviders(), '讀取供應商清單失敗')
   // 列表要顯示「這一筆綁了誰」，所以帳號清單也要跟著更新
-  await reloadAccounts()
+  await Promise.all([reloadAccounts(), fetchClaudeAccounts()])
   providers = Array.isArray(data?.providers) ? data.providers : []
   currentId = data?.currentId || ''
   activeId = data?.activeId || ''
@@ -308,7 +311,10 @@ const tileReorder = createGridReorder({
  * @returns {{ text: string, warn: boolean }}
  */
 function tileMeta(item, preset) {
-  if (preset?.auth === 'none') return { text: '原本的登入', warn: false }
+  if (preset?.auth === 'none') {
+    const current = claudeAccounts.find((acct) => acct.active)
+    return { text: current ? [current.email, current.planName].filter(Boolean).join(' · ') : '原本的登入', warn: false }
+  }
   if (preset?.auth === 'agy') return { text: agyRunning ? '本機反代' : '本機反代 · 未啟動', warn: false }
   // 路由是 main 算好的（自訂那筆看協議，內建看表），renderer 不自己推；直連一定是 Messages，不用再講
   const route = item.route === 'gateway' ? `閘道 · ${SHORT_FORMATS[item.apiFormat] || item.apiFormat}` : '直連'
@@ -352,6 +358,11 @@ function providerTile(item) {
   const meta = tileMeta(item, preset)
   body.append(el('span', `cc-tile-meta${meta.warn ? ' is-warn' : ''}`, meta.text))
   tile.append(body)
+  const accountList = preset?.auth === 'none' ? claudeAccountList() : null
+  if (accountList) {
+    tile.classList.add('is-wide')
+    tile.append(accountList)
+  }
 
   const actions = el('div', 'cc-tile-actions')
   const missingKey = preset?.auth === 'key' && !item.hasKey
@@ -389,6 +400,7 @@ function providerTile(item) {
   edit.setAttribute('aria-label', `編輯 ${item.name}`)
   edit.addEventListener('click', () => openProviderDialog(item.id))
   actions.append(edit)
+  if (preset?.auth === 'none') actions.append(claudeLoginButton())
 
   // 內建那幾家刪到剩最後一筆會被 main 擋（守衛在 main）；UI 只在「刪得掉」時放鈕：
   // 自訂一律可刪，內建要同一家有第二筆（舊資料會有）才出現
@@ -432,6 +444,121 @@ async function activateProvider(id) {
         : '已寫入 settings.json') + '；開著的 Claude Code 要重開才生效')
   } catch {
     // call() 已經顯示訊息
+  }
+}
+
+// ===== Claude 官方訂閱多帳號（main：usage/claude-accounts.js） =====
+
+/** 只抓資料；畫面跟著供應商清單一起畫（帳號長在「Claude 官方訂閱」那張卡裡） */
+async function fetchClaudeAccounts() {
+  try {
+    claudeAccounts = await call(electronAPI.usage.claudeAccounts(), '讀取官方訂閱帳號失敗')
+  } catch {
+    // call() 已經顯示訊息；沿用上次的清單
+  }
+}
+
+async function reloadClaudeAccounts() {
+  await fetchClaudeAccounts()
+  renderProviders()
+}
+
+/**
+ * 官方訂閱卡裡的帳號清單：存了兩個以上才列（只有一個時卡片第二行已經寫著是誰）。
+ * @returns {HTMLElement | null}
+ */
+function claudeAccountList() {
+  if (claudeAccounts.length < 2) return null
+  const list = el('div', 'cc-acct-list')
+  list.setAttribute('role', 'list')
+  list.setAttribute('aria-label', '官方訂閱帳號')
+  for (const acct of claudeAccounts) list.append(claudeAccountRow(acct))
+  return list
+}
+
+/** @param {{ id: string, email: string, orgName: string, planName: string, active: boolean }} acct */
+function claudeAccountRow(acct) {
+  const row = el('div', `cc-acct-row${acct.active ? ' is-current' : ''}`)
+  row.setAttribute('role', 'listitem')
+  const email = el('span', 'cc-acct-email', acct.email || '（沒有 email）')
+  email.title = [acct.email, acct.orgName].filter(Boolean).join(' · ')
+  row.append(email, el('span', 'cc-acct-plan', acct.planName.replace(/^Claude /, '')))
+  if (acct.active) {
+    row.append(el('span', 'cc-badge', '目前帳號'))
+    return row
+  }
+  const use = /** @type {HTMLButtonElement} */ (el('button', 'btn btn-sm btn-secondary cc-acct-switch', '切換'))
+  use.type = 'button'
+  use.setAttribute('aria-label', `切換到 ${acct.email}`)
+  use.addEventListener('click', () => void switchClaudeAccount(acct, use))
+  const delBtn = iconButton('🗑', `移除 ${acct.email}`, () => armDelete(delBtn, () => void removeClaudeAccount(acct.id)))
+  row.append(use, delBtn)
+  return row
+}
+
+/** 官方訂閱卡按鈕列上那顆：登入另一個帳號；登入中變成「取消」 */
+function claudeLoginButton() {
+  const btn = /** @type {HTMLButtonElement} */ (el('button', 'btn btn-secondary btn-sm cc-tile-login',
+    claudeLoginBusy ? '取消登入' : '＋ 帳號'))
+  btn.type = 'button'
+  btn.title = claudeLoginBusy
+    ? '瀏覽器登入中；按這裡取消'
+    : '在瀏覽器登入另一個 Claude 帳號（不影響目前的登入）；終端機登入過的帳號也會自動記下'
+  btn.setAttribute('aria-label', claudeLoginBusy ? '取消登入 Claude 帳號' : '登入另一個 Claude 帳號')
+  btn.addEventListener('click', () => {
+    if (claudeLoginBusy) void electronAPI.usage.claudeLoginCancel()
+    else void loginClaudeAccount()
+  })
+  return btn
+}
+
+/**
+ * 切帳號；正在用第三方供應商的話一起切回官方訂閱（不然換了帳號也用不到）。
+ * @param {{ id: string, email: string }} acct
+ * @param {HTMLButtonElement} btn
+ */
+async function switchClaudeAccount(acct, btn) {
+  btn.disabled = true
+  btn.textContent = '切換中…'
+  try {
+    const { state } = await call(electronAPI.usage.claudeSwitch(acct.id), '切換帳號失敗')
+    void import('./quota-bar.js').then((mod) => mod.applyQuotaState(state))
+    const official = providers.find((item) => presetById(item.presetId)?.auth === 'none')
+    const backToOfficial = Boolean(official) && official.id !== activeId
+    if (backToOfficial) await call(electronAPI.ccswitch.activateProvider(official.id), '切回官方訂閱失敗')
+    await reloadProviders()
+    showStatus(`已切換到 ${acct.email}${backToOfficial ? '，並切回官方訂閱' : ''}；新開的 Claude Code 就會用這個帳號，開著的建議重開`)
+  } catch {
+    // call() 已經顯示訊息
+  } finally {
+    await reloadClaudeAccounts()
+  }
+}
+
+/** @param {string} id */
+async function removeClaudeAccount(id) {
+  try {
+    await call(electronAPI.usage.claudeRemove(id), '移除帳號失敗')
+  } catch {
+    // call() 已經顯示訊息
+  }
+  await reloadClaudeAccounts()
+}
+
+/** 在隔離的設定資料夾跑官方 `claude auth login`；目前使用中的登入不受影響 */
+async function loginClaudeAccount() {
+  if (claudeLoginBusy) return
+  claudeLoginBusy = true
+  renderProviders()
+  showStatus('已開啟瀏覽器：登入要加入的帳號即可，目前使用中的登入不受影響')
+  try {
+    const acct = await call(electronAPI.usage.claudeLogin(), '登入失敗')
+    showStatus(`已加入 ${acct.email}，按「切換」就能改用它`)
+  } catch {
+    showStatus('')
+  } finally {
+    claudeLoginBusy = false
+    await reloadClaudeAccounts()
   }
 }
 
@@ -1264,14 +1391,20 @@ async function loadMemoryEdit() {
     syncMemoryHint()
     return
   }
+  const file = memFile
   edit.disabled = false
   try {
-    const data = await call(electronAPI.ccswitch.readMemory(home, memFile), '讀取記憶檔失敗')
+    const data = await call(electronAPI.ccswitch.readMemory(home, file), '讀取記憶檔失敗')
+    // 等待期間點了別的檔：這份內容不能掛到新檔名底下（存檔會把 A 寫進 B）
+    if (memFile !== file) return
     memLoaded = typeof data?.content === 'string' ? data.content : ''
     edit.value = memLoaded
   } catch {
+    if (memFile !== file) return
+    // 讀不到就不給編輯：空白內容一按儲存就會把真的記憶檔清空
     memLoaded = ''
     edit.value = ''
+    edit.disabled = true
   }
   syncMemoryHint()
 }
@@ -1290,7 +1423,7 @@ function syncMemoryHint() {
 
 async function saveMemory() {
   const edit = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('ccMemoryEdit'))
-  if (!edit || !memFile) return
+  if (!edit || !memFile || edit.disabled) return
   try {
     await call(electronAPI.ccswitch.writeMemory(home, memFile, edit.value), '儲存記憶檔失敗')
     memLoaded = edit.value

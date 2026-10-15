@@ -78,23 +78,33 @@ namespace AxonDeckShell
         private const int MaxHandlers = 15;
         private const string OverlayKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers";
         private static List<IShellIconOverlayIdentifier> _handlers;
+        private static readonly object HandlersGate = new object();
 
+        // 縮圖 worker 好幾條執行緒同時呼叫：要上鎖，而且填完才交出去，不然會拿到填一半的清單
         private static List<IShellIconOverlayIdentifier> Handlers()
         {
-            if (_handlers != null) return _handlers;
-            _handlers = new List<IShellIconOverlayIdentifier>();
+            lock (HandlersGate)
+            {
+                if (_handlers == null) _handlers = LoadHandlers();
+                return _handlers;
+            }
+        }
+
+        private static List<IShellIconOverlayIdentifier> LoadHandlers()
+        {
+            var handlers = new List<IShellIconOverlayIdentifier>();
             using (RegistryKey root = Registry.LocalMachine.OpenSubKey(OverlayKey))
             {
-                if (root == null) return _handlers;
+                if (root == null) return handlers;
                 string[] names = root.GetSubKeyNames();
                 Array.Sort(names, StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < names.Length && i < MaxHandlers; i++)
                 {
                     IShellIconOverlayIdentifier handler = Create(root, names[i]);
-                    if (handler != null) _handlers.Add(handler);
+                    if (handler != null) handlers.Add(handler);
                 }
             }
-            return _handlers;
+            return handlers;
         }
 
         private static IShellIconOverlayIdentifier Create(RegistryKey root, string name)

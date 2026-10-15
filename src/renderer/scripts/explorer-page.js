@@ -3200,7 +3200,7 @@ async function pasteHere() {
     const landed = (done && done.paths) || []
     if (landed.length && lastClip.paths.length) {
       pushUndo(lastClip.mode === 'cut' ? '搬移' : '複製',
-        lastClip.mode === 'cut' ? undoMove(landed, lastClip.paths) : undoCopy(landed))
+        lastClip.mode === 'cut' ? undoMove(landed, done.sources || lastClip.paths) : undoCopy(landed))
     }
     await refreshAfterMutate()
   } catch {
@@ -4110,7 +4110,7 @@ async function handleDrop(e, toDir) {
       const landed = (done && done.paths) || []
       if (landed.length) {
         pushUndo(mode === 'copy' ? '複製' : '搬移',
-          mode === 'copy' ? undoCopy(landed) : undoMove(landed, paths))
+          mode === 'copy' ? undoCopy(landed) : undoMove(landed, done.sources || paths))
       }
     }
     await refreshAfterMutate()

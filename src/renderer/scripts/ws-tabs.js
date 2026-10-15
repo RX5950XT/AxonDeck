@@ -1908,6 +1908,27 @@ function hint(text) {
  */
 async function saveActiveFile(force = false) {
   const tab = findTab(activeId)
+  if (!tab) return
+  // 連按 Ctrl+S：第二次帶的是第一次寫入前的 mtime，會被 main 當成 STALE 擋下。等前一次寫完再存一次
+  if (tab.saving) {
+    tab.saveAgain = true
+    return
+  }
+  tab.saving = true
+  try {
+    await saveFileNow(force)
+  } finally {
+    tab.saving = false
+    if (tab.saveAgain) {
+      tab.saveAgain = false
+      if (findTab(activeId) === tab) void saveActiveFile()
+    }
+  }
+}
+
+/** @param {boolean} force */
+async function saveFileNow(force) {
+  const tab = findTab(activeId)
   const text = /** @type {HTMLTextAreaElement | null} */ (el.editorText)
   if (!tab || tab.kind !== 'editor' || !text || tab.readonly) return
   const live = monaco ? currentValue() : null

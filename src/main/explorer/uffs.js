@@ -681,7 +681,7 @@ async function runEnsure(opts) {
     st = await installBroker()
   }
   if (st.installed && !st.daemon.running && !st.broker.installed) {
-    await startDaemon({ elevate: !st.broker.installed })
+    await startDaemon({ elevate: true })
     hasUsedDaemon = true
     scheduleRelease()
     st = await status()
@@ -690,9 +690,6 @@ async function runEnsure(opts) {
 }
 
 module.exports = {
-  MAX_PATTERN,
-  SEARCH_LIMIT,
-  SEARCH_SCAN_LIMIT,
   MAX_ZIP_BYTES,
   sanitizePattern,
   configure,
@@ -704,8 +701,6 @@ module.exports = {
   cancelSearch,
   download,
   cancelDownload,
-  installBroker,
-  startDaemon,
   ensureReady,
   releaseMemory,
   shutdown,

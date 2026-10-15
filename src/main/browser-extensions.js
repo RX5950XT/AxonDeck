@@ -120,8 +120,15 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
   const stateFile = path.join(dir, 'extension-state.json')
   let state = {}
   if (fs.existsSync(stateFile)) {
-    state = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
-    if (!state || Array.isArray(state) || typeof state !== 'object') throw new Error('擴充功能設定格式不對')
+    try {
+      state = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+      if (!state || Array.isArray(state) || typeof state !== 'object') throw new Error('擴充功能設定格式不對')
+    } catch (error) {
+      // 這裡跑在 whenReady 裡、建主視窗之前：壞檔不能讓整個 App 開不起來。留備份，從空的開始
+      console.error('[browser-extensions] 擴充功能設定讀不懂，已改名備份:', error?.message || error)
+      try { fs.renameSync(stateFile, `${stateFile}.bad`) } catch { /* 改名失敗下次存檔會蓋掉 */ }
+      state = {}
+    }
   }
   const saved = (id) => state[id] || {}
   const allowed = (id) => saved(id).userScripts ?? (id === 'ndcooeababalnlpkfedmmbbbgkljhpjf')

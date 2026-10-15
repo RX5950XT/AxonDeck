@@ -4,6 +4,48 @@
 
 ## 待辦／未解
 
+### 2026-10-16 — 全庫死碼清理＋子代理找 bug
+
+- [x] 死碼：knip（找不到沒用的檔）＋自寫交叉比對；約 200 個「只在檔內用卻多匯出」的名字拿掉 export，刪 `MIN_GUARANTEED_DURATION_SEC`、STT 頁已不存在的子分頁切換（`showSubtab`／`currentSubtab`／`stt-subtab-changed`）、bench 量不到的「關掉投機解碼」候選。
+- [x] 9 個 Haiku 子代理唯讀掃 main／renderer／native，逐條讀碼核對後修約 55 條（安全：雲端 ASR 壞網址把金鑰送去 OpenRouter、8908 WebSocket 不驗 Origin；資料：MCP 啟用順序、Claude 切帳號只換一半、記憶檔讀失敗後存空白、字典滿了吞新詞、TTS 版本清單被鎖時蓋掉；計價：AGY 快取重複計價＋`RULES_VERSION` 12）。
+- [ ] 沒修（要取捨或要真硬體）：感測器交接檔沒 ACL（提權 sidecar 可被同帳號程序導到假管道）、`Oc.Reset` 忽略 SMU 回傳值、terminal store／file-transcribe／workspace 拖入的同步 I/O、Codex refresh token 輪替、worktree 移除會刪 .gitignore 檔、`showAt` 把 git 失敗畫成空檔、Monaco 首載競態、終端機清單快照蓋掉新狀態。
+- Review：`npm run lint` 通過；`run-tests.js` 142/144，剩 `test-terminal-reopen`（`openPty` 重構）與 `test-workspace-ui`（瀏覽器分頁 about:blank）兩支斷言對的是工作區原本未提交的改動，非本次；`cargo check --all-targets`＋`cargo test` 全過；兩個 .NET sidecar `dotnet build` 成功。未打包、未跑 CDP。
+
+### 2026-10-16 — 記憶體占用
+
+- [x] 實測使用中的 App（約 2.5GB）：GPU 750MB（終端機 WebGL、被藏的頁面殘留繪圖）、主程序 414MB（JS heap 77MB 存活，OpenCC 字典樹占一半）、聊天頁 293MB、Telegram 231MB、背景功能頁共約 340MB、擴充功能約 150MB。
+- [x] `opencc.js`：s2tw／s2twp 共用正規化、斷詞、簡轉繁三棵字典樹（81→42MB）；`test-opencc.js` 對照 `Converter()` 53,528 詞條一致。
+- [x] `terminal-page.js` `paintPanes`：看不到的格子卸掉 WebGL、切回來再接（4 格只留 1 個 context）。
+- [x] `sysmon/gpu.js`：`nvidia-smi` 不再 detached，App 被強制結束／更新重啟時跟著結束（機器上已累積 5 顆孤兒，已清掉）。
+- [ ] 未做（需取捨）：久未使用的功能頁回收 renderer、擴充功能延後到第一次開瀏覽器才載入。
+- Review：`npm run lint` 通過；`test-opencc`、`test-sysmon` 188/188、`test-terminal-ui` 15/15；打包版沙箱實測 WebGL context 數與切回後顯示；強制結束父程序對照 detached（存活）／非 detached（隨之結束）。
+
+### 2026-10-16 — Claude 官方訂閱多帳號（額度＋切換）
+
+- [x] 參考 claude-swap／clauth：存每個帳號的 `claudeAiOauth`＋`oauthAccount` 快照，切換時寫回兩個檔。
+- [x] 額度詳情卡一個帳號一段；帳號清單併進「Claude 官方訂閱」供應商卡（切換／移除／＋ 帳號）。
+- [ ] 「登入新帳號」與真的切換帳號尚未用真帳號走過（需要使用者在瀏覽器登入第二個帳號）。
+- Review：`test-claude-accounts.js` 5 項、`test-usage*`／`test-claude-auth`／`test-ccswitch*`／`test-error-hygiene` 全過，`npm run lint` 通過；沙箱實例（dev＋暫存 userData）截圖確認抽屜帳號區與詳情卡分段，無例外。
+
+### 2026-10-15 — GitHub 按鈕閃爍
+
+- [x] 追查檔案監看／終端機完成／手動更新共同入口，移除同專案更新前的多餘停用。
+- [x] 驗證連續更新不變灰、移除遠端仍停用，完成 lint 與打包版驗收。
+- Review：`npm run lint` 通過；`electron:pack`（345 支 src 一致）；打包版 `e2e-workspace-cdp` 的 GitHub 四項（遠端存在可用、連續三次更新不變灰、移除遠端後停用）全過。同支腳本 `[A] 兩顆模式鈕都在` 失敗，屬側欄舊斷言，未在本次範圍。
+
+### 2026-10-16 — 開 AI 時終端機畫面破碎
+
+- [x] 使用者補充「拖側欄就恢復」→ 尺寸不同步。根因：main `openSession` 送 open 前要先準備接續（AI 終端機較久），期間 renderer 的 resize 到宿主時工作階段還不存在被丟掉（或被 open 的舊尺寸蓋回），CLI 照舊寬度畫。
+- [x] `terminal-page.js` 的 `openPty`：open 回來後尺寸不同就補送 resize（新開與 `restorePaneHistory` 共用）。
+- Review：隔離打包版開真 Codex 時同步縮窄視窗，修前 Codex 以 67 欄畫在 39 欄上（頁尾重複、折行破碎），修後兩次都以 39 欄重畫；shell 讀回 `PTY=39x28` 與 xterm 相同。lint、`test-terminal-ui` 15/15、打包版 `e2e-terminal-cdp` 無 FAIL。
+
+### 2026-10-15 — Codex 終端機意外退出
+
+- [x] 查啟動鏈、宿主及本機錯誤紀錄；使用者確認無按鍵、正在回答或執行工具時退出。
+- [x] 對準出事時間／專案找退出原因：Strata、Miroxen 兩個 Codex 在 `~/.codex/logs_2.sqlite` 都於 22:40:5x 無結束紀錄地中斷；全機 22:41 前的 node.exe 全消失。`opencode.db` 顯示 Periscite 的 OpenCode 22:41:48 執行 `Get-Process node | Stop-Process -Force` 重開伺服器（10/14 起 13 次）。npm 的 `codex` 是 node 外殼，被殺時 libuv job 連帶收掉 codex.exe。
+- [x] 修：兩種宿主對 codex 終端機把 npm 套件內原生檔資料夾排到 PATH 最前（附 `CODEX_MANAGED_*`），`codex` 直接跑 codex.exe；`~/.config/opencode/AGENTS.md` 與 Periscite `CONTEXT.md` 改為只結束占用 port 的程序。
+- Review：`cargo test --bin axondeck-term` 15/15（含 `codex_native_layout`）、`build:probe`、lint、`probe-terminal-agent-host`（native 宿主）通過；新宿主實開 Codex 得 `codex.exe<-pwsh.exe`，無 node 外殼。打包版未重驗：`dist` 被另一個 `axondeck-dev` 預覽占用，未關它。使用中的宿主是舊程式，重啟宿主後才生效。
+
 ### 2026-10-15 — v1.52.0 發版
 
 - [x] 審閱完整工作樹、分支與遠端 tag，`gitleaks protect --staged --redact` 未發現敏感資料。

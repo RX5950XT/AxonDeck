@@ -109,7 +109,10 @@ export function oscLinkHandler(id) {
       if (parsed.protocol !== 'file:') { unsupported(); return }
       // file:///C:/foo → C:\foo；UNC（file://server/share）先不收
       if (parsed.host) { unsupported(); return }
-      const local = decodeURIComponent(parsed.pathname).replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\')
+      // `%` 沒編好的連結會讓 decodeURIComponent 丟 URIError
+      let decoded
+      try { decoded = decodeURIComponent(parsed.pathname) } catch { unsupported(); return }
+      const local = decoded.replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\')
       if (local) activateHit(id, { text: local, url: '' })
     }
   }

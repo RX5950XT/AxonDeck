@@ -47,8 +47,9 @@ const termBackground = require('./terminal/background')
 const { registerWorkspaceIpc } = require('./workspace/ipc')
 // 工作區的圖片／PDF／影音串流（只載 files.js，不碰工作區其餘模組）
 const workspaceMedia = require('./workspace/media')
+const extensionManager = require('./browser-extension-manager')
 // 自訂協定的權限只能在 app ready 之前宣告
-protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES])
+protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, extensionManager.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
@@ -216,7 +217,7 @@ const scriptStart = process.argv.includes(scriptLaunch.START_FLAG)
 const scriptUrl = scriptLaunch.urlArg(process.argv)
 const gotInstanceLock = scriptStart && !scriptUrl
   ? false
-  : app.requestSingleInstanceLock({ project: process.env[scriptLaunch.PROJECT_ENV] || '' })
+  : app.requestSingleInstanceLock({ project: process.env[scriptLaunch.PROJECT_ENV] || '', scriptRun: process.env[scriptLaunch.RUN_ENV] || '' })
 const hasInstanceLock = gotInstanceLock && !scriptStart
 if (scriptStart && (!scriptUrl || gotInstanceLock)) app.exit(scriptUrl ? 4 : 3)
 // 用 app.quit() 而不是 app.exit()：exit 是立刻砍掉自己，會來不及讓「我來過了」這個
@@ -225,7 +226,8 @@ else if (!hasInstanceLock) app.quit()
 app.on('second-instance', (_event, argv, _cwd, data) => {
   // 專案腳本（BROWSER 或 start）開的網址：開成那個專案的瀏覽器分頁
   const url = scriptLaunch.forwardedUrl(argv.slice(1))
-  if (url) return openInProjectBrowser(url, typeof data?.project === 'string' ? data.project : '')
+  if (url) return void scriptLaunch.openScriptUrl(url, typeof data?.project === 'string' ? data.project : '',
+    typeof data?.scriptRun === 'string' ? data.scriptRun : '')
   const file = openFileArg(argv)
   if (!file) return showMainWindow()
   openFromShell(file)
@@ -1010,10 +1012,16 @@ function createMainWindow() {
  * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
  * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的（Telegram 等），開在 Browser 模式
  */
-function openInProjectBrowser(url, project = '', target = '') {
-  const outside = () => { shell.openExternal(url).catch(() => {}) }
+function openInProjectBrowser(url, project = '', target = '', sourceGuestId = 0) {
+  const outside = () => {
+    if (project) {
+      void dialog.showMessageBox({ type: 'error', title: '專案瀏覽器', message: '專案瀏覽器開啟失敗，請回到專案後再試一次' })
+      return
+    }
+    shell.openExternal(url).catch(() => {})
+  }
   if (!pageWindows) return outside()
-  pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target }).then(() => {
+  return pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target, sourceGuestId }).then(() => {
     const win = pageWindows.host(pageWindows.contents('chat'))
     if (!win || win.isDestroyed()) return
     if (win.isMinimized()) win.restore()
@@ -1021,6 +1029,7 @@ function openInProjectBrowser(url, project = '', target = '') {
     win.focus()
   }).catch(outside)
 }
+scriptLaunch.setOpenUrl(openInProjectBrowser)
 
 /**
  * 在哪裡點就開在哪裡：AI 頁自己（含裡面的 webview）交給它依主區決定，其他頁一律開在 Browser 模式
@@ -1070,8 +1079,9 @@ function attachWindowSecurity(win) {
     try {
       const url = new URL(params.src)
       if (url.protocol === 'http:' || url.protocol === 'https:' || url.href === 'about:blank') return
-      // Browser 模式的首頁／新分頁：Infinity New Tab Pro 自己的頁面（只放行這個擴充功能、這個 partition）
-      if (url.protocol === 'chrome-extension:' && url.hostname === NEWTAB_EXTENSION_ID && params.partition === 'persist:wsbrowser') return
+      // 插件頁與管理頁只開在瀏覽器分區；renderer 仍不得自行掛 preload。
+      if (params.partition === 'persist:wsbrowser' && (require('../shared/browser-url.mjs').isExtensionManagerUrl(url.href)
+        || (url.protocol === 'chrome-extension:' && session.fromPartition(params.partition).extensions.getExtension(url.hostname)))) return
     } catch { /* 無效網址一律拒絕 */ }
     event.preventDefault()
   })
@@ -2023,6 +2033,7 @@ registerWorkspaceIpc({
     listPorts: (...args) => loadWorkspace().listPorts(...args),
     reveal: (...args) => loadWorkspace().reveal(...args),
     openEntry: (...args) => loadWorkspace().openEntry(...args),
+    scriptCommand: (...args) => loadWorkspace().scriptCommand(...args),
     openExternal: (...args) => loadWorkspace().openExternal(...args),
     gitStatus: (...args) => loadWorkspace().gitStatus(...args),
     gitLog: (...args) => loadWorkspace().gitLog(...args),
@@ -2535,6 +2546,7 @@ app.on('web-contents-created', (_event, contents) => {
     })
   }
   contents.setWindowOpenHandler(({ url, disposition }) => {
+    if (browserExtensions?.openInternalUrl(url, contents)) return { action: 'deny' }
     const partition = aiWebPartitions.get(contents.session)
     // 比照 Chrome 開成小視窗、保留 opener，第三方登入才收得到 postMessage 回傳的結果（Infinity 新分頁的 Google 登入等）：
     // 帶視窗大小的 window.open（new-window）、先開空白頁再導過去的寫法、登入／授權頁。其餘連結才轉成分頁
@@ -2548,6 +2560,10 @@ app.on('web-contents-created', (_event, contents) => {
           webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false }
         }
       }
+    }
+    if (partition === 'persist:wsbrowser-clean' && isWebUrl(url)) {
+      void browserWindow.open(url, '', null, 0, true)
+      return { action: 'deny' }
     }
     // Telegram 等 AI 頁以外的 webview 點的連結開在 Browser 模式
     if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(contents))
@@ -2565,7 +2581,7 @@ app.whenReady().then(() => {
   const aiWeb = require('./ai-web')
   // 跟 navigator.languages 同一份（Electron 用 App 語系＋系統偏好語言排出來的）
   const languages = [...new Set([app.getLocale(), ...app.getPreferredSystemLanguages()].filter(Boolean))].join(',')
-  for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
+  for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser', 'persist:wsbrowser-clean']) {
     const ses = session.fromPartition(partition)
     aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js'), languages })
     aiWebPartitions.set(ses, partition)
@@ -2577,7 +2593,8 @@ app.whenReady().then(() => {
     chromeVersion: process.versions.chrome,
     aliasPreload: path.join(__dirname, '../preload/crx-browser-alias.js'),
     identityPreload: path.join(__dirname, '../preload/crx-identity.js'),
-    openUrl: openInProjectBrowser,
+    openUrl: (url, source) => openInProjectBrowser(url, '', 'tab', source?.id || 0),
+    openCompatible: (url, title) => browserWindow.open(url, title, null, 0, true),
     onActionsChanged: () => {
       sendToPages('workspace:extensionsChanged')
       browserWindow.broadcast('browserWindow:extensionsChanged')

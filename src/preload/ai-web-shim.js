@@ -38,8 +38,10 @@ contextBridge.executeInMainWorld({
     // （算法同 ai-web.js 的 brandList：假品牌與順序由主版號決定）
     const uad = navigator.userAgentData
     const chromium = uad?.brands?.find((b) => b.brand === 'Chromium')
-    const major = Number(chromium?.version)
-    if (!major || uad.brands.some((b) => b.brand === 'Google Chrome')) return
+    const uaVersion = /(?:Chrome|Chromium)\/([\d.]+)/.exec(navigator.userAgent)?.[1]
+    const major = Number(uaVersion?.split('.')[0] || chromium?.version)
+    const browserBrand = navigator.userAgent.includes('Edg/') ? 'Microsoft Edge' : 'Google Chrome'
+    if (!uad || !major || (uad.brands.some((b) => b.brand === browserBrand) && Number(chromium?.version) === major)) return
     const brandList = (version) => {
       const order = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]][major % 6]
       const chars = ' (:-./);=?_'
@@ -47,7 +49,7 @@ contextBridge.executeInMainWorld({
       const out = []
       out[order[0]] = { brand: `Not${chars[major % 11]}A${chars[(major + 1) % 11]}Brand`, version: version.includes('.') ? `${grease}.0.0.0` : grease }
       out[order[1]] = { brand: 'Chromium', version }
-      out[order[2]] = { brand: 'Google Chrome', version }
+      out[order[2]] = { brand: browserBrand, version }
       return out
     }
     const proto = Object.getPrototypeOf(uad)
@@ -55,7 +57,9 @@ contextBridge.executeInMainWorld({
     const json = proto.toJSON
     const fix = (values) => {
       const out = { ...values, brands: brandList(String(major)) }
-      const full = values?.fullVersionList?.find((b) => b.brand === 'Chromium')?.version
+      const nativeFull = values?.fullVersionList?.find((b) => b.brand === 'Chromium')?.version
+      const full = Number(nativeFull?.split('.')[0]) === major ? nativeFull : (uaVersion || nativeFull)
+      if (values && Object.hasOwn(values, 'uaFullVersion') && full) out.uaFullVersion = full
       if (full) out.fullVersionList = brandList(full)
       return out
     }

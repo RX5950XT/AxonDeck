@@ -425,6 +425,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     reveal: (id, relPath) => ipcRenderer.invoke('workspace:reveal', id, relPath),
     /** 用系統預設程式開啟專案裡的檔案（`.exe` ＝把它跑起來） */
     openEntry: (id, relPath) => ipcRenderer.invoke('workspace:openEntry', id, relPath),
+    scriptCommand: (id, relPath, terminalId) => ipcRenderer.invoke('workspace:scriptCommand', id, relPath, terminalId),
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
     extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),

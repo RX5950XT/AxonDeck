@@ -158,6 +158,14 @@ async function openEntry(projectId, relPath) {
   return { opened: true }
 }
 
+/** 檔案與終端機都必須屬於點擊時的同一專案。 */
+async function scriptCommand(projectId, relPath, terminalId) {
+  const full = files.resolveExisting(await rootOf(projectId), relPath)
+  const terminal = await require('../terminal/store').get(terminalId)
+  if (!terminal || terminal.projectId !== projectId) throw fail('FORBIDDEN', '終端機不屬於這個專案')
+  return require('../script-launch').terminalCommand(full, projectId, terminalId)
+}
+
 /**
  * 用系統瀏覽器開一個網址（內建瀏覽器撞到 X-Frame-Options 時的退路）。
  *
@@ -286,6 +294,7 @@ module.exports = {
   listPorts,
   reveal,
   openEntry,
+  scriptCommand,
   openExternal,
   gitStatus,
   gitLog,

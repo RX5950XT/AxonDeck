@@ -148,8 +148,15 @@ export async function openFolderInWorkspace(full) {
  * @param {string} [project] 指定專案（專案腳本開的網址）
  * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的，一律開在 Browser 模式
  */
-export async function openUrlInApp(url, project = '', target = '') {
-  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project, target: 'browser' })
+export async function openUrlInApp(url, project = '', target = '', sourceGuestId = 0) {
+  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project, target: target === 'tab' ? 'tab' : 'browser', sourceGuestId })
+  if (target === 'tab' && Number.isInteger(sourceGuestId) && sourceGuestId > 0) {
+    const source = [...document.querySelectorAll('#wsBrowserFrame webview')].find((guest) => {
+      try { return guest.getWebContentsId() === sourceGuestId } catch { return false }
+    })
+    if (source?.dataset.projectId) project = source.dataset.projectId
+  }
+  if (target === 'tab' && !project) target = 'browser'
   const onChatPage = document.getElementById('page-chat')?.classList.contains('active')
   if (!project && (target === 'browser' || !onChatPage || chatPaneMode === 'browser')) {
     switchPage('chat')

@@ -7,17 +7,20 @@
  * - 腳本自己 `start "" %URL%`：跑一份改過的暫存副本（原檔不動），參數有網址或變數的 `start` 先問 AxonDeck
  *   （`--axondeck-start`）——要開的是網址就收下、開在專案；不是網址或 App 沒在跑就照原樣 `start`。
  * - 網址怎麼回到 App：第二份 AxonDeck 搶不到單一實例鎖，把命令列（含網址）與 `AXONDECK_PROJECT` 交給第一份。
- * shortcut: `if exist x start …` 這種不在指令開頭的 start、`explorer <網址>` 不改道；路徑含非 ASCII 或 %!^&
- *   就不改寫（照舊開系統瀏覽器，BROWSER 仍有效）；開發模式的 BROWSER 只在打包版有效（它不能帶參數）。
+ * shortcut: `if exist x start …` 這種不在指令開頭的 start、`explorer <網址>` 不改道；需要支援時改用真正的批次檔 parser。
+ *   開發模式的 BROWSER 只在打包版有效（它不能帶參數）。
  */
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
+const net = require('net')
+const rawFs = require('./raw-fs').promises
 
 const START_FLAG = '--axondeck-start'
 const PROJECT_ENV = 'AXONDECK_PROJECT'
 const USER_DATA_ENV = 'AXONDECK_USER_DATA'
+const RUN_ENV = 'AXONDECK_SCRIPT_RUN'
 const SCRIPT_RE = /\.(bat|cmd)$/i
 const TEMP_DIR = path.join(os.tmpdir(), 'axondeck-scripts')
 
@@ -39,17 +42,17 @@ function urlArg(argv) {
 }
 
 /** `%~dp0`、`%~nx0`、`%0`… 換成原腳本的路徑（副本在暫存資料夾，不換的話會指到那裡） */
-function expandSelf(text, file) {
+function expandSelf(text, file, useEnv = false) {
   const parsed = path.parse(file)
   const part = { d: parsed.root.slice(0, 2), p: parsed.dir.slice(2) + path.sep, n: parsed.name, x: parsed.ext }
   return text
     .replace(/%~([fdpnx]+)0/gi, (_m, mods) => {
       const set = mods.toLowerCase()
-      if (set.includes('f')) return file
-      return 'dpnx'.split('').filter((m) => set.includes(m)).map((m) => part[m]).join('')
+      if (set.includes('f')) return useEnv ? '%AXONDECK_SELF_F%' : file
+      return 'dpnx'.split('').filter((m) => set.includes(m)).map((m) => useEnv ? `%AXONDECK_SELF_${m.toUpperCase()}%` : part[m]).join('')
     })
-    .replace(/%~0/g, file)
-    .replace(/(^|[^%])%0/g, `$1"${file}"`)
+    .replace(/%~0/g, useEnv ? '%AXONDECK_SELF_F%' : file)
+    .replace(/(^|[^%])%0/g, `$1"${useEnv ? '%AXONDECK_SELF_F%' : file}"`)
 }
 
 /** 這一段（還沒結束的指令）裡有沒有沒關上的左括號：有的話，沒被引號包住的 `)` 就是指令結尾 */
@@ -105,9 +108,119 @@ function routeStart(line) {
  * @param {string} text 以 latin1 讀進來的原始位元組（不管腳本用哪個字碼頁都原樣保留）
  * @param {string} file 原腳本的絕對路徑
  */
-function rewriteBatch(text, file) {
-  if (/[^\x20-\x7e]|[%!^&]/.test(file)) return null
-  return expandSelf(text, file).split(/\r?\n/).map(routeStart).join('\r\n')
+function rewriteBatch(text, file, useEnv = false) {
+  if (!useEnv && /[^\x20-\x7e]|[%!^&]/.test(file)) return null
+  return expandSelf(text, file, useEnv).split(/\r?\n/).map(routeStart).join('\r\n')
+}
+
+/** 共用啟動資料；用環境變數保留原腳本路徑，暫存副本不受中文路徑／原始字碼頁影響。 */
+async function prepareLaunch(file, project, run = '') {
+  const { app } = require('electron')
+  const exeArgs = [...(app.isPackaged ? [] : [app.getAppPath()]), `--user-data-dir=${app.getPath('userData')}`]
+  const parsed = path.parse(file)
+  const env = {
+    ...(app.isPackaged ? { BROWSER: process.execPath } : {}),
+    [PROJECT_ENV]: project, [USER_DATA_ENV]: app.getPath('userData'), [RUN_ENV]: run,
+    AXONDECK_START: [process.execPath, ...exeArgs].map((s) => `"${s}"`).concat(START_FLAG).join(' '),
+    AXONDECK_SELF_F: file, AXONDECK_SELF_D: parsed.root.slice(0, 2),
+    AXONDECK_SELF_P: parsed.dir.slice(2) + path.sep, AXONDECK_SELF_N: parsed.name, AXONDECK_SELF_X: parsed.ext
+  }
+  let target = file
+  if (SCRIPT_RE.test(file)) {
+    const rewritten = rewriteBatch(await rawFs.readFile(file, 'latin1'), file, true)
+    await fs.promises.mkdir(TEMP_DIR, { recursive: true })
+    pruneTemp()
+    target = path.join(TEMP_DIR, `${require('crypto').randomUUID()}${parsed.ext}`)
+    await fs.promises.writeFile(target, rewritten, 'latin1')
+  }
+  return { target, env, exeArgs }
+}
+
+const psQuote = (s) => `'${s.replace(/'/g, "''")}'`
+
+/** 給既有終端機執行；不用改 PTY 宿主的協定，也不會影響其他終端機。 */
+async function terminalCommand(file, project, run) {
+  if (!/\.(bat|cmd|ps1|sh)$/i.test(file) || /[\r\n]/.test(file)) throw new Error('不支援的啟動腳本')
+  const { target, env, exeArgs } = await prepareLaunch(file, project, run)
+  const open = `& ${[process.execPath, ...exeArgs, START_FLAG, ''].map(psQuote).join(' ')} $FilePath`
+  const source = [
+    ...Object.entries(env).map(([key, value]) => `$env:${key}=${psQuote(value)}`),
+    'Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue',
+    `Set-Location -LiteralPath ${psQuote(path.dirname(file))}`,
+    `function Start-Process { param([string]$FilePath) if ($FilePath -match '^https?://') { ${open} } else { Microsoft.PowerShell.Management\\Start-Process -FilePath $FilePath @args } }`,
+    `function Invoke-Item { param([string]$Path) if ($Path -match '^https?://') { $FilePath=$Path; ${open} } else { Microsoft.PowerShell.Management\\Invoke-Item -LiteralPath $Path @args } }`,
+    `${/\.sh$/i.test(file) ? 'bash' : '&'} ${psQuote(target.replace(/\\/g, '/'))}`
+  ].join('; ')
+  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  watchServer(run, project)
+  return `& ${psQuote(powershell)} -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(source, 'utf16le').toString('base64')}`
+}
+
+const servers = new Map()
+let openUrl = () => {}
+function setOpenUrl(callback) { openUrl = callback }
+function watchServer(id, project) {
+  if (servers.has(id)) clearTimeout(servers.get(id).timer)
+  const entry = { project, buffer: '', opened: new Set(), timer: setTimeout(() => servers.delete(id), 300_000) }
+  entry.timer.unref()
+  servers.set(id, entry)
+}
+
+/** 只認本機服務；0.0.0.0／[::] 是監聽位址，瀏覽時換成 loopback。 */
+function serverUrl(text) {
+  const clean = String(text).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+  const found = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\d{1,5}(?=\/|[\s"'<>]|$)(?:\/[^\s"'<>]*)?/i.exec(clean)?.[0]
+  if (!found) return ''
+  try {
+    const url = new URL(found)
+    if (url.hostname === '0.0.0.0') url.hostname = '127.0.0.1'
+    if (url.hostname === '[::]') url.hostname = '[::1]'
+    return url.href
+  } catch { return '' }
+}
+
+function listening(url) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)) })
+    const done = (ok) => { socket.destroy(); resolve(ok) }
+    socket.once('connect', () => done(true))
+    socket.once('error', () => done(false))
+    socket.setTimeout(500, () => done(false))
+  })
+}
+
+async function openScriptUrl(url, project, run = '') {
+  const entry = servers.get(run)
+  const local = serverUrl(url)
+  const href = local || url
+  if (entry?.opened.has(href)) return
+  entry?.opened.add(href)
+  if (local) {
+    const deadline = Date.now() + 30_000
+    while (!(await listening(new URL(local)))) {
+      if (Date.now() >= deadline || (entry && servers.get(run) !== entry)) return
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+  }
+  openUrl(href, entry?.project || project)
+}
+
+/** 只看本次啟動腳本的輸出；分塊／彩色日誌也能找到 URL，一支服務只自動開一頁。 */
+function noteTerminal(event, payload) {
+  const entry = servers.get(payload?.id)
+  if (!entry) return
+  if (event === 'terminal:exit' || (event === 'terminal:status' && payload.state === 'exited')) {
+    clearTimeout(entry.timer); servers.delete(payload.id); return
+  }
+  if (event !== 'terminal:data' || entry.detected) return
+  entry.buffer = (entry.buffer + payload.data).slice(-8192)
+  const end = entry.buffer.lastIndexOf('\n')
+  if (end < 0) return
+  const url = serverUrl(entry.buffer.slice(0, end))
+  entry.buffer = entry.buffer.slice(end + 1)
+  if (!url) return
+  entry.detected = true
+  void openScriptUrl(url, entry.project, payload.id)
 }
 
 /** 暫存副本放一天後清（腳本可能還在跑，不能一啟動就刪） */
@@ -128,26 +241,11 @@ async function launchScript(file) {
   if (process.platform !== 'win32' || !SCRIPT_RE.test(file)) return false
   const project = projectIdOf(await require('./workspace/store').list(), file)
   if (!project) return false
-  const { app } = require('electron')
-  const exe = process.execPath
-  // 第二份 AxonDeck 要搶「同一把」單一實例鎖才會交給這份：帶同一個 userData；開發模式還要帶 App 路徑
-  const exeArgs = [...(app.isPackaged ? [] : [app.getAppPath()]), `--user-data-dir=${app.getPath('userData')}`]
-  let target = file
-  const rewritten = rewriteBatch(fs.readFileSync(file, 'latin1'), file)
-  if (rewritten) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true })
-    pruneTemp()
-    target = path.join(TEMP_DIR, `${path.parse(file).name}-${Date.now()}${path.extname(file)}`)
-    fs.writeFileSync(target, rewritten, 'latin1')
-  }
+  const { target, env: scriptEnv } = await prepareLaunch(file, project)
   const quote = (s) => `"${s}"`
   const env = {
     ...process.env,
-    // BROWSER 只能是一個執行檔（不能帶參數），開發模式的 electron.exe 不能直接當瀏覽器
-    ...(app.isPackaged ? { BROWSER: exe } : {}),
-    [PROJECT_ENV]: project,
-    [USER_DATA_ENV]: app.getPath('userData'),
-    AXONDECK_START: [quote(exe), ...exeArgs.map(quote), START_FLAG].join(' ')
+    ...scriptEnv
   }
   delete env.ELECTRON_RUN_AS_NODE
   // cmd 自己的引號規則：/s /c "…整段…"，路徑有空白也不會被拆
@@ -176,4 +274,5 @@ function projectIdOf(projects, file) {
 /** 第一份收到的轉交 argv：第二份已用原始命令列把關過，這裡只取第一個網址 */
 const forwardedUrl = (argv) => (argv || []).find(isUrl) || ''
 
-module.exports = { START_FLAG, PROJECT_ENV, USER_DATA_ENV, urlArg, forwardedUrl, rewriteBatch, launchScript, projectIdOf }
+module.exports = { START_FLAG, PROJECT_ENV, USER_DATA_ENV, RUN_ENV, urlArg, forwardedUrl, rewriteBatch, launchScript, projectIdOf,
+  terminalCommand, setOpenUrl, openScriptUrl, noteTerminal, serverUrl }

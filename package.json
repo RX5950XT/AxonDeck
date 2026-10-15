@@ -1,6 +1,6 @@
 {
   "name": "axondeck",
-  "version": "1.51.0",
+  "version": "1.52.0",
   "description": "AxonDeck - Windows Desktop AI Workbench",
   "main": "src/main/main.js",
   "scripts": {
@@ -43,7 +43,7 @@
     "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.3.0",
     "monaco-editor": "^0.55.1",
-    "node-edge-tts": "^1.2.10",
+    "node-edge-tts": "1.2.11",
     "opencc-js": "^1.4.1",
     "pdfjs-dist": "6.3.289",
     "smol-toml": "^1.9.0",

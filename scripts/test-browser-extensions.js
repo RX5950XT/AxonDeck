@@ -5,6 +5,12 @@ const crypto = require('node:crypto')
 const { storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml } = require('../src/main/browser-extensions')
 
 const ID = 'ddkjiahejlhfcafbddmgiahcphecmpfh'
+const { EXTENSIONS_PAGE_URL, isInternalBrowserUrl, isExtensionManagerUrl } = require('../src/shared/browser-url.mjs')
+assert.ok(isExtensionManagerUrl(EXTENSIONS_PAGE_URL + '?extension=' + ID))
+assert.ok(isInternalBrowserUrl(`chrome-extension://${ID}/options.html`))
+for (const url of ['file:///C:/x.html', 'javascript:alert(1)', 'chrome-extension://invalid/options.html',
+  'axon-extensions://evil/pages/browser-extensions.html', 'axon-extensions://manager/scripts/browser-extensions-page.js',
+  'axon-extensions://user:password@manager/pages/browser-extensions.html']) assert.equal(isInternalBrowserUrl(url), false)
 assert.equal(storeIdFromUrl(`https://chromewebstore.google.com/detail/ublock-origin-lite/${ID}`), ID)
 assert.equal(storeIdFromUrl(`https://chromewebstore.google.com/detail/${ID}?hl=zh-TW`), ID)
 assert.equal(storeIdFromUrl(`https://evil.example/detail/x/${ID}`), '', '別的網域不算')

@@ -90,3 +90,20 @@ const ck = toElectronCookie({ name: 'cf_clearance', value: 'v', domain: '.grok.c
 assert.deepEqual([ck.url, ck.domain, ck.sameSite, ck.expirationDate], ['https://grok.com/', '.grok.com', 'no_restriction', 2e9])
 assert.equal(toElectronCookie({ name: 'a', value: 'b', domain: 'grok.com', path: '/', expires: -1 }).expirationDate, undefined, '工作階段 cookie 不給到期日')
 console.log('PASS ai-web 網址、標題、Google 登入、登入小視窗、UA 與權限把關')
+
+// 執行真正的 preload：沿用 Edge 通行證 UA 時，HTTP 與網頁的品牌／主版號仍一致。
+const vm = require('node:vm')
+const fs = require('node:fs')
+for (const ua of [UA, UA.replace('150','140') + ' Edg/140.0.0.0']) {
+  class AgentData { get brands() { return [{brand:'Chromium',version:'150'}] } toJSON() { return {brands:this.brands,mobile:false,platform:'Windows'} } getHighEntropyValues() { return Promise.resolve({brands:this.brands,uaFullVersion:'150.1.2.3',fullVersionList:[{brand:'Chromium',version:'150.1.2.3'}]}) } }
+  const data = new AgentData(), sandbox = { navigator:{userAgent:ua,userAgentData:data},window:{chrome:{}},require:()=>({contextBridge:{executeInMainWorld:({func})=>func()}}) }
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/preload/ai-web-shim'),'utf8'),sandbox)
+  const major = Number(/Chrome\/(\d+)/.exec(ua)[1]), brand = ua.includes('Edg/') ? 'Microsoft Edge' : 'Google Chrome'
+  assert.equal(JSON.stringify(data.brands),JSON.stringify(brandList(major,String(major),brand)))
+  assert.equal(JSON.stringify(data.toJSON().brands),JSON.stringify(data.brands))
+}
+console.log('PASS browser preload brands match Chrome / Edge UA')
+vm.runInNewContext(fs.readFileSync(require.resolve('../src/preload/ai-web-shim'),'utf8'),{
+  navigator:{userAgent:UA},window:{chrome:{}},require:()=>({contextBridge:{executeInMainWorld:({func})=>func()}})
+})
+console.log('PASS browser preload without userAgentData in insecure contexts')

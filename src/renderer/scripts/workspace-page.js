@@ -3143,7 +3143,11 @@ export async function openUrlInProject(url, projectId = '') {
   if (projectId && projectId !== currentId) {
     initWorkspacePage()
     await reloadList()
-    if (projects.some((item) => item.id === projectId && !item.missing)) await selectProject(projectId)
+    if (!projects.some((item) => item.id === projectId && !item.missing)) {
+      showToast('原專案已移除或找不到，無法開啟服務頁面', 'error')
+      return
+    }
+    await selectProject(projectId)
   }
   if (!currentId && !(await restoreLastProject())) {
     const first = projects.find((item) => !item.missing)

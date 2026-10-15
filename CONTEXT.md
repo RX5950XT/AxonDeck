@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.47.0**（2026-10-12）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.52.0**（2026-10-15）。
 nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -89,7 +89,13 @@ native/
 - 外連（App 內 `target=_blank`、各 webview 的 popup、終端機網址、Git 面板 GitHub 鈕）在哪點就開在哪（`openInProjectBrowser` → `pages:navigate` 的 `action: 'browser'`＋`target` → app.js `openUrlInApp`）：SI 頁 Agent 模式（工作區）→ 專案瀏覽器分頁（`openUrlInProject`，沒有任何專案才退回系統瀏覽器）；對話／網頁版 AI → 右側瀏覽器（`chat-browser.js`）；側欄 Browser 模式、以及 SI 頁以外（Telegram 等，main 的 `linkTarget` 給 `target: 'browser'`）→ Browser 模式新分頁（`browser-page.js`，分頁與群組存 localStorage `browserTabs`；比照 Edge 垂直分頁：可拖曳排序／分組、沒固定時側欄收成圖示、滑鼠移上去展開——收合用 class `sidebar-browser`／`bt-open` 不用 `:has()`／`:hover`，`.chat-layout` 不可加 position，否則 webview 畫不出來；分頁右鍵「彈出獨立視窗」走 main `browser-window.js`：工具列是 `pages/browser-window.html`（preload `browser-window-preload.js`，只能動自己那扇窗），網頁是 main 自建的 WebContentsView——<webview> 搬不了視窗、載過東西就不能 `navigationHistory.restore`，所以用 view 在首次載入前還原原分頁整串歷史（含 pageState），再補彈出當下量的捲動／欄位／影音；視窗標題跟網頁標題，擴充功能圖示列共用 `browser-actions.js`）。三處都是 `persist:wsbrowser`，登入與擴充功能共用；Browser 模式與專案瀏覽器的空白分頁都開 Infinity New Tab Pro（`NEWTAB_URL`，網址列留空）。登入視窗三種情況都接住：①`window.open` 帶視窗大小（`new-window`）、先開 `about:blank` 再導、或登入／授權頁（`ai-web.js` `isLoginPopup`：已知登入網域＋路徑某段是 oauth／authorize／auth／login／signin／sso）→ 比照 Chrome 開成 App 內小視窗並保留 opener（postMessage 回傳），網頁版 AI 分區同樣適用，其餘連結才轉分頁；②擴充功能的 `chrome.identity.launchWebAuthFlow`／`getRedirectURL`（Electron 沒有）由 `preload/crx-identity.js`＋`main/crx-identity.js` 補上：登入小視窗導到 `https://<ID>.chromiumapp.org/` 就攔下網址交回，ID 由呼叫端網址／SW scope 取；preload 必須在 electron-chrome-extensions 之前登記（它會 `Object.freeze(chrome)`）。只剩瀏覽器工具列與分頁右鍵的「用系統瀏覽器開」、OAuth 裝置碼、PawnIO 下載仍走系統瀏覽器。
 - 右鍵與 F5：網頁版 AI 與工作區瀏覽器的 webview 在 main 掛 `web-contents-created` → `web-context-menu.js`（連結、圖片、編輯、拼字、上／下一頁、重新整理、檢查元素；F5／Ctrl+R 重新整理，Shift 或 Ctrl+F5 略過快取）。焦點在 webview 裡時按鍵到不了主視窗，所以只能在 guest 的 `before-input-event` 收。
 - Chrome 擴充功能（只限 `persist:wsbrowser`）：`browser-extensions.js` 從商店下載 CRX3、把公鑰寫進 manifest `key`（ID 跟商店一致）、用 Windows `tar.exe` 解到 `userData/browser-extensions/<id>_<時間>`（載入中檔案被鎖，刪不掉的下次啟動清），啟動時全部載回。chrome.tabs／action／permissions 由 `electron-chrome-extensions`（GPL-3.0，整個專案因此改 GPL-3.0）補；Chromium 原生的 `browser` 命名空間沒被補，`crx-browser-alias.js` 把它指回 `chrome`（不然 uBO Lite 背景直接當）。入口：瀏覽器工具列的圖示列（`browser-actions.js`，圖示＋徽章由 main 的 `actions()` 依分頁算，套件的 observer 一變就推 `workspace:extensionsChanged`）、🧩 與右鍵「擴充功能」；在商店詳情頁會多「安裝這個擴充功能」。自動更新：啟動後 1 分鐘、之後每 6 小時打商店的 updatecheck，有新版就重裝。
+- 本機擴充功能：同一選單可選含 `manifest.json` 的資料夾（main 系統對話框＋manifest 校驗）；`browser-extensions/local-extensions.json` 原子保存 ID／路徑，重啟還原。需要 userScripts 的套件使用 App 管理的副本與固定 key，產生的執行檔不寫回來源；其他套件直接載入來源。重新載入會讀取最新來源，移除不刪原始碼；商店與本機同 ID 不可同時安裝，本機不走商店自動更新。
+- 擴充功能管理：右鍵「詳細設定」、`chrome://extensions`／`edge://extensions` 都開瀏覽器新分頁（`browser-extension-manager.js`）。管理頁固定 `axon-extensions://manager/pages/browser-extensions.html`，協定只供應四個固定資源；session preload 及 IPC 同時限制正確分區、主 frame 與管理網址，普通網頁拿不到管理權限。`extension-state.json` 保留啟用狀態、userScripts 開關與停用套件資料；停用不刪設定，停用的商店套件仍可更新。每個套件根據 manifest 打開自己的 options（含舊 options_page）、新分頁、popup 或 side panel 介面；工具列圖示與 `action.openPopup()` 顯示錨定浮動 popup，沒有 popup 時送 `action.onClicked`；options、管理頁、`tabs.create`、`window.open` 共用分頁路由，依來源 webContents ID 留在原專案或 Browser 模式，popup 保留原網頁的 active tab。沒有介面會明示。Raindrop 的帳號設定須登入；不替套件虛構選項。
+- ScriptCat：Electron 43 沒有原生 userScripts，`crx-user-scripts.js`＋preload 以原生 scripting 補登記／更新／刪除／立即執行及訊息／port。每個套件獨立開關，ScriptCat 預設允許；一般 scripting 不受此開關影響。腳本與 messaging 設定原子保存，跨 popup／worker 共用鎖，失敗登記不保存；重新載入恢復普通與使用者腳本。USER_SCRIPT 映射 ISOLATED，MAIN 保留原生全域；尚無真正獨立 USER_SCRIPT world／named world／自訂 CSP，後兩者會明確拒絕。`crx-context-menus.js` 補 update、勾選／可見／啟用及點擊事件，preload 排在 SDK 後；不改 node_modules。驗真插件 `e2e-browser-extensions.js`／`e2e-browser-settings.js`（可帶 AXONDECK_ASAR）。
+- 網站相容性：JS 與 HTTP 的 UA 品牌／major 對齊（仍保留 Grok clearance 的 UA）。擴充功能選單「在無套件相容視窗開啟此頁」開 App 原生 WebContentsView、`persist:wsbrowser-clean`，cookie 與套件和一般瀏覽器隔離，登入與新連結仍留這個分區。`probe-browser-capabilities.js` 驗真 ScienceDirect 公開文章與正常 PDF 連結：HTTP 200、PDF 7 頁、原生檢視器可讀。Chromium 新 PDF 檢視器在 OOPIF，不能僅查主頁 DOM 判空白；網站驗證／訂閱限制仍由網站決定。
+- 翻譯 Edge TTS：`node-edge-tts` 固定 1.2.11，服務從舊 speech.platform.bing.com 改為 api.msedgeservices.com；舊版真請求 403、新版成功。維持 voice allowlist、語速與切塊／取消流程，`e2e-browser-scripts-cdp.js --tts-only` 共用隔離打包版啟動，獨立驗四語試聽＋朗讀的真 MP3 播放（靜音測試，不碰正式設定）。真上游可能偶發逾時。
 - 專案腳本開瀏覽器（`script-launch.js`）：檔案頁／專案檔案樹執行專案裡的 `.bat`／`.cmd` 改由 App 啟動——`BROWSER`＝AxonDeck.exe（Python `webbrowser`、Vite `--open`）；暫存副本把有網址／變數的 `start …` 改成 `(%AXONDECK_START% … || start …)`（不能用 `call :標籤`，參數有 `/?` 會變成顯示說明）。第二份 AxonDeck 用**原始順序**的 `process.argv` 判斷（轉給第一份的 argv 會被 Chromium 重排、丟空字串、加開關），帶 `AXONDECK_PROJECT` 給第一份開在那個專案；不是網址回 3、App 沒在跑回 4，腳本改照原樣 start。
+- 右側檔案樹的一鍵啟動仍在專案終端機：`ws-tabs.runInTerminal` → `workspace:scriptCommand`（專案相對路徑＋同專案終端機守衛）→ `script-launch.terminalCommand`。用獨立 PowerShell 執行，批次副本以環境變數保留中文原路徑，PowerShell 的 `Start-Process`／`Invoke-Item` 網址也改道；不改原腳本或 PTY 宿主協定。main 只追蹤這次腳本的輸出 5 分鐘，看到 loopback URL 後等 TCP 就緒（最多 30 秒）開原專案分頁；主動開網址與日誌共用 run ID 去重。指定專案不存在／開頁失敗不退回系統瀏覽器。驗收 `scripts/e2e-browser-scripts-cdp.js`：隔離打包版、真本機服務／套件 content script、真 Google CRX。
 - 記憶體：網頁藏超過 5 分鐘或同時超過 3 則就移除 webview（正在出聲的不收），再點照網址重建；工作區背景瀏覽器分頁閒置 10 分鐘拆掉。聊天圖片快取 LRU 約 16MB。
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
@@ -202,9 +208,11 @@ native/
 ## 最近版本
 
 | 版本 | 日期 | 重點 |
+|---|---|---|
+| v1.52.0 | 10-15 | 瀏覽器擴充功能完整管理與本機安裝；專案腳本可在 App 分頁啟動服務；改善 ScienceDirect 瀏覽；Edge TTS 更新至 1.2.11 |
+| v1.51.0 | 10-14 | 設定「安裝」更新失敗自動重試；補齊專案瀏覽器登入小視窗 |
 | v1.47.0 | 10-12 | 省記憶體：llama prompt 快取上限 512MB（原 8GB，翻譯每段 +73MB）、Telegram 沒在看只留一格、術語表閒置釋放；Local SI 顯存改用 nvidia-smi |
 | v1.46.1 | 10-12 | .ts 改由編輯器開；專案檔案樹的音訊、MOV／MKV 影片、AVIF 圖片改開在分頁 |
-|---|---|---|
 | v1.46.0 | 10-12 | 自家文字／Markdown／程式碼編輯器接管 VS Code 的檔案關聯；Chat 側欄網頁版對話改放 logo |
 | v1.44.0 | 10-10 | 文字轉語音（Breeze-TTS-2 Q8 四模式、串流試聽、WAV 匯出、逐字稿自動辨識）；EdgeTTS 收進翻譯頁 |
 | v1.42.0 | 10-07 | CC Proxy：MCP 管四家 CLI、Skills 開關＋全域記憶、CLI 版本搬設定頁；Local SI 子分頁執行環境擺第一 |

@@ -1,4 +1,5 @@
 'use strict'
+const { isInternalBrowserUrl } = require('../shared/browser-url.mjs')
 
 const { BrowserWindow, WebContentsView } = require('electron')
 const fs = require('fs')
@@ -104,12 +105,14 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
     const { page, subtab = '', action = '', full = '', kind = 'dir', project = '', target = '' } = request
     if (!['', 'recommend', 'cloud', 'basic', 'appearance', 'cli', 'install'].includes(subtab)) throw new Error('無效子頁')
     if (!['', 'files', 'project', 'browser'].includes(action) || typeof full !== 'string' || full.length > 32768
-      || !['', 'browser'].includes(target)
+      || !['', 'browser', 'tab'].includes(target)
       || !['dir', 'file'].includes(kind) || (action === 'files' && page !== 'explorer')
       || ((action === 'project' || action === 'browser') && page !== 'chat')
-      || (action === 'browser' && !/^https?:\/\//i.test(full))
+      || (action === 'browser' && !/^https?:\/\//i.test(full) && !(target === 'tab' && isInternalBrowserUrl(full)))
       || typeof project !== 'string' || !/^[\w.-]{0,128}$/.test(project)) throw new Error('無效頁面操作')
-    return { page, subtab, action, full, kind, project, target }
+    const sourceGuestId = request.sourceGuestId ?? 0
+    if (!Number.isSafeInteger(sourceGuestId) || sourceGuestId < 0) throw new Error('無效來源分頁')
+    return { page, subtab, action, full, kind, project, target, sourceGuestId }
   }
 
   async function navigate(request, detach = false, record = true) {

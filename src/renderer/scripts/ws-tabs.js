@@ -1,5 +1,6 @@
 import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
+import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
 import { renderMarkdown } from './markdown.js'
 import { showMenu } from './ws-menu.js'
 import { askInput } from './app-dialog.js'
@@ -1224,7 +1225,8 @@ export async function runInTerminal(relPath) {
   if (!rel || /[\r\n]/.test(rel)) return
   const name = rel.split('/').pop() || rel
   const runner = { js: 'node', mjs: 'node', py: 'python', jar: 'java -jar', sh: 'bash' }[extOf(rel)] || '&'
-  await newTerminalWithCommand(`執行 ${name}`, `${runner} './${rel.replace(/'/g, "''")}'`)
+  await newTerminalWithCommand(`執行 ${name}`, `${runner} './${rel.replace(/'/g, "''")}'`, undefined,
+    isLaunchScript(rel) ? rel : '')
 }
 
 /**
@@ -2379,6 +2381,7 @@ function selectionToChat() {
 function safeUrl(raw) {
   const value = String(raw || '').trim()
   if (!value) return ''
+  if (isInternalBrowserUrl(value)) return new URL(value).href
   const parse = (text) => {
     try {
       return new URL(text)
@@ -3032,17 +3035,19 @@ export function newShellTerminal() {
  * @param {string} command
  * @param {{ agent: string, sessionId: string }} [resumeInfo]
  */
-export async function newTerminalWithCommand(title, command, resumeInfo) {
+export async function newTerminalWithCommand(title, command, resumeInfo, scriptRel = '') {
+  const owner = project
   try {
     const created = await call(electronAPI.terminal.create({
       preset: resumeInfo?.agent || 'shell',
       ...(resumeInfo ? { agentSessionId: resumeInfo.sessionId } : {}),
-      cwd: project?.path || '',
-      projectId: project?.id || '',
+      cwd: owner?.path || '',
+      projectId: owner?.id || '',
       title
     }), '建立終端機失敗')
     const mod = await import('./terminal-page.js')
     await mod.openTerminalSession(created.id)
+    if (scriptRel) command = await call(electronAPI.workspace.scriptCommand(owner?.id || '', scriptRel, created.id), '準備啟動腳本失敗')
     if (!resumeInfo) await electronAPI.terminal.write(created.id, `${command}\r`)
   } catch {
     // call 已經吐過 toast

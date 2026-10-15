@@ -4,6 +4,45 @@
 
 ## 待辦／未解
 
+### 2026-10-15 — v1.52.0 發版
+
+- [x] 審閱完整工作樹、分支與遠端 tag，`gitleaks protect --staged --redact` 未發現敏感資料。
+- [x] 更新版本與發行說明，跑回歸、native build、打包版 E2E。
+- [x] 建立正式安裝檔並核對 `latest.yml`、blockmap、版本、大小與 SHA-512。
+- [ ] Commit/tag/push、建立 GitHub Release，比對遠端資產並檢查最終 Git 狀態。
+
+Review：`npm run lint`、Shell build、`electron:pack`（345 支 src 完整比對）通過；打包版擴充功能／設定／腳本分頁／四語 Edge TTS 與翻譯朗讀、ScienceDirect 文章及 PDF 驗收通過。`node scripts/run-tests.js` 139/142；`test-download-speed.js` 單獨重跑通過。另兩個 `test-usage.js` 斷言受本機憑證影響，`test-workspace-ui.js` 的 about:blank 舊斷言未在本次修改範圍。`gitleaks protect --staged --redact` 未發現洩漏；安裝檔 320,703,783 bytes，與 `latest.yml` 的 SHA-512、大小相符；blockmap v2 及 GitHub updater 設定有效。安裝檔尚未簽署（Authenticode `NotSigned`）。
+
+### 2026-10-15 — 擴充功能頁面分頁與工具列 popup 分流
+
+- [x] 完整設定／管理頁沿用瀏覽器新分頁；工具列圖示與 `action.openPopup()` 顯示浮動 popup。
+- [x] 更新打包版驗收：popup 不新增瀏覽器分頁，options／詳細設定仍開新分頁。
+- [x] 跑 lint、打包、CDP 驗收並重新開啟隔離預覽。
+- Review：`npm run lint`（359 IPC channels）、`test-browser-extensions`、打包版 `e2e-browser-scripts-cdp --extension-tabs-only` 通過；`electron:pack` 驗證 345 支 src 檔案與原始碼相同。隔離預覽已開啟（`--user-data-dir=axondeck-dev`）。未操作正式安裝版。
+
+### 2026-10-14 — 擴充功能完整管理、ScriptCat 與網站相容性
+
+- [x] 查清所有瀏覽器的擴充功能管理／選項／詳細頁入口，以及 ScriptCat userScripts 缺口。
+- [x] 補足啟用／停用／重載／更新／詳細設定及使用者指令碼開關，驗真 ScriptCat 腳本執行。
+- [x] 真實查證 ScienceDirect 阻擋原因，修正常瀏覽相容性並驗證結果。
+- [x] lint、單元／真插件流程、打包版跨瀏覽器驗收；更新交接與已知限制。
+- Review：lint 359 channels、asar 344 支一致、打包版跨頁 smoke 22/22；`e2e-browser-extensions` 驗真 ScriptCat popup 無警告、options、@grant none／GM 儲存腳本、登記／更新／移除／立即執行、訊息與 port、原生登記失敗回復、開關／重載保留、來源不寫回及無套件視窗隔離；`e2e-browser-settings` 五顆真套件都渲染自己的介面，uBO 真選項重載仍保存、Infinity 可開完整設定，Read Frog 右鍵更新／checked 事件及錯誤回呼通過。ScienceDirect 真公開文章與正常連結的 PDF 均 200、PDF success／7 頁／截圖可讀。Raindrop 未登入、未逐一操作每個第三方設定或付費 API；Electron 未提供的 USER_SCRIPT 獨立 world／named world／自訂 CSP 已記在 CONTEXT。未發版。
+
+### 2026-10-14 — 翻譯 Edge TTS 403
+
+- [x] 真服務重現 403，查證上游修正與受影響的朗讀／試聽 caller。
+- [x] `node-edge-tts` 固定升至 1.2.11（新 Microsoft 位址）；未增加依賴，該套件鏈無 audit finding。
+- [x] 驗證翻譯頁四語試聽與朗讀的真 MP3 播放，確認打包版帶新版套件。
+- 最終腳本／商店驗收：最新版打包 `e2e-browser-scripts-cdp` exit 0，本機套件重裝／重啟／移除／無 manifest 拒絕、真 CMD／PowerShell 啟動、原專案單一分頁、真 Google CRX 全過。已啟動 `dev-sandbox.js --packed` 預覽，未 commit/push、未更新正式安裝版。
+- Review：`test-tts-boundaries`／`test-tts-playback-lifecycle` 通過；隔離打包版 `e2e-browser-scripts-cdp --tts-only` 實際繁中／簡中／英文／日文 MP3 duration 4.584／3.768／3.768／4.632 秒，四語試聽與原文朗讀都觸發 playing。重跑整套腳本後有一次簡中試聽逾時，服務仍有連線不穩的可能；因此獨立執行語音驗收，避免商店／終端機流程與語音真上游耦合。沒有改正式設定或安裝版。
+
+### 2026-10-14 — 自訂瀏覽器擴充功能與專案開發腳本
+
+- [x] 在既有擴充功能選單加入本機資料夾安裝，保留商店安裝、重啟還原及移除。
+- [x] 專案檔案樹的啟動腳本接上瀏覽器改道，固定所屬專案；本機服務就緒後開專案新分頁。
+- [x] 驗證輸入邊界、腳本與擴充功能回歸，跑 lint、打包及隔離打包版端到端驗收。
+- Review：lint、`test-script-launch`（含真 TCP）、`test-browser-extensions`、終端機 14/14 支、工作區 9/10 支、error-hygiene 85/85、IPC 11/11、temp-hygiene 通過；打包 asar 336 檔一致，打包版跨頁 smoke 22/22。`e2e-browser-scripts-cdp` 通過本機安裝／重裝／重啟／移除保留來源／無 manifest 拒絕、真商店 CRX 安裝，以及真 CMD／PowerShell 啟動（中文＋單引號路徑、巢狀專案仍留點擊時專案、不開系統瀏覽器、不重複分頁、跨專案拒絕）。工作區 UI 197/198，唯一既有舊斷言仍期待 about:blank，而 HEAD 已改 Infinity 新分頁；未改此無關斷言。未發版。
+
 - [ ] 打包版實際登入一次 Grok（目前只驗到通過 Cloudflare、進到首頁）。
 - [ ] 未修（需硬體或判斷）：SATA SMART 用 access=0 開磁碟（要重編 probe＋SATA＋管理員才驗得了）；網頁版 AI 會記住同站非對話頁（對話網址格式不確定，怕擋掉正常對話）；網頁時長寫入失敗不重試（有 busy_timeout，跨小時重試會重複算）；檔案轉錄 `validateFilePath` 同步 stat（檔案剛由對話框選出）。
 - [ ] 依賴稽核剩餘：`concurrently`→9.2.5／`shell-quote`→1.11.0（critical，只影響 `electron:dev`；10/22 後發佈滿兩週再升）；monaco-editor 0.55→0.57（內含 dompurify XSS，pre-1.0 小版號可能破壞，需驗工作區編輯器）；electron-builder 傳遞相依（建置期）。electron 已升 43.7.5。

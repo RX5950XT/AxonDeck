@@ -453,8 +453,10 @@ async function runFileChecks() {
     && /const DIRECT_EXTS = \['exe', 'com', 'msi', 'lnk'\]/.test(tabs))
   const runFn = tabs.slice(tabs.indexOf('export async function runInTerminal'), tabs.indexOf('export async function openEditorTab'))
   const commands = []
-  const run = new Function('newTerminalWithCommand', 'extOf', `${runFn.replace('export ', '')}; return runInTerminal`)(
-    async (_title, command) => commands.push(command), (rel) => rel.split('.').pop().toLowerCase())
+  const launches = []
+  const run = new Function('newTerminalWithCommand', 'extOf', 'isLaunchScript', `${runFn.replace('export ', '')}; return runInTerminal`)(
+    async (_title, command, _resume, rel) => { commands.push(command); launches.push(rel) },
+    (rel) => rel.split('.').pop().toLowerCase(), (rel) => /\.(bat|cmd|ps1|sh)$/i.test(rel))
   for (const [file, expected] of [
     ['hello.js', "node './hello.js'"], ['hello.mjs', "node './hello.mjs'"],
     ['hello.py', "python './hello.py'"], ['hello.jar', "java -jar './hello.jar'"],
@@ -462,6 +464,7 @@ async function runFileChecks() {
   ]) {
     await run(file)
     check(`執行 ${file} 使用對應程式`, commands.pop() === expected)
+    check(`${file} 只有啟動腳本才經過網址改道`, launches.pop() === (/\.(bat|cmd|ps1|sh)$/.test(file) ? file : ''))
   }
   check('終端機指令用 PowerShell 的 & 與單引號（路徑有空白也跑得動）',
     /\|\| '&'/.test(runFn) && /rel\.replace\(\/'\/g, "''"\)/.test(runFn))

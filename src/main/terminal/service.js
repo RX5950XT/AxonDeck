@@ -73,6 +73,7 @@ function getClient() {
  * @param {object} payload
  */
 function forward(event, payload) {
+  require('../script-launch').noteTerminal(event, payload)
   if (event !== 'terminal:status') { emit(event, payload); return }
   const { title, cwd, ...rest } = payload
   if (cwd) links.noteCwd(payload.id, cwd)

@@ -11,7 +11,7 @@
 - [x] 建立正式安裝檔並核對 `latest.yml`、blockmap、版本、大小與 SHA-512。
 - [x] Commit/tag/push、建立 GitHub Release，比對遠端資產並檢查最終 Git 狀態。
 
-Review：`npm run lint`、Shell build、`electron:pack`（345 支 src 完整比對）通過；打包版擴充功能／設定／腳本分頁／四語 Edge TTS 與翻譯朗讀、ScienceDirect 文章及 PDF 驗收通過。`node scripts/run-tests.js` 139/142；`test-download-speed.js` 單獨重跑通過。另兩個 `test-usage.js` 斷言受本機憑證影響，`test-workspace-ui.js` 的 about:blank 舊斷言未在本次修改範圍。`gitleaks protect --staged --redact` 未發現洩漏；安裝檔 320,703,783 bytes，與 `latest.yml` 的 SHA-512、大小相符；blockmap v2 及 GitHub updater 設定有效。GitHub Release 的三個遠端資產均已上傳，大小與本機 SHA-256 一致；`master`、`v1.52.0` tag 均指向發行提交，發行後工作樹乾淨。安裝檔尚未簽署（Authenticode `NotSigned`）。
+Review：`npm run lint`、Shell build、`electron:pack`（345 支 src 完整比對）通過；打包版擴充功能／設定／腳本分頁／四語 Edge TTS 與翻譯朗讀、ScienceDirect 文章及 PDF 驗收通過。`node scripts/run-tests.js` 139/142；`test-download-speed.js` 單獨重跑通過。另兩個 `test-usage.js` 斷言受本機憑證影響，`test-workspace-ui.js` 的 about:blank 舊斷言未在本次修改範圍。`gitleaks protect --staged --redact` 未發現洩漏；安裝檔 320,703,783 bytes，與 `latest.yml` 的 SHA-512、大小相符；blockmap v2 及 GitHub updater 設定有效。GitHub Release 的三個遠端資產均已上傳，大小與本機 SHA-256 一致；發行時 `master`、`v1.52.0` tag 指向同一提交，發行驗收紀錄已另行推送，工作樹乾淨。安裝檔尚未簽署（Authenticode `NotSigned`）。
 
 ### 2026-10-15 — 擴充功能頁面分頁與工具列 popup 分流
 

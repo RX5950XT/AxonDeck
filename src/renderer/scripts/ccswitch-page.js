@@ -395,12 +395,15 @@ function providerTile(item) {
     actions.append(test)
   }
 
-  const edit = /** @type {HTMLButtonElement} */ (el('button', 'btn btn-secondary btn-sm cc-tile-edit', '編輯'))
-  edit.type = 'button'
-  edit.setAttribute('aria-label', `編輯 ${item.name}`)
-  edit.addEventListener('click', () => openProviderDialog(item.id))
-  actions.append(edit)
+  // 官方訂閱沒有端點／金鑰可改，只放「＋ 帳號」
   if (preset?.auth === 'none') actions.append(claudeLoginButton())
+  else {
+    const edit = /** @type {HTMLButtonElement} */ (el('button', 'btn btn-secondary btn-sm cc-tile-edit', '編輯'))
+    edit.type = 'button'
+    edit.setAttribute('aria-label', `編輯 ${item.name}`)
+    edit.addEventListener('click', () => openProviderDialog(item.id))
+    actions.append(edit)
+  }
 
   // 內建那幾家刪到剩最後一筆會被 main 擋（守衛在 main）；UI 只在「刪得掉」時放鈕：
   // 自訂一律可刪，內建要同一家有第二筆（舊資料會有）才出現

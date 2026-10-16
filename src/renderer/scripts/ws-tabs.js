@@ -82,13 +82,6 @@ let persistTimer = 0
 let projectSwitch = 0
 /** 切走專案時停放的瀏覽器 webview，key = projectId::tabId */
 const parkedBrowsers = new Set()
-// 目前專案裡切到背景（hidden）的瀏覽器分頁，閒置超過這麼久就拆掉 webview（一顆約 100–300MB），
-// 分頁本身留著，點回來 paintBrowser 照 tab.url 重建。停放的別專案不碰：它們換頁不會寫回 tab.url。
-// ponytail: 固定 10 分鐘、每分鐘掃一次；要可調再進設定
-const BROWSER_IDLE_MS = 10 * 60 * 1000
-/** @type {WeakMap<Element, number>} */
-const browserHiddenSince = new WeakMap()
-let browserSweepTimer = 0
 
 /** 目前選定的專案（由 workspace-page 設定，用來決定新終端機的 cwd） */
 let project = null
@@ -1627,7 +1620,7 @@ function releasePreviewMedia(box) {
  * 預覽區比對用的 `previewKey.source`。分頁物件被丟掉了，這幾格沒人清，
  * 1.4MB 的檔就這樣一直留在記憶體裡。
  */
-function resetEditorSurface() {
+function resetEditorSurface(keepEditors = false) {
   cancelShadowSync()
   const text = /** @type {HTMLTextAreaElement | null} */ (el.editorText)
   if (text) text.value = ''
@@ -1640,7 +1633,7 @@ function resetEditorSurface() {
   // 自繪的逐行 diff：一份大變更就是好幾萬個 DOM 節點，沒人收就一直掛著
   if (el.diffContent) el.diffContent.replaceChildren()
   // 一個分頁都不剩了，兩顆 Monaco 編輯器空殼也沒必要留（下次開檔會重建）
-  if (monaco) releaseEditors()
+  if (monaco) releaseEditors(keepEditors)
   hideExtBanner()
 }
 
@@ -2554,36 +2547,7 @@ function ensureBrowserGuest(tab) {
     if (activeId === target.id) paintBrowserChrome(target)
   })
   host.appendChild(guest)
-  if (!browserSweepTimer) browserSweepTimer = window.setInterval(sweepBrowserGuests, 60_000)
   return guest
-}
-
-function sweepBrowserGuests() {
-  const nodes = [...(el.browserFrame?.querySelectorAll('webview') || [])]
-  if (!nodes.length) {
-    clearInterval(browserSweepTimer)
-    browserSweepTimer = 0
-    return
-  }
-  const now = Date.now()
-  for (const node of nodes) {
-    const guest = /** @type {any} */ (node)
-    if (!guest.hidden || guest.dataset.projectId !== (project?.id || '') || isAudible(guest)) {
-      browserHiddenSince.delete(guest)
-    } else if (!browserHiddenSince.has(guest)) {
-      browserHiddenSince.set(guest, now)
-    } else if (now - browserHiddenSince.get(guest) >= BROWSER_IDLE_MS) {
-      guest.remove()
-    }
-  }
-}
-
-function isAudible(guest) {
-  try {
-    return !!guest.isCurrentlyAudible()
-  } catch {
-    return false // 還沒載入完的 webview 呼叫會丟錯
-  }
 }
 
 /**
@@ -3245,14 +3209,13 @@ export async function setActiveProject(next) {
     // 丟掉的話那個工作階段就再也叫不出來了（側欄已經沒有清單接住它）
     tabs = tabs.filter((t) => t.kind === 'terminal')
   }
-  // 分頁清單換掉了，上一個專案的 Monaco model 沒人收——每切一次專案就多留
-  // 一整份檔案內容（草稿在上面 `persistTabsNow` 的 `stash()` 已經收走了）
-  disposeModelsExcept(tabs.map((t) => t.id))
+  // 草稿已寫入；保留最近 model，超過快取上限才收，切回不必重新解析整份檔案。
+  disposeModelsExcept(tabs.map((t) => t.id), Boolean(next))
   // 上一個專案的瀏覽器分頁停放著，prune 只收沒人要的那些
   pruneBrowserGuests()
   // 還沒倒回去的那份影子是上一個專案的內容，別讓它落到新專案的畫面上；
   // 預覽區的 iframe／影片也要收（切走了還在背景跑）
-  resetEditorSurface()
+  resetEditorSurface(Boolean(next))
   activeId = ''
   if (!keepTerminal) {
     renderTabs()

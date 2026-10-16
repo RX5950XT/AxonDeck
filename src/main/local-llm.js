@@ -975,6 +975,7 @@ async function translate(store, text, targetLang, opts = {}) {
     const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal, reference: opts.reference, segments: opts.segments,
       // 內建譯名都是繁中，只給繁中目標
       glossary: targetLang === 'zh-TW' ? glossary.load(store) : null }
+    await glossary.warm(options.glossary)
 
     let result
     if (translator === 'local') {

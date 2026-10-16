@@ -26,6 +26,8 @@ console.log('PASS 術語表：解析、字界與複數、長詞優先、讀寫�
 // 內建學術名詞庫（國家教育研究院）
 const settings = (values) => ({ get: (key) => values[key] })
 const withBuiltin = glossary.load(settings({}))
+const warmed = glossary.warm(withBuiltin)
+assert.equal(glossary.warm(withBuiltin), warmed, '預載中重複呼叫要共用同一次解壓')
 const terms = (text, g = withBuiltin) => Object.fromEntries(glossary.find(g, text).map((t) => [t.source, t.targets]))
 const found = terms('The harmonic oscillators and integrating factors of a mathematical model depend on voltage.')
 assert.deepEqual(found['integrating factor'], ['積分因子'], '自訂詞優先、只給一個譯名')

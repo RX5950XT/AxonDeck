@@ -66,7 +66,7 @@ native/
 - 本機預覽使用既有 `%APPDATA%/axondeck-dev`（`dev-sandbox.js --packed --with-chats`），複製正式設定／專案／聊天，models／hf-models 連到 `%APPDATA%/voiceink`；Breeze 實體也在正式 models，舊 D 槽 Breeze QA profile 已清除。預覽設定與正式設定分開，模型共用。
 - 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
 - Index-Translate 譯文修補：行首「A. 」「1. 」先剝掉再貼回（共用 LinguaForge 的 `packLinguaforge`）；譯文殘留原文小寫英文單字或日文假名時，改用官方 instTrans 約束格式重翻（先寬鬆版，不行再加「只能用繁中」，後者對正常片段會冒粵語「係」）；出口用 `jpKanjiToTw` 把日文新字體逐字換回繁體（排除臺灣本來在用的字）。`translate-clean` 原文本來就是「A. 」開頭時不當答題標籤剝掉。
-- 翻譯術語表（`glossary.js`）：翻譯頁頁首「術語表」卡片。自訂詞條 `translateGlossary`（每行 英文=繁中，沒設定過＝內建數理清單，存 null 恢復）優先，再補內建學術名詞庫 `translateGlossaryBuiltin`（預設開）：`glossary-data/naer-terms.tsv.gz` 由 `scripts/build-glossary-data.js` 下載國家教育研究院理工 45 科整併，只收 2–5 字片語（單字在一般文章常是別的意思）、頭尾功能詞不收、每條最多 3 個候選；執行時整段文字＋行首位移二分搜尋（Map 多吃約 60MB）。只在目標繁中套用；雲端進 system prompt（多候選依上下文挑），Index 只給唯一譯名、用 instTrans 術語約束，LinguaForge 不套。資料授權：政府資料開放授權條款第 1 版，README 技術棧有標示出處。
+- 翻譯術語表（`glossary.js`）：翻譯頁頁首「術語表」卡片。自訂詞條 `translateGlossary`（每行 英文=繁中，沒設定過＝內建數理清單，存 null 恢復）優先，再補內建學術名詞庫 `translateGlossaryBuiltin`（預設開）：`glossary-data/naer-terms.tsv.gz` 由 `scripts/build-glossary-data.js` 下載國家教育研究院理工 45 科整併，只收 2–5 字片語（單字在一般文章常是別的意思）、頭尾功能詞不收、每條最多 3 個候選；執行時整段文字＋行首位移二分搜尋（Map 多吃約 60MB）；翻譯開始前 `warm()` 背景解壓，載入後常駐約 30MB 不閒置釋放。只在目標繁中套用；雲端進 system prompt（多候選依上下文挑），Index 只給唯一譯名、用 instTrans 術語約束，LinguaForge 不套。資料授權：政府資料開放授權條款第 1 版，README 技術棧有標示出處。
 - 文字轉語音：`breeze-tts/{index,protocol,takes,ipc}.js` → `speech-page.js`（流程）＋`speech-{script,takes,audio-input,wave}.js`／`speech.css`；`breezetts2q8`（3,568,844,480 bytes）搭配固定 v0.1.0 `breezeruntime`，SHA-256 驗證後才安裝。不寫 llama preset；NVIDIA ≥8GB + Vulkan 自動用 GPU，其餘 CPU。首次生成或保存聲音才載模型；列表直接讀保存檔，不因切頁載模型。
 - Breeze 僅監聽 main 指定的 loopback 隨機埠，參考／來源錄音由 main 選檔（WAV 直讀；MP3／M4A 等先用 ffmpeg 轉 24kHz 單聲道，上限約 23 分鐘）、驗證再用 token 呼叫；voice name 只收 ASCII 英數／`-`／`_`。收藏在 `userData/breeze-tts/voices`；移除模型或 runtime 先 shutdown，收藏保留。生成可取消；三種語音模式串流播放，實驗性變聲整段完成後播放；PCM 最後包 24kHz mono WAV。選參考音後前 120 秒轉 16k 單聲道，用檔案轉錄同一顆 ASR 自動辨識逐字稿並轉台灣繁體後填入，可再改；失敗退回手動。進階「生成上限」預設 30000。模型與本機輸出限研究及非商用。
 - 版面參考 yovoice：左稿子、右設定（生成鈕在最上）、下方結果區（版本選單＋波形播放＋分句清單）。每次生成都存成版本 `userData/breeze-tts/takes`（index.json＋WAV，最多 50 版，最舊的自動刪）；版本記每句在音檔裡的位置，重做單句只生成那一句（換隨機種子），其他句從舊版本切出來重組成新版本。逐句／字幕是 renderer 依序呼叫 `generate`，main 先把各句 PCM 留在記憶體（上限 256MB），`saveTake` 合併後就丟；中途停止會把完成的句子存成版本。字幕（SRT／VTT／ASS）依時間放、前句沒講完就順延；角色可指定保存的聲音（指定後該角色用克隆）。讀音字典存 `speechPronunciations`（main 端過濾），生成時才換字、原稿不動。錄音（MediaRecorder）與裁切都在 main 用 ffmpeg 從原始檔重新解碼。
@@ -96,7 +96,7 @@ native/
 - 翻譯 Edge TTS：`node-edge-tts` 固定 1.2.11，服務從舊 speech.platform.bing.com 改為 api.msedgeservices.com；舊版真請求 403、新版成功。維持 voice allowlist、語速與切塊／取消流程，`e2e-browser-scripts-cdp.js --tts-only` 共用隔離打包版啟動，獨立驗四語試聽＋朗讀的真 MP3 播放（靜音測試，不碰正式設定）。真上游可能偶發逾時。
 - 專案腳本開瀏覽器（`script-launch.js`）：檔案頁／專案檔案樹執行專案裡的 `.bat`／`.cmd` 改由 App 啟動——`BROWSER`＝AxonDeck.exe（Python `webbrowser`、Vite `--open`）；暫存副本把有網址／變數的 `start …` 改成 `(%AXONDECK_START% … || start …)`（不能用 `call :標籤`，參數有 `/?` 會變成顯示說明）。第二份 AxonDeck 用**原始順序**的 `process.argv` 判斷（轉給第一份的 argv 會被 Chromium 重排、丟空字串、加開關），帶 `AXONDECK_PROJECT` 給第一份開在那個專案；不是網址回 3、App 沒在跑回 4，腳本改照原樣 start。
 - 右側檔案樹的一鍵啟動仍在專案終端機：`ws-tabs.runInTerminal` → `workspace:scriptCommand`（專案相對路徑＋同專案終端機守衛）→ `script-launch.terminalCommand`。用獨立 PowerShell 執行，批次副本以環境變數保留中文原路徑，PowerShell 的 `Start-Process`／`Invoke-Item` 網址也改道；不改原腳本或 PTY 宿主協定。main 只追蹤這次腳本的輸出 5 分鐘，看到 loopback URL 後等 TCP 就緒（最多 30 秒）開原專案分頁；主動開網址與日誌共用 run ID 去重。指定專案不存在／開頁失敗不退回系統瀏覽器。驗收 `scripts/e2e-browser-scripts-cdp.js`：隔離打包版、真本機服務／套件 content script、真 Google CRX。
-- 記憶體：網頁藏超過 5 分鐘或同時超過 3 則就移除 webview（正在出聲的不收），再點照網址重建；工作區背景瀏覽器分頁閒置 10 分鐘拆掉。聊天圖片快取 LRU 約 16MB。
+- 記憶體：網頁版 AI 與工作區瀏覽器分頁切換時保留 webview（v1.54.3 起取消閒置／數量回收，避免切回重載），關閉對話／分頁或當機才收。聊天圖片快取 LRU 約 16MB。
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
 ### 專案工作區與終端機
@@ -114,7 +114,7 @@ native/
 - 刪除進系統回收筒、Ctrl+Z 復原、撞名可改名／略過／覆蓋（覆蓋先把舊的丟回收筒）、操作中心在狀態列。
 - 殼層 sidecar 提供原生右鍵（7-Zip／WinRAR／傳送到）、真縮圖＋Drive 綠勾、內容視窗、詳細資訊（EXIF／影音串流／版本）、手機 MTP。ZIP 唯讀瀏覽與解壓。
 - 「資料夾大小」開關（`explorer.json` 的 `folderSizes`）：`dir-sizes.js` 每欄一條 lane 背景用原生 `dir-size` 逐個算子資料夾（單個上限 20 秒，超過顯示「≥」，5 分鐘內不重算），`listDir` 帶 `dirSizes` 才套進 size 參與排序；renderer 收進度節流重拿已載入的頁。回歸 `test-explorer-dir-sizes.js`。
-- UFFS：進頁只準備授權，搜尋時才載索引，閒置 60 秒或 App 結束時休眠。
+- UFFS：進頁只準備授權，搜尋時才載索引，保留到 App 結束才休眠。
 
 ### 原生媒體播放器
 - `native/axondeck-probe/src/bin/axondeck-media/`：Rust＋Win32，mpv／ImageMagick 解碼，放 Windows Job object；跟主 App 完全分開。
@@ -170,7 +170,7 @@ native/
 - 驗證：`npx electron scripts/test-cloud-providers.js`、`node scripts/test-cloud-tts.js`、打包版 `node scripts/e2e-cloud-models-cdp.js`（本機 mock，不用真金鑰）。
 
 ### Telegram
-- 各格同時載；外部連結（非 t.me）直接交系統瀏覽器；看不到 Telegram 頁 5 分鐘就只留第一格（收通知），其他格先導 `about:blank` 交棒再拿掉 webview，切回來照存的網址載回；正在出聲的不收。✕ 先導 `about:blank` 再拿掉；每 20 秒探各格，卡「等待網路連線」60 秒或格子當掉就全部依序重載（兩次隔 5 分鐘）；當機記到 `userData/crash.log`。
+- 各格同時載；外部連結（非 t.me）直接交系統瀏覽器；各格切走不卸載（v1.54.3 起取消 5 分鐘只留一格，避免切回重連）。✕ 先導 `about:blank` 再拿掉；每 20 秒探各格，卡「等待網路連線」60 秒或格子當掉就全部依序重載（兩次隔 5 分鐘）；當機記到 `userData/crash.log`。
 - 切走時用 `opacity:0`＋`position:absolute` 藏（`display:none` 會丟圖塊，切回來卡頓）。
 
 ### 更新與安裝

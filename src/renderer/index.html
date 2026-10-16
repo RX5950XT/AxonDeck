@@ -1648,7 +1648,6 @@
               <div class="dict-panel-head">
                 <h3>轉錄紀錄</h3>
               </div>
-              <p id="sttTxEmpty" class="dict-empty">還沒有轉錄</p>
               <div id="transcribeProgress" class="progress-panel hidden">
                 <div class="progress-spinner" aria-hidden="true"></div>
                 <div
@@ -1664,16 +1663,7 @@
                 <p class="progress-text" role="status" aria-live="polite">正在轉錄中...</p>
                 <p class="progress-percent" aria-hidden="true">0%</p>
               </div>
-              <div id="transcribeResult" class="result-panel hidden">
-                <div class="result-header">
-                  <div class="result-actions">
-                    <button id="copyResultBtn" class="btn btn-secondary">📋 複製</button>
-                    <button id="saveResultBtn" class="btn btn-secondary">💾 儲存</button>
-                  </div>
-                </div>
-                <p id="resultWarning" class="result-warning hidden" role="status"></p>
-                <div id="resultText" class="result-text"></div>
-              </div>
+              <div id="txHistoryList" class="dict-records rec-list"></div>
             </section>
 
             </div>

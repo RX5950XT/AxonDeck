@@ -268,7 +268,7 @@ body.is-maximized .win-btn#winMax {
   transition: none;
 }
 
-/* 錄音機在背景錄音中 */
+/* 錄音機或即時字幕在背景錄音中 */
 .nav-tab.is-recording { position: relative; }
 .nav-tab.is-recording::after {
   content: '';
@@ -12266,8 +12266,7 @@ h6.md-h { font-size: 14px; }
   min-height: 440px;
 }
 
-.stt-txlog .progress-panel,
-.stt-txlog .result-panel {
+.stt-txlog .progress-panel {
   margin-top: 0;
   padding: 0;
   min-height: 0;
@@ -12277,16 +12276,12 @@ h6.md-h { font-size: 14px; }
   backdrop-filter: none;
 }
 
-.stt-txlog .result-header { margin-bottom: 8px; }
-
 .stt-txlog .dict-records,
 .stt-recs .dict-records,
 .stt-column > .live-history .dict-records {
   min-height: 360px;
   max-height: 640px;
 }
-
-.stt-txlog .result-text { min-height: 360px; max-height: 640px; }
 
 .stt-live-card {
   display: flex;

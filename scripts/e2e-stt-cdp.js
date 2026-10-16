@@ -244,7 +244,7 @@ async function main() {
           }),
           groups: document.querySelectorAll('.stt-board > .stt-column').length,
           gap: parseFloat(getComputedStyle(board).columnGap),
-          grouped: [['dropZone', 'resultText'], ['recStartBtn', 'recList'], ['startLiveBtn', 'liveHistoryList']].every(([top, bottom]) =>
+          grouped: [['dropZone', 'txHistoryList'], ['recStartBtn', 'recList'], ['startLiveBtn', 'liveHistoryList']].every(([top, bottom]) =>
             document.getElementById(top).closest('.stt-column') === document.getElementById(bottom).closest('.stt-column')),
           rect: { x: content.getBoundingClientRect().x + 20, y: 400 }
         }

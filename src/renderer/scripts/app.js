@@ -188,7 +188,7 @@ async function activateSttSubtab() {
   import('./recorder.js').then((m) => m.refreshRecorderPage())
   const live = await loadLiveCaption()
   live.prewarmEngine()
-  import('./live-history.js').then((m) => m.refreshLiveHistory())
+  import('./live-history.js').then((m) => { m.refreshLiveHistory(); m.refreshFileHistory() })
   const dict = await import('./dictation-page.js')
   await dict.refreshDictationPage()
 }

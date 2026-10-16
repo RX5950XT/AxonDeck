@@ -4227,6 +4227,7 @@ function paintUffs() {
   const dot = $('exUffsDot')
   const enableBtn = $('exUffsEnableBtn')
   if (!text || !dot) return
+  text.title = ''
   const brokerOn = Boolean(uffs && uffs.broker && uffs.broker.installed)
   const daemonOn = Boolean(uffs && uffs.daemon && uffs.daemon.running)
   const warming = Boolean(uffs && uffs.daemon && uffs.daemon.warming)
@@ -4258,7 +4259,10 @@ function paintUffs() {
     dot.classList.remove('is-on')
     return
   }
-  text.textContent = uffs.version ? `UFFS ${uffs.version}` : 'UFFS 已安裝'
+  // `uffs --version` 會吐「UFFS uffs.exe 0.6.40 (a14d399)」，畫面只留版本號，全文放 title
+  const ver = /\d+(\.\d+)+/.exec(uffs.version || '')?.[0]
+  text.textContent = ver ? `UFFS v${ver}` : 'UFFS 已安裝'
+  text.title = uffs.version || ''
   dot.classList.remove('is-on')
 }
 

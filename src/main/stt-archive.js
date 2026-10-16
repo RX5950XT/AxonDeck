@@ -6,6 +6,7 @@
  * 都在 userData 底下、檔名由規則決定（renderer 只送得出符合樣式的名字，組不出別的路徑）：
  * - `recordings/rec-<毫秒時間戳>.webm`：MediaRecorder 每秒一塊，邊錄邊 append，當掉也只少最後一秒。
  * - `live-transcripts/live-<毫秒時間戳>.jsonl`：一行一筆字幕 upsert，同一個 key 以最後一行為準。
+ * - `file-transcripts/tx-<毫秒時間戳>.json`：檔案轉錄完的一份逐字稿（檔名＋全文）。
  *
  * 寫檔用同步 append：同一個檔案的兩次非同步 append 在 Windows 上不保證順序，字幕會錯位。
  */
@@ -16,6 +17,9 @@ const { makeInvoke } = require('./ipc-invoke')
 
 const REC_NAME = /^rec-\d{13}\.webm$/
 const LIVE_ID = /^live-\d{13}$/
+const TX_ID = /^tx-\d{13}$/
+/** 一份逐字稿的上限：約 4 小時的語音，再長就是異常資料 */
+const MAX_FILE_TEXT_CHARS = 2_000_000
 const ENTRY_KEY = /^[\w-]{1,64}$/
 /** 跟檔案轉錄的上限一致：錄出來的檔一定轉得了 */
 const MAX_RECORDING_BYTES = 200 * 1024 * 1024
@@ -41,7 +45,7 @@ function fail(message) {
   return err
 }
 
-/** @param {'recordings'|'live-transcripts'} sub */
+/** @param {'recordings'|'live-transcripts'|'file-transcripts'} sub */
 function dirOf(sub) {
   if (!baseDir) throw fail('存檔位置尚未設定')
   const dir = path.join(baseDir, sub)
@@ -199,6 +203,65 @@ function deleteTranscript(id) {
   return true
 }
 
+// ===== 檔案轉錄逐字稿 =====
+
+function fileTranscriptPath(id) {
+  if (typeof id !== 'string' || !TX_ID.test(id)) throw fail('轉錄紀錄 id 無效')
+  return path.join(dirOf('file-transcripts'), `${id}.json`)
+}
+
+/**
+ * @param {{ name: string, text: string }} entry
+ * @returns {string} 新紀錄的 id
+ */
+function saveFileTranscript(entry) {
+  const text = typeof entry?.text === 'string' ? entry.text.slice(0, MAX_FILE_TEXT_CHARS) : ''
+  if (!text.trim()) throw fail('轉錄內容是空的')
+  const name = typeof entry.name === 'string' ? entry.name.slice(0, 260) : ''
+  let ts = Date.now()
+  while (fs.existsSync(fileTranscriptPath(`tx-${ts}`))) ts += 1
+  const id = `tx-${ts}`
+  fs.writeFileSync(fileTranscriptPath(id), JSON.stringify({ name, text }), 'utf8')
+  return id
+}
+
+/** @param {string} file */
+async function readFileEntry(file) {
+  const raw = JSON.parse(await fs.promises.readFile(file, 'utf8'))
+  return { name: String(raw?.name || ''), text: String(raw?.text || '') }
+}
+
+async function listFileTranscripts() {
+  const dir = dirOf('file-transcripts')
+  const names = (await fs.promises.readdir(dir))
+    .filter((n) => n.endsWith('.json') && TX_ID.test(n.slice(0, -5)))
+    .sort()
+    .reverse()
+    .slice(0, MAX_TRANSCRIPTS)
+  const items = await Promise.all(names.map(async (n) => {
+    try {
+      const { name, text } = await readFileEntry(path.join(dir, n))
+      return { id: n.slice(0, -5), startedAt: startedAtOf(n), name, count: text.length, preview: text.slice(0, 80) }
+    } catch {
+      return null // 壞掉的檔不擋整份清單
+    }
+  }))
+  return items.filter((t) => t && t.count > 0)
+}
+
+/** 跟字幕紀錄同形狀（一列 source），renderer 共用同一套顯示 */
+async function readFileTranscript(id) {
+  const file = fileTranscriptPath(id)
+  if (!fs.existsSync(file)) throw fail('找不到這份轉錄紀錄')
+  const { text } = await readFileEntry(file)
+  return [{ source: text, translation: '', t: startedAtOf(id) }]
+}
+
+function deleteFileTranscript(id) {
+  fs.rmSync(fileTranscriptPath(id), { force: true })
+  return true
+}
+
 // ===== IPC =====
 
 /**
@@ -221,6 +284,10 @@ function registerSttArchiveIpc({ ipcMain, isMainSender }) {
   ipcMain.handle('sttArchive:appendTranscript', (e, id, entry) => invoke(e, () => appendTranscript(id, entry)))
   ipcMain.handle('sttArchive:readTranscript', (e, id) => invoke(e, () => readTranscript(id)))
   ipcMain.handle('sttArchive:deleteTranscript', (e, id) => invoke(e, () => deleteTranscript(id)))
+  ipcMain.handle('sttArchive:fileTranscripts', (e) => invoke(e, () => listFileTranscripts()))
+  ipcMain.handle('sttArchive:saveFileTranscript', (e, entry) => invoke(e, () => saveFileTranscript(entry)))
+  ipcMain.handle('sttArchive:readFileTranscript', (e, id) => invoke(e, () => readFileTranscript(id)))
+  ipcMain.handle('sttArchive:deleteFileTranscript', (e, id) => invoke(e, () => deleteFileTranscript(id)))
 }
 
 module.exports = {
@@ -235,4 +302,8 @@ module.exports = {
   appendTranscript,
   readTranscript,
   deleteTranscript,
+  saveFileTranscript,
+  listFileTranscripts,
+  readFileTranscript,
+  deleteFileTranscript,
 }

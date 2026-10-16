@@ -192,7 +192,7 @@ native/
 | `terminals.json` | 終端機 metadata、AI 類型與對話 ID |
 | `workspaces.json`／`explorer.json` | 專案清單＋分頁狀態／檔案頁路徑、位置、資料夾檢視 |
 | `dictations.json` | 語音輸入紀錄與字典 |
-| `recordings/`／`live-transcripts/` | 錄音（webm）／即時字幕逐字稿（jsonl） |
+| `recordings/`／`live-transcripts/`／`file-transcripts/` | 錄音（webm）／即時字幕逐字稿（jsonl）／檔案轉錄紀錄（tx-*.json）；錄音機或字幕在錄時導覽列亮紅點（`markSttRecording`） |
 | `usage.json`／`code-usage.json` | 額度快取／用量桶＋游標 |
 | `claude-accounts.json` | Claude 各帳號登入快照（含 token，不進 allowlist） |
 | `agy-logs.db` | AGY 流量日誌 |

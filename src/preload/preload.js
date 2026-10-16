@@ -718,7 +718,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} id @param {{ key: string, source: string, translation: string }} entry */
     appendTranscript: (id, entry) => ipcRenderer.invoke('sttArchive:appendTranscript', id, entry),
     readTranscript: (id) => ipcRenderer.invoke('sttArchive:readTranscript', id),
-    deleteTranscript: (id) => ipcRenderer.invoke('sttArchive:deleteTranscript', id)
+    deleteTranscript: (id) => ipcRenderer.invoke('sttArchive:deleteTranscript', id),
+    fileTranscripts: () => ipcRenderer.invoke('sttArchive:fileTranscripts'),
+    /** @param {{ name: string, text: string }} entry */
+    saveFileTranscript: (entry) => ipcRenderer.invoke('sttArchive:saveFileTranscript', entry),
+    readFileTranscript: (id) => ipcRenderer.invoke('sttArchive:readFileTranscript', id),
+    deleteFileTranscript: (id) => ipcRenderer.invoke('sttArchive:deleteFileTranscript', id)
   },
 
   // ===== 語音輸入（全域右 Alt）=====

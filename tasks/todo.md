@@ -463,8 +463,8 @@ Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z
 - [x] 盤點完整工作樹與遠端版本，同步版本與發行說明。
 - [x] 完整單元測試、shell 建置、打包與可見視窗回歸。
 - [x] NSIS 拆包、更新資訊與雜湊驗證，記錄簽章狀態。
-- [ ] staged 審閱與 secrets 掃描，commit／tag／push／GitHub Release。
-- [ ] 驗證遠端附件及 Git 狀態，完成 review。
+- [x] staged 審閱與 secrets 掃描，commit／tag／push／GitHub Release。
+- [x] 驗證遠端附件及 Git 狀態，完成 review。
 
 ## Review（v1.54.2 發版驗收）
 
@@ -473,3 +473,5 @@ Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z
 - `npm run build:shell`、`npm run lint`、`npm run electron:build` 通過，346 支 src 與 asar 一致。沿用同份產品原始碼先前的 electron:pack、終端機 68/68 驗收；1.54.2 正式包重跑可見效能 probe 通過（2,000 行、8 次切換 33～76 ms，中位數 45 ms；8 次新增、GPU 上限與三格並排），對話打包版 28/28。
 - NSIS 拆包 200 個檔案與正式打包目錄逐一 SHA-256 相符；app-update.yml 正確。installer 320754790 bytes，latest.yml 版本／大小／SHA-512 相符、blockmap 非空。Authenticode：NotSigned。
 - staged secrets 掃描與 diff check 通過，發行說明保留首次啟動／超過畫布上限的等待界線。
+- 發行 commit／tag：`ce71cad87bdeda807f5eadd402b34b9f3be62b96`／`v1.54.2` 已推送。[GitHub Release](https://github.com/RX5950XT/AxonDeck/releases/tag/v1.54.2) 為 Latest、非草稿、非預發行，三份附件齊全。
+- 三份 GitHub 附件已實際下載，大小與 SHA-256 全部 MATCH，GitHub digest 亦相符；installer SHA-256：`0c8707b70705b6996041c5d9ef61fb880bbc0b0b0cb3d3e0681e0417a216eafb`。正式版 PID 22628 保持運行，未替換或重啟。

@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.52.0**（2026-10-15）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.54.1**（2026-10-16）。
 nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -158,6 +158,8 @@ native/
 - 檔案轉錄：ffmpeg 串流切段；雲端遇 429／逾時／5xx 同段重試，仍失敗保留已完成內容。錄音機跟檔案轉入同一頁，錄音可拖過去（只帶檔名，路徑由 main 解析）。錄音與字幕邊錄邊 append。
 - 錄音清單可下載原始 webm；仍由 main 驗證檔名並讀取，不接受 renderer 提供路徑。
 - 轉錄與即時字幕共用模型（`fileAsr`／`fileLlm` 為準，開機 `alignSharedStt` 抄到 live；目標語言 `sttLanguage`）。語音輸入仍各自選（`dictationAsr`／`dictationLlm`）。值 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
+- 即時字幕按「開始」後持續持有 `live` 引擎，切工具不釋放；按停止或關閉字幕視窗後才釋放，仍有其他功能使用時保留模型。尚未開始字幕的待機預熱，切頁時可釋放。
+- 一般文字翻譯工作中切頁仍繼續分段，保留 `translate` 引擎；背景完成、失敗或明確停止後才釋放。切回翻譯頁不重載正在用的模型，前景完成時維持待機預熱。
 
 ### 設定頁
 - 側欄四區：雲端模型／基本（更新置頂、視窗與啟動）／外觀（主題、終端機外觀＋`term-appearance-preview.js` 即時預覽）／CLI 版本。全部自動儲存，沒有底部「儲存設定」列。

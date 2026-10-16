@@ -138,11 +138,12 @@ async function openSession(id, cols, rows) {
   let safe = await agentResume.prepare(meta)
   if (!safe.agentSessionId) safe = await claudeHooks.prepareResume(safe)
   const states = await getClient().request('list') || []
-  await agentResume.begin(safe, states.some(item => item.id === safe.id))
+  const existing = states.some(item => item.id === safe.id)
+  await agentResume.begin(safe, existing)
   void activity.follow(safe)
   const snapshot = await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
   if (snapshot?.cwd) links.noteCwd(meta.id, snapshot.cwd)
-  return snapshot
+  return { ...snapshot, hasHistory: existing || Boolean(safe.agentSessionId || safe.claudeSessionId) }
 }
 
 /**
@@ -224,7 +225,10 @@ async function createSession(req = {}) {
 async function conversation(id, cursor) {
   const meta = typeof id === 'string' ? await store.get(id) : null
   if (!meta) throw Object.assign(new Error('NO_SESSION'), { code: 'NO_SESSION', userMessage: '找不到這個工作階段' })
-  await agentResume.capture()
+  const knownAgent = meta.claudeSessionId && !meta.agentSessionId ? 'claude' : meta.preset
+  if (!agents.AGENTS[knownAgent]) return { sessionId: '', turns: [], nextCursor: null }
+  // 對話只在第一頁校正一次，後續分段不用重掃所有 CLI。
+  if (!cursor) await agentResume.capture()
   const current = await store.get(id)
   const sessionId = current?.agentSessionId || current?.claudeSessionId
   const agent = current?.claudeSessionId && !current.agentSessionId ? 'claude' : current?.preset

@@ -290,15 +290,18 @@ export async function prewarmTranslatePage() {
  * 離開翻譯分頁
  */
 export async function cooldownTranslatePage() {
+  stopSpeak()
+  await electronAPI.tts?.cancel?.().catch(() => {})
+  // 切頁只收待機預熱；分段翻譯要繼續，完成後再由 finally 釋放。
+  if (isTranslating) return
   prewarmGen++
   prewarmInFlight = false
   if (el) el._translateRequestId = 0
-  stopSpeak()
-  await electronAPI.tts?.cancel?.().catch(() => {})
   await releaseTranslateEngine()
 }
 
 async function releaseTranslateEngine() {
+  if (isTranslating) return
   if (!electronAPI.engine) {
     prewarmed = false
     engineAcquired = false
@@ -319,9 +322,9 @@ async function releaseTranslateEngine() {
  * 非 local 則 release
  */
 async function syncEngineForSettings() {
-  if (!electronAPI.engine) return
+  if (isTranslating || !electronAPI.engine) return
   const page = document.getElementById('page-translate')
-  const onTranslatePage = !!page?.classList.contains('active')
+  const onTranslatePage = !document.hidden && !!page?.classList.contains('active')
 
   if (settings?.translator === 'local' && onTranslatePage) {
     // 已 prewarm 也要卸再載：localTranslateModel 指紋變更靠 getSession，
@@ -564,6 +567,7 @@ async function runTranslate() {
   } finally {
     isTranslating = false
     el.runBtn.textContent = '翻譯'
+    if (document.hidden || !document.getElementById('page-translate')?.classList.contains('active')) await cooldownTranslatePage()
     await refreshUiState()
   }
 }

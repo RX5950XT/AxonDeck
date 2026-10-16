@@ -380,6 +380,7 @@ async function main() {
       await cdp.eval(`document.getElementById('startLiveBtn').click()`)
       await waitFor(() => cdp.eval(`document.getElementById('liveStatus').classList.contains('active')`), 10000, `字幕 ${source} 開始`)
       ok(`字幕 ${source} 擷取時鎖住音源`, await cdp.eval(`document.getElementById('liveAudioSource').disabled`))
+      ok(`字幕 ${source} 開啟後持有模型`, await cdp.eval(`electronAPI.engine.status().then(s => s.users.live)`))
       await waitFor(() => asrRequests.length > before, 10000, `字幕 ${source} PCM 送到 ASR`)
       const recorded = asrRequests[before], expected = source === 'both' ? [true, true] : [source === 'system', source === 'mic']
       ok(`字幕 ${source} ASR 收到對應音源的 16k PCM`, recorded.rate === 16000 &&
@@ -388,8 +389,23 @@ async function main() {
         const dir = path.join(USER_DATA_DIR, 'live-transcripts')
         return fs.existsSync(dir) && fs.readdirSync(dir).some((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes(`字幕音源驗證成功${before + 1}`))
       }, 5000, 'ASR 結果進字幕紀錄')
-      await cdp.eval(`document.getElementById('stopLiveBtn').click()`)
+      await cdp.eval(`electronAPI.pages.navigate({ page: 'settings' })`)
+      ok(`字幕 ${source} 切換工具仍持有模型`, await cdp.eval(`electronAPI.engine.status().then(s => s.users.live)`))
+      if (source === 'system') {
+        await cdp.eval(`electronAPI.subtitle.close()`)
+        await waitFor(() => cdp.eval(`electronAPI.engine.status().then(s => !s.users.live)`), 10000, '其他工具頁關閉字幕後釋放模型')
+        ok('在其他工具關閉字幕視窗才釋放模型', true)
+      }
+      await cdp.eval(`electronAPI.pages.navigate({ page: 'stt' })`)
+      if (source !== 'system') {
+        ok(`字幕 ${source} 切回仍持有模型且持續擷取`, await cdp.eval(`electronAPI.engine.status().then(s => s.users.live && document.getElementById('liveStatus').classList.contains('active'))`))
+        await cdp.eval(`document.getElementById('stopLiveBtn').click()`)
+      }
       await waitFor(() => cdp.eval(`!document.getElementById('startLiveBtn').disabled && !document.getElementById('liveAudioSource').disabled`), 10000, '字幕完整停止')
+      if (source !== 'system') {
+        await waitFor(() => cdp.eval(`electronAPI.engine.status().then(s => !s.users.live)`), 10000, '字幕停止後釋放模型')
+        ok(`字幕 ${source} 關閉後才釋放模型`, true)
+      }
       ok(`字幕 ${source} 停止後關閉全部輸入軌`, await cdp.eval(`window.__recTest.streams.every(s=>s.getTracks().every(t=>t.readyState === 'ended'))`))
       await cdp.eval(`Promise.all(window.__recTest.contexts.splice(0).map(c=>c.close()))`)
     }

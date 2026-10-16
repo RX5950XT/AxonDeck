@@ -381,13 +381,13 @@ async function codexTitles(home) {
   }
 }
 
-async function sessions(projectPath) {
+async function sessions(projectPath, agent = '') {
   const sinceMs = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000
   /** @type {Array<{ agent: string, agentLabel: string, id: string, title: string, mtime: number, source: string }>} */
   const out = []
 
   // Claude：資料夾名就是編碼過的 cwd，不必逐檔開來確認
-  for (const home of claudeHomes()) {
+  for (const home of !agent || agent === 'claude' ? claudeHomes() : []) {
     /** @type {Array<{ file: string, mtime: number }>} */
     const found = []
     await collect(path.join(home, 'projects', encodeClaudeDir(projectPath)), sinceMs, found)
@@ -408,7 +408,7 @@ async function sessions(projectPath) {
   }
 
   // Codex：檔名不含 cwd，只能開第一行看 session_meta
-  for (const home of codexHomes()) {
+  for (const home of !agent || agent === 'codex' ? codexHomes() : []) {
     const titles = await codexTitles(home)
     /** @type {Array<{ file: string, mtime: number }>} */
     const found = []
@@ -417,26 +417,31 @@ async function sessions(projectPath) {
     }
     found.sort((a, b) => b.mtime - a.mtime)
     let taken = 0
-    for (const item of found) {
-      if (taken >= MAX_SESSIONS) break
-      const head = codexHead(await headLines(item.file))
-      if (!head.sessionId || !samePath(head.cwd, projectPath)) continue
-      if (!ID_RE.test(head.sessionId)) continue
-      taken += 1
-      out.push({
-        agent: 'codex',
-        agentLabel: AGENTS.codex.label,
-        id: head.sessionId,
-        title: head.title,
-        sessionTitle: titles.get(head.sessionId) || '',
-        mtime: item.mtime,
-        source: sourceLabel(home)
-      })
+    // 限量並行讀檔，避免數百份紀錄逐個等待磁碟；結果仍照原本時間順序取前 30 筆。
+    for (let offset = 0; offset < found.length && taken < MAX_SESSIONS; offset += 8) {
+      const batch = found.slice(offset, offset + 8)
+      const heads = await Promise.all(batch.map(item => headLines(item.file).then(codexHead)))
+      for (const [index, item] of batch.entries()) {
+        if (taken >= MAX_SESSIONS) break
+        const head = heads[index]
+        if (!head.sessionId || !samePath(head.cwd, projectPath)) continue
+        if (!ID_RE.test(head.sessionId)) continue
+        taken += 1
+        out.push({
+          agent: 'codex',
+          agentLabel: AGENTS.codex.label,
+          id: head.sessionId,
+          title: head.title,
+          sessionTitle: titles.get(head.sessionId) || '',
+          mtime: item.mtime,
+          source: sourceLabel(home)
+        })
+      }
     }
   }
 
-  const extra = await formats.extraSessions(projectPath, samePath, ID_RE)
-  out.push(...extra.map(row => ({ ...row, agentLabel: AGENTS[row.agent].label, source: sourceLabel(row.home) })))
+  const extra = !agent || !['claude', 'codex'].includes(agent) ? await formats.extraSessions(projectPath, samePath, ID_RE) : []
+  out.push(...extra.filter(row => !agent || row.agent === agent).map(row => ({ ...row, agentLabel: AGENTS[row.agent].label, source: sourceLabel(row.home) })))
   return latestPerAgent(out)
 }
 

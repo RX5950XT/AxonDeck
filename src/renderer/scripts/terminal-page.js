@@ -922,7 +922,7 @@ async function openSession(id, isActive = () => true) {
       const snapshot = await openPty(id, entry, '開啟終端機失敗')
       // 掛上之後、快照回來之前收到的片段先排隊，免得順序顛倒；
       // 快照本身已含 seq 以前的內容，重疊的要丟掉。
-      await entry.conversation.restore()
+      await entry.conversation.restore(snapshot.hasHistory !== false)
       if (snapshot.buffer) await writeOutput(entry, snapshot.buffer)
       entry.seq = snapshot.seq
       entry.ready = true

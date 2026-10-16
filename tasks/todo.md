@@ -380,3 +380,62 @@ Review：281 筆各自身分不再誤判重複（DirectX x86／x64 分開）；2
 - [x] 常用程式加入 WinRAR、Free Download Manager（20 項）。
 
 Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z-Library 2.3 → 43 MB/s（主節點卡死改走較快節點）；NVIDIA 已達約 100 MB/s 線路上限。winget 自身下載器不受影響，wininet／DO 比較未得出有效結果。
+
+# 2026-10-16 — 專案新增分頁與切換延遲
+
+- [x] 用隔離實例量新增分頁、切專案與各段等待，重現主要瓶頸。
+- [x] 修共用慢點，保留草稿、分頁順序、終端機與專案隔離。
+- [x] 跑相關回歸、lint、打包與打包版前後計時，補 review。
+
+## Review（專案分頁延遲）
+
+- 根因：一般終端機也等待所有 AI 的程序／對話掃描；新 AI 分頁先補不存在的歷史；長對話每個分段重掃一次；啟動單一工具時掃了全部五家紀錄。
+- 修復：一般終端機直接回空對話；全新、未指定接續的 PTY 先顯示原畫面，再背景辨識對話；既有 PTY／指定接續完整還原。第一頁才校正對話，啟動掃描限該工具，Codex 每批 8 份並行讀取，保留排序、上限與所有權檢查。
+- `node scripts/probe-workspace-latency.js`：同機隔離打包版、真 PTY 與本機既有紀錄唯讀掃描；新增 Codex 3258 → 866 ms，首次切 B 2923 → 193 ms，後續切換 116–136 ms。一般終端機仍需宿主冷啟動（532 → 488 ms）。此數字是分頁開啟完成，不包含 AI 首次回覆。
+- 驗證：`npm run lint`、`node scripts/run-tests.js workspace` 10/10、`node scripts/run-tests.js terminal` 14/14；`test-error-hygiene.js` 85/85、`test-temp-hygiene.js`、`git diff --check` 全過。
+- `npm run electron:pack` 成功，asar 346 支 src 一致；打包版 `e2e-terminal-conversation-cdp.js` 28/28（五家、長文、輸入、真滑鼠與 1440／900／560px）、`e2e-terminal-cdp.js` 68/68（真 PTY、貼上、跨專案、原畫面／捲動位置）通過，截圖已檢視。
+- 測試實例已關閉；未替換正式安裝版，未 commit／push／發版。
+
+# 2026-10-16 — 即時字幕開啟期間保留模型
+
+- [x] 追查開始、切頁、停止、字幕視窗關閉與共用引擎所有權。
+- [x] 補本地模型生命週期及打包版跨頁／關閉回歸，確認開啟期間不釋放。
+- [x] 執行 lint 與相關測試，記錄實際結果與未涵蓋範圍。
+
+## Review（即時字幕模型保留）
+
+- 原有 `isCapturing`／`isStarting` 與 `live` owner 已符合「開始字幕後切頁不卸載，停止／關閉字幕視窗才釋放」，這次保留執行邏輯，新增回歸保護與現況說明。先前說明把尚未開始的預熱與使用中的字幕混在一起，已更正。
+- `node scripts/test-live-caption-lifecycle.js` 3/3：執行真正 renderer／engine，替換模型載入與音源，驗證切頁、設定通知、其他工具釋放仍保留 ASR／LLM；停止等待辨識後才卸載；切頁後關閉字幕視窗同樣釋放。
+- `node scripts/e2e-recorder-cdp.js` 52/52：打包版真 IPC、AudioContext、VAD、三種音源，辨識由本機測試服務回應；驗證切其他工具後仍持有模型、切回持續擷取、背景關閉字幕視窗及停止按鈕釋放。未跑真本地模型推論。
+- `npm run lint`、`git diff --check` 通過；打包版 `engine.js`／`main.js`／`live-caption.js` 與目前原始碼逐位元組相同，僅測試及文件變動，未重打包、未 commit／push／發版。
+
+# 2026-10-16 — 文字翻譯切頁繼續工作
+
+- [x] 補可重現的長文、載入中切頁、停止與失敗清理測試。
+- [x] 修正切頁及設定同步的模型釋放，背景完成後才清理。
+- [x] 跑相關回歸、lint、打包及跨頁介面驗收，記錄結果。
+
+## Review（文字翻譯背景工作）
+
+- 重現：原有 `cooldownTranslatePage()` 不看工作狀態便清掉 request ID、釋放 `translate` owner，長文切頁後停止送後續段落。先以真 renderer 回歸測試取得失敗，再修復。
+- 修復：切頁及設定同步只清理待機模型；工作中保持原請求與 owner，背景完成／失敗／明確停止後由 `finally` 釋放，前景完成仍保留預熱。功能頁隱藏後 CSS `active` 仍在，判斷背景須同時看 `document.hidden`。
+- `node scripts/test-translate-lifecycle.js` 5/5：長文完整、模型載入途中切頁、設定同步、切回不重載、手動停止、背景失敗與雲端結果。`test-translate-long.js`、`test-pdf-translate.js`、`test-live-caption-lifecycle.js` 3/3、`test-model-scope.js` 35/35、`test-local-llm-router.js` 均通過。
+- `npm run lint`、`git diff --check` 通過；`npm run electron:pack` 成功，asar 346 支 src 與目前原始碼一致。
+- 打包版 `node scripts/e2e-translate-lifecycle-cdp.js` 4/4：真跨工具切頁、IPC、共用引擎 owner，確認背景繼續／切回不重載、背景完成卸載、停止與失敗清理。模型載入和譯文使用測試替身，未跑真模型推論。
+- 同頁 PDF 回歸 `node scripts/e2e-pdf-translate-cdp.js` 32/32 通過，涵蓋附件、取消、進度、另存、錯誤及三種寬度／雙主題。測試實例已關閉，未改正式安裝版，未 commit／push／發版。
+
+# 2026-10-16 — v1.54.1 推送與發版
+
+- [x] 盤點完整工作樹、遠端分支與既有版本，確認本次變更及版本。
+- [x] 同步版本與說明，執行完整單元測試及 shell 建置。
+- [x] 重打包並執行隔離打包版回歸，驗證 NSIS 安裝內容與更新資訊。
+- [ ] 審閱 staged diff、掃描 secrets，commit／tag／push／GitHub Release。
+- [ ] 對帳遠端三份產物與本機雜湊，確認最後 Git 狀態並補 review。
+
+## Review（v1.54.1 發版驗收）
+
+- 完整工作樹 19 檔納入發版；版本同步至 package／lock／README／CONTEXT。`node scripts/run-tests.js` 146/146、`npm run build:shell`、`npm run lint` 通過，shell 僅原有 Windows API 平台警告。
+- `npm run electron:pack` 通過，asar 346 支 src 一致、版本 1.54.1，無 native／designs／dist 誤入。隔離打包版終端機 68/68、背景翻譯 4/4、錄音與字幕 52/52 通過；真模型推論未跑。
+- staged `gitleaks protect --staged --redact` 與 `git diff --cached --check` 通過。
+- `npm run electron:build` 通過；拆開 NSIS 後 200 個檔案與正式打包目錄的大小／SHA-256 一致，346 支 src 再驗一致，`app-update.yml` 指向 RX5950XT/AxonDeck。首次核對誤把預覽旁保留的 `user-data` 算進清單，修正核對範圍後通過，安裝檔不含這些資料。
+- 正式包背景翻譯再次 4/4。installer 320754393 bytes；`latest.yml` 版本／大小／SHA-512 與非空 blockmap 一致。Authenticode 為 `NotSigned`，未新增簽章。

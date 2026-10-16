@@ -95,7 +95,7 @@ function createTracker(store, agents, now = Date.now, states = async () => [], i
   async function begin(meta, existing = false) {
     if (!meta || meta.preset === 'shell') return
     if (!existing && !meta.agentSessionId) {
-      const rows = await agents.sessions(meta.cwd)
+      const rows = await agents.sessions(meta.cwd, meta.preset)
       await store.setAgentTracking(meta.id, now(), rows.filter(row => row.agent === meta.preset).map(row => row.id))
     }
     active.add(meta.id)

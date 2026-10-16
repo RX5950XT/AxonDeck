@@ -441,3 +441,35 @@ Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z
 - 正式包背景翻譯再次 4/4。installer 320754393 bytes；`latest.yml` 版本／大小／SHA-512 與非空 blockmap 一致。Authenticode 為 `NotSigned`，未新增簽章。
 - 發行 commit／tag：`5f2f7f70beb572d39c14fbe75b049e8c9a329c7b`／`v1.54.1`，已推送 origin/master 與 tag。[GitHub Release](https://github.com/RX5950XT/AxonDeck/releases/tag/v1.54.1) 為 Latest、非草稿、非預發行，三份附件齊全。
 - 從 GitHub 實際下載 installer／blockmap／latest.yml，三者大小與 SHA-256 均與本機一致，GitHub digest 亦一致。installer SHA-256：`55524d00c0083f886025c2c2c8d556d4ced02aefba3e2731958eff7bc002a5c8`。正式安裝版 PID 48552 持續運行，未替換或重啟。
+
+# 2026-10-16 — 更新後仍卡頓，追查歷史退化
+
+- [x] 對照最近版本差異，追查切專案與新增分頁的實際慢點。
+- [x] 用顯示中的隔離視窗做前後對照，量到畫面完成並保留追蹤資料。
+- [x] 修正已證實的退化，驗證打包版切換、分割、背景工作與資源上限。
+
+## Review（歷史退化與畫布重建）
+
+- 確認正式安裝版為 1.54.1；對照 v1.49～v1.54.1，退化在 v1.53.0 的 `a7fbae4`：`paintPanes()` 對所有隱藏格立刻 dispose WebGL，切回重建。xterm addon dispose 同步換回 DOM renderer，長畫面還會繼續重排。v1.54.1 只修對話掃描，漏掉這條路徑。
+- 原有測試以隱藏視窗、空 shell、直接呼叫函式為主，不能證明實際畫面不卡。新增 `--paint`：showInactive、不停用背景節流，真側欄 click、完整新增流程並等待兩幀，追蹤 WebGL 建立／釋放。
+- 修復：保留最近使用的最多 8 個畫布，超額回收最久沒看的背景格；三格並排不收；背景 context 遺失等切回才恢復。未改 PTY、輸出、捲動與工作生命週期。
+- 同機、可見隔離視窗、2,000 行內容與相同腳本：正式 1.54.1 切離長畫面 1178～1431 ms、8 次往返中位數 705.5 ms；修正包 26～68 ms、中位數 37 ms。切離長畫面再新增一般終端機 1538 → 104 ms。來源結果留在 dist/workspace-paint-bench-before.json／after.json（不進版控）。
+- 界線：宿主首次啟動仍約 0.5～0.65 秒；超過 8 畫布、回收長畫面的一次新增仍約 0.7 秒，不把暖機切換速度當所有情境上限。8 個新增、真三格並排、長內容保留與實際 GPU 畫布上限均通過。
+- 驗證：新增回歸先在舊程式失敗（3 次切換拆了 9 次畫布），修正後 `node scripts/run-tests.js terminal` 14/14、`test-terminal-ui.js` 16/16、`npm run lint`、`test-temp-hygiene.js`、`git diff --check` 通過；`npm run electron:pack` 346 支 src 一致；隔離打包版 `e2e-terminal-cdp.js` 68/68、可見效能 probe 通過。
+- 未改正式工作階段、未 commit／push／發版；本次修正留在工作樹及打包預覽。
+
+# 2026-10-16 — v1.54.2 推送與發版
+
+- [x] 盤點完整工作樹與遠端版本，同步版本與發行說明。
+- [x] 完整單元測試、shell 建置、打包與可見視窗回歸。
+- [x] NSIS 拆包、更新資訊與雜湊驗證，記錄簽章狀態。
+- [ ] staged 審閱與 secrets 掃描，commit／tag／push／GitHub Release。
+- [ ] 驗證遠端附件及 Git 狀態，完成 review。
+
+## Review（v1.54.2 發版驗收）
+
+- 本次完整工作樹 9 檔，只有 terminal-page.js 為產品邏輯變更；同步 package／lock／README／CONTEXT 至 1.54.2。既有 1.54.1 正式程序保留。
+- `node scripts/run-tests.js` 145/146，唯一 test-usage.js 的兩條 Codex 斷言被目前程序的 CODEX_HOME 導向真實登入路徑；只在測試子程序移除 CODEX_HOME／CLAUDE_CONFIG_DIR 後重跑 40/40 通過。未改額度程式、測試、正式環境或憑證。
+- `npm run build:shell`、`npm run lint`、`npm run electron:build` 通過，346 支 src 與 asar 一致。沿用同份產品原始碼先前的 electron:pack、終端機 68/68 驗收；1.54.2 正式包重跑可見效能 probe 通過（2,000 行、8 次切換 33～76 ms，中位數 45 ms；8 次新增、GPU 上限與三格並排），對話打包版 28/28。
+- NSIS 拆包 200 個檔案與正式打包目錄逐一 SHA-256 相符；app-update.yml 正確。installer 320754790 bytes，latest.yml 版本／大小／SHA-512 相符、blockmap 非空。Authenticode：NotSigned。
+- staged secrets 掃描與 diff check 通過，發行說明保留首次啟動／超過畫布上限的等待界線。

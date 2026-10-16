@@ -8,6 +8,7 @@ const { tempDir, removeTree } = require('./lib/test-temp')
 
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '../dist/win-unpacked/AxonDeck.exe')
 const PORT = 9269, MAIN_PORT = 9270
+const paint = process.argv.includes('--paint')
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 class Cdp {
   constructor(url) { this.url = url; this.seq = 0; this.pending = new Map() }
@@ -48,7 +49,7 @@ async function connect(port, matches) {
 }
 async function main() {
   const dir = tempDir('workspace-latency-'), ids = [], clients = []
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ sysmonSensors: false, uffsAuto: false }))
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ sysmonSensors: false, uffsAuto: false, agyEnabled: false, dictationEnabled: false }))
   // 同一份真實 AI 紀錄作唯讀掃描；只有隔離的終端機與分頁狀態會寫入。
   fs.mkdirSync(path.join(dir, 'project-b'))
   const projects = ['a', 'b'].map(id => ({ id: `w_latency_${id}`, name: `Latency ${id}`, path: id === 'a' ? path.resolve(__dirname, '..') : path.join(dir, 'project-b'), createdAt: Date.now() }))
@@ -60,11 +61,26 @@ async function main() {
   try {
     const main = await connect(MAIN_PORT, target => target.type === 'node'); clients.push(main)
     cdp = await connect(PORT, target => /index\.html.*[?&]page=chat/.test(target.url)); clients.push(cdp)
+    if (paint) await main.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().forEach(w => w.showInactive())`)
     await cdp.eval(`(async () => {
       while (!document.querySelector('#projList [data-id="w_latency_a"] .chat-list-open')) await new Promise(resolve => setTimeout(resolve, 50))
       globalThis.__latencyTabs = await import('./scripts/ws-tabs.js')
       globalThis.__latencyTerminal = await import('./scripts/terminal-page.js')
       const { Terminal } = await import('../../node_modules/@xterm/xterm/lib/xterm.mjs')
+      const { WebglAddon } = await import('../../node_modules/@xterm/addon-webgl/lib/addon-webgl.mjs')
+      globalThis.__latencyGraphics = []
+      globalThis.__latencyRenderers = new Set()
+      for (const name of ['activate', 'dispose']) {
+        const original = WebglAddon.prototype[name]
+        WebglAddon.prototype[name] = function(...args) {
+          const start = performance.now()
+          try { return original.apply(this, args) } finally {
+            if (name === 'activate') __latencyRenderers.add(this)
+            else __latencyRenderers.delete(this)
+            __latencyGraphics.push({ name, ms: Math.round(performance.now() - start) })
+          }
+        }
+      }
       const open = Terminal.prototype.open
       globalThis.__latencyTerms = new Map()
       Terminal.prototype.open = function(el) { __latencyTerms.set(el.dataset.id, this); return open.call(this, el) }
@@ -82,11 +98,11 @@ async function main() {
     })()`)
     const samples = []
     async function measure(label, expression) {
-      const result = await cdp.eval(`(async () => { const start = performance.now(); ${expression}; return Math.round(performance.now() - start) })()`)
+      const result = await cdp.eval(`(async () => { const start = performance.now(); ${expression}; ${paint ? 'await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));' : ''} return Math.round(performance.now() - start) })()`)
       samples.push({ label, ms: result }); console.log(JSON.stringify(samples.at(-1)))
     }
     await measure('select-empty', `await __latencyTabs.setActiveProject(${JSON.stringify(projects[0])})`)
-    for (const preset of ['shell', 'codex']) {
+    for (const preset of paint ? ['shell'] : ['shell', 'codex']) {
       const created = await cdp.eval(`window.electronAPI.terminal.create({preset:${JSON.stringify(preset)}, cwd:${JSON.stringify(projects[0].path)}, projectId:'w_latency_a'})`)
       assert.equal(created.ok, true); ids.push(created.data.id)
       await measure(`new-${preset}`, `await __latencyTerminal.openTerminalSession(${JSON.stringify(created.data.id)})`)
@@ -111,6 +127,28 @@ async function main() {
       const active = await cdp.eval(`__latencyTabs.currentProjectId()`)
       assert.equal(active, 'w_latency_a')
     }
+    if (paint) {
+      assert.equal(await cdp.eval('document.hidden'), false, '必須在真正顯示的視窗量測')
+      await cdp.eval(`new Promise(resolve => __latencyTerms.get(${JSON.stringify(ids[0])}).write(('歷史輸出'.repeat(20) + '\\r\\n').repeat(2000) + 'LATENCY_HISTORY_END\\r\\n', resolve))`)
+      await cdp.eval('__latencyGraphics.length = 0')
+      for (let i = 0; i < 4; i++) {
+        await measure(`visible-switch-b-${i}`, `document.querySelector('#projList [data-id="w_latency_b"] .chat-list-open').click(); while (__latencyTabs.currentProjectId() !== 'w_latency_b' || !document.querySelector('.term-pane[data-id="${other.data.id}"].is-active')) await new Promise(r => setTimeout(r, 10))`)
+        await measure(`visible-switch-a-${i}`, `document.querySelector('#projList [data-id="w_latency_a"] .chat-list-open').click(); while (__latencyTabs.currentProjectId() !== 'w_latency_a' || !document.querySelector('.term-pane[data-id="${ids[0]}"].is-active')) await new Promise(r => setTimeout(r, 10))`)
+      }
+      for (let i = 0; i < 8; i++) {
+        await measure(`visible-new-shell-${i}`, `await __latencyTabs.newShellTerminal()`)
+        const result = await cdp.eval('electronAPI.terminal.list()')
+        ids.push(...result.data.map(item => item.id).filter(id => !ids.includes(id)))
+        assert(await cdp.eval('__latencyRenderers.size <= 8'), '實際 WebGL 畫布不得超過 8 個')
+      }
+      await cdp.eval(`(async () => { for (const id of ${JSON.stringify([ids[0]])}) await __latencyTerminal.toggleTerminalSplit(id) })()`)
+      await cdp.eval(`__latencyTerminal.toggleTerminalSplit(${JSON.stringify(ids[2])})`)
+      assert.equal(await cdp.eval(`document.querySelectorAll('.term-pane.is-active').length`), 3, '真實三格並排')
+      assert(await cdp.eval('__latencyRenderers.size <= 8'), '並排後實際 WebGL 仍有上限')
+      assert(await cdp.eval(`__latencyTerms.get(${JSON.stringify(ids[0])}).buffer.active.length > 2000`), '歷史畫面仍在')
+      console.log('GRAPHICS visible', JSON.stringify(await cdp.eval('__latencyGraphics')))
+      fs.writeFileSync(path.resolve(__dirname, '../dist/workspace-paint-bench.json'), JSON.stringify(samples, null, 2))
+    }
     console.log('MAIN', JSON.stringify(await main.eval('__latency')))
     console.log('PASS: new terminals and repeated project isolation')
   } finally {
@@ -118,7 +156,7 @@ async function main() {
     for (const client of clients) client.close()
     try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* 已結束 */ }
     child.kill()
-    removeTree(dir)
+    removeTree(dir, { retries: 5 })
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

@@ -55,6 +55,9 @@ let fontSize = FONT_DEFAULT
 
 /** 最多同時並排幾個工作階段。再多每一格就窄到看不出東西了。 */
 const MAX_VISIBLE = 3
+// 保留常用畫布，總數低於 Chromium 的 16 個 WebGL context 上限。
+const MAX_RENDERERS = 8
+let rendererUse = 0
 
 /** @type {Array<{ id: string, title: string, shell: string, preset: string, cwd: string, state: string, exitCode: number | null }>} */
 let items = []
@@ -64,7 +67,7 @@ let catalog = { shells: [], presets: [], maxSessions: 20 }
 /**
  * @typedef {{
  *   term: Terminal, fit: FitAddon, search: SearchAddon, pane: HTMLElement, disposeIme: () => void,
- *   webgl: import('@xterm/addon-webgl').WebglAddon | null,
+ *   webgl: import('@xterm/addon-webgl').WebglAddon | null, rendererUsedAt?: number,
  *   conversation: ReturnType<typeof bindConversationNav>,
  *   seq: number, ready: boolean, writing: boolean, queue: Array<{ seq: number, data: string }>
  * }} Pane
@@ -489,6 +492,7 @@ function attachRenderer(term) {
       if (pane) pane.webgl = null
       requestAnimationFrame(() => {
         if (!term.element?.isConnected) return
+        if (pane && !visibleIds.some(id => panes.get(id) === pane)) return
         const next = attachRenderer(term)
         if (pane) pane.webgl = next
       })
@@ -796,12 +800,21 @@ function paintPanes() {
     entry.pane.classList.toggle('is-active', at >= 0)
     entry.pane.classList.toggle('is-current', id === currentId && visibleIds.length > 1)
     entry.pane.style.order = at >= 0 ? String(at) : ''
-    // 看不到的格子不留 WebGL：每格一張整窗大小的畫布吃幾十 MB 顯示記憶體，
-    // 開到十幾格還會撞上 Chromium 每頁 16 個 context 的上限。切回來再接，xterm 會整片重畫
-    if (at < 0 && entry.webgl) {
-      entry.webgl.dispose()
-      entry.webgl = null
-    } else if (at >= 0 && !entry.webgl) entry.webgl = attachRenderer(entry.term)
+    if (at >= 0) {
+      entry.rendererUsedAt = ++rendererUse
+      if (!entry.webgl) entry.webgl = attachRenderer(entry.term)
+    }
+  }
+  // dispose 會同步重建 DOM renderer；只在超過上限時收最久沒看的背景格。
+  const rendered = [...panes].filter(([, entry]) => entry.webgl)
+  let excess = rendered.length - MAX_RENDERERS
+  const inactive = rendered.filter(([id]) => !visibleIds.includes(id))
+    .sort(([, a], [, b]) => (a.rendererUsedAt || 0) - (b.rendererUsedAt || 0))
+  for (const [, entry] of inactive) {
+    if (excess <= 0) break
+    entry.webgl.dispose()
+    entry.webgl = null
+    excess--
   }
 }
 

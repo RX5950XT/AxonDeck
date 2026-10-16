@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.54.1**（2026-10-16）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.54.2**（2026-10-16）。
 nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -100,6 +100,7 @@ native/
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
 ### 專案工作區與終端機
+- 終端機常用分頁保留 WebGL 畫布，最多 8 個；超額只收最久沒看的背景格，三格並排不回收。不可回到切走立刻 dispose：會同步建立 DOM renderer，再切回又重建 GPU 畫布，造成切專案／新增分頁卡頓（v1.53.0 的退化）。`probe-workspace-latency.js --paint` 以可見隔離視窗、真側欄入口及兩幀完成量測，另驗長內容、畫布上限與並排。
 - 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄五顆：檔案樹（含搜尋）／Git／AI 記錄／Port（main 對每個埠打一次 HTTP，2xx 的 HTML 或 3xx 轉址才算「網頁」，排上面、每列最右邊一顆「開啟」；其他服務只列）／MCP/Skills（不是側欄面板，是在目前專案開一個 `cc-tools` 分頁，一個專案最多一個）；主區底部是額度條 `quota-bar.js`。
 - 檔案樹圖片與 MP4／WebM 直接開工作區分頁（`vi-media://`）；Markdown 圖片支援專案相對路徑；Git 面板有 GitHub 按鈕（`githubUrl`）。
 - 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI；IPC 分段讀取，renderer 自動接成完整單頁，後續只重讀末段。標題／接續／複製路徑與概況／工具統計共用置頂區塊，長標題可展開；Ctrl+F 搜尋全文與工具內容，Enter／Shift+Enter／F3 前後跳轉，命中工具自動展開，Esc 關閉。

@@ -4,6 +4,17 @@
 
 ## 待辦／未解
 
+### 2026-10-16 — 整合 Miroxen：生成圖片影像頁
+
+- [x] Miroxen：`release.bat`／`tools/release.ps1`（引擎 zip＋deps zip、deps 沿用上一版）、工作台 embed 模式（藏品牌、主題色、postMessage、`#key=`）。
+- [x] Local SI：執行環境加 `miroxenruntime`（跟 latest release、digest 驗證、可更新）；推薦加 Qwen-Image-2.1 Turbo／標準、MiniMax-H3、H3 加速 LoRA（共用 `models/miroxen/`、固定 revision＋SHA-256）。
+- [x] 新頁「生成圖片影像」（`imagegen`）：iframe 內嵌工作台、缺引擎／模型時引導、更新／停止／重啟／輸出資料夾。
+- [x] 頂列拿掉：重新啟動／停止搬進工作台頂列、輸出資料夾搬進作品庫（`miroxen:host`）；工作台內嵌時藏「模型與硬體」「API」，模型改右上角 popover。
+- [x] Local SI 執行環境「圖片影像 API」面板：網址、固定 API key、區網開關（`0.0.0.0:8188`）。
+- [x] Miroxen 工作台視覺對齊 AxonDeck（色票、玻璃面板、按鈕、分段控制）。
+- [x] Miroxen v0.1.0、AxonDeck v1.56.0 發行。
+- Review：lint、vite build 通過；本機打包版 Turbo 1024² 生成 7.3 秒成功、明暗主題即時同步；`runtime.install` 用真程式碼裝本機 zip，模擬升版只重下引擎本體；`probe-miroxen.js` 版本比較與資產驗證通過。區網實測：區網 IP 不帶金鑰 401、帶金鑰 200、工作台 200；Edge headless 截圖深淺色／手機／popover 無溢出，impeccable detect 無對比問題。
+
 ### 2026-10-16 — 語音轉文字紅點＋轉錄紀錄清單（v1.55.0）
 
 - [x] 錄音機或即時字幕在錄時，導覽列「語音轉文字」亮紅點，切頁仍在（`markSttRecording`）。

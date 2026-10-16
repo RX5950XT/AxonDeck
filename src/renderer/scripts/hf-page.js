@@ -13,6 +13,7 @@ import { electronAPI, showToast, cleanIpcError, openInFilesPage } from './app.js
 import { renderMarkdown } from './markdown.js'
 import { startDash, stopDash } from './hf-dash.js'
 import { refreshRecommend, refreshInference } from './hf-recommend.js'
+import { refreshMiroxenApi } from './hf-miroxen-api.js'
 
 /** 搜尋輸入防抖：每打一個字就打一次 HF 太粗魯 */
 const SEARCH_DEBOUNCE_MS = 400
@@ -903,14 +904,17 @@ async function refreshHardware() {
         install.dataset.runtime = item.key
         install.addEventListener('click', () => installRuntime(item, install))
         row.appendChild(install)
-      } else if (item.runtime === 'breeze' || item.runtime === 'pdf') {
+      } else if (item.runtime === 'breeze' || item.runtime === 'pdf' || item.runtime === 'miroxen') {
+        if (item.runtime === 'miroxen') void addMiroxenUpdate(row, item, state)
         const remove = el('button', 'btn btn-secondary btn-sm', '移除')
         remove.type = 'button'
         remove.addEventListener('click', async () => {
           const { askConfirm } = await import('./app-dialog.js')
           const message = item.runtime === 'pdf'
             ? '移除 PDF 執行環境？文件辨識模型會保留。'
-            : '移除 Breeze 執行環境？語音生成會先停止，模型與聲音收藏會保留。'
+            : item.runtime === 'miroxen'
+              ? '移除 Miroxen 引擎？圖片影像生成會先停止，模型與作品會保留。'
+              : '移除 Breeze 執行環境？語音生成會先停止，模型與聲音收藏會保留。'
           if (!await askConfirm(message)) return
           try {
             await electronAPI.models.delete(item.key)
@@ -945,6 +949,26 @@ async function refreshHardware() {
   if (dirText) dirText.textContent = data.modelsDir || '—'
   const token = /** @type {HTMLInputElement} */ ($('hfTokenInput'))
   if (token) token.placeholder = data.hasToken ? '（已設定，重填會覆蓋）' : 'hf_…'
+  void refreshMiroxenApi()
+}
+
+/**
+ * Miroxen 引擎跟著 GitHub latest release 走：狀態寫上目前版本，有新版就多一顆「更新」。
+ * 更新同樣走 `models:download`（main 會先停服務；deps 沒變就只下引擎本體）。
+ * @param {HTMLElement} row
+ * @param {{ key: string, label: string }} item
+ * @param {HTMLElement} state
+ */
+async function addMiroxenUpdate(row, item, state) {
+  const result = await electronAPI.miroxen.status({ checkUpdate: true }).catch(() => null)
+  const data = result?.ok ? result.data : null
+  if (!data?.version || !row.isConnected) return
+  state.textContent = `已安裝 ${data.version}`
+  if (!data.update) return
+  const update = el('button', 'btn btn-primary btn-sm', `更新到 ${data.latest}`)
+  update.type = 'button'
+  update.addEventListener('click', () => installRuntime(item, update))
+  state.after(update)
 }
 
 /**

@@ -55,6 +55,7 @@ const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
 const { registerAppInstallerIpc } = require('./app-installer/ipc')
 const { registerBreezeIpc } = require('./breeze-tts/ipc')
+const { registerMiroxenIpc } = require('./miroxen/ipc')
 const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
 const { registerCodeUsageIpc } = require('./codeusage/ipc')
@@ -107,6 +108,13 @@ let terminalMod = null
 let workspaceMod = null
 let explorerMod = null
 let breezeMod = null
+/** 生圖服務：第一次進生成頁才 require */
+let miroxenMod = null
+const loadMiroxen = () => {
+  miroxenMod ||= require('./miroxen')
+  if (store) miroxenMod.setStore(store)
+  return miroxenMod
+}
 let pdfTranslateMod = null
 
 async function loadPdfTranslate() {
@@ -1704,6 +1712,8 @@ ipcMain.handle('subtitle:setOpacity', (event, value) => {
 ipcMain.handle('models:status', () => models.status())
 
 ipcMain.handle('models:download', async (event, key) => {
+  // 更新引擎要先停服務：執行中的 miroxen.exe 蓋不過去
+  if (key === 'miroxenruntime' && miroxenMod) await miroxenMod.stop()
   return models.download(key, (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       sendToPages('models:progress', progress)
@@ -1717,6 +1727,7 @@ ipcMain.handle('models:delete', async (event, key) => {
   if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
     ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
+  if ((key === 'miroxenruntime' || models.MIROXEN_MODEL_KEYS.includes(key)) && miroxenMod) await miroxenMod.stop()
   return models.remove(key)
 })
 
@@ -2233,6 +2244,19 @@ registerBreezeIpc({
     loadTake: (options) => loadBreeze().loadTake(options),
     listTakes: () => loadBreeze().listTakes(),
     removeTake: (options) => loadBreeze().removeTake(options)
+  },
+  isMainSender: assertMainWindowSender
+})
+
+registerMiroxenIpc({
+  ipcMain,
+  service: {
+    status: (options) => loadMiroxen().status(options),
+    start: () => loadMiroxen().start(),
+    stop: () => loadMiroxen().stop(),
+    openOutput: () => loadMiroxen().openOutput(),
+    api: () => loadMiroxen().api(),
+    setLan: (enabled) => loadMiroxen().setLan(enabled)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2825,6 +2849,7 @@ app.on('before-quit', (e) => {
     pdfTranslateMod ? pdfTranslateMod.shutdown() : Promise.resolve(),
     loadCloudTts().shutdown(),
     breezeMod ? breezeMod.shutdown() : Promise.resolve(),
+    miroxenMod ? miroxenMod.shutdown() : Promise.resolve(),
     stopTerminal,
     stopExplorer,
     stopSysmon,

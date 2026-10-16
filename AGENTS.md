@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
-nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第五顆）、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
+nav 十頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第五顆）、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
 
@@ -84,6 +84,11 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 常駐三件套：`requestSingleInstanceLock()`；沒搶到用 `app.quit()`；`whenReady` 也 `if (!hasInstanceLock) return`。`--terminal-admin-host=` 要攔在搶鎖前。
 - 不可關 `setBackgroundThrottling`（`document.hidden` 會恆 false）。
 - `before-quit`：`workspace:flushDrafts` 排在終端機 `disconnect()` 前；`agy.shutdown()` 不是 `stop()`；風扇交還排在 `sensors.stop()` 前。
+
+### 生成圖片影像（Miroxen）
+- 引擎不 pin 版本：`miroxen/runtime.js` 跟 `RX5950XT/Miroxen` 的 latest release，資產名固定 `miroxen-win-x64.zip`／`miroxen-deps-win-x64.zip`，以 API 的 `digest` 驗；deps digest 沒變不重下。Miroxen 改版要在那邊跑 `release.bat <版本>`，App 才看得到。
+- 模型共用 `models/miroxen/`（registry 的 `dir`）：刪一顆只刪沒被其他已下載模型用到的檔案，**不准對它 `removeTreeSync`**（開發機那個資料夾是接到 Miroxen repo 的 junction）。
+- 服務只聽 127.0.0.1 隨機埠＋隨機 API key（iframe 網址 hash 帶進去）；更新引擎、刪引擎或模型前先 `stop()`（執行中的 exe 蓋不掉）。引擎只在啟動時盤點模型，模型組合變了且佇列是空的才重開。
 
 ### AI 頁：聊天與網頁版 AI
 - model 與訊息歷史所有權在 main；模型要對「目前這組供應商」驗證。

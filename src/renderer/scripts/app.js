@@ -1034,11 +1034,12 @@ export function switchPage(pageName, subtab = '') {
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => {
     m.start()
-    if (subtab === 'recommend') document.querySelector('#hfSubtabs [data-subtab="recommend"]')?.click()
+    if (subtab === 'recommend' || subtab === 'runtime') document.querySelector(`#hfSubtabs [data-subtab="${subtab}"]`)?.click()
   })
   if (pageName === 'speech') {
     import('./speech-page.js').then((m) => m.refreshSpeechPage())
   }
+  if (pageName === 'imagegen') import('./imagegen-page.js').then((m) => m.refreshImagegenPage())
   if (pageName === 'sysmon') loadSysmonPage().then((m) => m.refreshSysmonPage())
   if (pageName === 'stt') {
     loadSttPage().then((m) => {

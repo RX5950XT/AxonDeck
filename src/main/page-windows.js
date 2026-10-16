@@ -103,7 +103,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
   function validateRequest(request) {
     if (!request || !pageNames.includes(request.page)) throw new Error('無效功能頁')
     const { page, subtab = '', action = '', full = '', kind = 'dir', project = '', target = '' } = request
-    if (!['', 'recommend', 'cloud', 'basic', 'appearance', 'cli', 'install'].includes(subtab)) throw new Error('無效子頁')
+    if (!['', 'recommend', 'runtime', 'cloud', 'basic', 'appearance', 'cli', 'install'].includes(subtab)) throw new Error('無效子頁')
     if (!['', 'files', 'project', 'browser'].includes(action) || typeof full !== 'string' || full.length > 32768
       || !['', 'browser', 'tab'].includes(target)
       || !['dir', 'file'].includes(kind) || (action === 'files' && page !== 'explorer')

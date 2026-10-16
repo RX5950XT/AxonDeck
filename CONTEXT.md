@@ -5,7 +5,7 @@
 ## 概況
 
 AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.54.2**（2026-10-16）。
-nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
+nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -15,6 +15,7 @@ nav 九頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
 | 翻譯 | `translate` | local（LinguaForge）／cloud 翻譯；EdgeTTS 與模型按鈕同一排、按鈕寬度貼文字，展開浮在內容上。語音是繁中、簡中、英文、日文 |
 | 文字轉語音 | `speech` | Breeze-TTS-2 Q8：聲音設計、語音克隆、語氣指導、保存聲音、實驗性變聲；整段／逐句／字幕配音、讀音字典、錄音與裁切參考音、版本保留與單句重做、串流試聽與 WAV 匯出 |
+| 生成圖片影像 | `imagegen` | 內嵌 Miroxen 工作台（Qwen-Image-2.1 圖片、MiniMax-H3 影音）；引擎在 Local SI 執行環境、模型在推薦 |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／風扇／效能與壓力測試／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
 | 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
@@ -40,6 +41,7 @@ src/main/
   explorer/          paths.js、fs.js、recycle.js、drives.js、watch.js、uffs.js、zip*.js、mtp.js、details.js、size.js、shell*.js
   media-player.js    本機圖片／影音分流到原生彈窗 axondeck-media.exe
   hfmodels/          hub／gguf／fit／download.js（共用續傳＋分段下載）／presets／runtime（router）
+  miroxen/           runtime.js（跟 GitHub latest release 裝／更新）／index.js（serve 程序、狀態）／ipc.js
   pdf-translate/     index.js（工作／來源保護）／ipc.js／protocol.js／runtime.js（隔離 Python）／worker.py（逐頁 OCR 與 PDF 替換）
   ccswitch/          claude-settings.js、providers.js（routeFor）、models-scan.js、mcp.js、versions.js、gateway/
   codeusage/         scan.js（游標）、parsers.js（五家）、pricing.js（RULES_VERSION）
@@ -81,6 +83,13 @@ native/
 - HF README 的 HTML 表格先轉 Markdown，再以零 innerHTML 的既有 renderer 畫列欄。
 
 
+
+### 生成圖片影像（Miroxen）
+- `imagegen-page.js` 用 iframe 內嵌 `http://127.0.0.1:<port>/?embed=1&theme=…&c-*=…#key=…`：Miroxen 工作台在 embed 模式藏品牌、吃 App 主題色，App 換主題時 postMessage `miroxen:theme`。網址沒變不重載 iframe。App 不另做頂列：重新啟動／停止在工作台頂列、輸出資料夾在作品庫，按了回送 `miroxen:host`（App 驗 source 與 origin 才執行）。工作台內嵌時藏「模型與硬體」「API」分頁：模型清單改成右上角模型按鈕的 popover；硬體看 Local SI 的占用；API 在 Local SI 執行環境的「圖片影像 API」面板（`hf-miroxen-api.js`）。
+- 區網：store `miroxenLan`，開了引擎改聽 `0.0.0.0:8188`（被占退隨機埠），切換時正在跑就重開（佇列有工作拒絕）。API key 存 store `miroxenApiKey`，固定不變，區網裝置填同一組。`/`、`/files/` 不驗金鑰（Miroxen 設計），區網打開時同網段看得到輸出檔。
+- 引擎 `miroxenruntime`：只有 NVIDIA 驅動 ≥580 才列在執行環境；狀態寫目前 tag，有新版多一顆「更新到 vX」（進生成頁時另跳一次提示）。zip 內含 miroxen.exe＋web、cuBLAS、VC runtime、ffmpeg／ffprobe，PATH 前接 runtime 資料夾。
+- 模型：Qwen-Image-2.1 Turbo／標準（共用編碼器、VAE、tokenizer）、MiniMax-H3、H3 加速 LoRA，全部固定 revision＋SHA-256，放 `models/miroxen/`（`image/…`、`video/…`、`loras/…`，結構同 Miroxen repo）。H3 的 VAE config 用 `MX_H3_*_CONFIG` 環境變數給絕對路徑。輸出在 `userData/miroxen/out`。
+- 開發機 `%APPDATA%/voiceink/models/miroxen` 是接到 `D:\Workspace\Personal_Project\Miroxen\models` 的 junction（免重下 75 GB）。
 
 ### AI 頁
 - Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。網頁版對話列在標題左邊放該家 logo，不再顯示「XX 網頁版」小字。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。

@@ -50,6 +50,10 @@
             <span class="nav-icon" data-icon="speaker"></span>
             <span class="nav-text">文字轉語音</span>
           </button>
+          <button class="nav-tab" data-page="imagegen" title="生成圖片影像" aria-label="生成圖片影像">
+            <span class="nav-icon" data-icon="image"></span>
+            <span class="nav-text">生成圖片影像</span>
+          </button>
           <button class="nav-tab" data-page="sysmon" title="系統監控" aria-label="系統監控">
             <span class="nav-icon" data-icon="activity"></span>
             <span class="nav-text">系統監控</span>
@@ -1180,6 +1184,16 @@
                     </div>
                   </section>
 
+                  <!-- Miroxen 的 API／區網（工作台內嵌時不顯示自己的 API 分頁，改在這裡） -->
+                  <section class="hf-panel hidden" id="hfMiroxenApi" aria-label="圖片影像 API">
+                    <div class="hf-section-head">
+                      <h2>圖片影像 API（Miroxen）</h2>
+                      <label class="hf-check"><input type="checkbox" id="hfMiroxenLan"> 允許區網其他裝置連線</label>
+                    </div>
+                    <div id="hfMiroxenApiRows"></div>
+                    <p class="setting-hint" id="hfMiroxenApiHint"></p>
+                  </section>
+
                   <section class="hf-panel" aria-label="llama-server log">
                     <details class="hf-log">
                       <summary>llama-server log</summary>
@@ -1942,6 +1956,15 @@
               <p class="speech-license">本機音訊不會上傳到雲端。Breeze 模型及本機生成內容限研究與非商業用途；克隆前請取得聲音使用權。<a href="https://huggingface.co/BreezeBlue/Breeze-TTS-2" target="_blank" rel="noreferrer">模型授權</a></p>
               </div>
             </div>
+          </section>
+          <!-- 生成圖片影像：內嵌 Miroxen 工作台（引擎與模型在 Local SI 安裝） -->
+          <section id="page-imagegen" class="page" aria-label="生成圖片影像">
+            <div id="imagegenEmpty" class="imagegen-empty" hidden>
+              <h2 id="imagegenEmptyTitle"></h2>
+              <p id="imagegenEmptyText" class="setting-hint"></p>
+              <button type="button" id="imagegenEmptyAction" class="btn btn-primary"></button>
+            </div>
+            <iframe id="imagegenFrame" class="imagegen-frame" title="Miroxen 工作台" hidden></iframe>
           </section>
           <section id="page-translate" class="page" aria-label="翻譯">
             <!-- 模型選單與語音轉文字頁共用同一份設定，改哪邊都一樣 -->

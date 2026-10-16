@@ -132,6 +132,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ===== 本地模型管理 =====
+  miroxen: {
+    status: (options) => ipcRenderer.invoke('miroxen:status', options),
+    start: () => ipcRenderer.invoke('miroxen:start'),
+    stop: () => ipcRenderer.invoke('miroxen:stop'),
+    openOutput: () => ipcRenderer.invoke('miroxen:openOutput'),
+    api: () => ipcRenderer.invoke('miroxen:api'),
+    setLan: (enabled) => ipcRenderer.invoke('miroxen:setLan', enabled === true)
+  },
   models: {
     status: () => ipcRenderer.invoke('models:status'),
     download: (key) => ipcRenderer.invoke('models:download', key),

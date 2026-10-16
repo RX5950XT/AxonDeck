@@ -12490,13 +12490,6 @@ h6.md-h { font-size: 14px; }
   gap: 8px;
 }
 
-.hf-runtime-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.8fr);
-  gap: 8px;
-  align-items: start;
-}
-
 .hf-run-main {
   display: flex;
   flex-wrap: wrap;
@@ -13029,13 +13022,27 @@ h6.md-h { font-size: 14px; }
 
 #hfRuntimeList .hf-setting-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 64px;
+  grid-template-columns: minmax(0, 1fr) minmax(64px, auto) minmax(64px, auto);
   gap: 12px;
   padding: 12px 0;
 }
 
+/* Miroxen 有新版時多一顆「更新到 vX」 */
+#hfRuntimeList .hf-setting-row:has(> :nth-child(4)) {
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(64px, auto));
+}
+
 #hfRuntimeList .hf-chip {
   justify-self: center;
+  white-space: nowrap;
+}
+
+.hf-occupancy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 #hfRuntimeList .btn,
@@ -13292,7 +13299,6 @@ h6.md-h { font-size: 14px; }
 }
 
 @media (max-width: 900px) {
-  .hf-runtime-grid,
   .hf-infer-grid,
   #hf-runtime .hf-specs {
     grid-template-columns: minmax(0, 1fr);

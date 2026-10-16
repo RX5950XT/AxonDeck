@@ -150,6 +150,8 @@ async function start() {
 }
 
 async function launch() {
+  // 更新中舊檔還在、isReady 會是 true；這時開引擎會鎖住 exe，解壓蓋不過去
+  if (runtime.isReady(runtimeDir()) && !models.isDownloaded(RUNTIME_KEY)) throw fail('UPDATING', 'Miroxen 引擎更新中，裝好再回來這頁')
   if (!runtime.isReady(runtimeDir())) throw fail('NOT_INSTALLED', '請先到 Local SI 的執行環境安裝 Miroxen 引擎')
   const signature = installedModels()
   if (!signature.length) throw fail('NO_MODEL', '請先到 Local SI 的推薦下載圖片或影音模型')

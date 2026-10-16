@@ -967,6 +967,7 @@ async function addMiroxenUpdate(row, item, state) {
   if (!data.update) return
   const update = el('button', 'btn btn-primary btn-sm', `更新到 ${data.latest}`)
   update.type = 'button'
+  update.dataset.runtime = item.key
   update.addEventListener('click', () => installRuntime(item, update))
   state.after(update)
 }
@@ -980,6 +981,7 @@ async function addMiroxenUpdate(row, item, state) {
 async function installRuntime(item, button) {
   if (installingRuntime) { showToast('已經有一個執行環境在安裝中', 'error'); return }
   installingRuntime = item.key
+  const label = button.textContent
   button.disabled = true
   button.textContent = '下載中…'
   const cancel = el('button', 'btn btn-secondary btn-sm', '取消')
@@ -998,7 +1000,7 @@ async function installRuntime(item, button) {
   } catch (error) {
     showError(cleanIpcError(error) || '執行環境下載失敗')
     button.disabled = false
-    button.textContent = '安裝'
+    button.textContent = label
   } finally {
     cancel.remove()
     installingRuntime = ''

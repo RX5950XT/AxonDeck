@@ -81,6 +81,20 @@ function bindOnce() {
     if (event.data?.type === 'miroxen:host' && typeof event.data.action === 'string') void hostAction(event.data.action)
   })
   new MutationObserver(postTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  // 更新引擎前 main 會先停服務：iframe 接的是已關掉的那顆，先收起來
+  electronAPI.models.onProgress((payload) => {
+    if (payload?.key !== 'miroxenruntime') return
+    resetFrame()
+    showEmpty({ title: 'Miroxen 引擎更新中…', text: '裝好後按「重新連線」。',
+      action: '重新連線', onAction: () => void refreshImagegenPage() })
+  })
+}
+
+function resetFrame() {
+  const frame = /** @type {HTMLIFrameElement} */ ($('imagegenFrame'))
+  frame.removeAttribute('src')
+  delete frame.dataset.base
+  latest = latest && { ...latest, running: false }
 }
 
 /** @param {{ title: string, text: string, action?: string, onAction?: () => void } | null} state */
@@ -124,6 +138,8 @@ export function refreshImagegenPage() {
 }
 
 async function refresh() {
+  // 新開的頁面兩塊都藏著，查狀態那幾秒不要整片空白
+  if (!$('imagegenFrame')?.dataset.base) showEmpty({ title: '連線中…', text: '' })
   try {
     latest = await call(electronAPI.miroxen.status({ checkUpdate: true }))
     const empty = emptyStateFor(latest)
@@ -149,10 +165,7 @@ async function refresh() {
 async function stopEngine() {
   try { await call(electronAPI.miroxen.stop()) }
   catch (error) { showToast(cleanIpcError(error), 'error') }
-  const frame = /** @type {HTMLIFrameElement} */ ($('imagegenFrame'))
-  frame.removeAttribute('src')
-  delete frame.dataset.base
+  resetFrame()
   showEmpty({ title: '引擎已停止', text: '顯存已釋放。需要時再啟動，模型會在第一次生成時載入。',
     action: '啟動', onAction: () => void refreshImagegenPage() })
-  latest = latest && { ...latest, running: false }
 }

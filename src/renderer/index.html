@@ -1098,7 +1098,7 @@
                 </section>
               </div>
 
-              <!-- 執行環境：啟動列、本機模型（含資料夾）、占用、推論、log -->
+              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推論（含占用）、log -->
               <div class="subtab-panel active" id="hf-runtime" data-subtab="runtime" role="tabpanel">
                 <div class="hf-runtime-layout">
                   <section class="hf-panel hf-run" aria-label="啟動與載入">
@@ -1119,41 +1119,48 @@
                     <dl class="hf-specs hidden" id="hfUsageSpecs"></dl>
                   </section>
 
-                  <div class="hf-runtime-grid">
-                    <section class="hf-panel" aria-label="本機模型">
-                      <div class="hf-section-head">
-                        <h2>本機模型</h2>
-                        <div class="hf-library-actions" role="group" aria-label="本機模型操作">
-                          <button type="button" id="hfRescanBtn" class="btn btn-secondary btn-sm">重新掃描</button>
-                          <button type="button" id="hfImportBtn" class="btn btn-secondary btn-sm">匯入 .gguf</button>
-                        </div>
-                      </div>
-                      <div class="hf-dir-row">
-                        <span class="hf-setting-value" id="hfModelsDirText"
-                              title="舊模型留在原地不搬。一顆一個子資料夾，mmproj-*.gguf 同夾。">—</span>
-                        <div class="hf-inline-actions">
-                          <button type="button" id="hfOpenFolderBtn" class="btn btn-secondary btn-sm">開啟</button>
-                          <button type="button" id="hfChooseDirBtn" class="btn btn-secondary btn-sm">變更</button>
-                        </div>
-                      </div>
-                      <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
-                    </section>
+                  <!-- Miroxen 的 API／區網（工作台內嵌時不顯示自己的 API 分頁，改在這裡） -->
+                  <section class="hf-panel hidden" id="hfMiroxenApi" aria-label="圖片影像 API">
+                    <div class="hf-section-head">
+                      <h2>圖片影像 API（Miroxen）</h2>
+                      <label class="hf-check"><input type="checkbox" id="hfMiroxenLan"> 允許區網其他裝置連線</label>
+                    </div>
+                    <div id="hfMiroxenApiRows"></div>
+                    <p class="setting-hint" id="hfMiroxenApiHint"></p>
+                  </section>
 
-                    <section class="hf-panel" aria-label="占用">
-                      <h2>占用</h2>
-                      <div id="hfOccupancy" class="hf-gpu-meters" aria-label="CPU 與記憶體占用">
-                        <p class="setting-hint">讀取占用…</p>
+                  <section class="hf-panel" aria-label="本機模型">
+                    <div class="hf-section-head">
+                      <h2>本機模型</h2>
+                      <div class="hf-library-actions" role="group" aria-label="本機模型操作">
+                        <button type="button" id="hfRescanBtn" class="btn btn-secondary btn-sm">重新掃描</button>
+                        <button type="button" id="hfImportBtn" class="btn btn-secondary btn-sm">匯入 .gguf</button>
                       </div>
-                      <div id="hfGpuMeters" class="hf-gpu-meters" aria-label="GPU 占用">
-                        <p class="setting-hint">讀取顯示卡…</p>
+                    </div>
+                    <div class="hf-dir-row">
+                      <span class="hf-setting-value" id="hfModelsDirText"
+                            title="舊模型留在原地不搬。一顆一個子資料夾，mmproj-*.gguf 同夾。">—</span>
+                      <div class="hf-inline-actions">
+                        <button type="button" id="hfOpenFolderBtn" class="btn btn-secondary btn-sm">開啟</button>
+                        <button type="button" id="hfChooseDirBtn" class="btn btn-secondary btn-sm">變更</button>
                       </div>
-                    </section>
-                  </div>
+                    </div>
+                    <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
+                  </section>
 
                   <section class="hf-panel" aria-label="推論">
                     <h2>推論</h2>
                     <div class="hf-infer-grid">
                       <div>
+                        <div class="hf-occupancy" role="group" aria-label="占用">
+                          <span class="hf-setting-label">占用</span>
+                          <div id="hfOccupancy" class="hf-gpu-meters" aria-label="CPU 與記憶體占用">
+                            <p class="setting-hint">讀取占用…</p>
+                          </div>
+                          <div id="hfGpuMeters" class="hf-gpu-meters" aria-label="GPU 占用">
+                            <p class="setting-hint">讀取顯示卡…</p>
+                          </div>
+                        </div>
                         <dl class="hf-specs" id="hfHardwareSpecs"></dl>
                         <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
                         <div id="cudaEnvRow" class="cuda-env-row hidden">
@@ -1182,16 +1189,6 @@
                         </div>
                       </div>
                     </div>
-                  </section>
-
-                  <!-- Miroxen 的 API／區網（工作台內嵌時不顯示自己的 API 分頁，改在這裡） -->
-                  <section class="hf-panel hidden" id="hfMiroxenApi" aria-label="圖片影像 API">
-                    <div class="hf-section-head">
-                      <h2>圖片影像 API（Miroxen）</h2>
-                      <label class="hf-check"><input type="checkbox" id="hfMiroxenLan"> 允許區網其他裝置連線</label>
-                    </div>
-                    <div id="hfMiroxenApiRows"></div>
-                    <p class="setting-hint" id="hfMiroxenApiHint"></p>
                   </section>
 
                   <section class="hf-panel" aria-label="llama-server log">

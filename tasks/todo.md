@@ -10,7 +10,7 @@
 - [x] UFFS 搜尋索引保留到 App 結束；翻譯術語庫非同步建立並重用。
 - [x] Monaco 保留最近模型與編輯器，限制背景快取大小（24 份／32 MiB）。
 - [x] lint、受影響回歸（workspace-perf、glossary、search-lifecycle、ai-web、translate、browser-extensions）通過；CONTEXT 已更新。
-- [ ] 打包版實機前後比較未做（等發版時一起跑）。
+- [x] v1.54.3 已發行（安裝檔＋latest.yml 上傳、非 draft）；打包版實機前後計時未量。
 
 Review：代價是開著的網頁／Telegram 格／搜尋索引／術語庫（約 30MB）不再自動釋放，關閉才收；Monaco 背景快取有上限。
 

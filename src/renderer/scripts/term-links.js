@@ -1,4 +1,4 @@
-import { electronAPI, showToast, switchPage, setChatPaneMode, openUrlInApp } from './app.js'
+import { electronAPI, showToast, switchPage, setChatPaneMode, openUrlInApp, openInFilesPage } from './app.js'
 import { openEditorTab, setActiveProject, currentProjectId } from './ws-tabs.js'
 import { scanLine, logicalLine } from './term-link-scan.js'
 
@@ -66,10 +66,8 @@ async function openTarget(data) {
     }
     return
   }
-  if (data.action === 'explorer' && data.path) {
-    const mod = await import('./explorer-page.js')
-    await mod.openExplorerPath(data.path, data.kind)
-  }
+  // 檔案頁是另一個功能頁視窗：要走 openInFilesPage 轉過去，直接呼叫這一頁的 explorer-page 只會切頁、路徑丟掉
+  if (data.action === 'explorer' && data.path) await openInFilesPage(data.path, data.kind)
 }
 
 /**

@@ -10,6 +10,8 @@ const { contextBridge } = require('electron')
 
 contextBridge.executeInMainWorld({
   func: () => {
+    // 被 Cloudflare 擋而改回 Electron 識別的分頁（main 的 installChallengeFallback）：照原版 Electron，什麼都不補
+    if (/\sElectron\//.test(navigator.userAgent)) return
     const c = window.chrome || (window.chrome = {})
     if (!c.app) {
       c.app = {

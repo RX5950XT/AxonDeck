@@ -66,7 +66,11 @@ const DEFAULT_USAGE_SETTINGS = Object.freeze({
     compact: false,
     hideDisconnected: true,
     showLastSync: true
-  })
+  }),
+  // 週額度快重置還沒用完、Codex 重置次數快過期時跳通知（quota-alerts.js）
+  alerts: Object.freeze({ resetReminder: true }),
+  // 5 小時窗口預熱時間（`HH:MM`，空＝不預熱；warmup.js）
+  warmup: Object.freeze({ claude: Object.freeze([]), codex: Object.freeze([]) })
 })
 
 const ENDPOINTS = Object.freeze({

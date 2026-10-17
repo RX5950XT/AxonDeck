@@ -55,6 +55,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 模組 IPC 外殼 `src/main/ipc-invoke.js`（主視窗守衛＋`{ ok, data|error }`），**handler 各模組逐一列舉**。
 - 兩窗 `sandbox: true`；CSP 的 `font-src data:`、`worker-src blob:`（Monaco）與 `img/media/connect-src vi-media:` 不可拿掉。
 - 不准用 `window.confirm/prompt/alert`，一律 `app-dialog.js` 的 `askConfirm`／`askInput`／`showAlert`。
+- 從別頁開檔案頁／網址／其他功能頁一律走 app.js 的 `openInFilesPage`／`openUrlInApp`／`switchPage`：每個功能頁是獨立 renderer，直接 import 別頁模組（如 `explorer-page.js`）只改到自己這份，切過去時路徑就丟了。
 
 ## 地雷
 
@@ -95,7 +96,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - `chat.send` 的 inflight 佔位（每對話一格的 Map）要跟守衛同一同步區塊；`chat:abort` 一定帶 reqId。renderer 串流照 conversationId 分開。
 - 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；thinking 關閉時完全不帶 `reasoning_effort`；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
 - 重新生成在上游成功前不得 `dropTrailingAssistant`；`chats.json` 讀改寫走 `withStore`；側欄順序＝陣列順序；`chatProviders` sanitize 遇壞網址保留該筆只清 `apiUrl`；`__local` 要過濾掉。`markdown.js` 零 innerHTML，`INLINE_SRC` 每次 `new RegExp`。
-- 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。
+- 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。其他分區被 Cloudflare 擋的分頁由 `installChallengeFallback` 改回 Electron 識別（換 Chrome 版號、標頭順序、拿掉 shim 都實測無效）；同一個 session 的 `onHeadersReceived` 只能掛一個，Grok 分區不要再掛它。
 
 ### 專案工作區
 - 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload。`npm run lint` 的 `scripts/lint-ipc.js` 擋這三條（全模組，不只工作區）；`module.exports` 列未定義名字由 ESLint `no-undef` 擋（＝載入期 ReferenceError，單元測試抓不到）。

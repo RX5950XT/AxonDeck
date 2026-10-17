@@ -65,6 +65,15 @@
 
   /* 終端機畫布：xterm 需要不透明底色（半透明會把捲動殘影疊在一起） */
   --term-bg: #0f1315;
+  /* Markdown 碼塊上色（highlight.js 的 token）*/
+  --syntax-keyword: #c49bd8;
+  --syntax-string: #9cc98a;
+  --syntax-number: #e0a86a;
+  --syntax-comment: #7d8d93;
+  --syntax-title: #7fb7d0;
+  --syntax-type: #d8c07a;
+  --syntax-attr: #8fc4c0;
+  --syntax-meta: #b4a4c6;
   --term-fg: #e8e5dc;
   --term-selection: rgba(120, 163, 181, 0.35);
 
@@ -151,6 +160,15 @@
   --border-light: var(--glass-border);
 
   --term-bg: #fbfbf8;
+  /* Markdown 碼塊上色（highlight.js 的 token）*/
+  --syntax-keyword: #7a3e9d;
+  --syntax-string: #3d7329;
+  --syntax-number: #965610;
+  --syntax-comment: #5f6d73;
+  --syntax-title: #2a6580;
+  --syntax-type: #735c0e;
+  --syntax-attr: #266d69;
+  --syntax-meta: #66567c;
   --term-fg: #23292c;
   --term-selection: rgba(61, 106, 125, 0.25);
 

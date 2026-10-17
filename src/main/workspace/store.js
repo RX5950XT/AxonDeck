@@ -93,6 +93,13 @@ function sanitizeAll(raw) {
       path: full,
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now()
     }
+    const setupScript = normalizeSetupScript(item.setupScript)
+    if (setupScript) entry.setupScript = setupScript
+    if (typeof item.worktreeSourceDir === 'string' && path.isAbsolute(item.worktreeSourceDir) && !/[\0\r\n]/.test(item.worktreeSourceDir)) {
+      entry.worktreeSourceDir = normalizePath(item.worktreeSourceDir)
+    }
+    if (typeof item.worktreeBase === 'string' && /^[A-Za-z0-9._/-]{1,200}$/.test(item.worktreeBase)
+      && !item.worktreeBase.startsWith('-')) entry.worktreeBase = item.worktreeBase
     if (item.tabsState && typeof item.tabsState === 'object') {
       const sanitized = sanitizeTabsState(item.tabsState)
       if (sanitized) entry.tabsState = sanitized
@@ -100,6 +107,13 @@ function sanitizeAll(raw) {
     out.push(entry)
   }
   return out
+}
+
+function normalizeSetupScript(value) {
+  if (typeof value !== 'string' || !value || /[\0\r\n]/.test(value)
+    || path.isAbsolute(value) || path.win32.parse(value).root || !/\.(ps1|cmd|bat)$/i.test(value)) return ''
+  const rel = value.replace(/\\/g, '/')
+  return rel.split('/').includes('..') ? '' : rel
 }
 
 const ALLOWED_TAB_KINDS = new Set(['terminal', 'editor', 'diff', 'browser', 'ai-session', 'cc-tools'])
@@ -237,6 +251,9 @@ function create(req) {
       path: full,
       createdAt: Date.now()
     }
+    if (req.setupScript) project.setupScript = normalizeSetupScript(req.setupScript)
+    if (req.worktreeSourceDir) project.worktreeSourceDir = normalizePath(req.worktreeSourceDir)
+    if (req.worktreeBase) project.worktreeBase = req.worktreeBase
     await writeAll([...items, project])
     return toView(project)
   })
@@ -290,6 +307,15 @@ function rename(id, name) {
     await writeAll(next)
     const found = next.find((item) => item.id === id)
     return found ? toView(found) : null
+  })
+}
+
+function setSetupScript(id, setupScript) {
+  return withStore(async () => {
+    const items = await readAll()
+    const next = items.map((item) => item.id === id ? { ...item, setupScript } : item)
+    await writeAll(next)
+    return next.find((item) => item.id === id) || null
   })
 }
 
@@ -361,6 +387,8 @@ module.exports = {
   MAX_DRAFT_CHARS,
   pathExists,
   sanitizeAll,
+  normalizeSetupScript,
+  setSetupScript,
   list,
   get,
   create,

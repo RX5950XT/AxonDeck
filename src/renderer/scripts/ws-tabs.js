@@ -1,7 +1,7 @@
 import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
 import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
-import { renderMarkdown } from './markdown.js'
+import { renderMarkdown, resolveLinkPath } from './markdown.js'
 import { showMenu } from './ws-menu.js'
 import { askInput } from './app-dialog.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
@@ -17,6 +17,8 @@ import { initAiSessionFind, closeAiSessionFind } from './ws-ai-session-find.js'
 import { nextZoom } from './ws-zoom.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { terminalLabel, terminalTabTitle } from './term-title.js'
+import { terminalStatuses } from './ws-terminal-status.js'
+import { watchWorktreeSetup } from './ws-worktree-flow.js'
 import {
   addComment, listComments, removeComment, clearComments, countComments,
   formatComments, sendToChat
@@ -64,6 +66,7 @@ const MAX_TAB_TITLE = 28
  *   admin?: boolean,
  *   cwd?: string,
  *   unread?: boolean,
+ *   context?: { used: number, max: number | null } | null,
  *   diffData?: { diff: string, additions: number, deletions: number },
  *   diffView?: boolean,
  *   loadError?: string,
@@ -76,6 +79,8 @@ const MAX_TAB_TITLE = 28
 /** @type {WsTab[]} */
 let tabs = []
 let activeId = ''
+/** 最近切到的終端機分頁（審查意見「貼到終端機」貼給它） */
+let lastTerminalId = ''
 let initialized = false
 let browserSeq = 0
 let persistTimer = 0
@@ -380,6 +385,11 @@ function renderTabs() {
       status.className = tab.state === 'waiting' ? 'ws-tab-status-label is-waiting' : 'ws-tab-status-label'
       status.textContent = tab.stateLabel || '已停止'
       open.appendChild(status)
+      const ctx = document.createElement('span')
+      ctx.className = 'ws-tab-context'
+      ctx.textContent = contextText(tab.context)
+      ctx.hidden = !tab.context
+      open.appendChild(ctx)
     }
     if (tab.dirty) {
       const dot = document.createElement('span')
@@ -434,8 +444,21 @@ function tabTooltip(tab) {
   const parts = [tab.title]
   if (tab.stateLabel) parts.push(tab.stateLabel)
   if (tab.admin) parts.push('管理員')
+  if (tab.context) {
+    const { used, max } = tab.context
+    parts.push(`上下文 ${used.toLocaleString()}${max ? ` / ${max.toLocaleString()}` : ''} tokens`)
+  }
   if (tab.cwd) parts.push(tab.cwd)
   return parts.join(' · ')
+}
+
+/**
+ * 分頁上那一小段上下文用量：記錄有給上限（Codex）畫百分比，沒有（Claude）只寫用了幾 K。
+ * @param {{ used: number, max: number | null } | null | undefined} ctx
+ */
+function contextText(ctx) {
+  if (!ctx) return ''
+  return ctx.max ? `${Math.min(100, Math.round((ctx.used / ctx.max) * 100))}%` : `${Math.round(ctx.used / 1000)}K`
 }
 
 /**
@@ -776,6 +799,7 @@ async function activate(id) {
   if (tab.kind !== 'ai-session') stopAiSessionWatch()
 
   if (tab.kind === 'terminal') {
+    lastTerminalId = id
     // 終端機那一格由 terminal-page 管；它會自己 showSurface('terminal')
     const mod = await import('./terminal-page.js')
     if (generation !== projectSwitch || activeId !== id || findTab(id) !== tab) return
@@ -1010,14 +1034,15 @@ export function paintTerminalTab(id, meta) {
   if (!tab) return
   // 有沒有在並排顯示只影響右鍵選單那一行字，不必重畫分頁
   tab.split = meta.split === true
-  const before = `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}`
+  const before = `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}|${contextText(tab.context)}`
   tab.title = meta.title || tab.title
   tab.state = meta.state
   tab.stateLabel = meta.stateLabel
   tab.admin = meta.admin
   tab.cwd = meta.cwd
   tab.unread = meta.unread
-  if (before === `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}`) return
+  tab.context = meta.context || null
+  if (before === `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}|${contextText(tab.context)}`) return
   const row = el.strip?.querySelector(`.ws-tab[data-id="${CSS.escape(id)}"]`)
   const open = row?.querySelector('.ws-tab-open')
   if (open) {
@@ -1028,6 +1053,11 @@ export function paintTerminalTab(id, meta) {
     if (status) {
       status.textContent = tab.stateLabel
       status.classList.toggle('is-waiting', tab.state === 'waiting')
+    }
+    const ctx = /** @type {HTMLElement | null} */ (open.querySelector('.ws-tab-context'))
+    if (ctx) {
+      ctx.textContent = contextText(tab.context)
+      ctx.hidden = !tab.context
     }
     const label = open.querySelector('.ws-tab-label')
     if (label && renamingId !== id) label.textContent = terminalLabel(tab.title, MAX_TAB_TITLE)
@@ -1212,14 +1242,15 @@ export async function openWithSystem(projectId, relPath) {
  *
  * @param {string} relPath
  */
-export async function runInTerminal(relPath) {
+export async function runInTerminal(relPath, options = {}) {
   const rel = String(relPath || '')
   // 送進終端機的是「按鍵」，換行＝直接執行下一行，一定要擋
   if (!rel || /[\r\n]/.test(rel)) return
   const name = rel.split('/').pop() || rel
   const runner = { js: 'node', mjs: 'node', py: 'python', jar: 'java -jar', sh: 'bash' }[extOf(rel)] || '&'
-  await newTerminalWithCommand(`執行 ${name}`, `${runner} './${rel.replace(/'/g, "''")}'`, undefined,
-    isLaunchScript(rel) ? rel : '')
+  const result = await newTerminalWithCommand(`執行 ${name}`, `${runner} './${rel.replace(/['\u2018-\u201b]/g, '$&$&')}'`, undefined,
+    options.setupProjectId ? '' : isLaunchScript(rel) ? rel : '', options.setupProjectId)
+  return result
 }
 
 /**
@@ -1752,7 +1783,26 @@ function paintPreview(tab) {
     box.replaceChildren(frame)
     return
   }
-  box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || ''))
+  box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || '', {
+    html: true,
+    openLink: (link) => openPreviewLink(tab, link)
+  }))
+}
+
+/** 預覽裡點到相對路徑連結：照這份 Markdown 所在資料夾解成專案內路徑；資料夾在檔案樹選起來，檔案開分頁 */
+function openPreviewLink(tab, link) {
+  const target = resolveLinkPath(tab.relPath || '', link)
+  if (!target || !project || project.id !== tab.projectId) {
+    showToast('這個連結指到專案外面，沒有開', 'error')
+    return
+  }
+  if (target.dir) {
+    document.dispatchEvent(new CustomEvent('ws:active-file', {
+      detail: { projectId: project.id, rel: target.path, dir: true }
+    }))
+    return
+  }
+  void openEditorTab(project, target.path)
 }
 
 /** pdf.js 只在真的開了 PDF 才載（那支 min 檔快 500KB，不該進開機路徑） */
@@ -2266,6 +2316,7 @@ function paintReviewCount(tab) {
   if (el.reviewCount) el.reviewCount.textContent = `${total} 則意見`
   const empty = total === 0
   if (el.reviewToAiBtn) /** @type {HTMLButtonElement} */ (el.reviewToAiBtn).disabled = empty
+  if (el.reviewToTermBtn) /** @type {HTMLButtonElement} */ (el.reviewToTermBtn).disabled = empty
   if (el.reviewClearBtn) /** @type {HTMLButtonElement} */ (el.reviewClearBtn).disabled = empty
 }
 
@@ -2356,6 +2407,32 @@ function reviewToAi() {
   }
   sendToChat(text)
   showToast('意見已經帶進聊天輸入框')
+}
+
+/**
+ * 把整包意見貼進這個專案最近用的 AI 終端機（參考 paseo 的 review 附件），只填入不送出。
+ * 純 shell 不收：多行文字貼進 pwsh 每一行都會被當指令執行。
+ */
+async function reviewToTerminal() {
+  const tab = findTab(activeId)
+  const projectId = tab?.projectId || project?.id || ''
+  const text = projectId ? formatComments(projectId, tab?.reviewRef || '') : ''
+  if (!text) {
+    showToast('還沒有任何意見', 'error')
+    return
+  }
+  const agents = new Set(terminalStatuses()
+    .filter((row) => row.preset && row.preset !== 'shell' && !['exited', 'stopped'].includes(row.state)).map((row) => row.id))
+  const terms = tabs.filter((row) => row.kind === 'terminal' && agents.has(row.id))
+  const target = terms.find((row) => row.id === lastTerminalId) || terms[terms.length - 1]
+  if (!target) {
+    showToast('這個專案沒有開著的 AI 終端機', 'error')
+    return
+  }
+  await activate(target.id)
+  const mod = await import('./terminal-page.js')
+  if (mod.pasteIntoTerminal(target.id, text)) showToast('意見已經貼進終端機，確認後按 Enter 送出')
+  else showToast('貼不進終端機', 'error')
 }
 
 /** 把編輯器裡選取的那幾行帶進聊天 */
@@ -2992,7 +3069,7 @@ function toggleMenu() {
  * @param {string} preset
  * @param {boolean} admin
  */
-async function newTerminal(preset, admin) {
+async function newTerminal(preset, admin, isActive) {
   try {
     const created = await call(electronAPI.terminal.create({
       preset,
@@ -3002,11 +3079,22 @@ async function newTerminal(preset, admin) {
       projectId: project?.id || '',
       admin
     }), '建立終端機失敗')
+    if (isActive && !isActive()) return
     const mod = await import('./terminal-page.js')
-    await mod.openTerminalSession(created.id)
+    if (isActive && !isActive()) return
+    if (isActive) await mod.openTerminalSession(created.id, isActive)
+    else await mod.openTerminalSession(created.id)
+    if (isActive && !isActive()) return
+    return created.id
   } catch {
     // call 已經吐過 toast
   }
+}
+
+/** 指令面板與 worktree 共用「＋」的建立流程。 */
+export function newPresetTerminal(preset) {
+  const generation = projectSwitch
+  return newTerminal(preset, false, () => generation === projectSwitch)
 }
 
 /** Ctrl+Shift+T：開一個一般終端機（跟「＋ → 終端機」同一條路） */
@@ -3020,18 +3108,32 @@ export function newShellTerminal() {
  * @param {string} command
  * @param {{ agent: string, sessionId: string }} [resumeInfo]
  */
-export async function newTerminalWithCommand(title, command, resumeInfo, scriptRel = '') {
+export async function newTerminalWithCommand(title, command, resumeInfo, scriptRel = '', setupProjectId = '') {
   const owner = project
   try {
+    if (setupProjectId && owner?.id !== setupProjectId) throw new Error('PROJECT_CHANGED')
     const created = await call(electronAPI.terminal.create({
+      ...(setupProjectId ? { shell: 'powershell' } : {}),
       preset: resumeInfo?.agent || 'shell',
       ...(resumeInfo ? { agentSessionId: resumeInfo.sessionId } : {}),
       cwd: owner?.path || '',
       projectId: owner?.id || '',
       title
     }), '建立終端機失敗')
+    if (setupProjectId && project?.id !== setupProjectId) throw new Error('PROJECT_CHANGED')
     const mod = await import('./terminal-page.js')
-    await mod.openTerminalSession(created.id)
+    if (setupProjectId) await mod.openTerminalSession(created.id, () => project?.id === setupProjectId)
+    else await mod.openTerminalSession(created.id)
+    if (setupProjectId) {
+      command = await call(electronAPI.workspace.worktreeSetupCommand(setupProjectId, created.id), '準備初始化腳本失敗')
+      if (project?.id !== setupProjectId) throw new Error('PROJECT_CHANGED')
+      const stop = watchWorktreeSetup(electronAPI.terminal, created.id)
+      try {
+        const sent = await electronAPI.terminal.write(created.id, `${command}\r`)
+        if (!sent?.ok || sent.data === false) throw new Error('SETUP_WRITE_FAILED')
+      } catch (error) { stop(); throw error }
+      return created.id
+    }
     if (scriptRel) command = await call(electronAPI.workspace.scriptCommand(owner?.id || '', scriptRel, created.id), '準備啟動腳本失敗')
     if (!resumeInfo) await electronAPI.terminal.write(created.id, `${command}\r`)
   } catch {
@@ -3347,6 +3449,7 @@ export function initWsTabs() {
   el.reviewList = document.getElementById('wsReviewList')
   el.reviewCount = document.getElementById('wsReviewCount')
   el.reviewToAiBtn = document.getElementById('wsReviewToAiBtn')
+  el.reviewToTermBtn = document.getElementById('wsReviewToTermBtn')
   el.reviewClearBtn = document.getElementById('wsReviewClearBtn')
   el.reviewCloseBtn = document.getElementById('wsReviewCloseBtn')
 
@@ -3521,6 +3624,7 @@ export function initWsTabs() {
     if (el.reviewPanel) el.reviewPanel.hidden = true
   })
   el.reviewToAiBtn?.addEventListener('click', reviewToAi)
+  el.reviewToTermBtn?.addEventListener('click', () => { void reviewToTerminal() })
   el.reviewClearBtn?.addEventListener('click', () => {
     const tab = findTab(activeId)
     const projectId = tab?.projectId || project?.id || ''

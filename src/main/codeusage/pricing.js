@@ -57,7 +57,8 @@ const PER_TOKENS = 1_000_000
  */
 // v11：Haiku 5.5 依逐請求輸入長度分桶，舊桶需要重掃才能分開兩級單價。
 // v12：AGY 的輸入扣掉快取讀取（promptTokenCount 本來就含快取），舊桶重算。
-const RULES_VERSION = 12
+// v13：Grok 的 `-build` 端點別名一律收回本體（4.7 起不必逐顆加別名），舊桶重新歸到本體。
+const RULES_VERSION = 13
 
 /**
  * @typedef {object} Price
@@ -206,6 +207,8 @@ function normalizeModel(raw) {
   // 價錢一樣，要合起來算。**`lite` 不在這裡**：Flash-Lite 是另一顆模型，
   // 價格只有 Flash 的三分之一，剝掉就會把它算成貴的那顆（實測 732 筆全被算錯）
   id = id.replace(/-thinking$/, '')
+  // Grok CLI 記的是端點別名（`grok-4.7-build`），價錢跟本體一樣
+  if (id.startsWith('grok')) id = id.replace(/-build$/, '')
   if (id.startsWith('gemini')) id = id.replace(/-(extra-low|low|medium|high|tiered)$/, '')
   // 「大版本-小版本」寫法收斂成小數點：Claude Code 實際寫的是 `claude-haiku-4-5`、`claude-3-7-sonnet`，
   // 但公開報價與別的來源都寫 `claude-haiku-4.5`、`claude-3.7-sonnet`，不轉的話這顆永遠對不到單價
@@ -232,7 +235,7 @@ function isJunkModel(model) {
 }
 
 /**
- * 取單價：使用者自訂優先，其次內建表。
+ * 取單價：使用者自訂優先，其次內建表，最後 models.dev。
  * @param {string} model 已正規化的 id
  * @param {Record<string, Price>} [custom] 使用者自訂單價
  * @returns {Price | null}
@@ -240,7 +243,15 @@ function isJunkModel(model) {
 function priceFor(model, custom = {}) {
   const own = custom && custom[model]
   if (own && Number.isFinite(own.input) && Number.isFinite(own.output)) return own
-  return BUILTIN_PRICES[model] || null
+  return BUILTIN_PRICES[model] || fallbackPrice(model) || null
+}
+
+/** 第三順位：內建表沒有的模型（`models-dev.js` 的原廠公開報價）。只補不蓋 */
+let fallbackPrice = () => null
+
+/** @param {(model: string) => Price | null} fn */
+function setFallbackPrice(fn) {
+  fallbackPrice = typeof fn === 'function' ? fn : () => null
 }
 
 /**
@@ -350,6 +361,7 @@ module.exports = {
   normalizeModel,
   isJunkModel,
   priceFor,
+  setFallbackPrice,
   costOf,
   costParts,
   sanitizeCustomPrices,

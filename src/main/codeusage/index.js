@@ -427,7 +427,21 @@ function withCost(bucket, custom) {
  * @param {{ range?: string, provider?: string }} [query]
  * @returns {Promise<object>}
  */
+let modelsDevPrices = null
+/** 內建表沒有的模型用 models.dev 補；沒設 userData（測試）就不連網 */
+function modelsDev() {
+  if (!modelsDevPrices && paths.userDataPath) {
+    modelsDevPrices = require('./models-dev').createModelsDev({
+      file: path.join(paths.userDataPath, 'models-dev-prices.json'),
+      normalize: pricing.normalizeModel
+    })
+    pricing.setFallbackPrice(modelsDevPrices.priceOf)
+  }
+  return modelsDevPrices
+}
+
 async function stats(query = {}) {
+  await modelsDev()?.ensure()
   const s = await getStore()
   const custom = pricing.sanitizeCustomPrices(s.get('customPrices', {}))
   const rangeKey = Object.prototype.hasOwnProperty.call(STAT_RANGES, query.range)

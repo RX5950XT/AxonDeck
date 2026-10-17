@@ -224,6 +224,20 @@ async function openDetail(repoId) {
 }
 
 /**
+ * README 的相對連結：接在 main 給的 repo 檔案頁網址後面，開在內建瀏覽器。
+ * 接出來跑出這個 repo（`../../別人`）就不開。
+ */
+function openReadmeLink(base, link) {
+  if (typeof base !== 'string' || !base) return
+  try {
+    // `/x` 在 README 裡指的是 repo 最上層，不是網站根目錄
+    const url = new URL(link.startsWith('/') ? `.${link}` : link, base)
+    const repoRoot = new URL(base).pathname.replace(/blob\/main\/$/, '')
+    if (url.origin === new URL(base).origin && url.pathname.startsWith(repoRoot)) window.open(url.href)
+  } catch { /* 壞連結：不開 */ }
+}
+
+/**
  * @param {HTMLElement} pane
  * @param {object} detail
  */
@@ -233,7 +247,7 @@ function renderDetail(pane, detail) {
     const readme = el('section', 'hf-readme')
     readme.appendChild(el('h3', '', 'README'))
     const body = el('div', 'hf-readme-body markdown-body')
-    body.appendChild(renderMarkdown(detail.readme))
+    body.appendChild(renderMarkdown(detail.readme, 0, '', { html: true, openLink: (link) => openReadmeLink(detail.readmeBase, link) }))
     readme.appendChild(body)
     nodes.push(readme)
   }

@@ -467,7 +467,7 @@ async function runFileChecks() {
     check(`${file} 只有啟動腳本才經過網址改道`, launches.pop() === (/\.(bat|cmd|ps1|sh)$/.test(file) ? file : ''))
   }
   check('終端機指令用 PowerShell 的 & 與單引號（路徑有空白也跑得動）',
-    /\|\| '&'/.test(runFn) && /rel\.replace\(\/'\/g, "''"\)/.test(runFn))
+    /\|\| '&'/.test(runFn) && runFn.includes(String.raw`rel.replace(/['\u2018-\u201b]/g, '$&$&')`))
   check('路徑有換行就不送（送進終端機的是按鍵）', /\/\[\\r\\n\]\/\.test\(rel\)/.test(runFn))
   check('開不了的檔案畫面上有「執行」鈕', hasId('wsEditorUnsupportedOpenBtn'))
   check('只有執行檔才顯示那顆鈕', /el\.unsupportedOpen\.hidden = !isRunnable\(/.test(tabs))

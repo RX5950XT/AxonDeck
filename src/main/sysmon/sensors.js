@@ -331,7 +331,7 @@ function createSensorBridge(deps = {}) {
               '-NonInteractive',
               '-ExecutionPolicy', 'Bypass',
               '-Command',
-              `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList '${pipeName}' -Verb RunAs -WindowStyle Hidden`
+              `Start-Process -FilePath '${exe.replace(/['\u2018-\u201b]/g, '$&$&')}' -ArgumentList '${pipeName}' -Verb RunAs -WindowStyle Hidden`
             ], { windowsHide: true, stdio: 'ignore' })
           } catch {
             cleanup()

@@ -26,7 +26,7 @@ function createHarness() {
   }
   let closed
   const context = {
-    console, setTimeout, Float32Array, syncCustomSelects() {}, refreshLiveHistory() {}, newTranscriptId: () => 'live-test',
+    console, setTimeout, Float32Array, syncCustomSelects() {}, refreshLiveHistory() {}, markSttRecording() {}, newTranscriptId: () => 'live-test',
     getSettings: async () => ({}), readScope: async () => ({ asr: 'local:asr', llm: 'local:llm' }),
     parseAsrValue: () => ({ engine: 'local', modelKey: 'asr' }), parseLlmValue: () => ({ mode: 'local', modelKey: 'llm' }),
     resolveTranslateModelKey: () => 'llm', showToast: message => { throw new Error(message) },

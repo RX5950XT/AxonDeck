@@ -9,6 +9,7 @@ const {
   createInitialAccounts,
   normalizeAccount
 } = require('./shared')
+const { sanitizeTimes } = require('./warmup')
 
 const WINDOW_KINDS = ['rolling-5h', 'weekly', 'monthly']
 
@@ -18,7 +19,9 @@ function cloneDefaults() {
   return {
     visibleProviders: [...DEFAULT_USAGE_SETTINGS.visibleProviders],
     providerOrder: [...DEFAULT_USAGE_SETTINGS.providerOrder],
-    bar: { ...DEFAULT_USAGE_SETTINGS.bar, kinds: [...DEFAULT_USAGE_SETTINGS.bar.kinds] }
+    bar: { ...DEFAULT_USAGE_SETTINGS.bar, kinds: [...DEFAULT_USAGE_SETTINGS.bar.kinds] },
+    alerts: { ...DEFAULT_USAGE_SETTINGS.alerts },
+    warmup: { claude: [], codex: [] }
   }
 }
 
@@ -64,7 +67,9 @@ function sanitizeSettings(raw) {
   return {
     visibleProviders: visible || defaults.visibleProviders,
     providerOrder,
-    bar: sanitizeBar(raw?.bar)
+    bar: sanitizeBar(raw?.bar),
+    alerts: { resetReminder: typeof raw?.alerts?.resetReminder === 'boolean' ? raw.alerts.resetReminder : defaults.alerts.resetReminder },
+    warmup: { claude: sanitizeTimes(raw?.warmup?.claude), codex: sanitizeTimes(raw?.warmup?.codex) }
   }
 }
 

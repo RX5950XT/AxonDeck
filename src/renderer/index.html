@@ -149,22 +149,11 @@
                 </section>
 
                 <section class="sidebar-panel" id="chatPanel" role="tabpanel">
-                  <!-- 六顆都是「新增」：Local＝本機／API 對話，其餘四家＝網頁版 AI 對話（ai-web-page.js），都列在下面清單 -->
-                  <div class="chat-panel-actions">
-                    <button type="button" id="chatNewBtn" class="btn btn-secondary btn-sm chat-new-btn" title="新對話（本機／API 模型）">
-                      <span class="nav-icon" data-icon="local"></span>Local
-                    </button>
-                    <button
-                      type="button"
-                      id="chatNewFolderBtn"
-                      class="btn btn-secondary btn-sm chat-new-folder-btn"
-                      title="新增資料夾"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 7.5h5l1.6 2H20v8.5H4Z" />
-                        <path d="M12 12v4" />
-                        <path d="M10 14h4" />
-                      </svg>資料夾
+                  <!-- 第一排五顆都是「新增一則對話」：Local＝本機／API，其餘四家＝網頁版 AI（ai-web-page.js），都列在下面清單。
+                       資料夾是整理清單的動作，放搜尋框旁；Arena 不是對話、也不多開（只有一個），釘在清單最上面 -->
+                  <div class="chat-panel-actions" role="group" aria-label="新增對話">
+                    <button type="button" id="chatNewBtn" class="btn btn-secondary btn-sm chat-new-btn" title="新增 Local 對話（本機／API 模型）" aria-label="Local">
+                      <span class="nav-icon" data-icon="local"></span>
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm ai-web-btn" data-ai-web="chatgpt" title="新增 ChatGPT 網頁版對話" aria-label="ChatGPT">
                       <span class="nav-icon" data-icon="openai"></span>
@@ -179,13 +168,27 @@
                       <span class="nav-icon" data-icon="grok"></span>
                     </button>
                   </div>
-                  <input
-                    type="search"
-                    id="chatSearchInput"
-                    class="input input-sm chat-search"
-                    placeholder="搜尋對話…"
-                    aria-label="搜尋對話"
-                  />
+                  <div class="chat-search-row">
+                    <input
+                      type="search"
+                      id="chatSearchInput"
+                      class="input input-sm chat-search"
+                      placeholder="搜尋對話…"
+                      aria-label="搜尋對話"
+                    />
+                    <button type="button" id="chatNewFolderBtn" class="btn btn-secondary btn-sm chat-new-folder-btn" title="新增資料夾" aria-label="新增資料夾">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7.5h5l1.6 2H20v8.5H4Z" />
+                        <path d="M12 12v4" />
+                        <path d="M10 14h4" />
+                      </svg>
+                    </button>
+                  </div>
+                  <button type="button" id="chatArenaBtn" class="chat-arena-entry" title="LLM Arena（只開一個，切走也保留畫面）">
+                    <span class="nav-icon" data-icon="arena"></span>
+                    <span class="chat-arena-name">Arena</span>
+                    <span class="chat-arena-meta">模型競技場</span>
+                  </button>
                   <div id="chatList" class="chat-list" aria-label="對話清單"></div>
                 </section>
 
@@ -488,6 +491,7 @@
                       <div class="ws-review-head">
                         <span id="wsReviewCount">0 則意見</span>
                         <button type="button" id="wsReviewToAiBtn" class="btn btn-primary btn-sm">交給 AI</button>
+                        <button type="button" id="wsReviewToTermBtn" class="btn btn-secondary btn-sm" title="貼進這個專案最近用的 AI 終端機（不會自動送出）">貼到終端機</button>
                         <button type="button" id="wsReviewClearBtn" class="btn btn-secondary btn-sm">全部清掉</button>
                         <button type="button" id="wsReviewCloseBtn" class="btn btn-secondary btn-sm">收起來</button>
                       </div>
@@ -2676,6 +2680,22 @@
           <fieldset class="usage-settings-group">
             <legend>每一家顯示</legend>
             <div id="usageBarToggles" class="usage-provider-toggles"></div>
+          </fieldset>
+          <fieldset class="usage-settings-group">
+            <legend>提醒與預熱</legend>
+            <label class="usage-provider-toggle">
+              <input type="checkbox" id="usageResetReminder" />
+              <span>週／月額度 6 小時內重置但還剩 15% 以上、Codex 重置次數快過期時跳通知</span>
+            </label>
+            <div class="setting-group">
+              <label for="usageWarmClaude">Claude 5 小時窗口預熱時間</label>
+              <input type="text" id="usageWarmClaude" class="input" placeholder="例如 06:00, 11:00（留空＝不預熱）" spellcheck="false" />
+            </div>
+            <div class="setting-group">
+              <label for="usageWarmCodex">Codex 5 小時窗口預熱時間</label>
+              <input type="text" id="usageWarmCodex" class="input" placeholder="例如 06:00（留空＝不預熱）" spellcheck="false" />
+            </div>
+            <p class="dialog-desc">到了時間、窗口沒在跑，就用官方 CLI 送一句「hi」讓窗口提早開始計時（只預熱 CLI 目前登入的帳號，App 要開著）。</p>
           </fieldset>
         </div>
         <footer class="dialog-actions">

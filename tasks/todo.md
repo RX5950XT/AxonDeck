@@ -4,6 +4,26 @@
 
 ## 待辦／未解
 
+### 2026-10-17 — 借鑑 magpie／t3code／paseo（1–12）
+
+分工：Codex 負責 A 區（ccswitch），之後接 D 區（worktree）；主代理做 C、B 區並驗收全部。
+
+- [x] 1 `claude-settings.js` 讀 JSON 先去 BOM（PowerShell 5.1／記事本存的 settings.json 切供應商會失敗）→ 驗：BOM 檔可讀可切
+- [x] 2 （Codex）`mcp-homes.js` 改 config.toml 只動 `[mcp_servers.*]` 區塊，保留註解／順序／CRLF → 驗：test-mcp-homes
+- [x] 8 （Codex）MCP 伺服器「測試連線」＋列工具（stdio／HTTP，逐步逾時，錯誤只回摘要）→ 驗：fixture MCP server 單元測試
+- [x] 4 背景 agent 完成／等你回答時 Windows 通知、點了跳回分頁、工作列未讀數 → 驗：hook 事件→通知的單元測試＋打包版實測
+- [x] 3 審查意見貼進本專案 agent 終端機（只填入不送出）
+- [x] 7 終端機分頁顯示上下文用量（Codex `model_context_window`；Claude 有上限才畫百分比）
+- [x] 5 額度提醒：週窗口快重置仍剩很多／Codex 重置次數快過期（每次窗口只提醒一次）
+- [x] 6 5 小時窗口預熱：指定時間送一句最小請求（Claude 走 CLI `-p --model haiku`、Codex 走 CLI）
+- [x] 9 models.dev 補內建價目沒有的模型單價（快取＋只補不蓋）
+- [x] 10 （Codex）新 worktree＋初始化腳本＋直接開 agent 一個流程
+- [x] 11 （Codex）刪 worktree 前檢查還在用的終端機
+- [x] 12 （Codex）`Ctrl+Shift+P` 指令面板
+- [x] lint、受影響單元測試、打包版實測；CONTEXT.md 更新
+
+Review：主代理逐檔審過 Codex 的差異。修了兩處：`psQuote` 補跳脫 PowerShell 也認的彎單引號（‘’‚‛），worktree 初始化指令改用同一支；`remove` 裡重複的終端機檢查拿掉（`check` 已經在按下移除時重讀）。`npm run lint` 通過；workspace 15/15、terminal 16/16、error-hygiene 1/1。打包版實測：指令面板、worktree 表單（只開不建）、各 IPC 擋壞輸入、MCP 測試、真的系統通知都通過；Claude／Codex 預熱 CLI 實跑成功。追加：兩支舊測試補上新依賴的替身（`./miroxen/runtime`、`markSttRecording`）；`src` 裡 13 個檔案塞進 PowerShell 單引號的地方都改成連 ‘’‚‛ 一起跳脫（實測舊寫法會讓路徑裡 ’ 後面的字被當指令執行）。全部單元測試 156/156。
+
 ### 2026-10-16 — 整合 Miroxen：生成圖片影像頁
 
 - [x] Miroxen：`release.bat`／`tools/release.ps1`（引擎 zip＋deps zip、deps 沿用上一版）、工作台 embed 模式（藏品牌、主題色、postMessage、`#key=`）。
@@ -504,3 +524,11 @@ Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z
 - staged secrets 掃描與 diff check 通過，發行說明保留首次啟動／超過畫布上限的等待界線。
 - 發行 commit／tag：`ce71cad87bdeda807f5eadd402b34b9f3be62b96`／`v1.54.2` 已推送。[GitHub Release](https://github.com/RX5950XT/AxonDeck/releases/tag/v1.54.2) 為 Latest、非草稿、非預發行，三份附件齊全。
 - 三份 GitHub 附件已實際下載，大小與 SHA-256 全部 MATCH，GitHub digest 亦相符；installer SHA-256：`0c8707b70705b6996041c5d9ef61fb880bbc0b0b0cb3d3e0681e0417a216eafb`。正式版 PID 22628 保持運行，未替換或重啟。
+
+## Markdown 預覽補齊（2026-10-17）
+
+- [x] 內嵌 HTML 白名單、mermaid（隱藏 iframe）
+- [x] 巢狀／待辦清單、參考式連結、自動連結、GitHub 提示框、腳註、底線式標題、#錨點、emoji、碼塊上色、數學、縮排碼塊、front matter、軟換行
+- Review：test-markdown 50/50、全套 156/156、lint 通過；打包版實測 probe 全項通過（上色 24 個 token、MathML 2 個、mermaid 1 張、#錨點捲動且頁面網址不變、無主控台錯誤），深淺色截圖確認。
+- [x] 相對路徑連結可點（工作區／檔案頁／編輯視窗／HF）、切深淺色時 mermaid 重畫。Review：test-markdown 52/52、全套 156/156、lint 通過；打包版實點 README 的 ./LICENSE 開出分頁、切主題後圖重畫。
+- Review（補驗）：打包版實點檔案頁預覽（./CONTEXT.md 就地換過去、./LICENSE 交給檔案頁）、獨立編輯視窗（LICENSE 提示到檔案頁開、CONTEXT.md 另開一扇窗）、HF README（TheBloke/Llama-2-7B-GGUF 的相對連結在內建瀏覽器開出 blob/main 網址），全部通過。

@@ -450,6 +450,7 @@ async function detail(repoId) {
     repoId,
     card,
     readme,
+    readmeBase: hub.pageBase(repoId),
     info,
     // GGUF 常常沒寫 `general.parameter_count`（unsloth 那批就是），HF 自己解出來的
     // `gguf.total` 才有值——不帶進去的話 MoE 的激活參數永遠算不出來

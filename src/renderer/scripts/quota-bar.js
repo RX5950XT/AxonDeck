@@ -659,6 +659,25 @@ function populateSettingsDialog() {
     barFragment.appendChild(row)
   }
   byId('usageBarToggles').replaceChildren(barFragment)
+  byId('usageResetReminder').checked = state.settings.alerts?.resetReminder !== false
+  byId('usageWarmClaude').value = (state.settings.warmup?.claude || []).join(', ')
+  byId('usageWarmCodex').value = (state.settings.warmup?.codex || []).join(', ')
+}
+
+/**
+ * 「06:00, 11:30」→ ['06:00', '11:30']；`6:00` 補零。有一個看不懂就回 null（整份不存）。
+ * @param {string} text
+ * @returns {string[] | null}
+ */
+function parseWarmTimes(text) {
+  const parts = String(text || '').split(/[,，、\s]+/).filter(Boolean)
+  const out = []
+  for (const part of parts) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(part)
+    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return null
+    out.push(`${match[1].padStart(2, '0')}:${match[2]}`)
+  }
+  return [...new Set(out)].sort().slice(0, 4)
 }
 
 function readDialogSettings() {
@@ -673,7 +692,16 @@ function readDialogSettings() {
     hideDisconnected: checked.has('hideDisconnected'),
     showLastSync: checked.has('showLastSync')
   }
-  return { ...state.settings, visibleProviders, bar }
+  const claude = parseWarmTimes(byId('usageWarmClaude').value)
+  const codex = parseWarmTimes(byId('usageWarmCodex').value)
+  if (!claude || !codex) return null
+  return {
+    ...state.settings,
+    visibleProviders,
+    bar,
+    alerts: { resetReminder: byId('usageResetReminder').checked },
+    warmup: { claude, codex }
+  }
 }
 
 async function saveUsageSettings(settings) {
@@ -696,7 +724,12 @@ function bindControls() {
   })
   byId('usageSettingsCancel')?.addEventListener('click', () => settingsDialog.close())
   byId('usageSettingsSave')?.addEventListener('click', async () => {
-    if (await saveUsageSettings(readDialogSettings())) settingsDialog.close()
+    const settings = readDialogSettings()
+    if (!settings) {
+      showToast('預熱時間要寫成 06:00 這種格式，多個用逗號隔開', 'error')
+      return
+    }
+    if (await saveUsageSettings(settings)) settingsDialog.close()
   })
 
   // 條很窄、顆數多時會超出去：直向滾輪也拿來左右捲

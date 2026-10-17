@@ -23,6 +23,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const toml = require('smol-toml')
+const { editMcpToml } = require('./toml-edit')
 const mcp = require('./mcp')
 const claudeSettings = require('./claude-settings')
 
@@ -194,7 +195,8 @@ function backupToml(file, tag) {
 function writeTomlFile(file, data, tag) {
   let text
   try {
-    text = toml.stringify(data)
+    const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+    text = editMcpToml(raw, data)
   } catch {
     throw fail('MCP_HOME_TOML_STRINGIFY', '設定寫不回去（該檔案有本工具不認得的格式），沒有動到原檔')
   }

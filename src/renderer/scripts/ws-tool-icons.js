@@ -102,6 +102,11 @@ const ICONS = {
       'M20.054 15.987H3.946'
     ]
   },
+  // Arena（模型競技場）：lucide swords
+  arena: {
+    box: '0 0 24 24',
+    d: ['M14.5 17.5 3 6V3h3l11.5 11.5', 'M13 19l6-6', 'M16 16l4 4', 'M19 21l2-2', 'M14.5 6.5 18 3h3v3l-3.5 3.5', 'M5 14l4 4', 'M7 17l-3 3', 'M3 19l2 2']
+  },
   // ChatGPT（OpenAI 花結）、Gemini（四芒星）：simple-icons 單色輪廓
   openai: {
     fill: true,

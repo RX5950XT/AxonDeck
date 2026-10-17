@@ -173,8 +173,27 @@ function pushTabState(id) {
     // 前景 shell 報到哪就顯示哪（OSC 7）；沒報過才退回開起來時的那個目錄
     cwd: item.liveCwd || item.cwd || '',
     split: isTerminalSplit(id),
-    unread: unread.has(id)
+    unread: unread.has(id),
+    context: contextById.get(id) || null
   })
+}
+
+/** 終端機 ID → 綁定對話最後一輪的上下文用量 `{ used, max }` */
+const contextById = new Map()
+
+/**
+ * 一輪結束或切到這格時重讀一次（用量只在回合邊界變，不必輪詢）。
+ * @param {{ id: string, preset?: string, claudeSessionId?: string }} item
+ */
+async function refreshContext(item) {
+  if (!item || (item.preset !== 'codex' && item.preset !== 'claude' && !item.claudeSessionId)) return
+  const res = await electronAPI.terminal.context(item.id).catch(() => null)
+  const next = res?.ok && res.data && Number.isFinite(res.data.used) ? res.data : null
+  const prev = contextById.get(item.id) || null
+  if (prev?.used === next?.used && prev?.max === next?.max) return
+  if (next) contextById.set(item.id, next)
+  else contextById.delete(item.id)
+  pushTabState(item.id)
 }
 
 /** 側欄與分頁看到的是合併後的狀態，宿主原值留在 `item.state` */
@@ -241,7 +260,8 @@ function viewOf(item) {
  * @returns {boolean}
  */
 function isWatching(id) {
-  return visibleIds.includes(id)
+  // 功能頁各自一個 view：切到別頁時這頁的 DOM 還是 active，只有 document.hidden 會變
+  return !document.hidden && visibleIds.includes(id)
     && document.getElementById('page-chat')?.classList.contains('active')
     && !document.getElementById('termMain')?.classList.contains('hidden')
     && !hostEl?.classList.contains('hidden')
@@ -256,13 +276,27 @@ function isWatching(id) {
 function publishView(id, prev) {
   const item = items.find((entry) => entry.id === id)
   if (!item) return
-  const next = viewOf(item)
-  if (prev === 'running' && (next === 'idle' || next === 'waiting')) {
-    if (!isWatching(id)) unread.add(id)
-    document.dispatchEvent(new CustomEvent('ws:terminal-idle', { detail: { id } }))
-  }
+  noteSettled(item, prev, viewOf(item))
   pushTabState(id)
   setTerminalStatuses(displayedItems())
+}
+
+/**
+ * 運行中 → 閒置／等人：沒在看就亮未讀；是 agent 而且人沒在看（或 App 沒焦點）就跳系統通知。
+ * 純 shell 的指令跑完不通知，免得每個 `ls` 都叮一聲。
+ * @param {{ id: string, preset?: string }} item
+ * @param {string | null | undefined} prev
+ * @param {string} next
+ */
+function noteSettled(item, prev, next) {
+  if (prev !== 'running' || (next !== 'idle' && next !== 'waiting')) return
+  void refreshContext(item)
+  const watching = isWatching(item.id)
+  if (!watching) unread.add(item.id)
+  document.dispatchEvent(new CustomEvent('ws:terminal-idle', { detail: { id: item.id } }))
+  const agent = (item.preset && item.preset !== 'shell') || hookOf(item) !== null
+  if (!agent || (watching && document.hasFocus())) return
+  electronAPI.terminal.notifyAgent(item.id, next === 'waiting' ? 'waiting' : 'done', displayTitle(item)).catch(() => {})
 }
 
 /**
@@ -519,7 +553,7 @@ function isCmdShell(id) {
  * @param {boolean} cmd
  */
 function quotePath(filePath, cmd) {
-  return cmd ? `"${filePath}"` : `'${filePath.replace(/'/g, "''")}'`
+  return cmd ? `"${filePath}"` : `'${filePath.replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**
@@ -654,6 +688,7 @@ function createPane(id) {
     // 複製：有選取時的 Ctrl+C、Ctrl+Shift+C、Ctrl+Insert（見 `term-copy.js`）。沒選取的 Ctrl+C 照舊中斷
     if ((!cliMouse() || term.hasSelection()) && handleCopyKey(term, event)) return false
     if (event.ctrlKey && !event.altKey && !event.metaKey) {
+      if (event.shiftKey && ['p', 'P'].includes(event.key) && !event.isComposing && event.keyCode !== 229) return false
       // 切分頁／開關分頁交給工作區（workspace-page.js 的 onGlobalKeydown）。
       // xterm 收了只會送一個 Tab 或 ^T／^W 進 shell，跟使用者要的完全不同
       if (event.key === 'Tab') return false
@@ -960,6 +995,7 @@ async function openSession(id, isActive = () => true) {
   // 分頁列要有這一格（還原專案分頁時也走這裡）
   trackTerminal(id, trackedTitle(id))
   await reloadList()
+  if (!contextById.has(id)) void refreshContext(items.find((entry) => entry.id === id))
 }
 
 /**
@@ -1174,14 +1210,7 @@ async function reloadList() {
     item.screen = panes.has(item.id) ? (prevScreen.get(item.id) ?? null) : null
     if (Object.prototype.hasOwnProperty.call(item, 'agent')) rememberAgent(item.id, item.agent)
   }
-  for (const item of items) {
-    const prev = prevView.get(item.id)
-    const nextView = viewOf(item)
-    if (prev === 'running' && (nextView === 'idle' || nextView === 'waiting')) {
-      if (!isWatching(item.id)) unread.add(item.id)
-      document.dispatchEvent(new CustomEvent('ws:terminal-idle', { detail: { id: item.id } }))
-    }
-  }
+  for (const item of items) noteSettled(item, prevView.get(item.id), viewOf(item))
   pushAllTabStates()
   ensureLiveTerminalTabs(items)
   checkHostRuntime()
@@ -1453,6 +1482,20 @@ export function pasteIntoFocusedTerminal(text) {
   const entry = pane instanceof HTMLElement ? panes.get(pane.dataset.id || '') : null
   if (!entry || !text) return false
   entry.term.paste(text)
+  return true
+}
+
+/**
+ * 貼進指定的那一格（審查意見「貼到終端機」）；同樣走 `term.paste`，CLI 收到的是一次貼上。
+ * @param {string} id
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteIntoTerminal(id, text) {
+  const entry = panes.get(id)
+  if (!entry || !text) return false
+  entry.term.paste(text)
+  entry.term.focus()
   return true
 }
 

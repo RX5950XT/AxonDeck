@@ -215,6 +215,8 @@ const worktreeAdopt = (projectId, treePath) => worktree.adopt(projectId, treePat
 /** 移除前先問「有沒有東西擋著」，講得出是哪幾個檔案 */
 const worktreeCheck = (projectId, treePath) => worktree.check(projectId, treePath)
 const worktreeRemove = (projectId, treePath) => worktree.remove(projectId, treePath)
+const setSetupScript = (projectId, relPath) => worktree.setSetupScript(projectId, relPath)
+const worktreeSetupCommand = (projectId, terminalId) => worktree.setupCommand(projectId, terminalId)
 /** 審閱：分支清單／跟某條分支的整體比較／單一檔案對基準點的兩份內容 */
 const gitBranches = (projectId) => git.branches(projectId)
 const gitCompareBranch = (projectId, ref) => git.compareBranch(projectId, ref)
@@ -312,6 +314,8 @@ module.exports = {
   worktreeAdopt,
   worktreeCheck,
   worktreeRemove,
+  setSetupScript,
+  worktreeSetupCommand,
   gitBranches,
   gitCompareBranch,
   gitFileVersionsAgainst,

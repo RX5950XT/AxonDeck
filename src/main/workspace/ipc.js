@@ -146,6 +146,12 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:worktreeRemove', (event, id, treePath) => (
     invoke(event, () => service.worktreeRemove(id, treePath))
   ))
+  ipcMain.handle('workspace:setSetupScript', (event, id, relPath) => (
+    invoke(event, () => service.setSetupScript(id, relPath))
+  ))
+  ipcMain.handle('workspace:worktreeSetupCommand', (event, id, terminalId) => (
+    invoke(event, () => service.worktreeSetupCommand(id, terminalId))
+  ))
   ipcMain.handle('workspace:gitBranches', (event, id) => (
     invoke(event, () => service.gitBranches(id))
   ))

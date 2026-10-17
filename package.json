@@ -1,6 +1,6 @@
 {
   "name": "axondeck",
-  "version": "1.56.1",
+  "version": "1.57.0",
   "description": "AxonDeck - Windows Desktop AI Workbench",
   "main": "src/main/main.js",
   "scripts": {
@@ -22,12 +22,16 @@
   "author": "",
   "license": "GPL-3.0-only",
   "devDependencies": {
+    "@highlightjs/cdn-assets": "11.12.0",
     "concurrently": "^9.1.2",
     "electron": "43.7.5",
     "electron-builder": "^26.0.0",
     "eslint": "9.39.5",
     "eslint-plugin-import": "2.32.0",
+    "gemoji": "8.1.0",
     "globals": "17.12.0",
+    "katex": "0.19.0",
+    "mermaid": "11.17.2",
     "vite": "^6.2.0",
     "wait-on": "^8.0.3"
   },
@@ -85,7 +89,38 @@
       "!resources/media/**",
       "!native/**",
       "!eslint.config.mjs",
-      "!**/__pycache__/**"
+      "!**/__pycache__/**",
+      {
+        "from": "node_modules/mermaid/dist",
+        "to": "node_modules/mermaid/dist",
+        "filter": [
+          "mermaid.esm.min.mjs",
+          "chunks/mermaid.esm.min/**",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/katex/dist",
+        "to": "node_modules/katex/dist",
+        "filter": [
+          "katex.mjs"
+        ]
+      },
+      {
+        "from": "node_modules/@highlightjs/cdn-assets/es",
+        "to": "node_modules/@highlightjs/cdn-assets/es",
+        "filter": [
+          "highlight.min.js",
+          "languages/*.min.js"
+        ]
+      },
+      {
+        "from": "node_modules/gemoji",
+        "to": "node_modules/gemoji",
+        "filter": [
+          "index.js"
+        ]
+      }
     ],
     "publish": [
       {

@@ -180,6 +180,10 @@ const HIDDEN_FLAG = '--hidden'
 const OPEN_FILE_FLAG = '--open-file='
 const openFileArg = (argv) => argv.find((a) => typeof a === 'string' && a.startsWith(OPEN_FILE_FLAG))?.slice(OPEN_FILE_FLAG.length) || ''
 const startupFile = openFileArg(process.argv)
+// 原生播放器「在檔案頁顯示」叫起來的：用檔案頁開那個位置（只在第一次開主視窗時用一次）
+const REVEAL_FLAG = '--reveal='
+const revealArg = (argv) => argv.find((a) => typeof a === 'string' && a.startsWith(REVEAL_FLAG))?.slice(REVEAL_FLAG.length) || ''
+let startupReveal = revealArg(process.argv)
 const startHidden = process.argv.includes(HIDDEN_FLAG) || Boolean(startupFile)
 
 // 預覽／CDP 會帶 --user-data-dir。Chromium 有時還沒套到 app.getPath('userData')
@@ -236,6 +240,8 @@ app.on('second-instance', (_event, argv, _cwd, data) => {
   const url = scriptLaunch.forwardedUrl(argv.slice(1))
   if (url) return void scriptLaunch.openScriptUrl(url, typeof data?.project === 'string' ? data.project : '',
     typeof data?.scriptRun === 'string' ? data.scriptRun : '')
+  const reveal = revealArg(argv)
+  if (reveal) return void revealInFiles(reveal)
   const file = openFileArg(argv)
   if (!file) return showMainWindow()
   openFromShell(file)
@@ -247,6 +253,17 @@ function openFromShell(file) {
   editorWindow.open(file)
     .then((opened) => { if (!opened) showMainWindow() })
     .catch((err) => { console.warn('[editor] open failed:', err?.code || 'OPEN_FAILED'); showMainWindow() })
+}
+
+/** 用檔案頁開一個本機位置（新分頁，檔案就選起來）並叫出那扇視窗；路徑不存在就只叫出主視窗 */
+async function revealInFiles(raw) {
+  if (!app.isReady()) return
+  const hit = await require('./terminal/links').resolveCandidate('', raw, { allowUnc: true }).catch(() => null)
+  if (!hit || !pageWindows) return showMainWindow()
+  try {
+    await pageWindows.navigate({ page: 'explorer', action: 'files', full: hit.full, kind: hit.kind })
+  } catch { console.warn('[pages] reveal failed') }
+  showPageWindow('explorer')
 }
 
 /** electron-store 允許的 key（防任意讀寫／XSS 後改 apiUrl 外洩 key） */
@@ -466,6 +483,7 @@ function loadTerminal() {
     terminalMod.setEmitter((channel, payload) => {
       sendToPages(channel, payload)
     })
+    terminalMod.setNotifier(notifyAgent)
   }
   return terminalMod
 }
@@ -958,7 +976,11 @@ function createMainWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     bootLog('did-finish-load')
     scheduleBackgroundServices()
-    pageWindows.navigate({ page: 'chat' }).catch(() => console.error('[pages] 初始頁面載入失敗'))
+    pageWindows.navigate({ page: 'chat' }).catch(() => console.error('[pages] 初始頁面載入失敗')).then(() => {
+      // 要排在第一頁之後：功能頁切換以最後一次為準，先導過去會被這裡的 chat 蓋掉
+      if (startupReveal) void revealInFiles(startupReveal)
+      startupReveal = ''
+    })
   })
 
   // 載入頁面（先掛事件，避免 loadFile 太快把 ready-to-show 漏掉）
@@ -1029,13 +1051,17 @@ function openInProjectBrowser(url, project = '', target = '', sourceGuestId = 0)
     shell.openExternal(url).catch(() => {})
   }
   if (!pageWindows) return outside()
-  return pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target, sourceGuestId }).then(() => {
-    const win = pageWindows.host(pageWindows.contents('chat'))
-    if (!win || win.isDestroyed()) return
-    if (win.isMinimized()) win.restore()
-    win.show()
-    win.focus()
-  }).catch(outside)
+  return pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target, sourceGuestId })
+    .then(() => showPageWindow('chat')).catch(outside)
+}
+
+/** 把某個功能頁所在的那扇視窗（主視窗或它彈出去的獨立視窗）叫到前面 */
+function showPageWindow(page) {
+  const win = pageWindows?.host(pageWindows.contents(page))
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 scriptLaunch.setOpenUrl(openInProjectBrowser)
 
@@ -1958,6 +1984,30 @@ registerUsageIpc({
   isMainSender: assertMainWindowSender
 })
 
+// 額度提醒與 5 小時窗口預熱：額度條沒開著也在背景看（usage/quota-watch.js）
+let quotaWatch = null
+function startQuotaWatch() {
+  const { Notification } = require('electron')
+  const notify = (title, body) => {
+    if (!Notification.isSupported()) return
+    const note = new Notification({ title, body, icon: APP_ICON })
+    note.on('click', showMainWindow)
+    note.show()
+  }
+  quotaWatch = require('./usage/quota-watch').createQuotaWatch({
+    usage: { load: () => loadUsage().load(), sync: () => loadUsage().sync() },
+    notify,
+    file: path.join(app.getPath('userData'), 'usage-watch.json'),
+    // 真的要預熱才載入（開機不多拉模組）
+    warmDeps: {
+      cwd: path.join(app.getPath('userData'), 'warmup'),
+      launch: (...args) => require('./ccswitch/mcp-check').launch(...args),
+      withPath: (...args) => require('./ccswitch/cli-install').withPath(...args)
+    }
+  })
+  quotaWatch.start()
+}
+
 // ===== AGY 反向代理 =====
 // 憑證、上游 URL、project id 與 API key 全在 main；agy* 設定刻意不進 STORE_ALLOWLIST，
 // renderer 只能透過 agy:* 操作，沒有任何路徑能直接改掉金鑰。
@@ -1979,6 +2029,22 @@ registerAgyIpc({
 })
 
 // ===== 終端機 =====
+let agentNotifier = null
+/** 背景 agent 的系統通知；第一次要通知才載入 */
+function notifyAgent(id, kind, title) {
+  agentNotifier ||= require('./agent-notify').createAgentNotifier({ icon: APP_ICON, reveal: revealTerminal })
+  return agentNotifier.notify(id, kind, title)
+}
+
+/** 點了通知：叫出 SI 頁那扇窗，再請它切到那個終端機的專案與分頁 */
+async function revealTerminal(id) {
+  if (pageWindows) {
+    await pageWindows.navigate({ page: 'chat' }).catch(() => console.warn('[pages] reveal terminal failed'))
+    showPageWindow('chat')
+  } else showMainWindow()
+  sendToPages('terminal:reveal', { id })
+}
+
 // shell 執行檔、啟動指令與工作目錄的驗證全在 main；renderer 只送 key 與由系統對話框選出的路徑。
 registerTerminalIpc({
   ipcMain,
@@ -1986,6 +2052,7 @@ registerTerminalIpc({
     catalog: (...args) => loadTerminal().catalog(...args),
     listSessions: (...args) => loadTerminal().listSessions(...args),
     conversation: (...args) => loadTerminal().conversation(...args),
+    contextUsage: (...args) => loadTerminal().contextUsage(...args),
     navJump: (...args) => loadTerminal().navJump(...args),
     // 宿主是不是更新前的舊程式碼（漏這兩支＝更新後 pty.js 的修正永遠不會生效）
     hostState: (...args) => loadTerminal().hostState(...args),
@@ -2002,6 +2069,7 @@ registerTerminalIpc({
     resolveLinks: (...args) => loadTerminal().resolveLinks(...args),
     revealLink: (...args) => loadTerminal().revealLink(...args),
     raiseChildWindow: (...args) => loadTerminal().raiseChildWindow(...args),
+    notifyAgent: (...args) => loadTerminal().notifyAgent(...args),
     // Ctrl+G 的編輯器橋接（漏一支＝那個分頁按送出只會回通用錯誤，CLI 一直卡著）
     editorSave: (...args) => loadTerminal().editorSave(...args),
     editorCancel: (...args) => loadTerminal().editorCancel(...args),
@@ -2070,6 +2138,8 @@ registerWorkspaceIpc({
     worktreeAdopt: (...args) => loadWorkspace().worktreeAdopt(...args),
     worktreeCheck: (...args) => loadWorkspace().worktreeCheck(...args),
     worktreeRemove: (...args) => loadWorkspace().worktreeRemove(...args),
+    setSetupScript: (...args) => loadWorkspace().setSetupScript(...args),
+    worktreeSetupCommand: (...args) => loadWorkspace().worktreeSetupCommand(...args),
     watchProject: (...args) => loadWorkspace().watchProject(...args),
     unwatchProject: (...args) => loadWorkspace().unwatchProject(...args),
     agentSessions: (...args) => loadWorkspace().agentSessions(...args),
@@ -2613,6 +2683,8 @@ app.whenReady().then(() => {
   for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser', 'persist:wsbrowser-clean']) {
     const ses = session.fromPartition(partition)
     aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js'), languages })
+    // 被 Cloudflare 擋的分頁改回 Electron 識別重新載入；Grok 另有 grok-clearance（借 Edge 過驗證）
+    if (partition !== 'persist:ai-grok') aiWeb.installChallengeFallback(ses, aiWeb.electronUserAgent(app.userAgentFallback))
     aiWebPartitions.set(ses, partition)
   }
   browserExtensions = require('./browser-extensions').createBrowserExtensions({
@@ -2669,6 +2741,8 @@ app.whenReady().then(() => {
 
   createMainWindow()
   bootLog('window created')
+  // 預覽／沙箱／e2e 帶 --user-data-dir：不在背景提醒或預熱（會跟正式那份重複跳通知、重複送請求）
+  if (!userDataDir) startQuotaWatch()
   editorWindow.configure({
     isDev,
     preload: path.join(__dirname, '../preload/preload.js'),
@@ -2855,6 +2929,7 @@ app.on('before-quit', (e) => {
     stopSysmon,
     stopScreentime,
     stopGateway,
+    ccSwitchMod ? ccSwitchMod.stopMcpChecks() : Promise.resolve(),
     agyMod ? agyMod.shutdown() : Promise.resolve()
   ])
   stopAgy

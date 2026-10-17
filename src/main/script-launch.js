@@ -136,7 +136,8 @@ async function prepareLaunch(file, project, run = '') {
   return { target, env, exeArgs }
 }
 
-const psQuote = (s) => `'${s.replace(/'/g, "''")}'`
+// PowerShell 把 ‘ ’ ‚ ‛ 也當單引號，只跳脫 ' 的話路徑帶 ’ 就會斷開字串
+const psQuote = (s) => `'${s.replace(/['\u2018-\u201b]/g, '$&$&')}'`
 
 /** 給既有終端機執行；不用改 PTY 宿主的協定，也不會影響其他終端機。 */
 async function terminalCommand(file, project, run) {
@@ -277,4 +278,4 @@ function projectIdOf(projects, file) {
 const forwardedUrl = (argv) => (argv || []).find(isUrl) || ''
 
 module.exports = { START_FLAG, PROJECT_ENV, USER_DATA_ENV, RUN_ENV, urlArg, forwardedUrl, rewriteBatch, launchScript, projectIdOf,
-  terminalCommand, setOpenUrl, openScriptUrl, noteTerminal, serverUrl }
+  terminalCommand, psQuote, setOpenUrl, openScriptUrl, noteTerminal, serverUrl }

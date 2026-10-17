@@ -14,6 +14,7 @@ const presets = require('./presets')
 const providers = require('./providers')
 const mcp = require('./mcp')
 const mcpHomes = require('./mcp-homes')
+const mcpCheck = require('./mcp-check')
 const skills = require('./skills')
 const cliVersion = require('./cli-version')
 const gateway = require('./gateway/server')
@@ -431,6 +432,8 @@ module.exports = {
   configure,
   gatewayStatus,
   stopGateway,
+  // 關 App 時收掉還在跑的 MCP 連線測試（stdio 伺服器是子程序）；不能掛在 stopGateway：切供應商也會關閘道
+  stopMcpChecks: () => mcpCheck.shutdown(),
   autoStartGateway,
   catalog,
   listProviders,

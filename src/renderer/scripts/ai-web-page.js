@@ -14,8 +14,11 @@ const HOMES = /** @type {Record<string, string>} */ ({
   chatgpt: 'https://chatgpt.com/',
   gemini: 'https://gemini.google.com/app',
   claude: 'https://claude.ai/new',
-  grok: 'https://grok.com/'
+  grok: 'https://grok.com/',
+  arena: 'https://llm-arena-opal.vercel.app/'
 })
+// Arena 只有一個（不像四家網頁版每按一次多一則）、不進對話清單，網址與標題不存
+const ARENA_ID = '__arena'
 // ponytail: 靠 Gemini 頁面的 class／屬性抓對話標題，改版就抓不到（退回不取標題，不會出錯）
 const GEMINI_TITLE = `(document.querySelector('[data-test-id="conversation-title"], .conversation-title-container, .conversation.selected .conversation-title')?.textContent
   || document.querySelector('user-query .query-text, user-query')?.textContent || '').trim().slice(0, 60)`
@@ -43,6 +46,7 @@ function build({ id, site, url }) {
   view.setAttribute('partition', `persist:ai-${site}`)
   view.setAttribute('allowpopups', '')
   const remember = (event) => {
+    if (id === ARENA_ID) return
     if (!event.url.startsWith(new URL(HOMES[site]).origin)) return // 登入、OAuth 在別的網域
     if (current?.id === id) current = { ...current, url: event.url } // 當掉重建時接著這頁
     electronAPI.chat.setWebUrl(id, event.url).catch((error) => console.error('[ai-web] 存不了網址:', error))
@@ -53,6 +57,7 @@ function build({ id, site, url }) {
   })
   // 分頁標題回報給 main（只有在真正的對話頁才會被拿來當側欄標題）
   const reportTitle = async (title) => {
+    if (id === ARENA_ID) return
     try {
       const text = site === 'gemini' ? (await view.executeJavaScript(GEMINI_TITLE)) || title : title
       if (await electronAPI.chat.setWebTitle(id, text, view.getURL())) onTitle()
@@ -99,6 +104,7 @@ function release(id) {
 export async function showAiWeb() {
   if (!current || !host() || host().classList.contains('hidden')) return
   for (const [id, entry] of live) entry.pane.hidden = id !== current.id
+  document.getElementById('chatPanel')?.classList.toggle('is-arena', current.id === ARENA_ID)
   const entry = live.get(current.id) || build(current)
   entry.pane.hidden = false
 }
@@ -113,4 +119,10 @@ export function openAiWeb(conv, titleChanged) {
   current = { id: conv.id, site: conv.web.site, url: conv.web.url }
   onTitle = titleChanged
   setChatPaneMode('web') // 會回頭叫 showAiWeb
+}
+
+/** 側欄 Arena 鈕：切到唯一那個 Arena（第一次才建，之後切走切回都是同一頁） */
+export function openArena() {
+  current = { id: ARENA_ID, site: 'arena', url: '' }
+  setChatPaneMode('web')
 }

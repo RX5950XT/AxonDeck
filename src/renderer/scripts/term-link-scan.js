@@ -24,6 +24,10 @@ const TRIM_HEAD = /^[('"[{<（【「『《]+/
 const TRIM_TAIL = /[.,;:!?)\]}'"><）】」』》]+$/
 /** `foo.js:12:5` 這種行號後綴不是路徑的一部分 */
 const LINE_COL = /:(\d+)(?::\d+)?$/
+/** tsc／MSBuild 的 `foo.ts(12,5)`：行號在路徑後面的括號裡 */
+const PAREN_LINE = /^\((\d+)(?:,\d+)?\)/
+/** 引號包住、中間有空白、開頭像路徑的一整段（`"C:\Program Files\nodejs\node.exe"`） */
+const QUOTED_RE = /(["'])((?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])[^"'\r\n]*\s[^"'\r\n]*?)\1/g
 
 /**
  * @param {string} ch
@@ -133,15 +137,31 @@ export function scanLine(line) {
     const token = trimPunct(match[0], match.index)
     if (token && !overlaps(out, token)) out.push({ ...token, url: `http://${token.text}`, line: 0 })
   }
+  for (const match of line.matchAll(QUOTED_RE)) {
+    const start = match.index + 1
+    const token = { start, end: start + match[2].length, text: match[2] }
+    const hit = overlaps(out, token) ? null : pathHit(token, line)
+    if (hit) out.push(hit)
+  }
   for (const match of line.matchAll(PATH_RE)) {
     const token = trimPath(match[0], match.index)
-    if (!token || overlaps(out, token)) continue
-    const col = token.text.match(LINE_COL)
-    const text = col ? token.text.slice(0, col.index) : token.text
-    if (!text || !/[\\/]/.test(text) || /^[\\/]+$/.test(text)) continue
-    out.push({ ...token, text, url: '', line: col ? Number(col[1]) : 0 })
+    const hit = !token || overlaps(out, token) ? null : pathHit(token, line)
+    if (hit) out.push(hit)
   }
   return out
+}
+
+/**
+ * 路徑候選：拆掉 `:12:5`／`(12,5)` 行號。沒有斜線、整段只有斜線就不是路徑（回 null）。
+ * @param {{ start: number, end: number, text: string }} token
+ * @param {string} line
+ */
+function pathHit(token, line) {
+  const col = token.text.match(LINE_COL)
+  const text = col ? token.text.slice(0, col.index) : token.text
+  if (!text || !/[\\/]/.test(text) || /^[\\/]+$/.test(text)) return null
+  const at = col || line.slice(token.end).match(PAREN_LINE)
+  return { ...token, text, url: '', line: at ? Number(at[1]) : 0 }
 }
 
 /**

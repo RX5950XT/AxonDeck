@@ -675,6 +675,7 @@ module.exports = {
   latestPerAgent,
   codexFileArg,
   resume,
+  findSessionFile,
   encodeClaudeDir,
   looksLikePrompt,
   codexHead,

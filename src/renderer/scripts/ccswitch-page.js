@@ -13,6 +13,7 @@
 import { syncCustomSelects } from './custom-select.js'
 import { createGridReorder } from './grid-reorder.js'
 import { groupCcModels } from './cc-model-groups.js'
+import { mountMcpCheck, forgetMcpCheck } from './cc-mcp-check.js'
 import { attachModelCombo } from './model-combo.js'
 import { openInFilesPage, cleanIpcError } from './app.js'
 
@@ -1130,6 +1131,7 @@ function renderMcp() {
     actions.append(delBtn)
     row.append(actions)
 
+    mountMcpCheck(main, actions, home, item.id)
     list.append(row)
   }
 }
@@ -1144,6 +1146,7 @@ const MCP_RESTART_NOTE = '已寫入設定檔；各家 CLI 只在啟動時讀一�
 async function toggleMcp(id, enabled) {
   try {
     await call(electronAPI.ccswitch.toggleMcp(home, id, enabled), '切換 MCP 狀態失敗')
+    forgetMcpCheck(home, id)
     await reloadMcp()
     showStatus(MCP_RESTART_NOTE)
   } catch {
@@ -1157,6 +1160,7 @@ async function toggleMcp(id, enabled) {
 async function deleteMcp(id) {
   try {
     await call(electronAPI.ccswitch.deleteMcp(home, id), '刪除 MCP 伺服器失敗')
+    forgetMcpCheck(home, id)
     await reloadMcp()
     showStatus(MCP_RESTART_NOTE)
   } catch {
@@ -1247,6 +1251,7 @@ async function saveMcp() {
       electronAPI.ccswitch.saveMcp(home, id, spec, previous ? previous.enabled : true),
       '儲存 MCP 伺服器失敗'
     )
+    forgetMcpCheck(home, id.trim())
     dialog.close()
     await reloadMcp()
     showStatus(MCP_RESTART_NOTE)

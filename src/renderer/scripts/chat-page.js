@@ -193,6 +193,7 @@ export function initChatPage() {
     btn.addEventListener('click', () => void handleNew('', /** @type {HTMLElement} */ (btn).dataset.aiWeb))
   })
   document.getElementById('chatNewFolderBtn')?.addEventListener('click', () => void sidebar.createFolder())
+  document.getElementById('chatArenaBtn')?.addEventListener('click', () => void import('./ai-web-page.js').then((m) => m.openArena()))
   paramsBtn?.addEventListener('click', () => void handleParams())
   modelSelect?.addEventListener('change', handleModelChange)
   promptSelect?.addEventListener('change', handlePromptChange)

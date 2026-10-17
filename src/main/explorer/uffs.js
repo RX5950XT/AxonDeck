@@ -518,7 +518,7 @@ async function searchOnce(raw, rawFilters, version, deadline) {
 }
 
 function psQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`
+  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**

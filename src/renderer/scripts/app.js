@@ -867,8 +867,8 @@ function initNavigation() {
     const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
     if (icon) slot.appendChild(icon)
   })
-  // AI 頁側欄的 Local／ChatGPT／Gemini／Claude／Grok 也用同一套圖示
-  document.querySelectorAll('.chat-panel-actions .nav-icon[data-icon]').forEach((slot) => {
+  // AI 頁側欄的 Local／ChatGPT／Gemini／Claude／Grok／Arena 也用同一套圖示
+  document.querySelectorAll('#chatPanel .nav-icon[data-icon]').forEach((slot) => {
     const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
     if (icon) slot.appendChild(icon)
   })
@@ -980,6 +980,7 @@ export function setChatPaneMode(mode) {
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
+  if (mode !== 'web') document.getElementById('chatPanel')?.classList.remove('is-arena')
   document.getElementById('browserMain')?.classList.toggle('hidden', mode !== 'browser')
   document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())

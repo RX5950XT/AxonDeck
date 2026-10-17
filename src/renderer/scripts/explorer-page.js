@@ -3021,7 +3021,8 @@ function openPreview(entry) {
     item: entry,
     list,
     mediaUrl: (filePath) => electronAPI.explorer.mediaUrl(filePath),
-    readMarkdown: (filePath) => electronAPI.explorer.readMarkdown(filePath)
+    readMarkdown: (filePath) => electronAPI.explorer.readMarkdown(filePath),
+    openPath: (full, dir) => void openExplorerPath(full, dir ? 'dir' : 'file')
   })
 }
 

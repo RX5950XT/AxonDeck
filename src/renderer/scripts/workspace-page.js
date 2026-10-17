@@ -1,6 +1,6 @@
-import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
+import { electronAPI, showToast, setChatPaneMode, setSidebarMode, openInFilesPage } from './app.js'
 import { createListReorder } from './list-reorder.js'
-import { askConfirm, askInput, showAlert } from './app-dialog.js'
+import { askConfirm, showAlert } from './app-dialog.js'
 import { terminalStatuses } from './ws-terminal-status.js'
 import { toolIcon, terminalStateIcon } from './ws-tool-icons.js'
 import {
@@ -14,6 +14,7 @@ import {
   forgetProjectBrowsers,
   newTerminalWithCommand,
   newShellTerminal,
+  newPresetTerminal,
   closeActiveTab,
   cycleTab,
   retargetTabs,
@@ -28,6 +29,8 @@ import { showMenu } from './ws-menu.js'
 import { editInline, isInlineEditing, cancelInlineEdit } from './inline-edit.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
 import { openQuickOpen, isOpen as isQuickOpenOpen } from './ws-quickopen.js'
+import { createWorktreeFlow } from './ws-worktree-flow.js'
+import { createWorkspaceCommands, workspaceCommandItems } from './ws-commands.js'
 
 /**
  * 專案工作區：左側欄的「專案」清單 ＋ 右側欄的三個面板（檔案總管／Git／AI 記錄）。
@@ -82,6 +85,8 @@ let watchTimer = 0
 
 /** @type {Record<string, HTMLElement | null>} */
 const el = {}
+
+let worktreeFlow
 
 // ===== 共用 =====
 
@@ -2393,6 +2398,7 @@ async function renderWorktrees() {
       del.addEventListener('click', () => void removeWorktree(project, tree))
       row.appendChild(del)
     }
+    worktreeFlow.mountMenu(row, project, tree)
     el.worktrees.appendChild(row)
   }
 }
@@ -2402,27 +2408,7 @@ async function renderWorktrees() {
  * renderer 送得了路徑就等於能在任意位置建東西。
  */
 async function addWorktree() {
-  const project = currentProject()
-  if (!project) return
-  const name = await askInput('新工作樹的分支名稱', { desc: '同時也是資料夾名。', confirmText: '下一步' })
-  if (name === null) return
-  const base = await askInput('從哪個分支或 commit 開？', {
-    desc: '留空＝目前的 HEAD。',
-    placeholder: 'HEAD',
-    confirmText: '建立'
-  })
-  // 取消＝整件事不做，不是「留空用 HEAD」
-  if (base === null) return
-  try {
-    const made = await call(electronAPI.workspace.worktreeAdd(project.id, name, base.trim()), '建不出工作樹')
-    showToast(`已建立 ${made.branch}`)
-    await reloadList()
-    // main 會把新專案的 id 一起回來，直接切過去（不必再重載一次去猜是哪一個）
-    if (made?.projectId) await selectProject(made.projectId)
-    else await renderWorktrees()
-  } catch {
-    // call() 已經提示過了
-  }
+  return worktreeFlow.add()
 }
 
 /**
@@ -2437,13 +2423,20 @@ async function removeWorktree(project, tree) {
   } catch {
     return
   }
+  if (state.runningTerminals?.length) {
+    await showAlert('工作樹仍有終端機在使用', {
+      desc: `請先關閉這些終端機，再移除工作樹：${NEWLINE}${state.runningTerminals.map((item) => `${item.title}（${item.preset}）`).join(NEWLINE)}`
+    })
+    return
+  }
   if (!state.removable) {
     const detail = state.samples?.length ? `${NEWLINE}${state.samples.join(NEWLINE)}` : ''
     await showAlert('移不掉這棵工作樹', { desc: `${state.reason}${detail}` })
     return
   }
   const yes = await askConfirm(`確定要移除工作樹 ${tree.branch || tree.path} 嗎？`, {
-    desc: '裡面沒有未提交的變更，移掉之後那個資料夾就不見了。',
+    desc: '裡面沒有未提交的變更，移除後資料夾會消失，分支與提交仍會保留。' +
+      (Number.isSafeInteger(state.unpushed) ? `${NEWLINE}這個分支還有 ${state.unpushed} 個提交沒推上遠端。` : ''),
     confirmText: '移除',
     danger: true
   })
@@ -3031,6 +3024,25 @@ function initWorkspacePage() {
   initialized = true
   initWsTabs()
 
+  worktreeFlow = createWorktreeFlow({
+    api: electronAPI.workspace, currentProject, reloadList, selectProject,
+    getPresets: async () => (await call(electronAPI.terminal.catalog(), '讀不到終端機種類')).presets,
+    runSetup: runInTerminal, newAgent: newPresetTerminal
+  })
+
+  createWorkspaceCommands({
+    isActive: () => Boolean(document.getElementById('termMain')?.offsetParent) && !document.querySelector('dialog[open]'),
+    getCommands: async () => {
+      const { presets } = await call(electronAPI.terminal.catalog(), '讀不到終端機種類')
+      return workspaceCommandItems({
+        projects, project: currentProject(), sessions: terminalStatuses(), presets,
+        selectProject, focusSession, newAgent: newPresetTerminal, addWorktree, setPanel, setFilesView,
+        quickOpen: (project) => openQuickOpen(project, (rel) => void openEditorTab(project, rel))
+      })
+    }
+  })
+  worktreeFlow.mountMenu(document.getElementById('wsWorktreeAddBtn')?.parentElement, currentProject)
+
   el.list = document.getElementById('projList')
   el.newBtn = document.getElementById('projNewBtn')
   el.rightEmpty = document.getElementById('wsRightEmpty')
@@ -3120,6 +3132,13 @@ function initWorkspacePage() {
   // 終端機裡那一行指令跑完了（多半是 agent 收工）→ 重讀一次 Git
   document.addEventListener('ws:terminal-idle', () => {
     if (panel === 'git' && currentProject()) void renderGit()
+  })
+  // 點了「終端機完成了／等你回答」的系統通知 → 切回那顆終端機的專案與分頁
+  electronAPI.terminal.onReveal?.(({ id }) => {
+    const item = terminalStatuses().find((row) => row.id === id)
+    if (!item) return
+    setSidebarMode('projects')
+    void focusSession(item)
   })
   el.searchInput?.addEventListener('input', queueSearch)
   el.searchInput?.addEventListener('keydown', (event) => {

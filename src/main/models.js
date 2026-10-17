@@ -427,7 +427,7 @@ function status() {
  * @returns {string}
  */
 function psQuote(s) {
-  return s.replace(/'/g, "''")
+  return s.replace(/['\u2018-\u201b]/g, '$&$&')
 }
 
 /**

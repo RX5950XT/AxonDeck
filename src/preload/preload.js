@@ -311,6 +311,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revealLink: (id, text, line) => ipcRenderer.invoke('terminal:revealLink', id, text, line),
     /** 終端機裡即將開出來的視窗（Ctrl+G 的記事本）抬到最前面 */
     raiseChildWindow: () => ipcRenderer.invoke('terminal:raiseChildWindow'),
+    /** 這顆終端機綁定的對話目前用掉多少上下文：`{ used, max }`（max 未知是 null）或 null */
+    context: (id) => ipcRenderer.invoke('terminal:context', id),
+    /** 背景 agent 做完（`done`）或等人（`waiting`）時跳系統通知 */
+    notifyAgent: (id, kind, title) => ipcRenderer.invoke('terminal:notifyAgent', id, kind, title),
+    /** 使用者點了那則通知：切回那個終端機。 @param {(payload: { id: string }) => void} handler */
+    onReveal: (handler) => {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('terminal:reveal', wrapped)
+      return () => ipcRenderer.removeListener('terminal:reveal', wrapped)
+    },
     // Ctrl+G 開的編輯分頁：送出＝寫回那個暫存檔並放走卡住的 CLI；取消只放走
     editorSave: (id, content) => ipcRenderer.invoke('terminal:editorSave', id, content),
     editorCancel: (id) => ipcRenderer.invoke('terminal:editorCancel', id),
@@ -476,6 +486,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     worktreeAdopt: (id, treePath) => ipcRenderer.invoke('workspace:worktreeAdopt', id, treePath),
     worktreeCheck: (id, treePath) => ipcRenderer.invoke('workspace:worktreeCheck', id, treePath),
     worktreeRemove: (id, treePath) => ipcRenderer.invoke('workspace:worktreeRemove', id, treePath),
+    setSetupScript: (id, relPath) => ipcRenderer.invoke('workspace:setSetupScript', id, relPath),
+    worktreeSetupCommand: (id, terminalId) => ipcRenderer.invoke('workspace:worktreeSetupCommand', id, terminalId),
     gitBranches: (id) => ipcRenderer.invoke('workspace:gitBranches', id),
     gitCompareBranch: (id, ref) => ipcRenderer.invoke('workspace:gitCompareBranch', id, ref),
     gitFileVersionsAgainst: (id, relPath, ref) => (
@@ -521,6 +533,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 供應商端點、MCP 檔案路徑、CLI 的 npm 套件名都在 main 的固定表；格式值受白名單限制，
   // 這裡只送得出 preset key、供應商 id、MCP 定義、工具 key 與格式選擇。
   ccswitch: {
+    testMcp: (req) => ipcRenderer.invoke('ccswitch:testMcp', req),
     /** 預設供應商清單 ＋ MCP 範本（不含任何憑證） */
     catalog: () => ipcRenderer.invoke('ccswitch:catalog'),
     listProviders: () => ipcRenderer.invoke('ccswitch:listProviders'),
@@ -838,6 +851,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('editorFile:load'),
     save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
     stat: () => ipcRenderer.invoke('editorFile:stat'),
+    openLink: (link) => ipcRenderer.invoke('editorFile:openLink', link),
     setDirty: (dirty) => ipcRenderer.invoke('editorFile:setDirty', dirty),
     close: () => ipcRenderer.invoke('editorFile:close'),
     onCloseRequest: (callback) => {

@@ -397,8 +397,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     renameProject: (id, name) => ipcRenderer.invoke('workspace:renameProject', id, name),
     removeProject: (id) => ipcRenderer.invoke('workspace:removeProject', id),
-    /** @param {string[]} ids 側欄拖曳後的完整順序 */
+    /** @param {Array<string | { id: string, folderId: string }>} ids 側欄順序與分類 */
     reorderProjects: (ids) => ipcRenderer.invoke('workspace:reorderProjects', ids),
+    listFolders: () => ipcRenderer.invoke('workspace:listFolders'),
+    createFolder: (name) => ipcRenderer.invoke('workspace:createFolder', name),
+    updateFolder: (id, patch) => ipcRenderer.invoke('workspace:updateFolder', id, patch),
+    removeFolder: (id) => ipcRenderer.invoke('workspace:removeFolder', id),
+    reorderFolders: (ids) => ipcRenderer.invoke('workspace:reorderFolders', ids),
     /** 專案根目錄（拿去當終端機的 cwd） */
     saveTabsState: (id, tabsState) => ipcRenderer.invoke('workspace:saveTabsState', id, tabsState),
     getTabsState: (id) => ipcRenderer.invoke('workspace:getTabsState', id),

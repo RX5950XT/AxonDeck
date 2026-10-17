@@ -547,3 +547,14 @@ Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z
 - lint、全套 156/156 通過；staged secrets 掃描、diff check 乾淨。commit e224617／tag v1.57.0 已推送。
 - electron:build 通過（asar 369 支 src 一致；安裝檔、app-update.yml、latest.yml 驗證）。installer 321850781 bytes。
 - GitHub Release v1.57.0 為 Latest、非草稿、非預發行，三份附件 SHA-256 與本機相符。
+
+# 2026-10-18 — 專案側欄分類
+
+- [x] 修正預覽回饋：移除專案右側「分類」按鈕，只留右鍵入口；驗證跨分類拖曳並更新預覽。
+- [x] 沿用 Chat 資料夾操作，串接專案分類儲存與 IPC，保留既有專案／分頁。
+- [x] 加入新增、改名、收合、移入／移出、分類與專案排序。
+- [x] 驗證分類邊界、重開保留、lint、打包版操作與深淺色畫面，補 review。
+
+Review：`npm run lint`、工作區測試 16/16、Chat 側欄、IPC、IME 與暫存守門通過。`electron:pack` 驗證 asar 來源一致；隔離打包版真滑鼠驗證拖入收合分類、分類排序，鍵盤驗證專案排序，重新載入／重啟保留分類、收合與順序；專案改名不遺失分類，刪分類保留三個專案、未存草稿及磁碟檔案。1200／900px 深淺色截圖已檢視。未更新正式安裝版、未 commit／push／發版；工作途中出現的 Office 預覽變更保留，未納入本次修改。
+
+Review（預覽回饋）：移除每個專案的分類按鈕，保留右鍵「移至資料夾」。`npm run lint`、分類 store 測試與打包通過；打包版真滑鼠驗證右鍵、拖入展開／收合分類、跨分類、移回未分類及分類排序，深淺色確認沒有右側按鈕欄；重啟／改名／刪除保留資料。工作區回歸 16/17，另有同時進行的 `test-workspace-office.js` 因檔頭未標記 `npx electron` 被 runner 用 Node 啟動，`app.whenReady` 不存在，未改動該範圍。已重開沙箱預覽並保留原預覽的專案分類與設定，正式版未動。

@@ -1,5 +1,7 @@
 import { electronAPI, showToast, setChatPaneMode, setSidebarMode, openInFilesPage } from './app.js'
 import { createListReorder } from './list-reorder.js'
+import { mergeVisibleOrder } from './usage-reorder.js'
+import { createProjectFolders } from './ws-project-folders.js'
 import { askConfirm, showAlert } from './app-dialog.js'
 import { terminalStatuses } from './ws-terminal-status.js'
 import { toolIcon, terminalStateIcon } from './ws-tool-icons.js'
@@ -87,6 +89,7 @@ let watchTimer = 0
 const el = {}
 
 let worktreeFlow
+const projectFolders = createProjectFolders({ getList: () => el.list, getProjects: () => projects, call, reload: reloadList })
 
 // ===== 共用 =====
 
@@ -121,15 +124,15 @@ function isCurrentProject(project, seq = projectSeq) {
 
 function renderList() {
   if (!el.list) return
-  el.list.replaceChildren()
-  if (!projects.length) {
+  if (el.list.querySelector('.chat-list-rename')) return
+  const nodes = projectFolders.render(projects, buildListItem)
+  if (!nodes.length) {
     const empty = document.createElement('p')
     empty.className = 'chat-empty'
     empty.textContent = '拖入資料夾加入'
-    el.list.appendChild(empty)
-    return
+    nodes.push(empty)
   }
-  for (const item of projects) el.list.appendChild(buildListItem(item))
+  el.list.replaceChildren(...nodes)
   paintProjectStatuses()
 }
 
@@ -325,6 +328,7 @@ function startRename(row, item) {
     if (done) return
     done = true
     const next = input.value.trim()
+    input.replaceWith(title)
     if (commit && next && next !== item.name) {
       try {
         await call(electronAPI.workspace.renameProject(item.id, next), '改名失敗')
@@ -335,6 +339,7 @@ function startRename(row, item) {
     } else {
       input.replaceWith(title)
     }
+    renderList()
   }
   input.addEventListener('keydown', (event) => {
     if (event.isComposing || event.keyCode === 229) return
@@ -363,6 +368,7 @@ function showProjectMenu(at, row, item) {
     { label: '在此開啟終端機', onSelect: () => void launchProjectTerminal(item, false) },
     { label: '以管理員身分開啟終端機', onSelect: () => void launchProjectTerminal(item, true) },
     { label: '重新命名', onSelect: () => startRename(row, item) },
+    { label: '移至資料夾…', onSelect: () => projectFolders.moveMenu(row, item, at) },
     {
       label: '從清單移除…',
       danger: true,
@@ -404,19 +410,28 @@ const reorder = createListReorder({
   getList: () => el.list,
   itemSelector: '.proj-list-item',
   ignoreSelector: '.chat-list-btn, .chat-list-rename',
-  onCommit: () => void persistOrder().catch(() => {})
+  onCommit: () => void persistOrder().catch(() => { void reloadList().catch(() => {}) }),
+  dropZone: (x, y) => {
+    const head = document.elementFromPoint(x, y)?.closest('.chat-folder-head, .chat-root-head')
+    return head && el.list?.contains(head) ? head.nextElementSibling : null
+  }
 })
 
 /** DOM 上的順序才是真相（剛拖完還沒重畫） */
 async function persistOrder() {
   if (!el.list) return
-  const ids = [...el.list.querySelectorAll('.proj-list-item')]
-    .map((node) => /** @type {HTMLElement} */ (node).dataset.id)
-  projects = await call(electronAPI.workspace.reorderProjects(ids), '排序沒有存起來')
+  const shown = [...el.list.querySelectorAll('.proj-list-item')]
+  const folderOf = new Map(shown.map((node) => [node.dataset.id, node.closest('.proj-folder')?.dataset.folderId || '']))
+  const ids = mergeVisibleOrder(projects.map((p) => p.id), shown.map((node) => node.dataset.id))
+  projects = await call(electronAPI.workspace.reorderProjects(ids.map((id) => (
+    folderOf.has(id) ? { id, folderId: folderOf.get(id) } : id
+  ))), '排序沒有存起來')
+  renderList()
 }
 
 async function reloadList() {
   projects = await call(electronAPI.workspace.listProjects(), '讀不到專案清單')
+  await projectFolders.load()
   if (currentId && !projects.some((item) => item.id === currentId)) {
     currentId = ''
     // 沒有專案了就把監看收掉（那個 watcher 掛在一個已經不在清單裡的資料夾上）
@@ -3071,6 +3086,7 @@ function initWorkspacePage() {
   initGitSections()
   document.addEventListener('ws:terminal-status', paintProjectStatuses)
   el.newBtn?.addEventListener('click', () => void addProject())
+  document.getElementById('projNewFolderBtn')?.addEventListener('click', () => void projectFolders.create())
   initProjectDrop()
   document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
     btn.addEventListener('click', () => setPanel(/** @type {HTMLElement} */ (btn).dataset.panel))

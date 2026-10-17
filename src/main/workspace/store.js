@@ -91,6 +91,7 @@ function sanitizeAll(raw) {
       id,
       name: normalizeName(item.name, path.basename(full)),
       path: full,
+      folderId: typeof item.folderId === 'string' ? item.folderId : '',
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now()
     }
     const setupScript = normalizeSetupScript(item.setupScript)
@@ -190,7 +191,75 @@ async function getStore() {
 
 async function readAll() {
   const s = await getStore()
-  return sanitizeAll(s.get('projects', []))
+  const folders = new Set(sanitizeFolders(s.get('folders', [])).map((f) => f.id))
+  return sanitizeAll(s.get('projects', [])).map((item) => (
+    folders.has(item.folderId) ? item : { ...item, folderId: '' }
+  ))
+}
+
+function sanitizeFolders(raw) {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  return raw.filter((f) => {
+    if (!f || typeof f.id !== 'string' || !f.id || seen.has(f.id)) return false
+    seen.add(f.id)
+    return true
+  }).slice(0, 100).map((f) => ({
+    id: f.id, name: normalizeName(f.name, '新資料夾'), collapsed: f.collapsed === true
+  }))
+}
+
+function listFolders() {
+  return withStore(async () => sanitizeFolders((await getStore()).get('folders', [])))
+}
+
+function mutateFolders(change) {
+  return withStore(async () => {
+    const s = await getStore()
+    const next = change(sanitizeFolders(s.get('folders', [])))
+    s.set('folders', next)
+    return next
+  })
+}
+
+async function createFolder(name) {
+  const folder = { id: newId(), name: normalizeName(name, '新資料夾'), collapsed: false }
+  await mutateFolders((folders) => {
+    if (folders.length >= 100) {
+      throw Object.assign(new Error('FOLDER_LIMIT'), { code: 'FOLDER_LIMIT', userMessage: '資料夾數量已達上限' })
+    }
+    return [...folders, folder]
+  })
+  return folder
+}
+
+function updateFolder(id, patch) {
+  return mutateFolders((folders) => folders.map((f) => f.id === id ? {
+    ...f,
+    ...(typeof patch?.name === 'string' ? { name: normalizeName(patch.name, f.name) } : {}),
+    ...(typeof patch?.collapsed === 'boolean' ? { collapsed: patch.collapsed } : {})
+  } : f))
+}
+
+function removeFolder(id) {
+  return withStore(async () => {
+    const s = await getStore()
+    const projects = await readAll()
+    // 一次寫回分類及歸屬，專案和草稿都保留。
+    s.set({
+      folders: sanitizeFolders(s.get('folders', [])).filter((f) => f.id !== id),
+      projects: projects.map((p) => p.folderId === id ? { ...p, folderId: '' } : p)
+    })
+    return true
+  })
+}
+
+function reorderFolders(ids) {
+  return mutateFolders((folders) => {
+    const byId = new Map(folders.map((f) => [f.id, f]))
+    const picked = Array.isArray(ids) ? [...new Set(ids.filter((id) => byId.has(id)))] : []
+    return [...picked.map((id) => byId.get(id)), ...folders.filter((f) => !picked.includes(f.id))]
+  })
 }
 
 /**
@@ -333,19 +402,24 @@ function remove(id) {
 
 /**
  * 側欄拖曳後的完整順序；只接受既有 id，漏掉的接在後面（不讓 renderer 有機會刪東西）。
- * @param {string[]} ids
+ * @param {Array<string | { id: string, folderId: string }>} ids
  */
 function reorder(ids) {
   return withStore(async () => {
     const items = await readAll()
     if (!Array.isArray(ids)) return Promise.all(items.map(toView))
     const byId = new Map(items.map((item) => [item.id, item]))
+    const s = await getStore()
+    const folders = new Set(sanitizeFolders(s.get('folders', [])).map((f) => f.id))
     const next = []
-    for (const id of ids) {
+    for (const entry of ids) {
+      const id = typeof entry === 'string' ? entry : entry?.id
       const item = byId.get(id)
       if (!item) continue
       byId.delete(id)
-      next.push(item)
+      const folderId = entry?.folderId
+      next.push(typeof folderId === 'string' && (!folderId || folders.has(folderId))
+        ? { ...item, folderId } : item)
     }
     next.push(...byId.values())
     await writeAll(next)
@@ -396,6 +470,11 @@ module.exports = {
   rename,
   remove,
   reorder,
+  listFolders,
+  createFolder,
+  updateFolder,
+  removeFolder,
+  reorderFolders,
   sanitizeTabsState,
   saveTabsState,
   getTabsState

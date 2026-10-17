@@ -133,7 +133,7 @@ async function testRemoveGuard() {
   const confirmations = []
   let accept = false
   const scope = vm.createContext({
-    console, createListReorder: () => ({}), showToast: noop,
+    console, createListReorder: () => ({}), createProjectFolders: () => ({ load: async () => {} }), showToast: noop,
     showAlert: async (...args) => alerts.push(args),
     askConfirm: async (...args) => { confirmations.push(args); return accept },
     electronAPI: { workspace: {

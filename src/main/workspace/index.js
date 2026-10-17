@@ -51,6 +51,11 @@ const addDropped = (paths) => store.addDropped(paths)
 const renameProject = (id, name) => store.rename(id, name)
 const removeProject = (id) => store.remove(id)
 const reorderProjects = (ids) => store.reorder(ids)
+const listFolders = () => store.listFolders()
+const createFolder = (name) => store.createFolder(name)
+const updateFolder = (id, patch) => store.updateFolder(id, patch)
+const removeFolder = (id) => store.removeFolder(id)
+const reorderFolders = (ids) => store.reorderFolders(ids)
 
 // ===== 檔案 =====
 
@@ -280,6 +285,11 @@ module.exports = {
   renameProject,
   removeProject,
   reorderProjects,
+  listFolders,
+  createFolder,
+  updateFolder,
+  removeFolder,
+  reorderFolders,
   saveTabsState,
   getTabsState,
   listDir,

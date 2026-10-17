@@ -1426,7 +1426,11 @@ function appendModelRow(value, options = {}) {
   remove.title = '移除'
   remove.setAttribute('aria-label', '移除模型')
   remove.textContent = '−'
-  remove.addEventListener('click', () => row.remove())
+  remove.addEventListener('click', () => {
+    row.remove()
+    // 列已拔掉，冒泡到設定頁的 click 找不到 #set-cloud，自動儲存不會觸發：改由清單自己發
+    modelListEl?.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   row.append(input, type, remove)
   modelListEl.appendChild(row)
   initCustomSelects(row)

@@ -532,3 +532,9 @@ Review：實測 FreeCAD 618 MB 由 30 分鐘逾時 → 205 秒（3.0 MB/s）；Z
 - Review：test-markdown 50/50、全套 156/156、lint 通過；打包版實測 probe 全項通過（上色 24 個 token、MathML 2 個、mermaid 1 張、#錨點捲動且頁面網址不變、無主控台錯誤），深淺色截圖確認。
 - [x] 相對路徑連結可點（工作區／檔案頁／編輯視窗／HF）、切深淺色時 mermaid 重畫。Review：test-markdown 52/52、全套 156/156、lint 通過；打包版實點 README 的 ./LICENSE 開出分頁、切主題後圖重畫。
 - Review（補驗）：打包版實點檔案頁預覽（./CONTEXT.md 就地換過去、./LICENSE 交給檔案頁）、獨立編輯視窗（LICENSE 提示到檔案頁開、CONTEXT.md 另開一扇窗）、HF README（TheBloke/Llama-2-7B-GGUF 的相對連結在內建瀏覽器開出 blob/main 網址），全部通過。
+
+## Review（v1.57.0 發版驗收）
+
+- lint、全套 156/156 通過；staged secrets 掃描、diff check 乾淨。commit e224617／tag v1.57.0 已推送。
+- electron:build 通過（asar 369 支 src 一致；安裝檔、app-update.yml、latest.yml 驗證）。installer 321850781 bytes。
+- GitHub Release v1.57.0 為 Latest、非草稿、非預發行，三份附件 SHA-256 與本機相符。

@@ -12,6 +12,7 @@ const chatStore = require('./chat-store')
 const chatImages = require('./chat-images')
 const chatParams = require('./chat-params')
 const chatTitle = require('./chat-title')
+const imageGen = require('./chat-imagegen')
 
 const DEFAULT_CHAT_API_URL = 'https://openrouter.ai/api/v1'
 const DEFAULT_CHAT_MODEL = 'google/gemini-3-flash-preview'
@@ -36,8 +37,6 @@ const MAX_SSE_BUFFER = 512 * 1024
 const MAX_SSE_BUFFER_IMAGE = 24 * 1024 * 1024
 /** 只把最近幾則訊息的圖片送進 API：長對話每次重傳全部圖片會爆 token 與頻寬 */
 const IMAGE_CONTEXT_MESSAGES = 6
-/** thinking 開啟時帶的強度（OpenAI／OpenRouter／xAI 等相容欄位） */
-const REASONING_EFFORT = 'medium'
 
 /** 系統提示 preset 上限 */
 const MAX_PROVIDERS = 30
@@ -194,7 +193,7 @@ function readTranslateConfig() {
  * model 一定要對「目前這個供應商」的清單驗證，不能只看在不在任何清單裡——
  * 否則切換供應商後會拿 A 的模型名打 B 的端點。
  * @returns {{ apiUrl: string, apiKey: string, providerId: string, providerName: string,
- *            modelId: string, image: boolean, systemPrompt: string, thinking: boolean }}
+ *            modelId: string, image: boolean, systemPrompt: string, thinking: string, imageOptions: object }}
  */
 function readConfig() {
   const provider = readProvider()
@@ -212,7 +211,8 @@ function readConfig() {
     modelId,
     image: !!modelId && !!provider?.imageModels.includes(modelId),
     systemPrompt: readSystemPrompt(),
-    thinking: store?.get('chatThinking', false) === true
+    thinking: chatParams.sanitizeThinking(store?.get('chatThinking', 'default')),
+    imageOptions: chatParams.sanitizeImageOptions(store?.get('chatImageOptions', {}))
   }
 }
 
@@ -577,15 +577,20 @@ async function send(req, sender) {
 
     timers = createTimers(entry)
     const params = chatParams.sanitize(existing.params)
+    // 生圖模型：這則沒附圖就把最近一張生成圖當參考圖帶上，才能「接著改」
+    const refs = cfg.image ? imageGen.referenceNames(conversation.messages) : []
+    const history = refs.length
+      ? [...conversation.messages.slice(0, -1), { ...conversation.messages.at(-1), images: refs }]
+      : conversation.messages
     const body = {
       ...chatParams.toRequestFields(params),
       model: cfg.modelId,
       stream: true,
-      messages: buildMessages(await withImageUrls(conversation.messages), cfg.systemPrompt, params.contextCount)
+      messages: buildMessages(await withImageUrls(history), cfg.systemPrompt, params.contextCount)
     }
-    // 關閉時完全不帶欄位：舊端點看到不認得的參數會直接 400
-    if (cfg.thinking) body.reasoning_effort = REASONING_EFFORT
-    if (cfg.image) body.modalities = IMAGE_MODALITIES
+    // 「自動」完全不帶欄位：舊端點看到不認得的參數會直接 400；生圖模型不帶思考
+    if (cfg.image) Object.assign(body, { modalities: IMAGE_MODALITIES }, imageGen.chatFields(cfg.imageOptions, conversation.messages.at(-1)?.content || ''))
+    else Object.assign(body, chatParams.thinkingFields(cfg.thinking, local))
 
     const res = await fetch(`${cfg.apiUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
@@ -596,12 +601,20 @@ async function send(req, sender) {
       body: JSON.stringify(body),
       signal: entry.controller.signal
     })
-    if (!res.ok || !res.body) {
+    if (cfg.image && imageGen.shouldFallback(res.status)) {
+      await res.body?.cancel().catch(() => {})
+      timers.clear()
+      timers = createTimers(entry, imageGen.IMAGES_TIMEOUT_MS)
+      const out = await imageGen.generateForChat(cfg, conversation.messages.at(-1)?.content || '', refs, entry.controller.signal)
+      if ('error' in out) return { ok: false, error: out.error }
+      generatedImages.push(...out.images.slice(0, chatImages.MAX_IMAGES_PER_MESSAGE))
+      acc.tokens = out.tokens
+    } else if (!res.ok || !res.body) {
       if (res.body) await res.body.cancel().catch(() => {})
       console.error(`[chat] API error: HTTP ${res.status}`)
       return { ok: false, error: `API 錯誤（${res.status}）` }
     }
-    const content = await readSseStream(
+    const content = !res.ok ? '' : await readSseStream(
       res,
       (piece, kind) => {
         if (kind === 'usage') {
@@ -627,6 +640,7 @@ async function send(req, sender) {
       cfg.image ? MAX_SSE_BUFFER_IMAGE : MAX_SSE_BUFFER
     )
     const savedImages = await chatImages.saveMany(generatedImages)
+    if (generatedImages.length && !savedImages.length) return { ok: false, error: '生成的圖片格式或大小不支援，沒有存下來' }
     if (savedImages.length) {
       chatImages.hold(savedImages)
       heldImages = heldImages.concat(savedImages)
@@ -667,13 +681,14 @@ function replyMeta(acc) {
 /**
  * 首 token / 閒置雙逾時
  * @param {Inflight} entry
+ * @param {number} [firstMs] 第一段等多久（生圖較長）
  */
-function createTimers(entry) {
+function createTimers(entry, firstMs = FIRST_TOKEN_TIMEOUT_MS) {
   const expire = () => {
     entry.reason = 'timeout'
     entry.controller.abort()
   }
-  let timer = setTimeout(expire, FIRST_TOKEN_TIMEOUT_MS)
+  let timer = setTimeout(expire, firstMs)
   return {
     touch() {
       clearTimeout(timer)

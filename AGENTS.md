@@ -94,7 +94,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 ### AI 頁：聊天與網頁版 AI
 - model 與訊息歷史所有權在 main；模型要對「目前這組供應商」驗證。
 - `chat.send` 的 inflight 佔位（每對話一格的 Map）要跟守衛同一同步區塊；`chat:abort` 一定帶 reqId。renderer 串流照 conversationId 分開。
-- 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；thinking 關閉時完全不帶 `reasoning_effort`；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
+- 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；思考強度 `chatThinking` 是檔位字串（舊布林 true→medium），「自動」完全不帶欄位、「關閉」送 `none`（本機改 `chat_template_kwargs.enable_thinking=false`），生圖模型不帶；生圖模型先走 chat/completions，回 400／404／405／422 才退 `/images/generations`（OpenRouter 只吐圖的模型只收這條，`chat-imagegen.js`）；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
 - 重新生成在上游成功前不得 `dropTrailingAssistant`；`chats.json` 讀改寫走 `withStore`；側欄順序＝陣列順序；`chatProviders` sanitize 遇壞網址保留該筆只清 `apiUrl`；`__local` 要過濾掉。`markdown.js` 零 innerHTML，`INLINE_SRC` 每次 `new RegExp`。
 - 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。其他分區被 Cloudflare 擋的分頁由 `installChallengeFallback` 改回 Electron 識別（換 Chrome 版號、標頭順序、拿掉 shim 都實測無效）；同一個 session 的 `onHeadersReceived` 只能掛一個，Grok 分區不要再掛它。
 

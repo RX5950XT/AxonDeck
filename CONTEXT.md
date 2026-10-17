@@ -32,7 +32,7 @@ src/main/
   ipc-invoke.js      模組 IPC 共用外殼；raw-fs.js（不鎖 asar）；safe-rm.js（不穿 junction）
   anthropic-stream.js／local-proxy-http.js   CC Proxy 閘道與 AGY 共用：中性 delta→Anthropic SSE、本機代理 Host／金鑰／JSON
   updater.js / update-mirrors.js   electron-updater＋GitHub latest.yml；安裝檔走鏡像、差分下載關閉
-  chat*.js           雲端聊天 SSE（每對話一條 inflight）、會話＋側欄資料夾、取樣參數、自動標題、圖片
+  chat*.js           雲端聊天 SSE（每對話一條 inflight）、會話＋側欄資料夾、取樣參數／思考檔位、自動標題、圖片、chat-imagegen（生圖退 images 端點、參考圖）
   ai-web.js          網頁版 AI：網址把關、標題、Google 登入修正、登入小視窗、分區 UA
   grok-clearance.js  Grok 被 Cloudflare 擋時開 Edge／Chrome 拿通行證（cf_clearance＋UA）帶回 App
   terminal/          service.js（門面）→ 獨立宿主 host*.js／Rust axondeck-term；claude-hooks.js、editor-bridge.js、
@@ -94,6 +94,7 @@ native/
 
 ### AI 頁
 - Chat 側欄上方：Local、資料夾各半排，ChatGPT／Gemini／Claude／Grok 只留圖示並排；每按一次新增一則。網頁版對話列在標題左邊放該家 logo，不再顯示「XX 網頁版」小字。對話與資料夾整列右鍵（選單鍵／Shift+F10）叫 `chat-menu.js`。
+- Local 對話輸入列：思考強度選單（`chat-composer-menus.js`，8 檔，存 `chatThinking`）；選到生圖模型換成比例／解析度選單（`chatImageOptions`；選 auto 的項目從提示詞猜：寫了比例／橫式直式／4K／透明背景就照送，`resolveOptions`）。沒附圖時自動拿上一張生成圖當參考圖（接著改）；存好的圖右上角有下載鈕（`chat:saveImage`，只收檔名、main 驗格式後複製）。訊息置中 880px 閱讀欄、使用者訊息靠右泡泡、助理回覆不包框。
 - 網頁版 AI 對話存 `chats.json` 的 `web: { site, url, title }`，可改名、搬資料夾、拖曳；webview 回報網址／標題由 `ai-web.js` 把關。
 - Chat 側欄：第一排五顆新增鈕（Local＋四家網頁版）、資料夾鈕在搜尋框旁、Arena（`llm-arena-opal.vercel.app`）釘在清單上方。Arena 只開一個（不像網頁版 AI 每按一次多一則）：`ai-web-page.js` 的 `openArena`（id `__arena`、`persist:ai-arena`），不進 chats.json、不存網址／標題；看 Arena 時 `#chatPanel.is-arena`。
 - 分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`：UA 偽裝 Chrome（Grok 改用替它過驗證的 Edge／Chrome 的 UA，存在 `grok-clearance.json`）、`ai-web-shim.js` 補 `window.chrome` 與 `navigator.userAgentData` 的 Google Chrome 品牌、https 請求補 `Sec-CH-UA`（品牌順序照 Chromium 算法，跟 JS 同一份）、Accept-Language 對齊 `navigator.languages`、權限只給剪貼簿／全螢幕／純麥克風、`accounts.google.com` 走精簡版登入、登入小視窗在 App 內開。

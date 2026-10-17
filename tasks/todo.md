@@ -4,6 +4,15 @@
 
 ## 待辦／未解
 
+### 2026-10-17 — Chat Local 改版（參考 Cherry Studio／Chatbox）
+
+- [x] 思考強度：開關 → 檔位選單（自動／關閉／最低／低／中／高／極高／最高），舊 true/false 相容；本機模型關閉用 `chat_template_kwargs` → 驗：單元測試 thinkingFields
+- [x] 生圖模型：chat/completions 回 4xx 退到 `/images/generations`（OpenRouter 圖片專用模型只走這條）、比例／解析度選項、接著改圖帶上一張生成圖、生圖時藏思考鈕 → 驗：probe 打真流量
+- [x] 介面：訊息置中閱讀欄、使用者訊息靠右泡泡、助理訊息去框加模型列、composer 整理 → 驗：打包版截圖
+- [x] lint、受影響測試、打包版實測；CONTEXT.md
+
+Review：實測發現使用者的 qwen-image 在 Chat 根本打不通（OpenRouter 對只吐圖的模型 chat/completions 回 404），改成 4xx 退到 `/images/generations`。e2e-chat 204/204；e2e-cdp-smoke 20/22（兩項失敗是既有的：導覽列已十頁、Local SI 分組多了 Miroxen／PDF，跟本次無關）。打包版沙箱用 Seedream 真打兩張：16:9 生成＋「改成黑貓」帶參考圖都成功。
+
 ### 2026-10-17 — 借鑑 magpie／t3code／paseo（1–12）
 
 分工：Codex 負責 A 區（ccswitch），之後接 D 區（worktree）；主代理做 C、B 區並驗收全部。

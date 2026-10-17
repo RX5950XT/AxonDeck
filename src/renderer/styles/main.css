@@ -2431,6 +2431,19 @@ option:disabled:checked {
   outline: none;
 }
 
+.chat-menu-item:has(.chat-menu-hint) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.chat-menu-hint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .chat-menu-item[aria-checked='true'] {
   background-color: var(--accent-soft);
   color: var(--accent-primary);
@@ -2462,14 +2475,40 @@ option:disabled:checked {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-right: 6px;
+  gap: 22px;
+  padding: 8px 6px 12px 0;
+}
+
+/* 置中閱讀欄：訊息與輸入框同寬，寬螢幕不再一行拉滿 */
+.chat-messages > *,
+.chat-composer {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
 }
 
 .chat-empty {
-  margin: auto;
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.chat-empty-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.chat-empty-model {
+  margin: 0;
   color: var(--text-tertiary);
-  font-size: 14px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .chat-search {
@@ -5727,8 +5766,16 @@ body.is-col-resizing webview {
 
 .chat-msg-assistant .chat-msg-body {
   max-width: 100%;
-  background-color: var(--bg-secondary);
   color: var(--text-primary);
+}
+
+.chat-msg-user {
+  align-items: flex-end;
+}
+
+.chat-msg-user .chat-msg-body {
+  max-width: min(80%, 640px);
+  white-space: pre-wrap;
 }
 
 .chat-msg-images {
@@ -5761,6 +5808,62 @@ body.is-col-resizing webview {
 
 .chat-msg-images img {
   cursor: zoom-in;
+}
+
+.chat-img-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.chat-img-download {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-control);
+  background-color: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.chat-img-download svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chat-img-wrap:hover .chat-img-download,
+.chat-img-download:focus-visible {
+  opacity: 1;
+}
+
+.chat-img-download:hover {
+  background-color: rgba(0, 0, 0, 0.75);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .chat-img-download {
+    opacity: 1;
+  }
+}
+
+/* 生成的圖是主角，不是附件縮圖 */
+.chat-msg-assistant .chat-msg-images img {
+  /* 用 vw 不用 %：外層 wrap 寬度由圖決定，% 會互相參照撐滿整列 */
+  max-width: min(480px, 60vw);
+  max-height: 480px;
+  border-radius: var(--radius-md);
 }
 
 .chat-msg-action {
@@ -6118,28 +6221,14 @@ body.is-col-resizing webview {
   }
 }
 
-.composer-toggle[aria-pressed='false'] {
-  color: var(--text-secondary);
+.composer-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--glass-border));
+  background-color: var(--accent-soft);
+  color: var(--accent-primary);
 }
 
-.composer-toggle[aria-pressed='true'] {
-  border-color: var(--accent-primary);
-  background-color: var(--accent-primary);
-  color: var(--app-bg-deep);
-  font-weight: 700;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 24%, transparent), inset 0 1px rgba(255, 255, 255, 0.18);
-}
-
-.composer-toggle[aria-pressed='false']:hover:not(:disabled) {
-  border-color: var(--glass-border-strong);
-  background-color: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.composer-toggle[aria-pressed='true']:hover:not(:disabled) {
-  border-color: var(--accent-hover);
-  background-color: var(--accent-hover);
-  color: var(--app-bg-deep);
+.composer-btn[hidden] {
+  display: none;
 }
 
 .chat-send-btn {
@@ -7230,15 +7319,15 @@ h6.md-h { font-size: 14px; }
   background: var(--surface-hover);
 }
 
-.chat-msg-body {
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09);
+.chat-msg-user .chat-msg-body {
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--glass-border));
+  border-radius: 16px 16px 4px 16px;
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--surface-glass-strong));
 }
 
+/* 助理回覆不包框，像文件一樣直接排在閱讀欄裡（Cherry Studio／ChatGPT 的讀法） */
 .chat-msg-assistant .chat-msg-body {
-  border-radius: 4px 14px 14px 14px;
-  background: color-mix(in srgb, var(--surface-glass-strong) 82%, transparent);
+  padding: 2px 2px 0;
 }
 
 .chat-composer {

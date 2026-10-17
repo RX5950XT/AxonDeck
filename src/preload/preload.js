@@ -832,6 +832,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * @returns {Promise<string>} data URL，失敗回空字串
      */
     image: (name) => ipcRenderer.invoke('chat:image', name),
+    saveImage: (name) => ipcRenderer.invoke('chat:saveImage', name),
     /** @param {(payload: { reqId: string, text: string, kind: 'content'|'reasoning' }) => void} callback */
     onDelta: (callback) => {
       const handler = (_event, payload) => callback(payload)

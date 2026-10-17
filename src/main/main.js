@@ -304,6 +304,7 @@ const STORE_ALLOWLIST = new Set([
   'chatPrompts',
   'chatPromptId',
   'chatThinking',
+  'chatImageOptions',
   // 新對話的取樣參數預設值（每個對話自己那份存在 chats.json）
   'chatParams',
   'sysmonInterval',
@@ -1274,7 +1275,8 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   if (key === 'termBgImage') return termBackground.sanitizeName(val)
   if (key === 'termBgOpacity') return sanitizeBgOpacity(val)
   if (key === 'termFontSize') return sanitizeFontSize(val)
-  if (key === 'chatThinking') return val === true
+  if (key === 'chatThinking') return chatParams.sanitizeThinking(val)
+  if (key === 'chatImageOptions') return chatParams.sanitizeImageOptions(val)
   if (key === 'chatParams') return chatParams.sanitize(val)
   if (key === 'dictationEnabled') return val === true
   if (key === 'dictationLang') return DICTATION_LANGS.has(val) ? val : 'zh-TW'
@@ -1453,7 +1455,11 @@ ipcMain.handle('store:set', async (event, key, value) => {
     return true
   }
   if (key === 'chatThinking') {
-    store.set(key, value === true)
+    store.set(key, chatParams.sanitizeThinking(value))
+    return true
+  }
+  if (key === 'chatImageOptions') {
+    store.set(key, chatParams.sanitizeImageOptions(value))
     return true
   }
   if (key === 'chatParams') {
@@ -1964,6 +1970,25 @@ ipcMain.handle('chat:send', async (event, req) => {
 ipcMain.handle('chat:abort', (event, reqId) => (typeof reqId === 'string' && reqId ? chat.abort(reqId) : false))
 // 圖片實體存在 <userData>/chat-images/；renderer 只拿得到檔名，讀取由 main 驗證
 ipcMain.handle('chat:image', (event, name) => loadChatImages().toDataUrl(name))
+// 下載：renderer 只給檔名，main 驗格式後從 chat-images 複製到使用者在存檔對話框選的位置
+ipcMain.handle('chat:saveImage', async (event, name) => {
+  const images = loadChatImages()
+  if (!images.isValidName(name)) return { ok: false, error: '圖片不存在' }
+  const ext = name.slice(name.lastIndexOf('.') + 1)
+  const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender) || undefined, {
+    title: '下載圖片',
+    defaultPath: path.join(app.getPath('downloads'), `axondeck-${name.slice(4)}`),
+    filters: [{ name: '圖片', extensions: [ext] }]
+  })
+  if (result.canceled || !result.filePath) return { ok: true, saved: false }
+  try {
+    await fs.promises.copyFile(images.filePath(name), result.filePath)
+  } catch (e) {
+    console.error('[chat] save image failed:', e?.code || 'unknown')
+    return { ok: false, error: '寫入檔案失敗' }
+  }
+  return { ok: true, saved: true }
+})
 
 // ===== 額度儀錶板 =====
 // URL、憑證路徑、SQL 與 provider 清單固定在 main；renderer 只能觸發整體同步。

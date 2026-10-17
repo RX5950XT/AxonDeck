@@ -11,6 +11,7 @@ const { shell } = require('electron')
 const store = require('./store')
 const files = require('./files')
 const media = require('./media')
+const officeConvert = require('./office-convert')
 const git = require('./git')
 const worktree = require('./worktree')
 const agents = require('./agents')
@@ -86,6 +87,15 @@ async function readFile(projectId, relPath) {
   // 圖片／PDF／影音不讀內容，給一個串流網址（`image`／`pdf`／`audio`／`video` 其中一個欄位）
   if (file.media) return { ...file, [file.media]: media.urlFor(projectId, file.rel) }
   return /\.md$/i.test(full) ? { ...file, imageBase: media.urlFor(projectId, file.rel) } : file
+}
+
+/**
+ * Office 文件轉成 PDF（版面檢視）或 xlsx（試算表重算公式、舊格式給內建表格用）。
+ * @returns {Promise<{ url: string }>} 轉好的 `vi-media://` 網址
+ */
+async function convertOffice(projectId, relPath, target) {
+  const full = files.resolveExisting(await rootOf(projectId), relPath)
+  return { url: media.officeUrlFor(await officeConvert.convert(full, target)) }
 }
 
 async function writeFile(projectId, relPath, content, expectedMtimeMs) {
@@ -294,6 +304,7 @@ module.exports = {
   getTabsState,
   listDir,
   readFile,
+  convertOffice,
   writeFile,
   getFileMtime,
   createEntry,

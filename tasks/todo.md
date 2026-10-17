@@ -4,6 +4,15 @@
 
 ## 待辦／未解
 
+### 2026-10-18 — 工作區分頁預覽 Office 文件
+
+- [x] docx／docm、xlsx／xlsm、pptx／pptm 走 `vi-media://`，renderer 自己解 zip（`ws-office.js`，不加套件）→ 驗：`test-workspace-office.js`（Electron）＋python-docx／openpyxl／python-pptx 產的真檔
+
+- [x] 原始版面：main 用 Office COM（沒有就 LibreOffice）轉 PDF 交給 pdf.js（`office-convert.js`，快取在 userData/office-preview，`vi-media://…/~office/`）；doc／xls／ppt／odt／ods／odp 也吃 → 驗：打包版 e2e 19 項
+- [x] 簡易檢視補強：Word 樣式編號／字型字級顏色對齊、Excel 日期百分比與浮點、沒算過的公式請 main 重算、xls 轉 xlsx 走表格、投影片照座標（含版面配置繼承）、ODF 三種 → 驗：`test-workspace-office.js`
+
+Review：預設 docx／pptx 等走原始版面、試算表走表格，標題列按鈕切換。PowerPoint／Word 是單一程序，開之前沒文件才 Quit，不會關到使用者開著的檔。LibreOffice 那條沒實機驗（這台只有 MS Office）。`e2e-workspace-cdp.js` 在 [A]／[F] 先斷（側欄三顆模式鈕、「＋」選單沒有「瀏覽器」），是本次以前的介面變動，未修。
+
 ### 2026-10-17 — Chat Local 改版（參考 Cherry Studio／Chatbox）
 
 - [x] 思考強度：開關 → 檔位選單（自動／關閉／最低／低／中／高／極高／最高），舊 true/false 相容；本機模型關閉用 `chat_template_kwargs` → 驗：單元測試 thinkingFields

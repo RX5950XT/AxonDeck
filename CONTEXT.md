@@ -37,7 +37,7 @@ src/main/
   grok-clearance.js  Grok 被 Cloudflare 擋時開 Edge／Chrome 拿通行證（cf_clearance＋UA）帶回 App
   terminal/          service.js（門面）→ 獨立宿主 host*.js／Rust axondeck-term；claude-hooks.js、editor-bridge.js、
                      links.js、clipboard-image.js、admin*.js
-  workspace/         files.js（resolveIn）、git.js、agents.js（五家 AI 記錄）、worktree.js、watch.js、media.js（vi-media://）
+  workspace/         files.js（resolveIn）、git.js、agents.js（五家 AI 記錄）、worktree.js、watch.js、media.js（vi-media://）、office-convert.js（Office 轉 PDF／xlsx）
   explorer/          paths.js、fs.js、recycle.js、drives.js、watch.js、uffs.js、zip*.js、mtp.js、details.js、size.js、shell*.js
   media-player.js    本機圖片／影音分流到原生彈窗 axondeck-media.exe
   hfmodels/          hub／gguf／fit／download.js（共用續傳＋分段下載）／presets／runtime（router）
@@ -146,6 +146,7 @@ native/
 - `src/main/editor-window.js`＋`pages/editor.html`／`scripts/editor-window.js`／`styles/editor.css`：一檔一窗（同檔再開只叫到前面），Monaco 編輯＋Markdown 編輯／分割／預覽（預設預覽、相對圖片走 `vi-media` 的 `localBaseFor`）。路徑只由 main 決定，renderer 只能讀寫自己那個檔；存檔帶 mtime（STALE 問覆寫）、暫存檔再 rename；UTF-8／BOM／UTF-16 LE 原樣存回，其他當 Big5 唯讀；有沒存的修改關窗會問。
 - 格式清單 `src/main/editor-formats.json`（不可與 `media-formats.json` 重疊，Rust 測試擋；`.ts` 已從媒體移給編輯器（媒體 `retired`，舊備份略過，`adopt_from_media` 只改還指著媒體 ProgID 的），`.mts` 留給媒體、HTML／CSV／`.sh` 不接管）。
 - 專案右側檔案樹盡量開在分頁：圖片（含 AVIF／APNG）、音訊、影片（MP4／WebM／M4V／MOV／MKV）走 `vi-media` 分頁，分頁解不了編碼才改開原生播放器；獨立編輯器／播放器主要給檔案頁與 Windows 點兩下用。
+- Office 文件（docx／docm／xlsx／xlsm／pptx／pptm／doc／xls／ppt／odt／ods／odp）唯讀預覽，標題列按鈕切「原始版面／簡易檢視」：原始版面＝`workspace:convertOffice` 請 main 用 Office COM（沒有才 LibreOffice）轉 PDF，快取 userData/office-preview（雜湊含路徑＋大小＋mtime，`vi-media://…/~office/<雜湊>` 只認快取檔名），交給 pdf.js；Word／PowerPoint 會接到使用者開著的程序，開之前沒有文件才 Quit，一次只轉一份。簡易檢視＝`ws-office*.js` 自己解 zip（DecompressionStream）＋DOMParser，文字只走 textContent；試算表預設看表格，有公式沒結果或是 xls 就請 main 轉一份 xlsx 重算。回歸 `test-workspace-office.js`（electron）。
 - 關聯共用 `axondeck-media.exe` 那套有備份的預設切換：`--editor` 換成 `EDITOR` 組（ProgID `AxonDeck.Editor.*`、指令 `AxonDeck.exe "--open-file=%1"`、備份 `editor-association-backups/`）；安裝程式與 `initializeAssociations` 各跑一次（標記 `editor-associations-initialized`），解除安裝還原。
 - `--open-file=` 啟動時主視窗留在系統匣；第二實例只開編輯窗。檔案頁／工作區／ZIP／MTP 開檔共用 `mediaPlayer.openPath`（媒體→播放器、文字→編輯器、其餘→系統）。回歸 `test-media-player.js`、`test-editor-window.js`（electron-as-node）。
 

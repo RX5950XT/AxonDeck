@@ -4,7 +4,7 @@
 
 Windows 桌面 AI 工作台。**聊天**、**終端機**、**本機大型語言模型**（Local SI）、**訂閱額度**、**AGY 反向代理**、**語音轉文字**（檔案轉錄／錄音機／即時字幕／全域語音輸入）、**翻譯**、**文字轉語音**、**生成圖片影像** 放在同一個 App；語音相關功能可完全離線（本地模型、CPU 即時），也能改走雲端 API。
 
-**v1.58.1** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)
+**v1.59.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)
 
 本版 Markdown 預覽完整支援：內嵌 HTML（置中 logo、圖片寬度、可收合的 details）、Mermaid 圖表、程式碼上色、數學公式、巢狀與待辦清單、參考式連結、自動連結、GitHub 提示框、腳註、表情代碼；相對路徑連結點了直接開檔案。額度新增提醒（週窗口快重置仍剩很多、Codex 重置次數快過期）與 5 小時窗口定時預熱；背景 agent 完成或在等你回答時跳 Windows 通知。工作區新增指令面板（Ctrl+Shift+P）、一鍵建 worktree 並開 agent、終端機分頁顯示上下文用量；MCP 伺服器可以測試連線。
 

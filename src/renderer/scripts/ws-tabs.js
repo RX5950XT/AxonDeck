@@ -15,6 +15,7 @@ import {
 import { paintAiSession, startAiSessionWatch, stopAiSessionWatch } from './ws-ai-session.js'
 import { initAiSessionFind, closeAiSessionFind } from './ws-ai-session-find.js'
 import { nextZoom } from './ws-zoom.js'
+import { renderOffice, SIMPLE_EXTS, SHEET_EXTS } from './ws-office.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { terminalLabel, terminalTabTitle } from './term-title.js'
 import { terminalStatuses } from './ws-terminal-status.js'
@@ -54,6 +55,8 @@ const MAX_TAB_TITLE = 28
  *   image?: string,
  *   imageBase?: string,
  *   pdf?: string,
+ *   office?: string,
+ *   officeMode?: 'layout' | 'simple',
  *   audio?: string,
  *   video?: string,
  *   unsupported?: boolean,
@@ -872,7 +875,7 @@ export function retargetTabs(projectId, fromRel, toRel) {
       : oldId
     retargetModel(oldId, tab.id)
     tab.relPath = nextRel
-    for (const key of ['image', 'video', 'imageBase', 'pdf', 'audio']) {
+    for (const key of ['image', 'video', 'imageBase', 'pdf', 'office', 'audio']) {
       if (!tab[key]) continue
       const url = new URL(tab[key])
       url.pathname = `${url.pathname.split('/').slice(0, 2).join('/')}/${nextRel.split('/').map(encodeURIComponent).join('/')}`
@@ -1142,6 +1145,7 @@ const PREVIEWABLE_EXTS = ['md', 'markdown', 'html', 'htm', 'svg']
  */
 function readonlyNote(file, isSvg) {
   return file.pdf ? 'PDF 預覽，不能在這裡編輯。'
+    : file.office ? 'Office 文件預覽，不能在這裡編輯。'
     : file.audio ? '音訊預覽，不能在這裡編輯。'
     : file.video ? '影片預覽，不能在這裡編輯。'
     : file.image && !isSvg ? '圖片預覽，不能在這裡編輯。'
@@ -1291,7 +1295,7 @@ export async function openEditorTab(proj, relPath, line = 0) {
     return
   }
 
-  const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.audio && !file.video) || file.tooLarge)
+  const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || file.tooLarge)
   const isSvg = extOf(relPath) === 'svg'
 
   /** @type {WsTab} */
@@ -1303,11 +1307,12 @@ export async function openEditorTab(proj, relPath, line = 0) {
     relPath,
     content: file.content || '',
     dirty: false,
-    preview: Boolean(file.image || file.pdf || file.audio || file.video)
+    preview: Boolean(file.image || file.pdf || file.office || file.audio || file.video)
       || (!unsupported && PREVIEWABLE_EXTS.includes(extOf(relPath))),
     image: file.image || '',
     imageBase: file.imageBase || '',
     pdf: file.pdf || '',
+    office: file.office || '',
     audio: file.audio || '',
     video: file.video || '',
     unsupported,
@@ -1553,11 +1558,14 @@ function paintEditor(tab) {
 
   const ext = extOf(tab.relPath || '')
   const previewable = PREVIEWABLE_EXTS.includes(ext)
-  const isMedia = Boolean(tab.image || tab.pdf || tab.audio || tab.video)
+  const isMedia = Boolean(tab.image || tab.pdf || tab.office || tab.audio || tab.video)
 
   if (el.editorPreviewBtn) {
-    el.editorPreviewBtn.hidden = (!previewable && !isMedia) || (isMedia && ext !== 'svg')
-    el.editorPreviewBtn.textContent = tab.preview ? '編輯' : '預覽'
+    // Office 文件這顆鈕換成「原始版面／簡易檢視」切換（doc／ppt 只有原始版面，不給切）
+    el.editorPreviewBtn.hidden = tab.office ? !SIMPLE_EXTS.has(ext)
+      : (!previewable && !isMedia) || (isMedia && ext !== 'svg')
+    el.editorPreviewBtn.textContent = tab.office ? (officeModeOf(tab) === 'layout' ? '簡易檢視' : '原始版面')
+      : tab.preview ? '編輯' : '預覽'
   }
   if (el.editorSaveBtn) {
     el.editorSaveBtn.hidden = Boolean(tab.readonly)
@@ -1711,7 +1719,7 @@ function paintPreview(tab) {
   const on = Boolean(tab.preview)
   const ext = extOf(tab.relPath || '')
   const nextIsPdf = Boolean(tab.pdf)
-  const previewOnly = Boolean((tab.image || tab.pdf || tab.audio || tab.video) && ext !== 'svg')
+  const previewOnly = Boolean((tab.image || tab.pdf || tab.office || tab.audio || tab.video) && ext !== 'svg')
   if (el.editorFindBtn) {
     el.editorFindBtn.hidden = previewOnly
     el.editorFindBtn.title = on ? '切到編輯並尋找 (Ctrl+F)' : '尋找與取代 (Ctrl+F)'
@@ -1729,7 +1737,7 @@ function paintPreview(tab) {
   // 已經是同一個分頁、同一份內容就不重畫。以前每次切回來都要重跑一次
   // Markdown 解析／重建 iframe／把整份 PDF 從 base64 解出來再重新排版一次。
   // 比的是內容字串本身（不是長度）：同長度的修改也要重畫。
-  const source = tab.pdf || tab.audio || tab.video || tab.image || (tab.content || '')
+  const source = tab.pdf || (tab.office ? `${tab.office}#${officeModeOf(tab)}` : '') || tab.audio || tab.video || tab.image || (tab.content || '')
   if (previewKey.id === tab.id && previewKey.source === source && box.firstChild) {
     previewIsPdf = nextIsPdf
     ensurePreviewZoom(box)
@@ -1745,6 +1753,10 @@ function paintPreview(tab) {
 
   if (tab.pdf) {
     void paintPdf(tab, box, generation)
+    return
+  }
+  if (tab.office) {
+    void paintOffice(tab, box, generation, ext)
     return
   }
   if (tab.audio || tab.video) {
@@ -1805,6 +1817,61 @@ function openPreviewLink(tab, link) {
   void openEditorTab(project, target.path)
 }
 
+/** Office 文件預設怎麼看：試算表看表格，其他照原始版面 */
+function officeModeOf(tab) {
+  if (!tab.officeMode) tab.officeMode = SHEET_EXTS.has(extOf(tab.relPath || '')) ? 'simple' : 'layout'
+  return tab.officeMode
+}
+
+/**
+ * Office 文件預覽。「原始版面」請 main 用 Office／LibreOffice 轉成 PDF 再交給 pdf.js；
+ * 轉不了（沒裝、檔案有密碼）而內建畫得出來就退回「簡易檢視」並說明原因。
+ *
+ * @param {WsTab} tab
+ * @param {HTMLElement} box
+ * @param {number} generation
+ * @param {string} ext
+ */
+async function paintOffice(tab, box, generation, ext) {
+  const current = () => generation === previewGeneration && previewKey.id === tab.id
+  /** @param {'pdf' | 'xlsx'} target */
+  const convert = async (target) => {
+    const res = await electronAPI.workspace.convertOffice(tab.projectId, tab.relPath, target)
+    if (!res?.ok) throw new Error(res?.error?.message || '轉檔失敗')
+    return res.data.url
+  }
+  const layout = officeModeOf(tab) === 'layout'
+  box.replaceChildren(hint(layout ? '正在照原始版面排版（第一次開會比較久）…' : '文件載入中…'))
+  let note = ''
+  if (layout) {
+    try {
+      const url = await convert('pdf')
+      if (!current()) return
+      previewIsPdf = true
+      ensurePreviewZoom(box)
+      void paintPdf(tab, box, generation, url)
+      return
+    } catch (err) {
+      if (!current()) return
+      const message = err instanceof Error ? err.message : '轉檔失敗'
+      if (!SIMPLE_EXTS.has(ext)) {
+        box.replaceChildren(hint(`${message}。可以用系統程式開啟這個檔案。`))
+        return
+      }
+      note = `${message}，先用簡易檢視顯示。`
+    }
+  }
+  try {
+    const node = await renderOffice(tab.office || '', ext, { convertXlsx: () => convert('xlsx') })
+    if (!current()) return
+    if (note) node.prepend(hint(note))
+    box.replaceChildren(node)
+  } catch (err) {
+    console.warn('[工作區] Office 預覽失敗', err)
+    if (current()) box.replaceChildren(hint(`這份文件打不開（${err instanceof Error ? err.message : '格式不支援'}），可以用系統程式開啟。`))
+  }
+}
+
 /** pdf.js 只在真的開了 PDF 才載（那支 min 檔快 500KB，不該進開機路徑） */
 let pdfLib = null
 
@@ -1821,9 +1888,10 @@ let pdfLib = null
  * @param {WsTab} tab
  * @param {HTMLElement} box
  * @param {number} generation
+ * @param {string} [url] 要畫的 PDF；Office 文件給的是轉出來的那份
  */
-async function paintPdf(tab, box, generation) {
-  const source = tab.pdf || ''
+async function paintPdf(tab, box, generation, url = tab.pdf || '') {
+  const source = previewKey.source
   const isCurrent = () => generation === previewGeneration
     && previewKey.id === tab.id
     && previewKey.source === source
@@ -1842,7 +1910,7 @@ async function paintPdf(tab, box, generation) {
     // `tab.pdf` 是 main 給的 `vi-media://` 網址：pdf.js 用 Range 只讀看得到的那幾頁
     // （關掉串流與自動預抓，幾百 MB 的 PDF 也不會整份搬進記憶體）
     const doc = await pdfLib.getDocument({
-      url: tab.pdf || '', isEvalSupported: false, disableStream: true, disableAutoFetch: true
+      url, isEvalSupported: false, disableStream: true, disableAutoFetch: true
     }).promise
     if (!isCurrent()) { await destroyPdfDocument(doc); return }
     let page = 1
@@ -3198,7 +3266,7 @@ async function restoreProjectTabs(proj, generation) {
           if (file.nativeMedia && !item.dirty) continue
           const hasDraft = typeof item.draftContent === 'string'
             && (item.dirty === true || Boolean(item.draftContent)) && item.draftContent !== file.content
-          const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.audio && !file.video) || file.tooLarge)
+          const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || file.tooLarge)
           const isSvg = extOf(item.relPath) === 'svg'
           tabs.push({
             id: item.id,
@@ -3209,10 +3277,11 @@ async function restoreProjectTabs(proj, generation) {
             content: hasDraft ? item.draftContent : (file.content || ''),
             savedContent: file.content || '',
             dirty: hasDraft,
-            preview: Boolean(item.preview || (file.image || file.pdf || file.audio || file.video)),
+            preview: Boolean(item.preview || (file.image || file.pdf || file.office || file.audio || file.video)),
             image: file.image || '',
             imageBase: file.imageBase || '',
             pdf: file.pdf || '',
+            office: file.office || '',
             audio: file.audio || '',
             video: file.video || '',
             unsupported,
@@ -3510,7 +3579,7 @@ export function initWsTabs() {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor' || tab.unsupported) return
     const ext = extOf(tab.relPath || '')
-    const previewOnly = Boolean((tab.image || tab.pdf || tab.audio || tab.video) && ext !== 'svg')
+    const previewOnly = Boolean((tab.image || tab.pdf || tab.office || tab.audio || tab.video) && ext !== 'svg')
     if (previewOnly) return
     if (tab.preview) {
       tab.preview = false
@@ -3585,6 +3654,12 @@ export function initWsTabs() {
   el.editorPreviewBtn?.addEventListener('click', () => {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor') return
+    if (tab.office) {
+      tab.officeMode = officeModeOf(tab) === 'layout' ? 'simple' : 'layout'
+      if (el.editorPreviewBtn) el.editorPreviewBtn.textContent = tab.officeMode === 'layout' ? '簡易檢視' : '原始版面'
+      paintPreview(tab)
+      return
+    }
     tab.preview = !tab.preview
     if (el.editorPreviewBtn) el.editorPreviewBtn.textContent = tab.preview ? '編輯' : '預覽'
     paintPreview(tab)

@@ -2136,6 +2136,7 @@ registerWorkspaceIpc({
     getFileMtime: (...args) => loadWorkspace().getFileMtime(...args),
     listDir: (...args) => loadWorkspace().listDir(...args),
     readFile: (...args) => loadWorkspace().readFile(...args),
+    convertOffice: (...args) => loadWorkspace().convertOffice(...args),
     writeFile: (...args) => loadWorkspace().writeFile(...args),
     createEntry: (...args) => loadWorkspace().createEntry(...args),
     renameEntry: (...args) => loadWorkspace().renameEntry(...args),

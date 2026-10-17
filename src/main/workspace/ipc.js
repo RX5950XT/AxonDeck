@@ -58,6 +58,9 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:readFile', (event, id, relPath) => (
     invoke(event, () => service.readFile(id, relPath))
   ))
+  ipcMain.handle('workspace:convertOffice', (event, id, relPath, target) => (
+    invoke(event, () => service.convertOffice(id, relPath, target))
+  ))
   ipcMain.handle('workspace:writeFile', (event, id, relPath, content, expectedMtimeMs) => (
     invoke(event, () => service.writeFile(id, relPath, content, expectedMtimeMs))
   ))

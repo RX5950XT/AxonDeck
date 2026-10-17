@@ -411,6 +411,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} relPath 專案內的相對路徑，一律用 `/` */
     listDir: (id, relPath) => ipcRenderer.invoke('workspace:listDir', id, relPath),
     readFile: (id, relPath) => ipcRenderer.invoke('workspace:readFile', id, relPath),
+    /** @param {'pdf' | 'xlsx'} target Office 文件轉成原始版面的 PDF，或重算過的 xlsx */
+    convertOffice: (id, relPath, target) => ipcRenderer.invoke('workspace:convertOffice', id, relPath, target),
     /** @param {number} [expectedMtimeMs] 開檔當下磁碟的版本；對不上 main 回 STALE。不帶＝強制覆寫 */
     writeFile: (id, relPath, content, expectedMtimeMs) => (
       ipcRenderer.invoke('workspace:writeFile', id, relPath, content, expectedMtimeMs)

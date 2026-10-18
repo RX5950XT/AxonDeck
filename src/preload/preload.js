@@ -24,6 +24,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('pages:visibility', handler)
     }
   },
+  screenTranslate: {
+    open: (options) => ipcRenderer.invoke('screenTranslate:open', options),
+    pause: (paused) => ipcRenderer.invoke('screenTranslate:pause', paused),
+    resize: (bounds) => ipcRenderer.invoke('screenTranslate:resize', bounds),
+    close: () => ipcRenderer.invoke('screenTranslate:close'),
+    status: () => ipcRenderer.invoke('screenTranslate:status'),
+    onState: (callback) => {
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('screenTranslate:state', handler)
+      return () => ipcRenderer.removeListener('screenTranslate:state', handler)
+    }
+  },
   pdfTranslate: {
     pick: () => ipcRenderer.invoke('pdfTranslate:pick'),
     inspect: (filename) => ipcRenderer.invoke('pdfTranslate:inspect', filename),
@@ -32,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: (jobId) => ipcRenderer.invoke('pdfTranslate:cancel', jobId),
     status: () => ipcRenderer.invoke('pdfTranslate:status'),
     save: (jobId) => ipcRenderer.invoke('pdfTranslate:save', jobId),
+    clearCache: () => ipcRenderer.invoke('pdfTranslate:clearCache'),
     onProgress: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('pdfTranslate:progress', handler)

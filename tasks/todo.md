@@ -4,6 +4,31 @@
 
 ## 待辦／未解
 
+### 2026-10-18 — v1.60.0 推送與發行
+
+- [x] 盤點完整變更、同步版號與說明，檢查待提交內容。
+- [x] lint、受影響回歸、打包版 PDF／螢幕翻譯驗收。
+- [x] 正式 NSIS 建置、拆包與更新資訊／雜湊／簽章檢查。
+- [x] secrets 掃描、commit／tag／push、GitHub Release 與遠端三個檔案核對。
+
+Review（發布前）：lint 通過（393 IPC／32 namespace）；全單元 157/159，Office 另以隔離 Electron 重跑通過，唯一未通過為未修改的 test-screentime.js 需要已不存在的 Tai data.db。Python worker 六組、PDF 打包版 35 項、真雲端術語／翻譯、打包版真螢幕擷取→OCR→本機翻譯／畫面更新／縮放／暫停／關閉釋放均通過。electron:pack／electron:build 各驗 384 支 src；與 v1.59.0 比對依賴零變動；NSIS 拆包 200 個檔案一致，含 app-update.yml，不含預覽 user-data，latest.yml 大小／SHA-512 與 blockmap 正確。包內與解壓術語庫掃描五項均為上版已有的測試假金鑰或模型 ID，精確排除後無命中。安裝檔 NotSigned；多螢幕實機與螢幕翻譯雲端路徑未測。真模型 PDF probe 首跑遇 GPU 被他程序占滿與殘留 llama-server 時 worker 中途結束，資源釋放後連跑兩次（含攔 stderr 版）PDF 4 頁＋圖片皆 PASS、來源未改動，判定為資源競爭偶發。
+
+### 2026-10-18 — 螢幕框選自動翻譯（參考 LunaTranslator）
+
+- [x] Review：已完成半透明可縮放取景窗、沿用 OCR／翻譯模型與獨立 screen owner；修正短多行漏譯及 Windows 材質灰底。lint、相關行為測試、獨立副本 electron:pack（384 檔一致）及打包版真 OCR→LinguaForge 雙行翻譯／畫面更新／縮放／暫停／關閉釋放均通過，實際桌面像素驗證中央透出；驗證產物已同步 dist/win-unpacked。雲端與多螢幕實機未測，尚未發版。
+
+### 2026-10-18 — PDF 翻譯借鑑 BabelDOC
+
+- [x] 譯文快取、雲端自動抽術語、標題進 prompt、清掉模型多吐的標記 → 驗：`test-pdf-translate.js`、真雲端 `probe-pdf-terms.js`
+- [x] 雙欄／跨頁接段、頁碼範圍、雙語對照 → 驗：`test-pdf-translate-worker.py` 6 組、真 PP-DocLayoutV3 雙欄接段、真模型 `probe-pdf-translate.js`
+- [x] 中文避頭尾：實測 MuPDF 已處理，不改
+- [x] 打包版 e2e：`e2e-pdf-translate-cdp.js` 35 項（新增頁碼／雙語送進工作、處理中鎖住、清除快取）
+
+- [x] 內建詞庫只收兩科以上共用的詞（order information→訂單資訊這類單科譯名會帶偏，提示改「參考」也沒用）→ 驗：`test-glossary.js`、`probe-pdf-terms.js` 一般翻譯與 PDF 都譯成「順序資訊」
+- [x] 附件下方「清除譯文快取」→ 驗：`test-pdf-translate.js`（清掉筆數、IPC 8 支）
+
+Review：完成。
+
 ### 2026-10-18 — 工作區分頁預覽 Office 文件
 
 - [x] docx／docm、xlsx／xlsm、pptx／pptm 走 `vi-media://`，renderer 自己解 zip（`ws-office.js`，不加套件）→ 驗：`test-workspace-office.js`（Electron）＋python-docx／openpyxl／python-pptx 產的真檔

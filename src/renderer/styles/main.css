@@ -415,6 +415,23 @@ body.is-maximized .win-btn#winMax {
   color: var(--text-primary);
 }
 
+.file-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.file-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-option-pages {
+  width: 150px;
+}
+
 .file-setup {
   display: flex;
   align-items: center;

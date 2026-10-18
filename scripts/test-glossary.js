@@ -33,6 +33,7 @@ const found = terms('The harmonic oscillators and integrating factors of a mathe
 assert.deepEqual(found['integrating factor'], ['積分因子'], '自訂詞優先、只給一個譯名')
 assert.ok(found['harmonic oscillator']?.includes('諧振子'), '內建多候選、複數還原')
 assert.ok(found['mathematical model']?.[0] === '數學模型')
+assert.ok(!('order information' in terms('Positional encoding injects order information.')), '只有一個學科收的詞不收（電子計算機的訂單資訊）')
 assert.ok(!('on voltage' in found), '頭尾是功能詞的片語不收')
 assert.ok(!('chinese' in terms('Chinese models')) && !('paper' in terms('the morning paper')), '單字不收')
 assert.deepEqual(terms('ordinary differential equations', glossary.load(settings({ translateGlossary: '' })))['ordinary differential equation'], ['常微分方程'], '只差「式」的譯名合併')

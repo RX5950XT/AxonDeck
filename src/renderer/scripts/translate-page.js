@@ -189,6 +189,15 @@ export function initTranslatePage() {
   el.speakInputBtn?.addEventListener('click', () => toggleSpeak('input'))
   el.speakOutputBtn?.addEventListener('click', () => toggleSpeak('output'))
   el.runBtn?.addEventListener('click', runTranslate)
+  const screenButton = document.getElementById('screenTranslateOpen')
+  screenButton?.addEventListener('click', async () => {
+    screenButton.disabled = true
+    try {
+      const result = await electronAPI.screenTranslate.open({ sourceLang: el.sourceLang.value, targetLang: el.targetLang.value })
+      if (!result.ok) showToast(result.error?.message || '無法開啟螢幕翻譯', 'error')
+    } catch { showToast('無法開啟螢幕翻譯，請重試', 'error') }
+    finally { screenButton.disabled = false }
+  })
   el.input?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()

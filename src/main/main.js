@@ -57,6 +57,7 @@ const { registerAppInstallerIpc } = require('./app-installer/ipc')
 const { registerBreezeIpc } = require('./breeze-tts/ipc')
 const { registerMiroxenIpc } = require('./miroxen/ipc')
 const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
+const { registerScreenTranslateIpc } = require('./screen-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
 const { registerCodeUsageIpc } = require('./codeusage/ipc')
 const { registerDictationIpc } = require('./dictation/ipc')
@@ -116,6 +117,19 @@ const loadMiroxen = () => {
   return miroxenMod
 }
 let pdfTranslateMod = null
+let screenTranslateMod = null
+
+async function loadScreenTranslate() {
+  if (!store) await initStore()
+  screenTranslateMod ||= require('./screen-translate')
+  screenTranslateMod.init({ store, isDev, preload: path.join(__dirname, '../preload/preload.js'), send: sendToPages })
+  return screenTranslateMod
+}
+
+function assertModelWorkIdle() {
+  pdfTranslateMod?.assertIdle()
+  screenTranslateMod?.assertIdle()
+}
 
 async function loadPdfTranslate() {
   if (!store) await initStore()
@@ -274,6 +288,7 @@ const STORE_ALLOWLIST = new Set([
   // 文字轉語音的讀音字典：[{ word, sound }]
   'speechPronunciations',
   'captionDisplayMode',
+  'screenTranslateDisplayMode',
   'asrEngine',
   'asrApiUrl',
   'asrApiKey',
@@ -1758,6 +1773,7 @@ ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 ipcMain.handle('models:delete', async (event, key) => {
   if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
     ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
+  if (screenTranslateMod && ['paddleocrvl16', 'llamaruntime', 'llamaruntimecuda', ...models.LLM_MODEL_KEYS].includes(key)) screenTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
   if ((key === 'miroxenruntime' || models.MIROXEN_MODEL_KEYS.includes(key)) && miroxenMod) await miroxenMod.stop()
   return models.remove(key)
@@ -2258,18 +2274,18 @@ registerHfModelsIpc({
     inspect: (...args) => loadHfModels().inspect(...args),
     preview: (...args) => loadHfModels().preview(...args),
     detail: (...args) => loadHfModels().detail(...args),
-    install: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().install(...args) },
+    install: (...args) => { assertModelWorkIdle(); return loadHfModels().install(...args) },
     cancelInstall: (...args) => loadHfModels().cancelInstall(...args),
     listLocal: (...args) => loadHfModels().listLocal(...args),
-    removeLocal: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().removeLocal(...args) },
+    removeLocal: (...args) => { assertModelWorkIdle(); return loadHfModels().removeLocal(...args) },
     pickAndImport: (...args) => loadHfModels().pickAndImport(...args),
     openModelsDir: (...args) => loadHfModels().openModelsDir(...args),
     rescan: (...args) => loadHfModels().rescan(...args),
-    updateModelSettings: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().updateModelSettings(...args) },
-    refreshFit: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().refreshFit(...args) },
-    tune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().tune(...args) },
-    autoTune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().autoTune(...args) },
-    chooseModelsDir: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().chooseModelsDir(...args) },
+    updateModelSettings: (...args) => { assertModelWorkIdle(); return loadHfModels().updateModelSettings(...args) },
+    refreshFit: (...args) => { assertModelWorkIdle(); return loadHfModels().refreshFit(...args) },
+    tune: (...args) => { assertModelWorkIdle(); return loadHfModels().tune(...args) },
+    autoTune: (...args) => { assertModelWorkIdle(); return loadHfModels().autoTune(...args) },
+    chooseModelsDir: (...args) => { assertModelWorkIdle(); return loadHfModels().chooseModelsDir(...args) },
     setToken: (...args) => loadHfModels().setToken(...args),
     tokenStatus: (...args) => loadHfModels().tokenStatus(...args),
     hardwareInfo: (...args) => loadHfModels().hardwareInfo(...args),
@@ -2282,15 +2298,15 @@ registerHfModelsIpc({
       return status
     },
     stopRuntime: (...args) => {
-      pdfTranslateMod?.assertIdle()
+      assertModelWorkIdle()
       const status = loadHfModels().stopRuntime(...args)
       hfLocalModelIds = []
       return status
     },
     currentDevice: (...args) => loadHfModels().currentDevice(...args),
-    applyPresets: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().applyPresets(...args) },
+    applyPresets: (...args) => { assertModelWorkIdle(); return loadHfModels().applyPresets(...args) },
     loadModel: (...args) => loadHfModels().loadModel(...args),
-    unloadModel: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().unloadModel(...args) },
+    unloadModel: (...args) => { assertModelWorkIdle(); return loadHfModels().unloadModel(...args) },
     refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
   },
@@ -2371,9 +2387,23 @@ registerPdfTranslateIpc({
     start: async (options) => (await loadPdfTranslate()).start(options),
     cancel: async (jobId) => (await loadPdfTranslate()).cancel(jobId),
     status: async () => (await loadPdfTranslate()).status(),
-    save: async (jobId) => (await loadPdfTranslate()).save(jobId)
+    save: async (jobId) => (await loadPdfTranslate()).save(jobId),
+    clearCache: async () => (await loadPdfTranslate()).clearCache()
   },
   isMainSender: assertMainWindowSender
+})
+
+registerScreenTranslateIpc({
+  ipcMain,
+  service: {
+    open: async (options) => (await loadScreenTranslate()).open(options),
+    pause: async (paused) => (await loadScreenTranslate()).pause(paused),
+    resize: async (bounds) => (await loadScreenTranslate()).resize(bounds),
+    close: async () => (await loadScreenTranslate()).close(),
+    status: async () => (await loadScreenTranslate()).status()
+  },
+  isMainSender: assertMainWindowSender,
+  isOverlaySender: (event) => screenTranslateMod?.owns(event) === true
 })
 
 // ===== 系統監控 =====
@@ -2951,6 +2981,7 @@ app.on('before-quit', (e) => {
     ? ccSwitchMod.stopGateway().catch((err) => console.error('[ccswitch] gateway stop failed:', err))
     : Promise.resolve()
   const stopAgy = Promise.all([
+    screenTranslateMod ? screenTranslateMod.close() : Promise.resolve(),
     pdfTranslateMod ? pdfTranslateMod.shutdown() : Promise.resolve(),
     loadCloudTts().shutdown(),
     breezeMod ? breezeMod.shutdown() : Promise.resolve(),

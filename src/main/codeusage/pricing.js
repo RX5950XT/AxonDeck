@@ -58,7 +58,9 @@ const PER_TOKENS = 1_000_000
 // v11：Haiku 5.5 依逐請求輸入長度分桶，舊桶需要重掃才能分開兩級單價。
 // v12：AGY 的輸入扣掉快取讀取（promptTokenCount 本來就含快取），舊桶重算。
 // v13：Grok 的 `-build` 端點別名一律收回本體（4.7 起不必逐顆加別名），舊桶重新歸到本體。
-const RULES_VERSION = 13
+// v14：Codex 讀得到 `.jsonl.zst`；以前讀過、後來被壓縮的 session 游標已被清掉，不重掃會算兩次。
+//      同一版跳過 Grok 子代理自己的 session（母 session 已含），舊桶子裡算兩次的要重算。
+const RULES_VERSION = 14
 
 /**
  * @typedef {object} Price

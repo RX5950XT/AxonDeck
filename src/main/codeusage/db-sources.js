@@ -21,6 +21,8 @@ const path = require('path')
 
 /** 單次查詢的列數上限 */
 const MAX_ROWS = 50000
+/** OpenCode 訊息建立後這麼久還沒完成，就當作放棄了 */
+const UNFINISHED_WAIT_MS = 24 * 3600_000
 
 /** @type {(() => object) | null} */
 let sqliteModule = null
@@ -86,6 +88,9 @@ function readOpencode(sinceMs, dbPath = opencodeDbPath()) {
         continue
       }
       if (data?.role !== 'assistant' || !data.tokens) continue
+      // 還在跑的訊息 token 還沒寫完（實測最久 10 小時才寫完）：游標是建立時間，掃過去就不會回頭，
+      // 所以停在這裡，下次從它開始。一天還沒完成的當作放棄，不讓它永遠卡住後面
+      if (!data.time?.completed && Date.now() - Number(row.time_created) < UNFINISHED_WAIT_MS) break
       const tokens = data.tokens
       const cache = tokens.cache || {}
       const input = Number(tokens.input) || 0

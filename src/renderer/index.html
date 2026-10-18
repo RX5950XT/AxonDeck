@@ -651,11 +651,16 @@
                               <button type="button" class="agy-range-btn is-active" data-cu-range="7d" aria-pressed="true">7 天</button>
                               <button type="button" class="agy-range-btn" data-cu-range="30d" aria-pressed="false">30 天</button>
                               <button type="button" class="agy-range-btn" data-cu-range="all" aria-pressed="false">全部</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="custom" aria-pressed="false" aria-controls="cuCustomRange">自訂</button>
                             </div>
                             <button type="button" id="cuPricesBtn" class="btn btn-secondary btn-sm">單價</button>
                             <button type="button" id="cuSyncBtn" class="btn btn-primary btn-sm"
                               title="增量掃描本機 session 記錄；規則改版會自動重讀">掃描本機記錄</button>
                         </div>
+                      </div>
+                      <div id="cuCustomRange" class="cu-custom-range" role="group" aria-label="自訂日期範圍" hidden>
+                        <label>起日<input id="cuFrom" class="input" type="date"></label>
+                        <label>迄日<input id="cuTo" class="input" type="date"></label>
                       </div>
                       <p id="cuError" class="live-error hidden" role="alert"></p>
                       <p id="cuUncosted" class="cu-note hidden" role="status"></p>

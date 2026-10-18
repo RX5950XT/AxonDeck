@@ -12,6 +12,9 @@ const electronAPI = window.electronAPI
 
 let bound = false
 let range = '7d'
+/** 自訂範圍的起訖日（`YYYY-MM-DD`，含迄日當天） */
+let customFrom = ''
+let customTo = ''
 /** @type {object | null} */
 let latest = null
 let syncing = false
@@ -55,14 +58,14 @@ function formatMoney(value) {
 
 /**
  * @param {number} ts
- * @param {'hour'|'day'} bucket
+ * @param {'hour'|'day'|'week'} bucket
  * @returns {string}
  */
 function formatBucket(ts, bucket) {
   const date = new Date(ts)
-  return bucket === 'hour'
-    ? `${String(date.getMonth() + 1)}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:00`
-    : `${String(date.getMonth() + 1)}/${date.getDate()}`
+  const day = `${String(date.getMonth() + 1)}/${date.getDate()}`
+  if (bucket === 'hour') return `${day} ${String(date.getHours()).padStart(2, '0')}:00`
+  return bucket === 'week' ? `${day} 起一週` : day
 }
 
 /**
@@ -131,7 +134,9 @@ function renderSummary() {
 
   // 條上那顆按鈕順便帶目前範圍的花費，下次不用打開也看得到
   const chip = document.getElementById('quotaStatsValue')
-  const rangeLabel = document.querySelector(`#cuRangeGroup [data-cu-range="${range}"]`)?.textContent?.trim() || ''
+  const rangeLabel = range === 'custom'
+    ? [customFrom, customTo].map((day) => day.slice(5).split('-').map(Number).join('/')).join('～')
+    : document.querySelector(`#cuRangeGroup [data-cu-range="${range}"]`)?.textContent?.trim() || ''
   if (chip) chip.textContent = `${rangeLabel} ${formatMoney(s.costUsd)}`.trim()
 
   const syncedAt = document.getElementById('cuSyncedAt')
@@ -303,6 +308,37 @@ function render() {
     btn.classList.toggle('is-active', on)
     btn.setAttribute('aria-pressed', on ? 'true' : 'false')
   })
+  renderCustomRange()
+}
+
+/** @param {Date} date */
+function dayString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function renderCustomRange() {
+  const box = document.getElementById('cuCustomRange')
+  const fromInput = /** @type {HTMLInputElement | null} */ (document.getElementById('cuFrom'))
+  const toInput = /** @type {HTMLInputElement | null} */ (document.getElementById('cuTo'))
+  if (!box || !fromInput || !toInput) return
+  box.hidden = range !== 'custom'
+  const today = dayString(new Date())
+  fromInput.value = customFrom
+  toInput.value = customTo
+  // 起日不能晚於迄日、兩邊都不能選未來
+  fromInput.max = customTo || today
+  toInput.min = customFrom
+  toInput.max = today
+}
+
+function onCustomDateChange() {
+  const fromValue = /** @type {HTMLInputElement} */ (document.getElementById('cuFrom')).value
+  const toValue = /** @type {HTMLInputElement} */ (document.getElementById('cuTo')).value
+  // 清空或起訖顛倒時不送，等使用者選完
+  if (!fromValue || !toValue || fromValue > toValue) return
+  customFrom = fromValue
+  customTo = toValue
+  void refresh()
 }
 
 // ===== 單價彈窗 =====
@@ -442,7 +478,8 @@ let refreshSeq = 0
 async function refresh() {
   const seq = ++refreshSeq
   try {
-    const data = await call(electronAPI.codeusage.stats({ range }), '讀取用量統計失敗')
+    const query = range === 'custom' ? { range, from: customFrom, to: customTo } : { range }
+    const data = await call(electronAPI.codeusage.stats(query), '讀取用量統計失敗')
     // 連點兩個範圍時，慢回來的舊範圍不能蓋掉新的
     if (seq !== refreshSeq) return
     latest = data
@@ -489,9 +526,16 @@ function bindOnce() {
   document.querySelectorAll('#cuRangeGroup .agy-range-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       range = btn.dataset.cuRange || '7d'
+      if (range === 'custom' && !customFrom) {
+        // 第一次點自訂先給最近 30 天，使用者再從這裡改
+        customTo = dayString(new Date())
+        customFrom = dayString(new Date(Date.now() - 29 * 24 * 3600_000))
+      }
       void refresh()
     })
   })
+  document.getElementById('cuFrom')?.addEventListener('change', onCustomDateChange)
+  document.getElementById('cuTo')?.addEventListener('change', onCustomDateChange)
   document.getElementById('cuSyncBtn')?.addEventListener('click', () => void runSync())
   document.getElementById('cuUncosted')?.addEventListener('click', openPricesDialog)
   document.getElementById('cuPricesBtn')?.addEventListener('click', openPricesDialog)

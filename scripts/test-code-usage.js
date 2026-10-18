@@ -399,6 +399,22 @@ console.log('\n[D] Grok Build 解析')
     }
   }), state)
   ok('Grok 取消事件（全 0 token）不產生假 unknown 事件', cancelled.length === 0)
+
+  // 子代理：那一輪結束前跑完的已含在母的 usage（不另算）；沒跑完、或那一輪沒用量的要另算
+  const sub = parsers.newState()
+  const g = (update) => parsers.parseGrokLine(JSON.stringify({ timestamp: 1785834950, params: { update } }), sub)
+  // parent_prompt_id 跟 turn_completed 的 prompt_id 不是同一套（實測），故意給對不上的值
+  const spawn = (child) => g({ sessionUpdate: 'subagent_spawned', child_session_id: child, parent_prompt_id: 'other-id-scheme' })
+  const finish = (child) => g({ sessionUpdate: 'subagent_finished', child_session_id: child })
+  const done = (prompt, tokens) => g({ sessionUpdate: 'turn_completed', prompt_id: prompt, usage: { inputTokens: tokens, outputTokens: 0 } })
+  spawn('c_in'); spawn('c_bg')
+  finish('c_in')
+  done('q1', 100)
+  ok('一輪內跑完的子代理不另算、背景沒跑完的另算', sub.countChildren.join() === 'c_bg', sub.countChildren.join())
+  spawn('c_next')
+  ok('下一輪的子代理還沒定案', sub.subagents.length === 1 && sub.subagents[0][0] === 'c_next')
+  finish('c_next'); done('q2', 0)
+  ok('那一輪沒記到用量時子代理另算', sub.countChildren.includes('c_next'))
 }
 
 // ===== 桶子與統計 =====
@@ -540,6 +556,49 @@ console.log('\n[E] 桶子與統計')
   ok('沒資料的格四項都是 0',
     series[0].input === 0 && series[0].output === 0 &&
     series[0].cacheRead === 0 && series[0].cacheWrite === 0)
+
+  // 「全部」超過格數上限改成週桶：每格從當地週一零點開始，最早那筆也要在序列裡
+  const oldTs = base - 200 * 24 * HOUR
+  const weekly = codeusage.fillSeries([{ ts: oldTs, requests: 1, input: 1, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 }],
+    oldTs, base, 'week')
+  ok('週桶每格從週一零點開始', weekly.every((item) => new Date(item.ts).getDay() === 1 && new Date(item.ts).getHours() === 0))
+  ok('週桶涵蓋最早那筆', weekly[0].requests === 1 && weekly.length < 96, String(weekly.length))
+
+  // 重讀時保留來源檔已不在的舊桶子：有新資料的小時以新的為準，沒有的才留舊的
+  const orphanOld = new Map()
+  const oldBucket = (ts, provider, requests) => ({ ts, provider, model: 'claude-haiku-5.5', longContext: false, input: requests, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, requests, reportedCost: null })
+  orphanOld.set('a', oldBucket(base - 48 * HOUR, 'claude', 5))
+  orphanOld.set('b', oldBucket(base, 'claude', 9))
+  orphanOld.set('c', oldBucket(base, 'codex', 4))
+  const orphanNew = new Map([[codeusage.bucketKey(base, 'claude', 'claude-haiku-5.5'), oldBucket(base, 'claude', 2)]])
+  orphanOld.set('d', oldBucket(base - 10 * HOUR, 'claude', 7))
+  // claude 現存最舊的檔是一天前：那之前才可能缺檔；codex 沒給＝沒有任何現存來源
+  codeusage.keepOrphans(orphanNew, orphanOld, { claude: base - 24 * HOUR })
+  const orphanRows = [...orphanNew.values()]
+  ok('重讀不回來的舊小時留著', orphanRows.some((row) => row.ts === base - 48 * HOUR && row.requests === 5))
+  ok('來源檔都還在的時段不拿舊的補', !orphanRows.some((row) => row.ts === base - 10 * HOUR))
+  ok('有新資料的小時以新的為準', orphanRows.filter((row) => row.ts === base && row.provider === 'claude').map((row) => row.requests).join() === '2')
+  ok('別家同一小時不受影響', orphanRows.some((row) => row.provider === 'codex' && row.requests === 4))
+
+  // 被刪掉的檔：它記帳的用量進封存區；訊息 id 只留還有複本在別的檔的
+  const archive = new Map()
+  const archiveIds = new Set()
+  codeusage.archiveRemoved(
+    { 'claude:gone.jsonl': { contrib: [oldBucket(base - 72 * HOUR, 'claude', 3)], seen: ['m_copy', 'm_only'] } },
+    { 'claude:fork.jsonl': { seen: ['m_copy'] } },
+    archive, archiveIds
+  )
+  ok('刪掉的檔用量進封存區', [...archive.values()].some((row) => row.ts === base - 72 * HOUR && row.requests === 3))
+  ok('封存的訊息 id 只留有複本的', [...archiveIds].join() === 'm_copy', [...archiveIds].join())
+
+  // 自訂範圍：含迄日當天、當地零點起算；格式錯、日期不存在、起訖顛倒一律退回 7 天
+  const cr = codeusage.resolveRange({ range: 'custom', from: '2026-03-01', to: '2026-03-31' })
+  ok('自訂範圍從起日當地零點起', cr.rangeKey === 'custom' && cr.from === new Date(2026, 2, 1).getTime())
+  ok('自訂範圍含迄日當天', cr.to === new Date(2026, 3, 1).getTime() && cr.bucket === 'day')
+  ok('自訂兩天內用小時桶', codeusage.resolveRange({ range: 'custom', from: '2026-03-01', to: '2026-03-02' }).bucket === 'hour')
+  ok('自訂日期不存在退回 7 天', codeusage.resolveRange({ range: 'custom', from: '2026-02-30', to: '2026-03-02' }).rangeKey === '7d')
+  ok('自訂起訖顛倒退回 7 天', codeusage.resolveRange({ range: 'custom', from: '2026-03-05', to: '2026-03-01' }).rangeKey === '7d')
+  ok('自訂格式錯退回 7 天', codeusage.resolveRange({ range: 'custom', from: 1, to: '2026-03-01' }).rangeKey === '7d')
 
   ok('時間範圍是白名單', Object.keys(codeusage.STAT_RANGES).join(',') === '24h,7d,30d,all')
   ok('五家供應商', codeusage.PROVIDERS.length === 5)
@@ -734,6 +793,77 @@ console.log('\n[F] 增量掃描')
     scan.pruneCursors(mvCursors)
     ok('搬到 archived 後清游標仍保留新路徑', Object.keys(mvCursors).length === 1
       && mvCursors[Object.keys(mvCursors)[0]].path === path.join(mvArch, path.basename(mvFile)))
+
+    // Codex 把舊 session 壓成 .jsonl.zst：讀得到、壓縮前讀過的不重算、壓縮檔沒變就不重讀
+    // Claude resume／fork 把舊訊息複製進新 session 檔：別的檔算過的不再算（同一輪、跨輪都要擋）
+    const rsDir = path.join(tmp, 'resume')
+    fs.mkdirSync(rsDir, { recursive: true })
+    const rsLine = (id) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { id, model: 'claude-opus-5', usage: { input_tokens: 1, output_tokens: 1 } } })
+    fs.writeFileSync(path.join(rsDir, 'a.jsonl'), `${rsLine('msg_r1')}\n`)
+    fs.writeFileSync(path.join(rsDir, 'b.jsonl'), `${rsLine('msg_r1')}\n${rsLine('msg_r2')}\n`)
+    const rsSource = { provider: 'claude', roots: [rsDir], match: (name) => name.endsWith('.jsonl'), parseLine: parsers.parseClaudeLine, newState: parsers.newState, keyOf: (f) => path.basename(f) }
+    const rsCursors = {}
+    const rs1 = []
+    await scan.scanSource(rsSource, rsCursors, (event) => rs1.push(event), 0)
+    ok('同一輪兩個檔有同一則訊息只算一次', rs1.length === 2, String(rs1.length))
+    fs.writeFileSync(path.join(rsDir, 'c.jsonl'), `${rsLine('msg_r2')}\n${rsLine('msg_r3')}\n`)
+    const rs2 = []
+    await scan.scanSource(rsSource, rsCursors, (event) => rs2.push(event), 0)
+    ok('之後新出現的 fork 檔不重算舊訊息', rs2.length === 1, String(rs2.length))
+    // 逐檔記帳：事件帶出是哪個檔的，游標改寫時 contrib 要留著（由 index.js 維護）
+    rsCursors['claude:a.jsonl'].contrib = ['kept']
+    fs.appendFileSync(path.join(rsDir, 'a.jsonl'), `${rsLine('msg_r4')}\n`)
+    const rsKeys = []
+    await scan.scanSource(rsSource, rsCursors, (event, key) => rsKeys.push(key), 0)
+    ok('事件帶出來源檔的游標 key', rsKeys.join() === 'claude:a.jsonl', rsKeys.join())
+    ok('游標改寫時 contrib 留著', rsCursors['claude:a.jsonl'].contrib?.[0] === 'kept')
+    removeTree(rsDir)
+
+    // OpenCode：還在跑的訊息先停，不讓游標跳過它；放了一天以上沒完成的當作放棄
+    const ocFile = path.join(tmp, 'opencode.db')
+    const { DatabaseSync } = require('node:sqlite')
+    const ocDb = new DatabaseSync(ocFile)
+    ocDb.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
+    const ocNow = Date.now()
+    const ocRow = (ts, completed) => ocDb.prepare('INSERT INTO message VALUES (?, ?, ?, ?, ?)').run(String(ts), 's', ts, ts, JSON.stringify({
+      role: 'assistant', modelID: 'm-test', cost: 0.1, tokens: { input: 5, output: 1, cache: {} }, time: completed ? { created: ts, completed: ts + 1 } : { created: ts }
+    }))
+    ocRow(ocNow - 3 * 86400_000, false) // 放棄的
+    ocRow(ocNow - 60_000, true)
+    ocRow(ocNow - 30_000, false) // 還在跑
+    ocRow(ocNow - 10_000, true)
+    ocDb.close()
+    const dbSources = require(path.join(ROOT, 'src/main/codeusage/db-sources.js'))
+    const ocEvents = dbSources.readOpencode(0, ocFile)
+    ok('OpenCode 停在還在跑的訊息前', ocEvents.length === 2 && ocEvents[1].ts === ocNow - 60_000, ocEvents.map((e) => e.ts - ocNow).join())
+
+    const zsDir = path.join(tmp, 'zst')
+    fs.mkdirSync(zsDir, { recursive: true })
+    const zsPlain = path.join(zsDir, 'rollout-zst-11111111-2222-3333-4444-555555555555.jsonl')
+    const zsBody = `${JSON.stringify({
+      type: 'session_meta', timestamp: new Date().toISOString(), payload: { model: 'gpt-5.6-sol' }
+    })}\n${cxTokens()}\n`
+    fs.writeFileSync(zsPlain, zsBody)
+    const zsSource = { ...mvSource, roots: [zsDir], keyOf: (f) => path.basename(f).replace(/\.zst$/, '') }
+    const zsCursors = {}
+    const zs1 = []
+    await scan.scanSource(zsSource, zsCursors, (event) => zs1.push(event), 0)
+    fs.writeFileSync(`${zsPlain}.zst`, require('zlib').zstdCompressSync(Buffer.from(zsBody)))
+    const zsBoth = []
+    await scan.scanSource(zsSource, zsCursors, (event) => zsBoth.push(event), 0)
+    fs.unlinkSync(zsPlain)
+    const zs2 = []
+    await scan.scanSource(zsSource, zsCursors, (event) => zs2.push(event), 0)
+    const zs3 = []
+    await scan.scanSource(zsSource, zsCursors, (event) => zs3.push(event), 0)
+    ok('壓縮前算到 1 筆', zs1.length === 1, String(zs1.length))
+    ok('壓縮中兩份並存不重算', zsBoth.length === 0, String(zsBoth.length))
+    ok('壓成 .zst 後不重算', zs2.length === 0, String(zs2.length))
+    ok('壓縮檔沒變就不重讀', zs3.length === 0 && Object.values(zsCursors)[0]?.packed > 0, String(zs3.length))
+    const zsFresh = []
+    await scan.scanSource(zsSource, {}, (event) => zsFresh.push(event), 0)
+    ok('全新掃描讀得到 .zst 內容', zsFresh.length === 1 && zsFresh[0].model === 'gpt-5.6-sol', String(zsFresh.length))
+    removeTree(zsDir)
 
     // 檔案不見了 → 游標清掉
     fs.unlinkSync(path.join(mvArch, path.basename(mvFile)))

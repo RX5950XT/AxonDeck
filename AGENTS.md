@@ -162,7 +162,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ### 用量統計與額度
 - 游標 key 跟著檔案走（session 會搬進 `archived_sessions`）。Codex fork 的開頭重播一筆都不收（到第一個 `turn_context`）。
-- 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重；Grok ticks 一律 1 USD = 1e10。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
+- 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重（resume／fork 會把舊訊息複製進新檔，要跨檔去重）；Grok ticks 一律 1 USD = 1e10；Grok 母 session 的 usage 已含子代理，子代理自己的檔不能再算（例外見 CONTEXT）；Codex 舊 session 會被壓成 `.jsonl.zst`。parsers.js 與 `usage.rs` 規則必須一致（跑 `probe-usage-native-parity.js`；它的真實資料段在有 session 正在寫時可能偶發位元組數不同，重跑即可）。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
 - `mergeExpectedWindows` 只能由 `usage/index.js` 呼叫，空窗不 merge（會生出假的 100%）。
 - Claude token 自己續（`usage/claude-auth.js`）：兩把鎖、鎖內重讀、CAS 寫回、原子替換；額度 API 要報 `claude-code/<版本>` UA，429 不重試並冷卻。Grok／Antigravity 靠代跑 CLI 續期並確認 token 真的換了。
 - Claude 多帳號（`usage/claude-accounts.js`）：使用中的帳號以 CLI 檔案為準、每次同步／切換前抄回快照，**快照絕不拿去續期**；只有沒在用的帳號由我們續、寫回自己的 store。續期、抄快照、切換排同一條隊，切換另拿 claude-auth 的兩把鎖。新增帳號在暫存 `CLAUDE_CONFIG_DIR` 跑 `claude auth login --claudeai`。回歸 `test-claude-accounts.js`。

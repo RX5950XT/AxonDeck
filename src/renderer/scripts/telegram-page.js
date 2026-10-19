@@ -38,12 +38,7 @@ const DIRECT_LINKS = `window.__axDirectLinks || (window.__axDirectLinks = true, 
   window.open(u.href, '_blank', 'noopener')
 }, true))`
 
-// 看不到 Telegram（切走、最小化）超過這麼久，就只留第一格連線收通知，其他格整個收掉（每格約 150–200MB）；
-// 切回來再照存的聊天室載回。第一格會在別格卸載時接手主分頁，所以通知不斷
-const PARK_MS = 5 * 60 * 1000
-
 let initialized = false
-let parkTimer = 0
 let stuckSince = 0
 let lastReloadAllAt = 0
 
@@ -68,7 +63,7 @@ function frame() {
 
 /** 收掉的格子沒有 webview，網址留在 pane 上 */
 function paneUrl(pane) {
-  return pane.querySelector('webview')?.dataset.src || pane.dataset.parked || HOME_URL
+  return pane.querySelector('webview')?.dataset.src || HOME_URL
 }
 
 function save() {
@@ -171,36 +166,6 @@ function addPane(url) {
   mountView(pane, url)
 }
 
-/** 收掉其他格前先導到 about:blank 送出交棒（理由見 closePane），正在出聲（通話、語音）的不收 */
-function parkPanes() {
-  for (const pane of [...frame().querySelectorAll('.telegram-pane')].slice(1)) {
-    const view = pane.querySelector('webview')
-    if (!view) continue
-    try { if (view.isCurrentlyAudible()) continue } catch { /* 還沒載好 */ }
-    pane.dataset.parked = view.dataset.src
-    const drop = () => { if (view.isConnected) view.remove() }
-    view.addEventListener('did-navigate', drop, { once: true })
-    setTimeout(drop, 1500)
-    try { view.loadURL('about:blank').catch(drop) } catch { drop() }
-  }
-}
-
-function unparkPanes() {
-  for (const pane of frame().querySelectorAll('.telegram-pane')) {
-    if (!pane.dataset.parked) continue
-    const url = pane.dataset.parked
-    delete pane.dataset.parked
-    pane.querySelector('webview')?.remove() // 1.5 秒內就切回來：還在卸載的那個直接換掉
-    mountView(pane, url)
-  }
-}
-
-function onVisibility() {
-  clearTimeout(parkTimer)
-  if (document.hidden) parkTimer = setTimeout(parkPanes, PARK_MS)
-  else unparkPanes()
-}
-
 function mountView(pane, url) {
   const view = document.createElement('webview')
   // partition 建了就不能改，要在插入前設好；popup（外部連結）由 main 轉系統瀏覽器
@@ -233,6 +198,4 @@ export async function refreshTelegramPage() {
   initialized = true
   ;(await loadSaved()).forEach(addPane)
   setInterval(watchStuck, WATCH_EVERY_MS)
-  document.addEventListener('visibilitychange', onVisibility)
-  onVisibility()
 }

@@ -1,0 +1,136 @@
+/* 跟即時字幕（pages/subtitle.html）同一套深色面板；整個視窗就是取景範圍 */
+:root {
+  --bg: #14191b;
+  --surface-strong: rgba(244, 241, 232, 0.14);
+  --border: rgba(244, 241, 232, 0.16);
+  --text: #f4f1e8;
+  --muted: #a6adab;
+  --accent: #7da6b7;
+  --danger: #e86960;
+  --grab: 8px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  box-shadow: inset 0 0 0 1px var(--border);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px 0 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+#status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status::before {
+  content: "";
+  display: inline-block;
+  width: 5px; height: 5px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 2px;
+}
+#status[data-stage="watching"]::before { background: var(--accent); }
+#status[data-stage="ocr"]::before, #status[data-stage="translate"]::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+#status[data-stage="error"] { color: var(--danger); }
+#language { flex-shrink: 0; margin-left: auto; white-space: nowrap; }
+
+.controls { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+button {
+  display: grid;
+  place-items: center;
+  min-width: 24px; height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 120ms var(--ease-out);
+}
+.text-button { padding: 0 7px; font-size: 11.5px; }
+button svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.icon-play path { fill: currentColor; stroke: none; }
+#pause:not([data-mode="pause"]) .icon-pause,
+#pause:not([data-mode="play"]) .icon-play,
+#pause:not([data-mode="retry"]) .icon-retry { display: none; }
+#pause[data-mode="retry"] { color: var(--danger); }
+@media (hover: hover) and (pointer: fine) {
+  button:hover { background: var(--surface-strong); color: var(--text); }
+  button:active:hover { transform: scale(0.94); }
+  button.close:hover { background: color-mix(in srgb, var(--danger) 30%, transparent); }
+}
+button:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; color: var(--text); }
+button:disabled { cursor: wait; }
+
+main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+  padding: 2px 16px 14px;
+  overflow-y: auto;
+}
+/* 拖曳區收不到滾輪：譯文超出框時才讓出拖曳，改拖上方那列移動。
+   不用 script 移動視窗：非整數 DPI 下每次 setPosition 都會讓視窗變大 1～2px。 */
+main.scrollable { -webkit-app-region: no-drag; }
+main::-webkit-scrollbar { width: 4px; }
+main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+#source {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#source:empty, body[data-mode="translation"] #source { display: none; }
+#translation {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 550;
+  line-height: 1.42;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#translation[data-empty="true"] { margin: auto; color: var(--muted); font-size: 13px; font-weight: 400; text-align: center; }
+
+/* 自繪縮放把手：比原生約 5px 的邊框好抓，滑過時亮出那條邊 */
+.edge { position: fixed; z-index: 2; -webkit-app-region: no-drag; }
+.edge[data-edge="n"], .edge[data-edge="s"] { left: var(--grab); right: var(--grab); height: var(--grab); cursor: ns-resize; }
+.edge[data-edge="w"], .edge[data-edge="e"] { top: var(--grab); bottom: var(--grab); width: var(--grab); cursor: ew-resize; }
+.edge[data-edge="n"] { top: 0; } .edge[data-edge="s"] { bottom: 0; }
+.edge[data-edge="w"] { left: 0; } .edge[data-edge="e"] { right: 0; }
+.corner { width: 14px; height: 14px; z-index: 3; }
+.corner[data-edge="nw"] { top: 0; left: 0; cursor: nwse-resize; }
+.corner[data-edge="se"] { bottom: 0; right: 0; cursor: nwse-resize; }
+.corner[data-edge="ne"] { top: 0; right: 0; cursor: nesw-resize; }
+.corner[data-edge="sw"] { bottom: 0; left: 0; cursor: nesw-resize; }
+.edge::after { content: ""; position: absolute; background: var(--accent); opacity: 0; transition: opacity 120ms ease; }
+.edge[data-edge="n"]::after { inset: 0 0 auto; height: 2px; }
+.edge[data-edge="s"]::after { inset: auto 0 0; height: 2px; }
+.edge[data-edge="w"]::after { inset: 0 auto 0 0; width: 2px; }
+.edge[data-edge="e"]::after { inset: 0 0 0 auto; width: 2px; }
+.edge:not(.corner):hover::after, .edge.active::after { opacity: 1; }
+
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: 0.01ms !important; }
+}

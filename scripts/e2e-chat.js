@@ -1213,6 +1213,73 @@ async function caseT() {
   server.close()
 }
 
+async function caseU() {
+  console.log('\n[U] 思考檔位、只吐圖的模型退到 images 端點')
+  const server = await startServer((req, res) => {
+    sseHead(res)
+    res.write(sseChunk('好'))
+    res.write('data: [DONE]\n\n')
+    res.end()
+  })
+  const conv = await chatStore.create()
+  for (const [level, want] of [['off', 'none'], ['xhigh', 'xhigh'], ['default', undefined]]) {
+    chat.setStore(makeStore({ chatApiUrl: server.url, chatThinking: level }))
+    await chat.send({ reqId: `u-${level}`, conversationId: conv.id, text: '嗨' }, makeSender())
+    ok(`思考「${level}」→ reasoning_effort=${want}`, server.state.lastBody?.reasoning_effort === want,
+      JSON.stringify(server.state.lastBody?.reasoning_effort))
+  }
+  await chatStore.remove(conv.id)
+  server.close()
+
+  /** @type {Array<{ url: string, body: any }>} */
+  const hits = []
+  const imgServer = await startServer((req, res, state) => {
+    hits.push({ url: req.url, body: state.lastBody })
+    if (req.url.endsWith('/chat/completions')) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end('{"error":{"message":"use /images"}}')
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ data: [{ b64_json: TINY_PNG.split(',')[1], media_type: 'image/png' }], usage: { completion_tokens: 5 } }))
+  })
+  chat.setStore(makeStore({
+    chatProviders: [{ id: 'p_img', name: '生圖', apiUrl: imgServer.url, apiKey: 'k', models: ['x/img'], imageModels: ['x/img'] }],
+    chatProviderId: 'p_img',
+    chatModelId: 'x/img',
+    chatThinking: 'high',
+    chatImageOptions: { aspectRatio: '16:9', resolution: 'auto' }
+  }))
+  const c2 = await chatStore.create()
+  const r1 = await chat.send({ reqId: 'u-img1', conversationId: c2.id, text: '一隻貓' }, makeSender())
+  ok('chat 被 404 拒絕後改走 images 成功', r1.ok, JSON.stringify(r1))
+  ok('chat 請求帶 image_config、不帶思考', hits[0]?.body?.image_config?.aspect_ratio === '16:9'
+    && !('reasoning_effort' in (hits[0]?.body || {})), JSON.stringify(hits[0]?.body))
+  ok('images 請求：prompt＋比例、auto 解析度不送', hits[1]?.url.endsWith('/images/generations')
+    && hits[1].body.prompt === '一隻貓' && hits[1].body.aspect_ratio === '16:9' && !('resolution' in hits[1].body),
+    JSON.stringify({ url: hits[1]?.url, ...hits[1]?.body }))
+  const reply = (await chatStore.get(c2.id)).messages.at(-1)
+  ok('生成圖存進助理訊息', reply.role === 'assistant' && /^img_/.test(reply.images?.[0] || ''), JSON.stringify(reply))
+  await chat.send({ reqId: 'u-img2', conversationId: c2.id, text: '改成藍色' }, makeSender())
+  const ref = hits[3]?.body?.input_references?.[0]?.image_url?.url || ''
+  ok('接著改：上一張生成圖當參考圖', ref.startsWith('data:image/png;base64,'), ref.slice(0, 40))
+  const r3 = await chat.send({ reqId: 'u-img3', conversationId: c2.id, text: '', images: [TINY_PNG] }, makeSender())
+  ok('只附圖沒文字 → 可讀錯誤', !r3.ok && /描述/.test(r3.error || ''), JSON.stringify(r3))
+  hits.length = 0
+  const c3 = await chatStore.create()
+  await chat.send({ reqId: 'u-img4', conversationId: c3.id, text: '透明背景的貓咪貼圖，直式，4K' }, makeSender())
+  const auto = hits[1]?.body || {}
+  ok('提示詞自適應：透明背景＋png、選單 16:9 優先於「直式」、4K 補空位', auto.background === 'transparent'
+    && auto.output_format === 'png' && auto.aspect_ratio === '16:9' && auto.resolution === '4K', JSON.stringify(auto))
+  const { resolveOptions } = require('../src/main/chat-imagegen')
+  const guess = resolveOptions({}, '畫一張 3:4 的海報')
+  ok('選單 auto 時從提示詞抓比例、沒寫就不送', guess.aspectRatio === '3:4' && guess.resolution === 'auto' && !guess.transparent
+    && resolveOptions({}, '10:30 的街景').aspectRatio === 'auto', JSON.stringify(guess))
+  await chatStore.remove(c3.id)
+  await chatStore.remove(c2.id)
+  imgServer.close()
+}
+
 async function main() {
   await app.whenReady()
   try {
@@ -1238,6 +1305,7 @@ async function main() {
     await caseR()
     await caseS()
     await caseT()
+    await caseU()
   } catch (e) {
     failed++
     console.error('\n未預期例外：', e)

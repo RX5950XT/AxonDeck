@@ -39,6 +39,7 @@ function fakeMonaco(counters) {
     _language: language,
     _disposed: false,
     getValue() { counters.getValue += 1; return this._value },
+    getValueLength() { return this._value.length },
     setValue(next) { counters.setValue += 1; this._value = next },
     getLanguageId() { return this._language },
     getFullModelRange() { return {} },
@@ -170,6 +171,32 @@ this.api = {
   assert.equal(counters.dispose, disposedBefore + 1, '只收沒留下來的那一顆')
   assert.equal(api.models.size, 1)
   ok('留下來的分頁不會被誤收')
+}
+
+// ── 切專案：最近的 model 留著重用，數量與大小有上限 ──
+{
+  const { api, counters } = loadMonacoModule()
+  const monaco = fakeMonaco(counters)
+  let attached = null
+  api.seedEditor({ getModel: () => attached, setModel: m => { attached = m }, updateOptions() {} })
+  const tab = { id: 'e:A:recent.txt', relPath: 'recent.txt', content: 'recent' }
+  api.showTab(monaco, tab)
+  const first = attached
+  api.disposeModelsExcept([], true)
+  api.showTab(monaco, tab)
+  assert.equal(attached, first, '切回最近專案必須重用原 model')
+  assert.equal(counters.createModel, 1)
+  for (let i = 0; i < 30; i++) api.showTab(monaco, { id: `e:${i}:file`, content: 'x' })
+  api.showTab(monaco, tab)
+  api.disposeModelsExcept([], true)
+  assert.equal(api.models.size, 24, '背景 model 快取必須有數量上限')
+  assert.equal(api.models.has(tab.id), true, '最近看過的檔案要保留')
+  assert.equal(api.models.has('e:0:file'), false, '最久沒看的先收')
+  api.showTab(monaco, { id: 'e:large:file', content: 'x'.repeat(17 * 1024 * 1024) })
+  api.disposeModelsExcept([], true)
+  assert.equal(api.models.size, 0, '背景快取超過 32 MiB 的文字資料必須釋放')
+  assert.equal(counters.getValue, 0, '修剪快取不可以複製整份檔案')
+  ok('跨專案重用最近 model，數量與文字大小都有上限')
 }
 
 // ── 改名／搬檔：diff 分頁的 model 也要跟著換鍵 ──

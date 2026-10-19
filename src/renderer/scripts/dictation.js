@@ -35,6 +35,8 @@ const MAX_MS = 20 * 60 * 1000
 
 let enabled = false
 let recording = false
+/** 每次開始／停止 +1：等麥克風期間已經放開熱鍵，那次開始就作廢 */
+let startSeq = 0
 let startedAt = 0
 /** @type {MediaStream | null} */
 let stream = null
@@ -206,7 +208,9 @@ function clearMaxTimer() {
 
 async function startRecording() {
   if (recording) return
+  const seq = ++startSeq
   if (!(await ensureMic())) return
+  if (seq !== startSeq) return
   chunks = []
   chunkSamples = 0
   startedAt = Date.now()
@@ -237,6 +241,7 @@ function mergeChunks() {
 }
 
 async function stopRecording() {
+  startSeq += 1
   if (!recording) return
   recording = false
   clearMaxTimer()

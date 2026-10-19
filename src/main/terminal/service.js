@@ -76,6 +76,7 @@ function getClient() {
  * @param {object} payload
  */
 function forward(event, payload) {
+  require('../script-launch').noteTerminal(event, payload)
   if (event !== 'terminal:status') { emit(event, payload); return }
   const { title, cwd, ...rest } = payload
   if (cwd) links.noteCwd(payload.id, cwd)
@@ -126,6 +127,31 @@ async function listSessions() {
   }))
 }
 
+/** 刪工作樹前只讀宿主快照；不掃 AI 紀錄，也不啟動新的宿主。 */
+async function listRunningUnder(req) {
+  const path = require('path').win32
+  if (typeof req?.path !== 'string' || !path.isAbsolute(req.path) || /[\0\r\n]/.test(req.path)) {
+    throw Object.assign(new Error('BAD_PATH'), { code: 'BAD_PATH', userMessage: '工作樹路徑不合法' })
+  }
+  const normalize = (value) => path.resolve(value).toLowerCase()
+  const root = normalize(req.path)
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep
+  const items = await store.list()
+  const states = await getClient().request('list')
+  if (states !== null && !Array.isArray(states)) {
+    throw Object.assign(new Error('HOST_STATE'), { code: 'HOST_STATE', userMessage: '讀不到終端機狀態，暫時無法移除工作樹' })
+  }
+  const byId = new Map(items.map(item => [item.id, item]))
+  return (states || []).filter(state => ['running', 'idle'].includes(state?.state)).flatMap(state => {
+    const meta = byId.get(state.id)
+    const cwd = state.cwd || meta?.cwd
+    if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return []
+    const target = normalize(cwd)
+    if (target !== root && !target.startsWith(prefix)) return []
+    return [{ id: state.id, title: meta?.renamed ? meta.title : state.title || meta?.title || '終端機', preset: meta?.preset || 'shell' }]
+  })
+}
+
 async function openSession(id, cols, rows) {
   const meta = await store.get(String(id || ''))
   if (!meta) {
@@ -150,7 +176,7 @@ async function openSession(id, cols, rows) {
     ? terminal.openSessionWithMeta({ ...safe }, cols, rows, editor, editorDir)
     : await getClient().request('open', { sessionId: safe.id, meta: safe, cols, rows, editor, editorDir }, true)
   if (snapshot?.cwd) links.noteCwd(meta.id, snapshot.cwd)
-  return snapshot
+  return { ...snapshot, hasHistory: existing || Boolean(safe.agentSessionId || safe.claudeSessionId) }
 }
 
 /**
@@ -243,7 +269,10 @@ async function createSession(req = {}) {
 async function conversation(id, cursor) {
   const meta = typeof id === 'string' ? await store.get(id) : null
   if (!meta) throw Object.assign(new Error('NO_SESSION'), { code: 'NO_SESSION', userMessage: '找不到這個工作階段' })
-  await agentResume.capture()
+  const knownAgent = meta.claudeSessionId && !meta.agentSessionId ? 'claude' : meta.preset
+  if (!agents.AGENTS[knownAgent]) return { sessionId: '', turns: [], nextCursor: null }
+  // 對話只在第一頁校正一次，後續分段不用重掃所有 CLI。
+  if (!cursor) await agentResume.capture()
   const current = await store.get(id)
   const sessionId = current?.agentSessionId || current?.claudeSessionId
   const agent = current?.claudeSessionId && !current.agentSessionId ? 'claude' : current?.preset
@@ -252,11 +281,29 @@ async function conversation(id, cursor) {
   return { sessionId, agent, agentLabel: page.agentLabel, turns: page.turns, nextCursor: page.nextCursor }
 }
 
+/** 分頁旁的上下文用量；跟 `conversation` 一樣只收終端機 ID，對話由已驗證的 metadata 取。 */
+async function contextUsage(id) {
+  const meta = typeof id === 'string' ? await store.get(id) : null
+  if (!meta) throw Object.assign(new Error('NO_SESSION'), { code: 'NO_SESSION', userMessage: '找不到這個工作階段' })
+  const sessionId = meta.agentSessionId || meta.claudeSessionId
+  const agent = meta.claudeSessionId && !meta.agentSessionId ? 'claude' : meta.preset
+  if (!sessionId) return null
+  try {
+    return await require('../workspace/agent-context').contextUsage(meta.cwd, agent, sessionId)
+  } catch (error) {
+    if (error?.code === 'SESSION_NOT_FOUND') return null
+    throw error
+  }
+}
+
 /** OpenCode 全螢幕的文字不在 xterm 儲存格裡。外掛讀這個檔，把內部捲軸移到該則。 */
 async function navJump(id, req) {
   const dir = require('node:path').join(require('electron').app.getPath('userData'), 'terminal-nav')
   return require('./nav-jump').requestJump(dir, String(id || ''), req)
 }
+
+/** 背景 agent 的系統通知要叫視窗、切功能頁，那些在 main 手上：由 main 注入（`agent-notify.js`） */
+let notifier = () => false
 
 module.exports = {
   setEmitter(fn) {
@@ -267,6 +314,10 @@ module.exports = {
     clipboardImage.configure(userData)
     if (IN_PROCESS) terminal.setEmitter((event, payload) => forward(event, payload))
   },
+  setNotifier(fn) {
+    notifier = typeof fn === 'function' ? fn : () => false
+  },
+  notifyAgent: (id, kind, title) => notifier(id, kind, title),
   // Ctrl+G 開的那個編輯分頁：renderer 只送得出 id，改哪個檔由 main 說了算。
   // 儲存只把內容留著，關掉分頁才真的送回終端機（見 editor-bridge.js）
   editorSave: (id, content) => editorBridge.save(id, content),
@@ -282,9 +333,11 @@ module.exports = {
   }),
   createSession,
   conversation,
+  contextUsage,
   navJump,
   renameSession: terminal.renameSession,
   listSessions,
+  listRunningUnder,
   hostState,
   restartHost,
   openSession,

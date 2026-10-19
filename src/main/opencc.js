@@ -7,11 +7,23 @@
 let toTwp = null
 let toTw = null
 
+/**
+ * 照 opencc-js 的 s2tw／s2twp 設定組（正規化 → 斷詞 → 簡轉繁 → 台灣用字），但前三步只建一份。
+ * 各叫一次 `Converter()` 會把最大的簡轉繁字典樹建兩份，主程序多吃約 40MB。
+ * 結果與 `Converter()` 逐字相同，`scripts/test-opencc.js` 對照驗證。
+ */
 function ensure() {
   if (toTwp) return
-  const OpenCC = require('opencc-js')
-  toTwp = OpenCC.Converter({ from: 'cn', to: 'twp' })
-  toTw = OpenCC.Converter({ from: 'cn', to: 'tw' })
+  const { Trie, Locale } = require('opencc-js')
+  const { s2tw, s2twp } = Locale.configs
+  const trie = (group) => { const t = new Trie(); t.loadDictGroup(group); return t }
+  const normalize = trie(s2twp.normalizationChain[0])
+  const segmenter = trie(s2twp.segmentation)
+  const st = trie(s2twp.conversionChain[0])
+  const chain = (last) => (text) => segmenter.segment(normalize.convert(text))
+    .map((segment) => last.convert(st.convert(segment))).join('')
+  toTw = chain(trie(s2tw.conversionChain[1]))
+  toTwp = chain(trie(s2twp.conversionChain[1]))
 }
 
 /**

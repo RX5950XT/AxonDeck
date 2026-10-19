@@ -67,9 +67,8 @@ function makeRequire() {
     newState: () => ({})
   }
   const scan = {
-    SCAN_WINDOW_DAYS: 90,
     scanSource: async () => ({ files: 0, scannedBytes: 0 }),
-    pruneCursors: () => {}
+    pruneCursors: () => ({})
   }
   const dbSources = {
     readOpencode: () => [],
@@ -78,6 +77,7 @@ function makeRequire() {
 
   return (request) => {
     if (request === 'os') return { homedir: () => 'C:/fake' }
+    if (request === 'fs') return require('fs')
     if (request === 'path') return path
     if (request === './pricing') return pricing
     if (request === './parsers') return parsers

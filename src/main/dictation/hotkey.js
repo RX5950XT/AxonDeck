@@ -335,7 +335,5 @@ module.exports = {
   detectDisplayServer,
   hotkeyLimitations,
   RIGHT_ALT,
-  ESCAPE,
   NEUTRALIZER,
-  LONG_PRESS_MS
 }

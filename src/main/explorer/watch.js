@@ -84,7 +84,8 @@ function startMany(list) {
     }
     watcher.on('error', () => {
       if (state.timer) clearTimeout(state.timer)
-      active.delete(key)
+      try { watcher.close() } catch { /* 已關 */ }
+      if (active.get(key) === state) active.delete(key)
     })
     watcher.on('change', () => {
       state.pending = true

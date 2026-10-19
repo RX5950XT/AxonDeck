@@ -268,7 +268,7 @@ impl State {
         items.push(E::separator());
         for (id,text,checked) in [(SHOT,"儲存畫面…\tS",false),(TOP,"視窗置頂\tCtrl+T",self.topmost),(LIST,"播放清單\tCtrl+L",self.show_queue),(HELP,"快捷鍵說明\tF1",self.show_help),(CLEAN_VIEW,"純畫面\tCtrl+H",self.clean_view)] { add(&mut items,id as usize,text,checked); }
         items.push(E::separator());
-        for (id,text) in [(214,"在檔案總管顯示"),(215,"重新開啟解碼器"),(213,"設為預設開啟程式…")] { add(&mut items,id,text,false); }
+        for (id,text) in [(214,"在 AxonDeck 檔案頁顯示"),(215,"重新開啟解碼器"),(213,"設為預設開啟程式…")] { add(&mut items,id,text,false); }
         let mut anchor = RECT::default(); unsafe { let _ = GetWindowRect(self.get(MORE),&mut anchor); }
         if !self.offscreen && !self.hidden { unsafe {
             let mut point = POINT::default(); let _ = GetCursorPos(&mut point);
@@ -292,7 +292,7 @@ impl State {
         match id {
             490..=494 => self.search_edit(id),
             213 => self.begin_defaults(),
-            214 => if let Some(file) = self.current() { let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}",file.display())).spawn(); },
+            214 => if let Some(file) = self.current() { registration::reveal(file); },
             215 => self.restart(),
             300..=363 => if let Some(track) = self.tracks.get((id-300) as usize) { self.command(json!(["set_property",if track["type"] == "sub" { "sid" } else { "aid" },track["id"]])); },
             400..=403 => { self.slide_interval = [1,3,5,10][(id-400) as usize]; self.notice(&format!("輪播間隔：{} 秒",self.slide_interval)); },

@@ -74,8 +74,14 @@ function paintPreview() {
   if (!state.file.markdown || $('edMain').dataset.mode === 'edit') return
   const box = $('edPreview')
   const top = box.scrollTop
-  box.replaceChildren(renderMarkdown(state.editor.getValue(), 0, state.file.imageBase))
+  box.replaceChildren(renderMarkdown(state.editor.getValue(), 0, state.file.imageBase, { html: true, openLink }))
   box.scrollTop = top
+}
+
+/** 預覽裡的相對路徑連結：交給 main 照這個檔案的位置解，另開一扇編輯視窗 */
+async function openLink(link) {
+  const result = await api.openLink(link)
+  if (!result.ok) flash(result.error.message, 'error')
 }
 
 function schedulePreview() {

@@ -167,13 +167,11 @@ function runTask(key) { return runner.run(key) }
 function taskStatus(key) { return typeof key === 'string' && Object.hasOwn(UPDATERS, key) ? runner.status(key) : { phase: 'failed', code: 'INVALID_TOOL', message: '不支援這個工具' } }
 
 module.exports = {
-  TOOLS,
   parseVersion,
   compareVersions,
   runVersion,
   fetchLatest,
   fetchAgyLatest,
-  checkTool,
   checkAll,
   runTask,
   taskStatus

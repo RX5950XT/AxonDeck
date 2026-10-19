@@ -12,6 +12,7 @@ function registerPdfTranslateIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('pdfTranslate:cancel', (event, jobId) => invoke(event, () => service.cancel(jobId)))
   ipcMain.handle('pdfTranslate:status', (event) => invoke(event, () => service.status()))
   ipcMain.handle('pdfTranslate:save', (event, jobId) => invoke(event, () => service.save(jobId)))
+  ipcMain.handle('pdfTranslate:clearCache', (event) => invoke(event, () => service.clearCache()))
 }
 
 module.exports = { registerPdfTranslateIpc }

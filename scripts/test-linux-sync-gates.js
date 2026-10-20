@@ -46,7 +46,12 @@ function miroxen() {
   }
   const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')
   assert.match(main, /const MIROXEN_UNSUPPORTED = 'Linux 版暫不支援「生成圖片影像」/)
-  assert.match(main, /if \(process\.platform === 'win32'\) \{\n\s+return \{\n\s+status: \(options\) => loadMiroxen\(\)\.status\(options\)/, 'Windows 照舊走 Miroxen 模組')
+  assert.match(main, /const MIROXEN_SUPPORTED = process\.platform === 'win32'/)
+  assert.match(main, /status: async \(options\) => MIROXEN_SUPPORTED\n\s+\? loadMiroxen\(\)\.status\(options\)/, 'Windows 照舊走 Miroxen 模組')
+  assert.match(main, /if \(!MIROXEN_SUPPORTED\) throw miroxenUnsupported\(\)\n\s+return loadMiroxen\(\)/, '其他動作在非 Windows 直接回中文錯誤')
+  for (const name of ['start', 'openOutput', 'api', 'setLan']) {
+    assert.match(main, new RegExp(`${name}: async \\([^)]*\\) => \\(await loadMiroxenChecked\\(\\)\\)\\.${name}\\(`), `${name} 要先過平台檢查`)
+  }
   const page = fs.readFileSync(path.join(root, 'src/renderer/scripts/imagegen-page.js'), 'utf8')
   assert.match(page, /status\.supported === false/, '生成圖片影像頁顯示平台說明')
 }

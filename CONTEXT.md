@@ -176,7 +176,7 @@ native/
 - 內建 Grok、Codex、Ollama Cloud、OpenCode Go、Command Code、OpenRouter 可選上游格式，非 Anthropic 走本機閘道轉換；Codex／Grok 可在 App 登入或沿用 CLI。
 - 轉換閘道跟著供應商自動開關（沒有手動開關）；AGY 反代執行中會自動多一張「Antigravity」供應商（直連反代、位址金鑰自動帶入，啟用時反代沒開會自動開）。
 - 入口：`refreshProviders`（額度條抽屜）、`refreshCcTools`（MCP 與 Skills 分頁：五家共用最上面一個切換，`.agents` 沒有 MCP 就收起 MCP 那塊）、`refreshVersionsSection`（設定頁 CLI）。訊息寫進看得到的那塊（`.cc-page-error`／`.cc-page-status`），彈窗開著寫彈窗。
-- AGY 反代在設定頁 `#set-agy`（`agy-page.js` 照舊管自己的輪詢，只在設定頁該區看得到時輪詢）。AGY 模型映射先比對即時型錄，再退回靜態表。
+- AGY 反代在設定頁 `#set-agy`（`agy-page.js` 照舊管自己的輪詢，只在設定頁該區看得到時輪詢）。AGY 模型映射先比對即時型錄，再退回靜態表；型錄列著但實測 404 的放 `RETIRED_MODELS`（`catalog.parseCatalog` 標成淘汰並導到 3.8）。上游額度 Gemini 與 Claude／GPT 各一池，5 小時＋每週兩道，依 token 成本比例扣；Pro 方案的 Gemini 4 Argon 另一池只有每週（`antigravity-argon-weekly`）。上游看 HTTP User-Agent 給模型：`USER_AGENT` 必須報 `antigravity/cli/x.y.z`，否則型錄沒有 Argon、生成回 404。
 - 供應商彈窗：金鑰／登入／模型在外面，名稱、上游格式、1M 收在「進階設定」（自訂預設展開）；多一顆「儲存並啟用」。
 - 模型清單每天自動同步一次（`modelsCheckedAt`），下拉依 AI lab 分組（`cc-model-groups.js`）；Codex 查詢的 `client_version` 跟隨已安裝 CLI。
 - 寫使用者設定檔：`claude-settings.readJsonFile` 先去 BOM（PowerShell 5.1／記事本存的檔）；Codex／Grok `config.toml` 由 `toml-edit.js` 只換有變動的 `[mcp_servers.<id>]` 區塊（含子表），註解／順序／CRLF／BOM 原樣保留，切不安全（inline table、dotted key、拆散的區塊）才退回整份重寫；寫前重解析比對，非 MCP 鍵不准變。

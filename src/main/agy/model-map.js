@@ -10,74 +10,101 @@
 
 /** 上游實際存在的模型；也是 /v1/models 回傳的清單 */
 const UPSTREAM_MODELS = Object.freeze([
-  // 取自上游 fetchAvailableModels（只留對話可用、未淘汰的），不是手寫的。
+  // 取自上游 fetchAvailableModels（只留對話可用、未淘汰的），不是手寫的。2026-10-19 Google AI Pro 實測。
   // 這份會過期——`npx electron scripts/probe-agy-upstream.js` 會列出當下的真相。
-  'gemini-3.7-flash-high',
-  'gemini-3.7-flash-medium',
-  'gemini-3.7-flash-low',
-  'gemini-3.7-flash-tiered',
-  'gemini-3.6-flash-high',
-  'gemini-3.6-flash-medium',
-  'gemini-3.6-flash-low',
-  'gemini-3.6-flash-tiered',
+  'claude-opus-5-5-high',
+  'claude-opus-5-5-medium',
+  'claude-opus-5-5-low',
+  'claude-sonnet-5-5-high',
+  'claude-sonnet-5-5-medium',
+  'claude-sonnet-5-5-low',
+  'gpt-oss-120b-medium',
+  // Pro 方案是獨立每週額度，Ultra 併在 Gemini 池；要報 agy CLI 的 User-Agent 才給（見 usage/antigravity.js）
+  'gemini-4-argon-high',
+  'gemini-4-argon-medium',
+  'gemini-4-argon-low',
+  'gemini-3.8-flash-high',
+  'gemini-3.8-flash-medium',
+  'gemini-3.8-flash-low',
+  'gemini-3.8-flash-tiered',
   'gemini-3.5-flash-low',
   'gemini-3.5-flash-extra-low',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-pro-low',
   'gemini-3-flash',
   'gemini-3-flash-agent',
-  'gemini-pro-agent',
+  'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-thinking',
-  'gemini-2.5-flash-lite',
-  'claude-sonnet-4-6',
-  'claude-opus-4-6-thinking',
-  'gpt-oss-120b-medium'
+  'gemini-2.5-flash-lite'
 ])
 
+/** 最強、實測可用的 Gemini；pro 級名字（上游的 pro 都下架了）也導到這裡 */
+const BEST_GEMINI = 'gemini-3.8-flash-high'
+
+/**
+ * 型錄還列著、生成卻回 404 的模型（2026-10-19 daily／sandbox 實測），→ 同檔位的 3.8。
+ * 上游自己的 deprecatedModelIds 把 3.1-pro-high 導到 gemini-pro-agent，但它也 404 了，
+ * 所以這張表優先於上游的替代對應（`catalog.parseCatalog` 會套上）。
+ */
+const RETIRED_MODELS = Object.freeze({
+  'gemini-3.7-flash-high': 'gemini-3.8-flash-high',
+  'gemini-3.7-flash-medium': 'gemini-3.8-flash-medium',
+  'gemini-3.7-flash-low': 'gemini-3.8-flash-low',
+  'gemini-3.7-flash-tiered': 'gemini-3.8-flash-tiered',
+  'gemini-3.6-flash-high': 'gemini-3.8-flash-high',
+  'gemini-3.6-flash-medium': 'gemini-3.8-flash-medium',
+  'gemini-3.6-flash-low': 'gemini-3.8-flash-low',
+  'gemini-3.6-flash-tiered': 'gemini-3.8-flash-tiered',
+  'gemini-3.1-pro-high': BEST_GEMINI,
+  'gemini-3.1-pro-low': BEST_GEMINI,
+  'gemini-pro-agent': BEST_GEMINI
+})
 
 /**
  * 未知模型的退路，必須是實測 200 的模型。
  * 原本是 gemini-3-pro-preview，但它回 404 Requested entity was not found，
  * 等於「不認得的模型一律掛掉」。（驗證：scripts/probe-agy-upstream.js）
  */
-const DEFAULT_MODEL = 'gemini-3.7-flash-medium'
+const DEFAULT_MODEL = 'gemini-3.8-flash-medium'
 
-/** 精確映射（移植自 Antigravity-Manager 的 model_mapping.rs） */
+const SONNET = 'claude-sonnet-5-5-medium'
+const OPUS = 'claude-opus-5-5-medium'
+
+/** 精確映射（移植自 Antigravity-Manager 的 model_mapping.rs）；型錄拿不到時才用 */
 const EXACT_MAP = Object.freeze({
-  // Claude Sonnet
-  'claude-sonnet-4-6': 'claude-sonnet-4-6',
-  // claude-sonnet-4-6-thinking 上游回 404（sandbox／daily 皆然），一律導到非 thinking 版；
-  // claude-opus-4-6-thinking 則實測可用，保留。
-  'claude-sonnet-4-6-thinking': 'claude-sonnet-4-6',
-  'claude-sonnet-4-5': 'claude-sonnet-4-6',
-  'claude-sonnet-4-5-thinking': 'claude-sonnet-4-6',
-  'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-4-6',
-  // Claude Opus
-  'claude-opus-4': 'claude-opus-4-6-thinking',
-  'claude-opus-4-5': 'claude-opus-4-6-thinking',
-  'claude-opus-4-5-thinking': 'claude-opus-4-6-thinking',
-  'claude-opus-4-5-20251101': 'claude-opus-4-6-thinking',
-  'claude-opus-4-6': 'claude-opus-4-6-thinking',
-  'claude-opus-4-6-thinking': 'claude-opus-4-6-thinking',
+  ...RETIRED_MODELS,
+  // Claude：上游只剩 5.5 世代（low／medium／high 三檔，沒有 -thinking 變體），
+  // 沒指定檔位給 medium，指名 thinking 的給 high
+  'claude-sonnet-4-6': SONNET,
+  'claude-sonnet-4-6-thinking': 'claude-sonnet-5-5-high',
+  'claude-sonnet-4-5': SONNET,
+  'claude-sonnet-4-5-thinking': 'claude-sonnet-5-5-high',
+  'claude-sonnet-4-5-20250929': SONNET,
+  'claude-3-5-sonnet-20241022': SONNET,
+  'claude-3-5-sonnet-20240620': SONNET,
+  'claude-opus-4': OPUS,
+  'claude-opus-4-5': OPUS,
+  'claude-opus-4-5-thinking': 'claude-opus-5-5-high',
+  'claude-opus-4-5-20251101': OPUS,
+  'claude-opus-4-6': OPUS,
+  'claude-opus-4-6-thinking': 'claude-opus-5-5-high',
+  'claude-sonnet-5-5': SONNET,
+  'claude-opus-5-5': OPUS,
+  'gemini-4-argon': 'gemini-4-argon-medium',
   // Claude Haiku（上游沒有對應的小模型，一律走 Sonnet）
-  'claude-haiku-4': 'claude-sonnet-4-6',
-  'claude-haiku-4-5-20251001': 'claude-sonnet-4-6',
-  'claude-3-haiku-20240307': 'claude-sonnet-4-6',
-  // Gemini
-  // pro 級一律導到 gemini-pro-agent：*-pro-preview 兩個都回 404、gemini-3-pro-low 回 500，
-  // 實測只有 gemini-pro-agent／gemini-3.1-pro-low／gemini-3-flash 這三個能用。
-  // （模型可用性隨帳號方案而異，這裡以 Google AI Pro 實測為準）
-  'gemini-3.1-pro': 'gemini-pro-agent',
-  'gemini-3.1-pro-high': 'gemini-pro-agent',
-  'gemini-3-pro': 'gemini-pro-agent',
-  'gemini-3-pro-high': 'gemini-pro-agent',
+  'claude-haiku-4': SONNET,
+  'claude-haiku-4-5-20251001': SONNET,
+  'claude-3-haiku-20240307': SONNET,
+  // Gemini：pro 級全部下架（*-pro-preview、3-pro-low、3.1-pro-*、gemini-pro-agent 都 404），
+  // 2.5-pro 雖在型錄但常回 503 沒容量 → 導到最強的 flash。
+  'gemini-3.1-pro': BEST_GEMINI,
+  'gemini-3-pro': BEST_GEMINI,
+  'gemini-3-pro-high': BEST_GEMINI,
   // gemini-3.1-flash 上游沒有這個 id（只有 -lite），導到最新世代的 flash。
   // 注意不要把 gemini-3-flash 寫進來：它是真實存在的上游模型，
   // 使用者明確指名時就該用它，映射表只負責翻譯「上游沒有的名字」。
-  'gemini-3.1-flash': 'gemini-3.7-flash-medium'
+  'gemini-3.1-flash': DEFAULT_MODEL
 })
 
 /**
@@ -85,24 +112,24 @@ const EXACT_MAP = Object.freeze({
  * 順序有意義：長前綴要排在短前綴之前（`gemini-2.5-flash` 必須先於 `gemini-2.5`）。
  */
 const PREFIX_RULES = Object.freeze([
-  ['claude-3-5-sonnet', 'claude-sonnet-4-6'],
-  ['claude-3-7-sonnet', 'claude-sonnet-4-6'],
-  ['claude-sonnet', 'claude-sonnet-4-6'],
-  ['claude-opus', 'claude-opus-4-6-thinking'],
-  ['claude-haiku', 'claude-sonnet-4-6'],
-  ['claude-3', 'claude-sonnet-4-6'],
-  ['gemini-1.5-flash', 'gemini-3.7-flash-medium'],
-  ['gemini-2.0-flash', 'gemini-3.7-flash-medium'],
-  ['gemini-2.5-flash', 'gemini-3.7-flash-medium'],
-  ['gemini-1.5-pro', 'gemini-pro-agent'],
-  ['gemini-2.0-pro', 'gemini-pro-agent'],
-  ['gemini-2.5-pro', 'gemini-pro-agent'],
-  ['gpt-5', 'gemini-pro-agent'],
-  ['gpt-4', 'gemini-pro-agent'],
-  ['gpt-3.5', 'gemini-3.7-flash-low'],
-  ['o1', 'gemini-pro-agent'],
-  ['o3', 'gemini-pro-agent'],
-  ['o4', 'gemini-pro-agent']
+  ['claude-3-5-sonnet', SONNET],
+  ['claude-3-7-sonnet', SONNET],
+  ['claude-sonnet', SONNET],
+  ['claude-opus', OPUS],
+  ['claude-haiku', SONNET],
+  ['claude-3', SONNET],
+  ['gemini-1.5-flash', DEFAULT_MODEL],
+  ['gemini-2.0-flash', DEFAULT_MODEL],
+  ['gemini-2.5-flash', DEFAULT_MODEL],
+  ['gemini-1.5-pro', BEST_GEMINI],
+  ['gemini-2.0-pro', BEST_GEMINI],
+  ['gemini-2.5-pro', BEST_GEMINI],
+  ['gpt-5', BEST_GEMINI],
+  ['gpt-4', BEST_GEMINI],
+  ['gpt-3.5', 'gemini-3.8-flash-low'],
+  ['o1', BEST_GEMINI],
+  ['o3', BEST_GEMINI],
+  ['o4', BEST_GEMINI]
 ])
 
 /** 上游會拒絕的字元；擋掉路徑穿越與 header 注入 */
@@ -151,7 +178,10 @@ function pickClaude(model, usable) {
     const newest = same.reduce((best, row) => (compareVersion(row.shape.version, best) > 0 ? row.shape.version : best), [])
     const target = same.some((row) => compareVersion(row.shape.version, want.version) === 0) ? want.version : newest
     const pool = same.filter((row) => compareVersion(row.shape.version, target) === 0)
-    return (pool.find((row) => row.id.endsWith('-thinking') === thinking) || pool[0]).id
+    // 5.5 起沒有 -thinking 變體，改成 low／medium／high：沒指定給 medium，指名 thinking 給 high
+    const prefer = thinking ? ['-thinking', '-high'] : ['-medium']
+    const hit = prefer.map((suffix) => pool.find((row) => row.id.endsWith(suffix))).find(Boolean)
+    return (hit || pool.find((row) => !row.id.endsWith('-thinking')) || pool[0]).id
   }
   return ''
 }
@@ -239,7 +269,8 @@ const REJECTS_ZERO_BUDGET = Object.freeze(new Set([
   'gemini-3.6-flash-medium',
   'gemini-3.6-flash-low',
   'gemini-3.6-flash-tiered',
-  'gpt-oss-120b-medium'
+  // 2026-10-19 實測：gemini-3-flash 對 budget 0 回 "invalid argument"；gpt-oss 已改成接受
+  'gemini-3-flash'
 ]))
 
 /** 能不能對這個模型送 thinkingBudget: 0（送得成就能省下 thinking token） */
@@ -250,6 +281,7 @@ function allowsZeroThinkingBudget(mapped) {
 module.exports = {
   allowsZeroThinkingBudget,
   REJECTS_ZERO_BUDGET,
+  RETIRED_MODELS,
   DEFAULT_MODEL,
   UPSTREAM_MODELS,
   listModels,

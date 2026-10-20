@@ -11,6 +11,7 @@
 import { electronAPI, showToast, setChatPaneMode, getChatPaneMode } from './app.js'
 import { createBrowserActions } from './browser-actions.js'
 import { openChatMenu } from './chat-menu.js'
+import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
 
 const STORE_KEY = 'browserTabs'
 const PIN_KEY = 'browserSidebarPinned'
@@ -42,7 +43,7 @@ const isNewTab = (url) => url === NEWTAB_URL
 function safeUrl(value) {
   const text = String(value || '').trim()
   if (!text) return ''
-  if (isNewTab(text)) return text
+  if (isInternalBrowserUrl(text)) return new URL(text).href
   try {
     const u = new URL(/^[a-z][\w+.-]*:/i.test(text) ? text : `https://${text}`)
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : ''
@@ -55,7 +56,7 @@ function safeUrl(value) {
 function urlOrSearch(value) {
   const text = String(value || '').trim()
   if (!text) return ''
-  const looksLikeUrl = /^https?:\/\//i.test(text) || (!/\s/.test(text) && /^(localhost|[\w-]+(\.[\w-]+)+|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#].*)?$/i.test(text))
+  const looksLikeUrl = isInternalBrowserUrl(text) || /^https?:\/\//i.test(text) || (!/\s/.test(text) && /^(localhost|[\w-]+(\.[\w-]+)+|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#].*)?$/i.test(text))
   return looksLikeUrl ? safeUrl(text) : `https://www.google.com/search?udm=50&aep=11&q=${encodeURIComponent(text)}`
 }
 
@@ -199,7 +200,7 @@ function ensureGuest(tab) {
   const id = tab.id
   const onNavigate = (event) => {
     const url = String(event.url || '')
-    if (!tabOf(id) || !(/^https?:/i.test(url) || isNewTab(url))) return
+    if (!tabOf(id) || !(/^https?:/i.test(url) || isInternalBrowserUrl(url))) return
     patchTab(id, { url })
     if (id === activeId) {
       const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))

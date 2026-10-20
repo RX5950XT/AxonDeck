@@ -1,7 +1,9 @@
 import { adminCopy } from './terminal-admin-copy.js'
-import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
+import { electronAPI, showToast, setChatPaneMode, setSidebarMode, openInFilesPage } from './app.js'
 import { createListReorder } from './list-reorder.js'
-import { askConfirm, askInput, showAlert } from './app-dialog.js'
+import { mergeVisibleOrder } from './usage-reorder.js'
+import { createProjectFolders } from './ws-project-folders.js'
+import { askConfirm, showAlert } from './app-dialog.js'
 import { terminalStatuses } from './ws-terminal-status.js'
 import { toolIcon, terminalStateIcon } from './ws-tool-icons.js'
 import {
@@ -15,6 +17,7 @@ import {
   forgetProjectBrowsers,
   newTerminalWithCommand,
   newShellTerminal,
+  newPresetTerminal,
   closeActiveTab,
   cycleTab,
   retargetTabs,
@@ -29,6 +32,8 @@ import { showMenu } from './ws-menu.js'
 import { editInline, isInlineEditing, cancelInlineEdit } from './inline-edit.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
 import { openQuickOpen, isOpen as isQuickOpenOpen } from './ws-quickopen.js'
+import { createWorktreeFlow } from './ws-worktree-flow.js'
+import { createWorkspaceCommands, workspaceCommandItems } from './ws-commands.js'
 
 /**
  * 專案工作區：左側欄的「專案」清單 ＋ 右側欄的三個面板（檔案總管／Git／AI 記錄）。
@@ -86,6 +91,9 @@ let watchTimer = 0
 /** @type {Record<string, HTMLElement | null>} */
 const el = {}
 
+let worktreeFlow
+const projectFolders = createProjectFolders({ getList: () => el.list, getProjects: () => projects, call, reload: reloadList })
+
 // ===== 共用 =====
 
 /**
@@ -119,15 +127,15 @@ function isCurrentProject(project, seq = projectSeq) {
 
 function renderList() {
   if (!el.list) return
-  el.list.replaceChildren()
-  if (!projects.length) {
+  if (el.list.querySelector('.chat-list-rename')) return
+  const nodes = projectFolders.render(projects, buildListItem)
+  if (!nodes.length) {
     const empty = document.createElement('p')
     empty.className = 'chat-empty'
     empty.textContent = '拖入資料夾加入'
-    el.list.appendChild(empty)
-    return
+    nodes.push(empty)
   }
-  for (const item of projects) el.list.appendChild(buildListItem(item))
+  el.list.replaceChildren(...nodes)
   paintProjectStatuses()
 }
 
@@ -323,6 +331,7 @@ function startRename(row, item) {
     if (done) return
     done = true
     const next = input.value.trim()
+    input.replaceWith(title)
     if (commit && next && next !== item.name) {
       try {
         await call(electronAPI.workspace.renameProject(item.id, next), '改名失敗')
@@ -333,6 +342,7 @@ function startRename(row, item) {
     } else {
       input.replaceWith(title)
     }
+    renderList()
   }
   input.addEventListener('keydown', (event) => {
     if (event.isComposing || event.keyCode === 229) return
@@ -361,6 +371,7 @@ function showProjectMenu(at, row, item) {
     { label: '在此開啟終端機', onSelect: () => void launchProjectTerminal(item, false) },
     ...(adminCopy().supported ? [{ label: adminCopy().context, onSelect: () => void launchProjectTerminal(item, true) }] : []),
     { label: '重新命名', onSelect: () => startRename(row, item) },
+    { label: '移至資料夾…', onSelect: () => projectFolders.moveMenu(row, item, at) },
     {
       label: '從清單移除…',
       danger: true,
@@ -402,19 +413,28 @@ const reorder = createListReorder({
   getList: () => el.list,
   itemSelector: '.proj-list-item',
   ignoreSelector: '.chat-list-btn, .chat-list-rename',
-  onCommit: () => void persistOrder().catch(() => {})
+  onCommit: () => void persistOrder().catch(() => { void reloadList().catch(() => {}) }),
+  dropZone: (x, y) => {
+    const head = document.elementFromPoint(x, y)?.closest('.chat-folder-head, .chat-root-head')
+    return head && el.list?.contains(head) ? head.nextElementSibling : null
+  }
 })
 
 /** DOM 上的順序才是真相（剛拖完還沒重畫） */
 async function persistOrder() {
   if (!el.list) return
-  const ids = [...el.list.querySelectorAll('.proj-list-item')]
-    .map((node) => /** @type {HTMLElement} */ (node).dataset.id)
-  projects = await call(electronAPI.workspace.reorderProjects(ids), '排序沒有存起來')
+  const shown = [...el.list.querySelectorAll('.proj-list-item')]
+  const folderOf = new Map(shown.map((node) => [node.dataset.id, node.closest('.proj-folder')?.dataset.folderId || '']))
+  const ids = mergeVisibleOrder(projects.map((p) => p.id), shown.map((node) => node.dataset.id))
+  projects = await call(electronAPI.workspace.reorderProjects(ids.map((id) => (
+    folderOf.has(id) ? { id, folderId: folderOf.get(id) } : id
+  ))), '排序沒有存起來')
+  renderList()
 }
 
 async function reloadList() {
   projects = await call(electronAPI.workspace.listProjects(), '讀不到專案清單')
+  await projectFolders.load()
   if (currentId && !projects.some((item) => item.id === currentId)) {
     currentId = ''
     // 沒有專案了就把監看收掉（那個 watcher 掛在一個已經不在清單裡的資料夾上）
@@ -2082,29 +2102,31 @@ function gitRow(project, file, side, ambiguous) {
 
   const git = electronAPI.workspace
   const refresh = () => void renderGit()
+  // main 失敗回 { ok: false } 不會 throw：走 call() 才會跳出原因，不然按了沒反應也沒訊息
+  const runGit = (promise, message) => void call(promise, message).catch(() => {}).finally(refresh)
   const untracked = side === 'untracked'
   if (side === 'conflict') {
     // 衝突檔案只給一顆「解決了」＝`git add`。捨棄不放在這裡：
     // 合併到一半按下去救不回來，而且那不是這一列該做的事
     row.append(act('解決了', '把這個檔案標成已解決（git add）', (btn) => {
       btn.disabled = true
-      void git.gitStage(project.id, file.path).then(refresh)
+      runGit(git.gitStage(project.id, file.path), '標成已解決失敗')
     }))
   } else if (side === 'staged') {
     row.append(act('取消', '取消暫存', (btn) => {
       btn.disabled = true
-      void git.gitUnstage(project.id, file.path).then(refresh)
+      runGit(git.gitUnstage(project.id, file.path), '取消暫存失敗')
     }))
   } else {
     row.append(
       act('暫存', '加入暫存區', (btn) => {
         btn.disabled = true
-        void git.gitStage(project.id, file.path).then(refresh)
+        runGit(git.gitStage(project.id, file.path), '暫存失敗')
       }),
       act(untracked ? '刪' : '捨棄', untracked ? '刪掉這個未追蹤的檔案' : '退回上一次提交的版本（救不回來）', (btn) => {
         armDiscard(btn, () => {
           btn.disabled = true
-          void git.gitDiscard(project.id, file.path).then(refresh)
+          runGit(git.gitDiscard(project.id, file.path), '捨棄失敗')
         })
       })
     )
@@ -2168,7 +2190,6 @@ async function renderGit() {
   // 最後都會回到這裡重畫，所以共用快取的失效點放這一個就夠。
   invalidateGitStatus()
   const seq = projectSeq
-  if (el.gitHub) el.gitHub.disabled = true
   let status
   try {
     status = await call(electronAPI.workspace.gitStatus(project.id), '讀不到 Git 狀態')
@@ -2435,6 +2456,7 @@ async function renderWorktrees() {
       del.addEventListener('click', () => void removeWorktree(project, tree))
       row.appendChild(del)
     }
+    worktreeFlow.mountMenu(row, project, tree)
     el.worktrees.appendChild(row)
   }
 }
@@ -2444,27 +2466,7 @@ async function renderWorktrees() {
  * renderer 送得了路徑就等於能在任意位置建東西。
  */
 async function addWorktree() {
-  const project = currentProject()
-  if (!project) return
-  const name = await askInput('新工作樹的分支名稱', { desc: '同時也是資料夾名。', confirmText: '下一步' })
-  if (name === null) return
-  const base = await askInput('從哪個分支或 commit 開？', {
-    desc: '留空＝目前的 HEAD。',
-    placeholder: 'HEAD',
-    confirmText: '建立'
-  })
-  // 取消＝整件事不做，不是「留空用 HEAD」
-  if (base === null) return
-  try {
-    const made = await call(electronAPI.workspace.worktreeAdd(project.id, name, base.trim()), '建不出工作樹')
-    showToast(`已建立 ${made.branch}`)
-    await reloadList()
-    // main 會把新專案的 id 一起回來，直接切過去（不必再重載一次去猜是哪一個）
-    if (made?.projectId) await selectProject(made.projectId)
-    else await renderWorktrees()
-  } catch {
-    // call() 已經提示過了
-  }
+  return worktreeFlow.add()
 }
 
 /**
@@ -2479,13 +2481,20 @@ async function removeWorktree(project, tree) {
   } catch {
     return
   }
+  if (state.runningTerminals?.length) {
+    await showAlert('工作樹仍有終端機在使用', {
+      desc: `請先關閉這些終端機，再移除工作樹：${NEWLINE}${state.runningTerminals.map((item) => `${item.title}（${item.preset}）`).join(NEWLINE)}`
+    })
+    return
+  }
   if (!state.removable) {
     const detail = state.samples?.length ? `${NEWLINE}${state.samples.join(NEWLINE)}` : ''
     await showAlert('移不掉這棵工作樹', { desc: `${state.reason}${detail}` })
     return
   }
   const yes = await askConfirm(`確定要移除工作樹 ${tree.branch || tree.path} 嗎？`, {
-    desc: '裡面沒有未提交的變更，移掉之後那個資料夾就不見了。',
+    desc: '裡面沒有未提交的變更，移除後資料夾會消失，分支與提交仍會保留。' +
+      (Number.isSafeInteger(state.unpushed) ? `${NEWLINE}這個分支還有 ${state.unpushed} 個提交沒推上遠端。` : ''),
     confirmText: '移除',
     danger: true
   })
@@ -2578,7 +2587,9 @@ function gitGroup(files, side, project, host, ambiguous) {
       btn.disabled = true
       // 一個一個送：main 的 stage/unstage 只吃單一相對路徑，而且失敗的那個不該
       // 把整組拖下水（`allSettled` 不是 `all`）
-      await Promise.allSettled(files.map((file) => bulk.run(project.id, file.path)))
+      const results = await Promise.allSettled(files.map((file) => bulk.run(project.id, file.path)))
+      const failed = results.filter((r) => r.status === 'rejected' || !r.value?.ok).length
+      if (failed) showToast(`${failed} 個檔案沒處理成功`, 'error')
       void renderGit()
     })
     head.appendChild(btn)
@@ -3066,10 +3077,29 @@ function setGitSection(btn, body, open) {
   body.hidden = !open
 }
 
-export function initWorkspacePage() {
+function initWorkspacePage() {
   if (initialized) return
   initialized = true
   initWsTabs()
+
+  worktreeFlow = createWorktreeFlow({
+    api: electronAPI.workspace, currentProject, reloadList, selectProject,
+    getPresets: async () => (await call(electronAPI.terminal.catalog(), '讀不到終端機種類')).presets,
+    runSetup: runInTerminal, newAgent: newPresetTerminal
+  })
+
+  createWorkspaceCommands({
+    isActive: () => Boolean(document.getElementById('termMain')?.offsetParent) && !document.querySelector('dialog[open]'),
+    getCommands: async () => {
+      const { presets } = await call(electronAPI.terminal.catalog(), '讀不到終端機種類')
+      return workspaceCommandItems({
+        projects, project: currentProject(), sessions: terminalStatuses(), presets,
+        selectProject, focusSession, newAgent: newPresetTerminal, addWorktree, setPanel, setFilesView,
+        quickOpen: (project) => openQuickOpen(project, (rel) => void openEditorTab(project, rel))
+      })
+    }
+  })
+  worktreeFlow.mountMenu(document.getElementById('wsWorktreeAddBtn')?.parentElement, currentProject)
 
   el.list = document.getElementById('projList')
   el.newBtn = document.getElementById('projNewBtn')
@@ -3099,6 +3129,7 @@ export function initWorkspacePage() {
   initGitSections()
   document.addEventListener('ws:terminal-status', paintProjectStatuses)
   el.newBtn?.addEventListener('click', () => void addProject())
+  document.getElementById('projNewFolderBtn')?.addEventListener('click', () => void projectFolders.create())
   initProjectDrop()
   document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
     btn.addEventListener('click', () => setPanel(/** @type {HTMLElement} */ (btn).dataset.panel))
@@ -3164,6 +3195,13 @@ export function initWorkspacePage() {
   document.addEventListener('ws:terminal-idle', () => {
     if (panel === 'git' && currentProject()) void renderGit()
   })
+  // 點了「終端機完成了／等你回答」的系統通知 → 切回那顆終端機的專案與分頁
+  electronAPI.terminal.onReveal?.(({ id }) => {
+    const item = terminalStatuses().find((row) => row.id === id)
+    if (!item) return
+    setSidebarMode('projects')
+    void focusSession(item)
+  })
   el.searchInput?.addEventListener('input', queueSearch)
   el.searchInput?.addEventListener('keydown', (event) => {
     if (event.isComposing || event.keyCode === 229) return // 輸入法選字的 Enter 不算
@@ -3189,7 +3227,11 @@ export async function openUrlInProject(url, projectId = '') {
   if (projectId && projectId !== currentId) {
     initWorkspacePage()
     await reloadList()
-    if (projects.some((item) => item.id === projectId && !item.missing)) await selectProject(projectId)
+    if (!projects.some((item) => item.id === projectId && !item.missing)) {
+      showToast('原專案已移除或找不到，無法開啟服務頁面', 'error')
+      return
+    }
+    await selectProject(projectId)
   }
   if (!currentId && !(await restoreLastProject())) {
     const first = projects.find((item) => !item.missing)

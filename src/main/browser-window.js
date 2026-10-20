@@ -100,7 +100,7 @@ async function snapshot(guest) {
  * @param {Electron.WebContents | null} [guest] 原分頁的 webview：有給就把歷史與狀態一起搬過去
  * @param {number} [slot] 原分頁在 Browser 模式的位置代號：收回時 renderer 靠它放回原處
  */
-async function open(url, title = '', guest = null, slot = 0) {
+async function open(url, title = '', guest = null, slot = 0, compatible = false) {
   const state = await snapshot(guest)
   const light = options.theme() === 'light'
   const win = new BrowserWindow({
@@ -118,7 +118,7 @@ async function open(url, title = '', guest = null, slot = 0) {
   win.setMenu(null)
   options.secure(win)
   const view = new WebContentsView({
-    webPreferences: { partition: 'persist:wsbrowser', sandbox: true, contextIsolation: true, nodeIntegration: false }
+    webPreferences: { partition: compatible ? 'persist:wsbrowser-clean' : 'persist:wsbrowser', sandbox: true, contextIsolation: true, nodeIntegration: false }
   })
   win.contentView.addChildView(view)
   const layout = () => {
@@ -140,7 +140,7 @@ async function open(url, title = '', guest = null, slot = 0) {
       url: page.getURL(),
       canGoBack: nav.canGoBack(),
       canGoForward: nav.canGoForward(),
-      loading: page.isLoading()
+      loading: page.isLoading(), compatible
     })
   }
   for (const event of ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading']) page.on(event, push)

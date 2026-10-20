@@ -32,7 +32,7 @@ async function writeClipboard(text) {
  * @param {import('@xterm/xterm').Terminal} term
  * @returns {boolean} 有沒有東西可以複製
  */
-export function copySelection(term) {
+function copySelection(term) {
   const text = term.hasSelection() ? term.getSelection() : ''
   if (!text) return false
   void writeClipboard(text)

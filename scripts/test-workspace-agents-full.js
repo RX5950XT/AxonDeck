@@ -1,5 +1,6 @@
 'use strict'
 const assert = require('assert/strict')
+const fs = require('node:fs')
 const os = require('os')
 const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
@@ -14,6 +15,7 @@ const agents = require('../src/main/workspace/agents')
     const rows = await agents.sessions(project)
     for (const agent of Object.keys(fixture.ids)) {
       assert(rows.some(x => x.agent === agent && x.id === fixture.ids[agent]), agent + ' 對話列表')
+      assert.deepEqual(await agents.sessions(project, agent), rows.filter(row => row.agent === agent), agent + ' 啟動掃描只讀該工具，清單結果一致')
       let cursor, text = '', user = '', pages = 0, turns = 0
       do {
         const page = await agents.sessionDetail(project, agent, fixture.ids[agent], cursor)
@@ -39,5 +41,16 @@ const agents = require('../src/main/workspace/agents')
       await assert.rejects(agents.sessionDetail(project, agent, fixture.ids[agent], { offset: -1, part: 0, text: 0 }), e => e.code === 'BAD_CURSOR')
       console.log('PASS', agent, pages, 'pages', turns, 'turn fragments')
     }
+    const expected = []
+    for (let i = 0; i < 45; i++) {
+      const id = `codex-batch-${i}`, cwd = i % 3 ? project : path.join(home, 'other')
+      const file = path.join(home, '.codex/sessions', id + '.jsonl')
+      fs.writeFileSync(file, JSON.stringify({ type: 'session_meta', payload: { id, cwd } }) + '\n')
+      const time = new Date(Date.now() + (i + 1) * 1000)
+      fs.utimesSync(file, time, time)
+      if (cwd === project) expected.unshift(id)
+    }
+    assert.deepEqual((await agents.sessions(project, 'codex')).map(row => row.id), expected.slice(0, 30), '分批讀檔維持排序、30 筆上限與跨專案隔離')
+    console.log('PASS Codex 批次讀取排序、上限與專案隔離')
   } finally { os.homedir = oldHome; for (const [k,v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v } removeTree(home) }
 })().catch(e => { console.error(e); process.exitCode = 1 })

@@ -68,7 +68,7 @@ function commandForShell(shell, info) {
   const values = [[key, defaultClaude ? null : home]]
   if (info.agent === 'claude') values.push(['CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN', '1'])
   const save = values.map(([name], i) => `$viAgentPrevious${i} = $env:${name}`).join('; ')
-  const apply = values.map(([name, value]) => value === null ? `Remove-Item Env:${name} -ErrorAction SilentlyContinue` : `$env:${name} = '${value.replace(/'/g, "''")}'`).join('; ')
+  const apply = values.map(([name, value]) => value === null ? `Remove-Item Env:${name} -ErrorAction SilentlyContinue` : `$env:${name} = '${value.replace(/['\u2018-\u201b]/g, '$&$&')}'`).join('; ')
   const restore = values.map(([name], i) => `if ($null -eq $viAgentPrevious${i}) { Remove-Item Env:${name} -ErrorAction SilentlyContinue } else { $env:${name} = $viAgentPrevious${i} }`).join('; ')
   const script = `& { ${save}; try { ${apply}; ${command} } finally { ${restore} } }`
   // cmd 的 %、&、括號都有自己的展開規則；固定 PowerShell 子程序用 encoded argv 收資料。
@@ -95,7 +95,7 @@ function createTracker(store, agents, now = Date.now, states = async () => [], i
   async function begin(meta, existing = false) {
     if (!meta || meta.preset === 'shell') return
     if (!existing && !meta.agentSessionId) {
-      const rows = await agents.sessions(meta.cwd)
+      const rows = await agents.sessions(meta.cwd, meta.preset)
       await store.setAgentTracking(meta.id, now(), rows.filter(row => row.agent === meta.preset).map(row => row.id))
     }
     active.add(meta.id)

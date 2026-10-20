@@ -217,8 +217,6 @@ function lookupUnclassified(db, opts) {
 }
 
 module.exports = {
-  APP_CATS,
-  WEB_CATS,
   classifyApp,
   classifySite,
   categoryFromText,

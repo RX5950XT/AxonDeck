@@ -71,6 +71,13 @@ def validate_config(config):
         raise WorkerError("CONFIG")
     if not isinstance(endpoint.get("apiKey", ""), str):
         raise WorkerError("CONFIG")
+    pages = config.get("pages")
+    if pages is not None and (not isinstance(pages, list) or not 0 < len(pages) <= 50 or not all(
+            isinstance(r, list) and len(r) == 2 and all(type(n) is int for n in r)
+            and r[0] >= 1 and (r[1] == 0 or r[1] >= r[0]) for r in pages)):
+        raise WorkerError("CONFIG")
+    if not isinstance(config.get("dual", False), bool):
+        raise WorkerError("CONFIG")
     source = os.path.realpath(config["inputPath"])
     target = os.path.realpath(config["outputPath"])
     if source == target or not os.path.isfile(source) or os.path.exists(target):
@@ -386,6 +393,9 @@ def group_paragraphs(units, blocks, protected):
             continue
         indices = [i for i, unit in enumerate(units) if i not in used
                    and unit["rotate"] == 0 and overlap(unit["rect"], block["rect"]) > 0.95]
+        if len(indices) == 1:
+            # body：正文段落，跨欄／跨頁接段只看這種
+            units[indices[0]]["body"] = True
         if len(indices) < 2:
             continue
         selected = [units[i] for i in indices]
@@ -400,7 +410,7 @@ def group_paragraphs(units, blocks, protected):
             continue
         ordered = sorted(selected, key=lambda u: (round(u["rect"].y0 / 3), u["rect"].x0))
         grouped.append({**first, "rect": rect, "text": " ".join(u["text"].strip() for u in ordered),
-                        "erase_rects": [u["rect"] for u in selected]})
+                        "erase_rects": [u["rect"] for u in selected], "body": True})
         used.update(indices)
     return grouped + [unit for i, unit in enumerate(units) if i not in used]
 
@@ -487,6 +497,129 @@ def replace_units(page, units, image, sx, sy):
             raise WorkerError("PDF_WRITE")
 
 
+# 句子沒寫完的結尾：沒有句號類標點（含引號、括號收尾）
+SENTENCE_END = re.compile(r"[.!?:;。！？：；…\"”’)\]）」]\s*$")
+CUT_AFTER = "，。、；：！？,.;:!?)）」 "
+
+
+def continues(first, second):
+    """first 的句子沒寫完、second 小寫開頭：同一段被換欄或換頁切開"""
+    return (first["flags"] == second["flags"] and abs(first["size"] - second["size"]) < 1
+            and not SENTENCE_END.search(first["text"]) and bool(re.match(r"[a-z]", second["text"].lstrip())))
+
+
+def column_ends(units):
+    """每一欄最上面和最底下的正文段落（跟公式同一行、掃描、旋轉的不接）"""
+    body = [n for n, u in enumerate(units) if u.get("body") and "inline" not in u and not u["raster"] and not u["rotate"]]
+    same_column = lambda a, b: min(a.x1, b.x1) - max(a.x0, b.x0) > 0  # noqa: E731
+    ends = []
+    for higher in (False, True):
+        ends.append([n for n in body if not any(
+            m != n and same_column(units[n]["rect"], units[m]["rect"])
+            and (units[m]["rect"].y0 < units[n]["rect"].y0 if higher else units[m]["rect"].y0 > units[n]["rect"].y0)
+            for m in body)])
+    bottoms, tops = ends
+    return bottoms, tops
+
+
+def column_joins(units):
+    """{左欄最後一段: 右欄第一段}；不串成鏈（A→B→C 的 B 已經併進 A，就不能再帶 C）"""
+    bottoms, tops = column_ends(units)
+    joins = {}
+    for first in bottoms:
+        right = [n for n in tops if units[n]["rect"].x0 >= units[first]["rect"].x1 - 2]
+        if not right:
+            continue
+        second = min(right, key=lambda n: units[n]["rect"].x0)
+        if (first not in joins.values() and second not in joins and second not in joins.values()
+                and continues(units[first], units[second])):
+            joins[first] = second
+    return joins
+
+
+def page_end(units, joins, last):
+    """last：這頁最後一段（最右欄最底下）；否則第一段（最左欄最上面）。已經在欄間接段的不算"""
+    bottoms, tops = column_ends(units)
+    linked = set(joins) | set(joins.values())
+    candidates = [n for n in (bottoms if last else tops) if n not in linked]
+    if not candidates:
+        return None
+    if last:
+        return max(candidates, key=lambda n: (units[n]["rect"].x0, units[n]["rect"].y1))
+    return min(candidates, key=lambda n: (units[n]["rect"].x0, units[n]["rect"].y0))
+
+
+def joined(first, second):
+    left, right = first["text"].rstrip(), second["text"].lstrip()
+    return left[:-1] + right if left.endswith("-") else f"{left} {right}"
+
+
+def split_translation(first, second, translated):
+    """兩段接起來翻的譯文切回兩邊：照原文長度比例，在最近的標點或空白下刀"""
+    if translated == joined(first, second).strip():
+        return first["text"].strip(), second["text"].strip()
+    a, b = len(first["text"].strip()), len(second["text"].strip())
+    target = round(len(translated) * a / max(1, a + b))
+    window = max(2, len(translated) // 5)
+    cuts = [i for i in range(max(1, target - window), min(len(translated) - 1, target + window) + 1)
+            if translated[i - 1] in CUT_AFTER]
+    cut = min(cuts, key=lambda i: abs(i - target)) if cuts else min(max(1, target), len(translated) - 1)
+    head, tail = translated[:cut].strip(), translated[cut:].strip()
+    # 譯文太短切不開：整句放前一段，後一段保留原文
+    return (head, tail) if head and tail else (translated, second["text"].strip())
+
+
+def document_title(source):
+    """論文標題給模型判斷領域：metadata 的標題可信就用，否則第一頁字最大的那幾段"""
+    title = (source.metadata or {}).get("title", "").strip()
+    if 4 <= len(title) <= 300 and not re.search(r"\.(docx?|pdf|tex|dvi)$|^untitled|^microsoft", title, re.I):
+        return title
+    spans = [(span["size"], span["text"].strip()) for block in source[0].get_text("dict")["blocks"]
+             for line in block.get("lines", []) for span in line["spans"] if span["text"].strip()]
+    if not spans:
+        return ""
+    sizes = sorted(size for size, _ in spans)
+    biggest = sizes[-1]
+    if biggest < sizes[len(sizes) // 2] * 1.3:
+        return ""
+    return " ".join(text for size, text in spans if size >= biggest - 0.5)[:300]
+
+
+def document_sample(source, chosen, limit=30000):
+    """抽術語用的原文：選定頁面的文字層（掃描頁沒有，就少一點）"""
+    parts, size = [], 0
+    for index in sorted(chosen):
+        if size >= limit:
+            break
+        text = source[index].get_text().strip()
+        parts.append(text)
+        size += len(text)
+    return "\n".join(parts)[:limit]
+
+
+def chosen_pages(ranges, count):
+    if not ranges:
+        return set(range(count))
+    chosen = {index for start, end in ranges for index in range(start - 1, min(end or count, count))}
+    if not chosen:
+        raise WorkerError("PAGES")
+    return chosen
+
+
+def interleave(source, translated_path, final, chosen):
+    """雙語對照：原文頁後面接譯文頁，沒選的頁只放原文。書籤指到譯文頁；跨頁連結、頁碼標籤不保留"""
+    with fitz.open(translated_path) as translated, fitz.open() as dual:
+        target = {}
+        for index in range(source.page_count):
+            dual.insert_pdf(source, from_page=index, to_page=index, links=False)
+            if index in chosen:
+                dual.insert_pdf(translated, from_page=index, to_page=index, links=False)
+            target[index + 1] = dual.page_count
+        dual.set_metadata(source.metadata)
+        dual.set_toc([[level, title, target.get(page, page)] for level, title, page in source.get_toc(simple=True)])
+        dual.save(final, garbage=4, deflate=True)
+
+
 SHORT_TEXT = 80
 REFERENCE_CHARS = 1500
 
@@ -501,13 +634,15 @@ class Translations:
         self.stdin, self.stdout = stdin, stdout
         self.pending, self.done = set(), {}
 
-    def request(self, page_number, texts, alone=None):
-        """alone：{位置: 第幾行}，跟公式同一行的片段；同一行的不放進同一批合併翻"""
-        ids = [f"{page_number}:{number}" for number in range(len(texts))]
+    def request(self, page_number, texts, alone=None, numbers=None):
+        """alone：{編號: 第幾行}，跟公式同一行的片段；同一行的不放進同一批合併翻。
+        numbers：每段的編號（預設 0、1、2…）；接段時有些段落不另外送，編號會跳號"""
+        numbers = list(range(len(texts))) if numbers is None else numbers
+        ids = [f"{page_number}:{number}" for number in numbers]
         alone = alone or {}
         # 圖框標籤這類短詞單獨翻會亂猜詞義（Physical System→身體的系統）；附整頁原文給模型參考。
         reference = "\n".join(texts)[:REFERENCE_CHARS]
-        for number, (request_id, text) in enumerate(zip(ids, texts)):
+        for number, request_id, text in zip(numbers, ids, texts):
             message = {"type": "translate", "id": request_id, "text": text}
             if number in alone:
                 message["alone"] = True
@@ -587,7 +722,10 @@ def run(config, stdin, stdout, pipeline=None, layout=None):
         source = original if original.is_pdf else stack.enter_context(
             fitz.open(stream=original.convert_to_pdf(), filetype="pdf"))
         pages = source.page_count
+        chosen = chosen_pages(config.get("pages"), pages)
         emit(stdout, {"type": "progress", "page": 0, "pages": pages, "stage": "opening"})
+        # 標題與原文樣本先送：main 趁版面偵測時抽術語
+        emit(stdout, {"type": "document", "title": document_title(source), "sample": document_sample(source, chosen)})
         layout = layout if layout is not None else create_layout(config)
         pipeline = pipeline if pipeline is not None else LazyPipeline(config)
         partial = config["outputPath"] + ".pages"
@@ -601,25 +739,69 @@ def run(config, stdin, stdout, pipeline=None, layout=None):
             page = single[0]
             if any(annot.type[0] == fitz.PDF_ANNOT_REDACT for annot in page.annots() or []):
                 raise WorkerError("PDF_UNSUPPORTED")
+            state = {"page": index + 1, "single": single, "units": [], "joins": {}, "tail": None, "head": None,
+                     "next": None, "image": None, "sx": 1, "sy": 1, "ids": [], "numbers": [], "texts": {}}
+            # 沒選的頁照原樣輸出
+            if index not in chosen:
+                return state
             if page.rotation:
                 page.remove_rotation()
-            units, image, sx, sy = collect_units(page, layout, pipeline, warnings)
-            ids = translations.request(index + 1, [unit["text"] for unit in units],
-                                       {number: unit["inline"] for number, unit in enumerate(units) if "inline" in unit})
-            return single, units, image, sx, sy, ids
+            units, state["image"], state["sx"], state["sy"] = collect_units(page, layout, pipeline, warnings)
+            state["units"], state["joins"] = units, column_joins(units)
+            # 最後一段句子沒寫完，先不送，等下一頁開好看第一段是不是接著寫
+            tail = page_end(units, state["joins"], True) if index + 1 < pages else None
+            state["tail"] = tail if tail is not None and not SENTENCE_END.search(units[tail]["text"]) else None
+            return state
+
+        def send(state, before):
+            """before＝上一頁：它最後一段跟這頁第一段是同一段就接起來翻，這頁不另送第一段"""
+            units = state["units"]
+            if before is not None and before["tail"] is not None:
+                tail = before["units"][before["tail"]]
+                head = page_end(units, state["joins"], False) if units else None
+                if head is not None and (head == state["tail"] or not continues(tail, units[head])):
+                    head = None
+                text = joined(tail, units[head]) if head is not None else tail["text"]
+                before["ids"] += translations.request(before["page"], [text], None, [before["tail"]])
+                before["numbers"].append(before["tail"])
+                before["next"], state["head"] = head, head
+            skip = set(state["joins"].values()) | {state["tail"], state["head"]}
+            numbers = [n for n in range(len(units)) if n not in skip]
+            texts = [joined(units[n], units[state["joins"][n]]) if n in state["joins"] else units[n]["text"] for n in numbers]
+            state["ids"] = translations.request(state["page"], texts,
+                                                {n: units[n]["inline"] for n in numbers if "inline" in units[n]}, numbers)
+            state["numbers"] = numbers
+
+        def page_texts(state, after):
+            """收這頁的譯文；接段的譯文切開，後半給右欄或下一頁的第一段"""
+            texts = state["texts"]
+            for number, translated in zip(state["numbers"], translations.collect(state["ids"])):
+                partner = state["joins"].get(number)
+                if partner is not None:
+                    texts[number], texts[partner] = split_translation(state["units"][number], state["units"][partner], translated)
+                elif number == state["tail"] and state["next"] is not None:
+                    head = state["next"]
+                    texts[number], after["texts"][head] = split_translation(state["units"][number], after["units"][head], translated)
+                else:
+                    texts[number] = translated
+            if len(texts) != len(state["units"]):
+                raise WorkerError("TRANSLATION")
+            return [texts[n] for n in range(len(state["units"]))]
 
         upcoming = open_page(0)
+        send(upcoming, None)
         for index in range(pages):
             current, upcoming = upcoming, None
-            single, units, image, sx, sy, ids = current
-            with single:
+            units, image, sx, sy = current["units"], current["image"], current["sx"], current["sy"]
+            with current["single"] as single:
                 page = single[0]
                 # 這頁在等翻譯時先做下一頁的版面偵測，請求也先送出去，main 不會閒著
                 if index + 1 < pages:
                     upcoming = open_page(index + 1)
+                    send(upcoming, current)
                 ready = []
                 emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "translate"})
-                texts = translations.collect(ids)
+                texts = page_texts(current, upcoming)
                 for unit, translated, right in zip(units, texts, room_right(page, units)):
                     if translated == unit["text"].strip():
                         # 縮寫、術語、程式碼（DEs、Top-K、zero-shot、"size": "small"）原樣保留是對的；
@@ -637,7 +819,10 @@ def run(config, stdin, stdout, pipeline=None, layout=None):
                 emit(stdout, {"type": "progress", "page": index + 1, "pages": pages, "stage": "saving"})
                 append_page(partial, single, index == 0)
         try:
-            preserve_navigation(source, partial, config["outputPath"])
+            if config.get("dual"):
+                interleave(source, partial, config["outputPath"], chosen)
+            else:
+                preserve_navigation(source, partial, config["outputPath"])
         finally:
             with contextlib.suppress(OSError):
                 os.remove(partial)

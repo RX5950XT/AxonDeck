@@ -45,8 +45,9 @@ class Window extends EventEmitter {
 }
 
 const filename = path.resolve('src/main/page-windows.js')
+const localRequire = require('node:module').createRequire(filename)
 const context = { module: { exports: {} }, __dirname: path.dirname(filename), setTimeout, clearTimeout, setImmediate,
-  require: (name) => name === 'electron' ? { BrowserWindow: Window, WebContentsView: View } : require(name) }
+  require: (name) => name === 'electron' ? { BrowserWindow: Window, WebContentsView: View } : localRequire(name) }
 vm.runInNewContext(fs.readFileSync(filename, 'utf8'), context, { filename })
 const main = new Window()
 const pages = context.module.exports.createPageWindows({ main, isDev: false, hidden: true,
@@ -64,6 +65,11 @@ async function test() {
   assert.equal(pages.owns(new Contents()), false)
   assert.equal(pages.ready(new Contents()), false)
   const first = await open(NAV_PAGES[0])
+  await pages.navigate({ page: 'chat', action: 'browser', full: 'chrome-extension://ddkjiahejlhfcafbddmgiahcphecmpfh/options.html', target: 'tab', sourceGuestId: 123 })
+  assert.equal(first.webContents.messages.at(-1).channel, 'pages:state')
+  assert.equal(first.webContents.messages.findLast(row => row.channel === 'pages:navigate').payload.sourceGuestId, 123)
+  await assert.rejects(pages.navigate({ page: 'chat', action: 'browser', full: 'file:///C:/evil.html', target: 'tab' }))
+  await assert.rejects(pages.navigate({ page: 'chat', sourceGuestId: '123' }))
   assert.equal(pages.owns(first.webContents), true)
   assert.equal(main.children.has(first), true)
   await open(NAV_PAGES[0], true)

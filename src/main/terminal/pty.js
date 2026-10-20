@@ -466,6 +466,12 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   const jump = stagedNavFile(terminalId) || inProcessNavFile(terminalId)
   if (jump) env.AXONDECK_NAV_JUMP = jump
   else delete env.AXONDECK_NAV_JUMP
+  const codex = agent === 'codex' ? codexNative(store.resolveExe('codex.cmd')) : null
+  if (codex) {
+    prependPath(env, codex.bin)
+    env.CODEX_MANAGED_PACKAGE_ROOT = codex.root
+    env.CODEX_MANAGED_BY_NPM = '1'
+  }
   if (agent === 'claude') {
     for (const key of Object.keys(env)) if (key.toUpperCase() === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN') delete env[key]
     env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN = '1'
@@ -511,6 +517,20 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
  * @param {Record<string, string>} env
  * @param {string} folder
  */
+/**
+ * 同 shell.rs 的 `codex_native`：npm 版 codex 原生檔所在資料夾與套件根目錄。PATH 排最前，
+ * `codex` 就直接跑原生檔——npm 的 node 外殼會被別處「殺光 node.exe」連帶收掉整個 Codex。
+ * @param {string} shim PATH 上的 codex.cmd
+ */
+function codexNative(shim) {
+  if (!shim) return null
+  const root = path.join(path.dirname(shim), 'node_modules', '@openai', 'codex')
+  const [pkg, triple] = process.arch === 'arm64'
+    ? ['codex-win32-arm64', 'aarch64-pc-windows-msvc'] : ['codex-win32-x64', 'x86_64-pc-windows-msvc']
+  const bin = path.join(root, 'node_modules', '@openai', pkg, 'vendor', triple, 'bin')
+  return require('node:fs').existsSync(path.join(bin, 'codex.exe')) ? { bin, root } : null
+}
+
 function prependPath(env, folder) {
   const keys = Object.keys(env).filter((name) => name.toLowerCase() === 'path')
   const key = keys[0] || 'PATH'

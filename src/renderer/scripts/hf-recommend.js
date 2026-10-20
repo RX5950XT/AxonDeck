@@ -11,6 +11,7 @@ import { hasLlamaRuntime } from './model-picker.js'
 
 /** registry 的 kind → 顯示分組（執行環境在「執行環境」分頁，這裡不列） */
 const MODEL_GROUPS = [
+  ['imagegen', '圖片影像生成（Miroxen，需 NVIDIA）'],
   ['tts', '語音生成'],
   ['asr', '語音辨識'],
   ['llm', '翻譯'],

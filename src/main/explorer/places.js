@@ -112,7 +112,6 @@ module.exports = {
   RECYCLE_CWD,
   THIS_PC,
   PINNED_ID,
-  MAX_PLACES,
   sanitizeLetter,
   sanitizePlaces,
   mergePlaces,

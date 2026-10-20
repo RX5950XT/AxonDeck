@@ -104,7 +104,7 @@ async function insertText(text, deps = {}) {
       uIOhook.keyTap(INSERT, [SHIFT])
     }
   } catch (err) {
-    clipboard.writeText(previous)
+    // 不還原舊內容：UI 會請使用者自己按 Ctrl+V，剪貼簿裡要是這段文字
     console.error('[dictation] 模擬貼上失敗:', err?.message || err)
     return { ok: false, error: 'PASTE_FAILED' }
   }

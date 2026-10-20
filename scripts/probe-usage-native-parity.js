@@ -19,7 +19,7 @@ const scan = require(path.join(ROOT, 'src/main/codeusage/scan.js'))
 const parsers = require(path.join(ROOT, 'src/main/codeusage/parsers.js'))
 const nativeProbe = require(path.join(ROOT, 'src/main/native-probe.js'))
 
-const SINCE = Date.now() - scan.SCAN_WINDOW_DAYS * 86400_000
+const SINCE = 0
 
 function sources() {
   const home = os.homedir()

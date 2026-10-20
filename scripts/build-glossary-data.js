@@ -4,6 +4,8 @@
  * node scripts/build-glossary-data.js
  * 下載國家教育研究院學術名詞（政府資料開放授權條款第 1 版，需標示出處），整併成內建術語庫
  * src/main/glossary-data/naer-terms.tsv.gz：每行「英文\t譯名1\t譯名2…」，譯名依出現次數排序。
+ * 只有一個學科收的詞不收：常是該科特有的用法（電子計算機的 order information＝訂單資訊），
+ * 實測模型拿到就照抄，「位置編碼注入順序資訊」變「注入訂單資訊」；附上學科名稱要它自己判斷也一樣照抄。
  * 前面的學科優先（同分時），所以數理放前面、工程放後面。
  */
 const fs = require('fs')
@@ -64,6 +66,8 @@ function cleanTargets(raw) {
 async function main() {
   /** @type {Map<string, Map<string, { score: number, first: number }>>} */
   const terms = new Map()
+  /** @type {Map<string, Set<number>>} */
+  const fields = new Map()
   let rows = 0
   for (const [rank, field] of FIELDS.entries()) {
     const url = BASE + encodeURIComponent(`國家教育研究院-${field}.csv`)
@@ -85,6 +89,7 @@ async function main() {
         bucket.set(target, entry)
       })
       terms.set(source, bucket)
+      fields.set(source, (fields.get(source) || new Set()).add(rank))
     }
     console.log(`${field}：累計 ${terms.size} 條`)
   }
@@ -96,7 +101,7 @@ async function main() {
     const keep = ranked.filter(([, entry]) => entry.score * 2 >= top).map(([target]) => target)
       .filter((target, index, all) => !all.slice(0, index).some((other) => other.replace(/式$/, '') === target.replace(/式$/, '')))
       .slice(0, 3)
-    lines.push([source, ...keep].join('\t'))
+    if (fields.get(source).size > 1) lines.push([source, ...keep].join('\t'))
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true })
   fs.writeFileSync(OUT, zlib.gzipSync(lines.join('\n') + '\n', { level: 9 }))

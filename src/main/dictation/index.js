@@ -375,7 +375,9 @@ async function submit(req) {
       raw,
       text: finalText,
       inserted: pasted.ok,
-      warning: result.warning || (pasted.ok ? '' : '文字已複製到剪貼簿，但自動貼上失敗')
+      // 只有 PASTE_FAILED 時文字真的在剪貼簿裡；其他失敗（hook 載不起來、剪貼簿寫不進去）沒有
+      warning: result.warning || (pasted.ok ? ''
+        : pasted.error === 'PASTE_FAILED' ? '文字已複製到剪貼簿，但自動貼上失敗' : '自動貼上失敗，文字在語音輸入紀錄裡')
     }
   } catch (err) {
     console.error('[dictation] 處理失敗:', err?.message || err)

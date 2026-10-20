@@ -268,7 +268,7 @@ body.is-maximized .win-btn#winMax {
   transition: none;
 }
 
-/* 錄音機在背景錄音中 */
+/* 錄音機或即時字幕在背景錄音中 */
 .nav-tab.is-recording { position: relative; }
 .nav-tab.is-recording::after {
   content: '';
@@ -413,6 +413,23 @@ body.is-maximized .win-btn#winMax {
 .file-chip-remove:hover {
   border-color: var(--accent-primary);
   color: var(--text-primary);
+}
+
+.file-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.file-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-option-pages {
+  width: 150px;
 }
 
 .file-setup {
@@ -2120,44 +2137,51 @@ option:disabled:checked {
   color: var(--danger);
 }
 
-/* ── 側欄：Local／資料夾＋四家 AI 網頁版，兩欄三列 ── */
+/* ── 側欄：一排五顆「新增對話」（Local＋四家網頁版）、搜尋列帶資料夾鈕、Arena 釘選列 ── */
 .chat-panel-actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
-}
-
-/* Local、資料夾各佔半排；四家網頁版 AI 只留圖示，並排一排 */
-.chat-panel-actions .chat-new-btn,
-.chat-panel-actions .chat-new-folder-btn {
-  grid-column: span 2;
-}
-
-.chat-panel-actions .ai-web-btn .ws-tool-icon {
-  width: 17px;
-  height: 17px;
 }
 
 .chat-panel-actions .btn {
   justify-content: center;
-  gap: 6px;
   min-width: 0;
-  padding: 6px 8px;
-  white-space: nowrap;
+  height: 32px;
+  padding: 0;
 }
 
 .chat-panel-actions .chat-new-btn {
   width: auto;
 }
 
-.chat-panel-actions .nav-icon {
+.chat-panel-actions .nav-icon,
+.chat-arena-entry .nav-icon {
   display: flex;
 }
 
 .chat-panel-actions .ws-tool-icon {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
   color: inherit;
+}
+
+.chat-search-row {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.chat-search-row .chat-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-search-row .chat-new-folder-btn {
+  flex: none;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
 }
 
 .chat-new-folder-btn svg {
@@ -2169,6 +2193,65 @@ option:disabled:checked {
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* Arena 不是對話：像清單列但固定在最上面，底下一條細線跟對話隔開 */
+.chat-arena-entry {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, var(--radius-sm));
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.chat-arena-entry:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.chat-arena-entry .ws-tool-icon {
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+
+.chat-arena-name {
+  color: var(--text-primary);
+}
+
+.chat-arena-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.chat-arena-entry + .chat-list {
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* 正在看 Arena：它亮、清單上原本選中的那則退回一般樣子（免得兩個都像選中） */
+#chatPanel.is-arena .chat-arena-entry {
+  border-color: var(--glass-border-strong, var(--border-color));
+  background: var(--surface-hover, var(--bg-tertiary));
+  color: var(--accent-primary);
+}
+
+#chatPanel.is-arena .chat-list-item.active {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 /* ── 側欄：資料夾分組 ── */
@@ -2365,6 +2448,19 @@ option:disabled:checked {
   outline: none;
 }
 
+.chat-menu-item:has(.chat-menu-hint) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.chat-menu-hint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .chat-menu-item[aria-checked='true'] {
   background-color: var(--accent-soft);
   color: var(--accent-primary);
@@ -2396,14 +2492,40 @@ option:disabled:checked {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-right: 6px;
+  gap: 22px;
+  padding: 8px 6px 12px 0;
+}
+
+/* 置中閱讀欄：訊息與輸入框同寬，寬螢幕不再一行拉滿 */
+.chat-messages > *,
+.chat-composer {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
 }
 
 .chat-empty {
-  margin: auto;
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.chat-empty-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.chat-empty-model {
+  margin: 0;
   color: var(--text-tertiary);
-  font-size: 14px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .chat-search {
@@ -2753,6 +2875,14 @@ option:disabled:checked {
 
 .ws-tab-status-label.is-waiting {
   color: var(--warning);
+}
+
+/* 上下文用量（Codex 百分比、Claude 幾 K）：跟狀態字同一級，數字等寬才不會一輪一跳 */
+.ws-tab-context {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 開著的終端機：每顆一個小晶片＝「哪一家 CLI」＋「現在在幹嘛」，一律只放圖示。 */
@@ -3207,6 +3337,174 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   max-height: 100%;
   margin: 0 auto;
   object-fit: contain;
+}
+
+/* Office 文件預覽（ws-office.js）：跟著主題配色，只求讀得懂內容 */
+.ws-office {
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.ws-office-doc,
+.ws-office-deck {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.ws-office-doc p {
+  margin: 0 0 0.6em;
+  white-space: pre-wrap;
+}
+
+.ws-office-num {
+  color: var(--text-tertiary);
+}
+
+.ws-office-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+}
+
+.ws-office-table {
+  border-collapse: collapse;
+  margin: 8px 0 12px;
+}
+
+.ws-office-table td,
+.ws-office-table th {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.ws-office-sheet th {
+  background-color: var(--bg-tertiary);
+  color: var(--text-tertiary);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+}
+
+.ws-office-sheet tr > th:first-child {
+  left: 0;
+  text-align: right;
+}
+
+.ws-office-sheet td {
+  white-space: nowrap;
+}
+
+.ws-office-sheet td.is-num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.ws-office-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.ws-office-tab {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.ws-office-tab:hover {
+  background-color: var(--surface-hover);
+}
+
+.ws-office-tab.is-active {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.ws-office-sheet-wrap {
+  overflow: auto;
+}
+
+.ws-office-slide {
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-subtle);
+}
+
+.ws-office-slide-flow h3 {
+  margin: 0 0 8px;
+}
+
+.ws-office-slide-flow p {
+  margin: 0 0 4px;
+}
+
+/* 投影片照原座標排：子物件用百分比定位，字級用 cqw（跟著卡片寬度縮放）。
+   投影片本身是白底，字色固定深色，不跟深色主題 */
+.ws-office-slide-canvas {
+  position: relative;
+  container-type: inline-size;
+  overflow: hidden;
+  background-color: #fff;
+  color: #000;
+  line-height: 1.2;
+}
+
+.ws-office-shape {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-office-shape > .ws-office-img {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  object-fit: fill;
+}
+
+.ws-office-shape-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 0.6cqw 0.8cqw;
+}
+
+.ws-office-shape-text p {
+  margin: 0 0 0.3em;
+  white-space: pre-wrap;
+}
+
+.ws-office-shape .ws-office-table {
+  width: 100%;
+  margin: 0;
+}
+
+.ws-office-shape .ws-office-table td {
+  border-color: #999;
+}
+
+.ws-office-chart {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #999;
+  color: #666;
+  font-size: 1.4cqw;
+}
+
+.ws-office-slide-no {
+  margin-bottom: 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 /* 格式不支援專用卡片 */
@@ -5577,6 +5875,29 @@ body.is-col-resizing webview {
   padding: 6px 10px;
 }
 
+#projList .proj-folder-btn {
+  flex: none;
+  width: auto;
+  min-width: 28px;
+  padding: 4px;
+  opacity: 1;
+  font-size: 11px;
+}
+
+.proj-folder-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+#projList .chat-folder-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* 專案名稱是這一塊的標題：比對話列表更亮、更粗，一眼看得出分組從哪裡開始 */
 .proj-list-item .chat-list-title {
   font-weight: 650;
@@ -5683,8 +6004,16 @@ body.is-col-resizing webview {
 
 .chat-msg-assistant .chat-msg-body {
   max-width: 100%;
-  background-color: var(--bg-secondary);
   color: var(--text-primary);
+}
+
+.chat-msg-user {
+  align-items: flex-end;
+}
+
+.chat-msg-user .chat-msg-body {
+  max-width: min(80%, 640px);
+  white-space: pre-wrap;
 }
 
 .chat-msg-images {
@@ -5717,6 +6046,62 @@ body.is-col-resizing webview {
 
 .chat-msg-images img {
   cursor: zoom-in;
+}
+
+.chat-img-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.chat-img-download {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-control);
+  background-color: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.chat-img-download svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chat-img-wrap:hover .chat-img-download,
+.chat-img-download:focus-visible {
+  opacity: 1;
+}
+
+.chat-img-download:hover {
+  background-color: rgba(0, 0, 0, 0.75);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .chat-img-download {
+    opacity: 1;
+  }
+}
+
+/* 生成的圖是主角，不是附件縮圖 */
+.chat-msg-assistant .chat-msg-images img {
+  /* 用 vw 不用 %：外層 wrap 寬度由圖決定，% 會互相參照撐滿整列 */
+  max-width: min(480px, 60vw);
+  max-height: 480px;
+  border-radius: var(--radius-md);
 }
 
 .chat-msg-action {
@@ -6074,28 +6459,14 @@ body.is-col-resizing webview {
   }
 }
 
-.composer-toggle[aria-pressed='false'] {
-  color: var(--text-secondary);
+.composer-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--glass-border));
+  background-color: var(--accent-soft);
+  color: var(--accent-primary);
 }
 
-.composer-toggle[aria-pressed='true'] {
-  border-color: var(--accent-primary);
-  background-color: var(--accent-primary);
-  color: var(--app-bg-deep);
-  font-weight: 700;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 24%, transparent), inset 0 1px rgba(255, 255, 255, 0.18);
-}
-
-.composer-toggle[aria-pressed='false']:hover:not(:disabled) {
-  border-color: var(--glass-border-strong);
-  background-color: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.composer-toggle[aria-pressed='true']:hover:not(:disabled) {
-  border-color: var(--accent-hover);
-  background-color: var(--accent-hover);
-  color: var(--app-bg-deep);
+.composer-btn[hidden] {
+  display: none;
 }
 
 .chat-send-btn {
@@ -6707,6 +7078,185 @@ body.is-col-resizing webview {
   height: auto;
 }
 
+/* ```mermaid 畫出來的圖：外框沿用碼塊，圖置中、太寬就縮 */
+.md-mermaid {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  padding: 14px;
+}
+
+.md-code-head .md-mermaid-toggle {
+  margin-left: auto;
+  margin-right: 6px;
+}
+
+/* 內嵌 HTML 的 <details>（README 常用來收長段落） */
+.md-details {
+  margin: 0 0 10px;
+}
+
+.md-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.md-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.md-kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--glass-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+/* 巢狀清單：內層不再撐開下方間距；第二層起換記號 */
+.md-list .md-list {
+  margin: 4px 0 0;
+}
+
+ul.md-list ul.md-list { list-style-type: circle; }
+ul.md-list ul.md-list ul.md-list { list-style-type: square; }
+
+/* 待辦清單：勾選框取代項目符號 */
+.md-list > li.md-task {
+  margin-left: -20px;
+  list-style: none;
+}
+
+.md-task-box {
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+  accent-color: var(--accent-primary);
+}
+
+.md-task > .md-task-box + .md-p {
+  display: inline;
+}
+
+/* GitHub 提示框（> [!NOTE] 等）：左側色條＋標題文字，不靠顏色單獨表達 */
+.md-quote.md-alert {
+  --alert-color: var(--accent-primary);
+  border: 1px solid color-mix(in srgb, var(--alert-color) 30%, var(--glass-border));
+  border-left: 3px solid var(--alert-color);
+  background: color-mix(in srgb, var(--alert-color) 7%, transparent);
+  color: var(--text-primary);
+  font-style: normal;
+}
+
+.md-quote.md-alert-tip { --alert-color: var(--success); }
+.md-quote.md-alert-important { --alert-color: var(--syntax-keyword); }
+.md-quote.md-alert-warning { --alert-color: var(--warning); }
+.md-quote.md-alert-caution { --alert-color: var(--danger); }
+
+.md-alert-title {
+  margin: 2px 0 6px;
+  color: var(--alert-color);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 腳註 */
+.md-fnref {
+  margin-left: 1px;
+  font-size: 0.75em;
+  line-height: 0;
+}
+
+.md-fnref .md-link,
+.md-fnback {
+  text-decoration: none;
+}
+
+.md-footnotes {
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+
+.md-footnote-list {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.md-fnback {
+  margin-left: 4px;
+}
+
+/* 專案內相對路徑的連結：預覽裡開不了，只標成路徑字樣 */
+.md-link-local {
+  border-bottom: 1px dotted var(--text-tertiary);
+}
+
+/* 數學公式（KaTeX 輸出 MathML，由瀏覽器排版） */
+.md-math math {
+  font-family: "Cambria Math", "STIX Two Math", math;
+  font-size: 1.08em;
+}
+
+.md-math-block {
+  margin: 0 0 12px;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.md-math-display {
+  display: block;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.md-math-error {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* 碼塊上色（highlight.js token；色值在 themes.css 的 --syntax-*） */
+.md-pre .hljs-keyword,
+.md-pre .hljs-selector-tag,
+.md-pre .hljs-literal,
+.md-pre .hljs-doctag { color: var(--syntax-keyword); }
+.md-pre .hljs-string,
+.md-pre .hljs-regexp,
+.md-pre .hljs-addition,
+.md-pre .hljs-template-tag { color: var(--syntax-string); }
+.md-pre .hljs-number,
+.md-pre .hljs-symbol,
+.md-pre .hljs-bullet,
+.md-pre .hljs-variable.constant_ { color: var(--syntax-number); }
+.md-pre .hljs-comment,
+.md-pre .hljs-quote { color: var(--syntax-comment); font-style: italic; }
+.md-pre .hljs-title,
+.md-pre .hljs-section,
+.md-pre .hljs-name,
+.md-pre .hljs-selector-id { color: var(--syntax-title); }
+.md-pre .hljs-type,
+.md-pre .hljs-built_in,
+.md-pre .hljs-title.class_,
+.md-pre .hljs-selector-class { color: var(--syntax-type); }
+.md-pre .hljs-attr,
+.md-pre .hljs-attribute,
+.md-pre .hljs-property,
+.md-pre .hljs-params,
+.md-pre .hljs-variable,
+.md-pre .hljs-template-variable { color: var(--syntax-attr); }
+.md-pre .hljs-meta,
+.md-pre .hljs-tag,
+.md-pre .hljs-link,
+.md-pre .hljs-subst { color: var(--syntax-meta); }
+.md-pre .hljs-deletion { color: var(--danger); }
+.md-pre .hljs-emphasis { font-style: italic; }
+.md-pre .hljs-strong { font-weight: 700; }
+
 .chat-msg-body > *:last-child,
 .md-p:last-child {
   margin-bottom: 0;
@@ -6921,7 +7471,6 @@ h6.md-h { font-size: 14px; }
 .settings-card,
 .settings-footer,
 .sysmon-block,
-.sysmon-gauges,
 .sysmon-table,
 .hf-panel,
 .ex-sidebar,
@@ -7008,15 +7557,15 @@ h6.md-h { font-size: 14px; }
   background: var(--surface-hover);
 }
 
-.chat-msg-body {
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.09);
+.chat-msg-user .chat-msg-body {
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--glass-border));
+  border-radius: 16px 16px 4px 16px;
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--surface-glass-strong));
 }
 
+/* 助理回覆不包框，像文件一樣直接排在閱讀欄裡（Cherry Studio／ChatGPT 的讀法） */
 .chat-msg-assistant .chat-msg-body {
-  border-radius: 4px 14px 14px 14px;
-  background: color-mix(in srgb, var(--surface-glass-strong) 82%, transparent);
+  padding: 2px 2px 0;
 }
 
 .chat-composer {
@@ -8623,7 +9172,7 @@ h6.md-h { font-size: 14px; }
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 1400px;
+  max-width: 2000px;
   margin: 0 auto;
 }
 
@@ -9386,6 +9935,10 @@ h6.md-h { font-size: 14px; }
 .sysmon-panel { display: none; }
 .sysmon-panel.active { display: block; }
 
+/* 總覽的欄數跟著面板寬度走（不看視窗寬度）。只掛在總覽：
+   container 會變成 position: fixed 的基準，其他分頁有下拉選單不能掛 */
+#sysmon-overview { container: sysmon-overview / inline-size; }
+
 /* ── 總覽區塊（漸進式揭露）──────────────────────────────────────
    收起 = 標題 + 三四個關鍵讀數 + 歷史曲線 + 一條進度條；展開才長出
    視覺化明細、規格表與感測器讀數。同性質的長清單再包一層 <details>。
@@ -9397,16 +9950,17 @@ h6.md-h { font-size: 14px; }
   gap: 10px;
 }
 
-@media (min-width: 900px) {
-  .sysmon-blocks {
-    grid-template-columns: 1fr 1fr;
-  }
-  .sysmon-block[data-span="2"] {
-    grid-column: 1 / -1;
-  }
+@container sysmon-overview (min-width: 820px) {
+  .sysmon-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sysmon-block[data-span="2"] { grid-column: 1 / -1; }
+}
+
+@container sysmon-overview (min-width: 1700px) {
+  .sysmon-blocks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 .sysmon-block {
+  container: sysmon-block / inline-size;
   --block-accent: var(--accent-primary);
   --spark-line: var(--block-accent);
   --spark-fill: color-mix(in srgb, var(--block-accent) 18%, transparent);
@@ -9418,9 +9972,9 @@ h6.md-h { font-size: 14px; }
 .sysmon-block-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -9540,8 +10094,8 @@ h6.md-h { font-size: 14px; }
 .sysmon-block-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 12px 14px 14px;
   border-top: 1px solid var(--border-light);
 }
 
@@ -9631,8 +10185,8 @@ h6.md-h { font-size: 14px; }
 /* 值會折行，所以欄要寬一點（折得少）、列距要鬆一點（折了才看得出是同一組） */
 .sysmon-spec-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 7px 26px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 4px 22px;
   margin: 0;
   font-size: 12px;
 }
@@ -9640,8 +10194,8 @@ h6.md-h { font-size: 14px; }
 /* 每一組 dt/dd 包在 div 裡（HTML 允許），否則多欄流版會把標籤與值拆散 */
 .sysmon-spec-grid > div {
   display: grid;
-  grid-template-columns: minmax(74px, 108px) 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(64px, 92px) 1fr;
+  gap: 10px;
   align-items: baseline;
   min-width: 0;
 }
@@ -9651,7 +10205,7 @@ h6.md-h { font-size: 14px; }
   min-width: 0;
   color: var(--text-tertiary);
   overflow-wrap: anywhere;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 /* 值一律完整顯示：截成「…」的規格表等於沒有那筆資料。
@@ -9662,16 +10216,26 @@ h6.md-h { font-size: 14px; }
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
-.sysmon-sub {
+.sysmon-subs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--border-light);
 }
 
+.sysmon-sub { min-width: 0; }
+.sysmon-sub[open] { flex-basis: 100%; }
+
 .sysmon-sub > summary {
-  padding: 2px 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
@@ -9679,14 +10243,19 @@ h6.md-h { font-size: 14px; }
   cursor: pointer;
 }
 
+.sysmon-sub[open] > summary {
+  border-color: transparent;
+  background: var(--surface-subtle);
+}
+
 .sysmon-sub > summary::-webkit-details-marker { display: none; }
 
 .sysmon-sub > summary::before {
   content: '';
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 9px;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
   border-right: 2px solid var(--text-tertiary);
   border-bottom: 2px solid var(--text-tertiary);
   transform: rotate(-45deg);
@@ -9697,58 +10266,14 @@ h6.md-h { font-size: 14px; }
 .sysmon-sub > summary:hover { color: var(--text-primary); }
 .sysmon-sub .sysmon-spec-grid { padding: 8px 0 4px 16px; }
 
-/* ── 壓力測試上方的即時儀錶 ───────────────────────────────────── */
-
-/* 三個分組：CPU 一排（負載／功耗／溫度／轉速）、GPU 一排（同四格）、
-   記憶體與各硬碟一排（硬碟一顆一格）。auto-fit 會依寬度亂折，
-   同一組指標就被拆到兩排去，所以固定欄數 */
-.sysmon-stress-gaugeboard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.sysmon-gauge-group > h3 {
-  margin: 0 4px 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.04em;
-}
+/* ── 效能與壓力測試的即時儀表（外框由 .oc-dash-group 提供，這裡不再套卡片）── */
 
 .sysmon-gauges {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px 22px;
-  padding: 12px 18px;
+  gap: 8px 22px;
 }
 
-.sysmon-gpu-gauges {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-@media (min-width: 900px) {
-  .sysmon-gpu-gauges:has(.sysmon-gpu-gauge-card:nth-child(2)) {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-.sysmon-gpu-gauge-card {
-  padding: 10px 14px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--surface-glass);
-  min-width: 0;
-}
-.sysmon-gpu-gauge-card > h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-.sysmon-gpu-gauge-card .sysmon-gauges { padding: 0; }
 .sysmon-gpu-pick {
   display: flex;
   flex-wrap: wrap;
@@ -9929,30 +10454,29 @@ h6.md-h { font-size: 14px; }
 
 /* ── 壓力測試 ───────────────────────────────────────────────────── */
 
+/* 四項測試排成一排（窄一點兩兩一排），操作列用 margin-top: auto 對齊到底 */
 .sysmon-stress-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
 .sysmon-stress-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  padding: 18px;
+  padding: 12px 14px;
 }
 
-/* 說明文字長度不一樣，靠它把四張卡的操作列壓到同一條水平線上 */
-.sysmon-stress-desc { flex: 1 1 auto; }
-
-.sysmon-stress-card h2 { font-size: 16px; font-weight: 700; }
+.sysmon-stress-card h2 { font-size: 14px; font-weight: 700; }
 
 .sysmon-stress-desc {
   margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.65;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .sysmon-stress-row {
@@ -9963,7 +10487,7 @@ h6.md-h { font-size: 14px; }
 }
 
 .sysmon-stress-row > label {
-  flex: 0 0 84px;
+  flex: 0 0 64px;
   color: var(--text-tertiary);
   font-size: 12px;
 }
@@ -9974,7 +10498,7 @@ h6.md-h { font-size: 14px; }
 
 .sysmon-stress-row > output {
   flex: 0 0 auto;
-  min-width: 62px;
+  min-width: 48px;
   color: var(--text-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -9986,6 +10510,7 @@ h6.md-h { font-size: 14px; }
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: auto;
 }
 
 .sysmon-stress-stat {
@@ -10017,27 +10542,38 @@ h6.md-h { font-size: 14px; }
 
 #sysmonKillDialog { width: min(460px, 92vw); }
 
-@media (max-width: 900px) {
-  .sysmon-stress-grid { grid-template-columns: 1fr; }
-
-  /* 窄版先犧牲歷史曲線：關鍵讀數比趨勢重要，而且它本來就只是輔助 */
-  .sysmon-block-spark { display: none; }
-  .sysmon-block-stats { gap: 12px; }
-
-  /* 處理程序保持全部欄位可見；窄版由表格水平捲動。 */
+@media (max-width: 1280px) {
+  .sysmon-stress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
+  .sysmon-stress-grid { grid-template-columns: 1fr; }
   .sysmon-tbody { height: min(46vh, 420px); }
   .sysmon-search { width: 100%; }
+  /* 處理程序保持全部欄位可見；窄版由表格水平捲動。 */
+}
 
-  .sysmon-block-head { flex-wrap: wrap; }
+/* 標題列排法看卡片自己的寬度：半寬卡在 900 寬的視窗裡跟全寬卡在手機寬一樣窄 */
+@container sysmon-block (max-width: 780px) {
+  /* 先犧牲歷史曲線：關鍵讀數比趨勢重要，而且它本來就只是輔助 */
+  .sysmon-block-spark { display: none; }
+  .sysmon-block-stats { gap: 12px; }
+}
+
+@container sysmon-block (max-width: 620px) {
+  /* 讀數換到第二行，標題（硬碟型號這種長名字）才不會被擠成「A…」 */
+  .sysmon-block-head { flex-wrap: wrap; row-gap: 6px; }
   .sysmon-block-stats {
     order: 3;
     width: 100%;
-    justify-content: space-between;
+    gap: 20px;
+    padding-left: 21px;
   }
+  .sysmon-stat { align-items: flex-start; }
   .sysmon-block-value { min-width: 0; }
+}
+
+@container sysmon-block (max-width: 320px) {
   .sysmon-spec-grid > div { grid-template-columns: 1fr; gap: 0; }
 }
 
@@ -11196,6 +11732,54 @@ h6.md-h { font-size: 14px; }
   flex: 1 1 auto;
 }
 
+/* 官方訂閱存了兩個以上帳號：那張卡拉成整列，裡面列出各帳號 */
+.cc-tile.is-wide {
+  grid-column: 1 / -1;
+}
+
+.cc-acct-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px;
+}
+
+.cc-acct-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-secondary);
+  font-size: 12px;
+  cursor: default;
+}
+
+.cc-acct-email {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-acct-plan {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.cc-acct-switch {
+  flex: none;
+}
+
+.cc-tile-login {
+  flex: 0 0 auto;
+}
+
 /* 「＋」那一格：唯一的新增入口 */
 .cc-tile.is-add {
   border-style: dashed;
@@ -11309,6 +11893,29 @@ h6.md-h { font-size: 14px; }
   gap: 8px;
   flex-wrap: wrap;
   margin-left: auto;
+}
+
+.cu-custom-range {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.cu-custom-range[hidden] { display: none; }
+
+.cu-custom-range label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cu-custom-range .input {
+  width: auto;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 /* 左：總計在上、趨勢填滿剩下的高度；右：分佈。整塊固定高度，
@@ -12262,8 +12869,7 @@ h6.md-h { font-size: 14px; }
   min-height: 440px;
 }
 
-.stt-txlog .progress-panel,
-.stt-txlog .result-panel {
+.stt-txlog .progress-panel {
   margin-top: 0;
   padding: 0;
   min-height: 0;
@@ -12273,16 +12879,12 @@ h6.md-h { font-size: 14px; }
   backdrop-filter: none;
 }
 
-.stt-txlog .result-header { margin-bottom: 8px; }
-
 .stt-txlog .dict-records,
 .stt-recs .dict-records,
 .stt-column > .live-history .dict-records {
   min-height: 360px;
   max-height: 640px;
 }
-
-.stt-txlog .result-text { min-height: 360px; max-height: 640px; }
 
 .stt-live-card {
   display: flex;
@@ -12489,13 +13091,6 @@ h6.md-h { font-size: 14px; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.hf-runtime-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.8fr);
-  gap: 8px;
-  align-items: start;
 }
 
 .hf-run-main {
@@ -13030,13 +13625,27 @@ h6.md-h { font-size: 14px; }
 
 #hfRuntimeList .hf-setting-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 64px;
+  grid-template-columns: minmax(0, 1fr) minmax(64px, auto) minmax(64px, auto);
   gap: 12px;
   padding: 12px 0;
 }
 
+/* Miroxen 有新版時多一顆「更新到 vX」 */
+#hfRuntimeList .hf-setting-row:has(> :nth-child(4)) {
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(64px, auto));
+}
+
 #hfRuntimeList .hf-chip {
   justify-self: center;
+  white-space: nowrap;
+}
+
+.hf-occupancy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 #hfRuntimeList .btn,
@@ -13293,7 +13902,6 @@ h6.md-h { font-size: 14px; }
 }
 
 @media (max-width: 900px) {
-  .hf-runtime-grid,
   .hf-infer-grid,
   #hf-runtime .hf-specs {
     grid-template-columns: minmax(0, 1fr);
@@ -15198,6 +15806,42 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   color: var(--warning, #c48a00);
 }
 
+/* Claude 多帳號：詳情卡裡一個帳號一段，段與段之間一條細線 */
+.usage-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.usage-profile + .usage-profile {
+  padding-top: 9px;
+  border-top: 1px solid var(--border-light);
+}
+
+.usage-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.usage-profile-email {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-profile-plan {
+  margin-left: auto;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* 雲端模型：模型名稱與用途對齊，操作不藏在 hover。 */
 .cloud-model-columns { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 10px; margin: 18px 0 8px; color: var(--text-secondary); font-size: 12px; }
 #chatModelList { gap: 0; }
@@ -15257,3 +15901,114 @@ label.setting-row { cursor: pointer; }
   .setting-row { flex-wrap: wrap; }
   .setting-row-control.is-select { width: 100%; }
 }
+
+/* ===== 生成圖片影像（內嵌 Miroxen 工作台，滿版）===== */
+
+.content:has(#page-imagegen.active) {
+  padding: 0;
+  overflow: hidden;
+}
+
+#page-imagegen.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.imagegen-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--app-bg);
+}
+
+.imagegen-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+}
+
+.imagegen-empty h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.imagegen-empty p {
+  max-width: 460px;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.imagegen-empty[hidden],
+.imagegen-frame[hidden] {
+  display: none;
+}
+
+/* MCP 測試結果留在該列，工具說明可換行。 */
+#ccMcpList .cc-row { align-items: flex-start; }
+#ccMcpList .cc-row-title { flex-wrap: wrap; }
+#ccMcpList .cc-row-name,
+#ccMcpList .cc-row-sub {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+.cc-mcp-check { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.cc-mcp-tools { margin-top: 6px; }
+.cc-mcp-tools summary { color: var(--accent-primary); cursor: pointer; }
+.cc-mcp-tools summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+.cc-mcp-tool-list {
+  max-height: 260px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px 12px 8px 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass);
+}
+.cc-mcp-tool-list li + li { margin-top: 8px; }
+.cc-mcp-tool-list strong { color: var(--text-primary); }
+.cc-mcp-tool-list p { margin: 3px 0 0; line-height: 1.5; }
+
+/* 工作樹表單與指令面板沿用現有對話框／快速開檔樣式。 */
+.ws-worktree-dialog form {
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  min-height: 0;
+}
+.ws-worktree-dialog .simple-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ws-worktree-dialog .setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.ws-worktree-dialog .setting-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.ws-worktree-dialog .ws-worktree-setup { flex-direction: row; align-items: center; }
+.ws-worktree-dialog .dialog-desc,
+.ws-commands .ws-qo-row {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ws-worktree-menu { flex: none; }

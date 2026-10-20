@@ -56,6 +56,9 @@ let fontSize = FONT_DEFAULT
 
 /** 最多同時並排幾個工作階段。再多每一格就窄到看不出東西了。 */
 const MAX_VISIBLE = 3
+// 保留常用畫布，總數低於 Chromium 的 16 個 WebGL context 上限。
+const MAX_RENDERERS = 8
+let rendererUse = 0
 
 /** @type {Array<{ id: string, title: string, shell: string, preset: string, cwd: string, state: string, exitCode: number | null }>} */
 let items = []
@@ -65,7 +68,7 @@ let catalog = { shells: [], presets: [], maxSessions: 20, supportsAdmin: true, d
 /**
  * @typedef {{
  *   term: Terminal, fit: FitAddon, search: SearchAddon, pane: HTMLElement, disposeIme: () => void,
- *   webgl: import('@xterm/addon-webgl').WebglAddon | null,
+ *   webgl: import('@xterm/addon-webgl').WebglAddon | null, rendererUsedAt?: number,
  *   conversation: ReturnType<typeof bindConversationNav>,
  *   seq: number, ready: boolean, writing: boolean, queue: Array<{ seq: number, data: string }>
  * }} Pane
@@ -173,8 +176,27 @@ function pushTabState(id) {
     // 前景 shell 報到哪就顯示哪（OSC 7）；沒報過才退回開起來時的那個目錄
     cwd: item.liveCwd || item.cwd || '',
     split: isTerminalSplit(id),
-    unread: unread.has(id)
+    unread: unread.has(id),
+    context: contextById.get(id) || null
   })
+}
+
+/** 終端機 ID → 綁定對話最後一輪的上下文用量 `{ used, max }` */
+const contextById = new Map()
+
+/**
+ * 一輪結束或切到這格時重讀一次（用量只在回合邊界變，不必輪詢）。
+ * @param {{ id: string, preset?: string, claudeSessionId?: string }} item
+ */
+async function refreshContext(item) {
+  if (!item || (item.preset !== 'codex' && item.preset !== 'claude' && !item.claudeSessionId)) return
+  const res = await electronAPI.terminal.context(item.id).catch(() => null)
+  const next = res?.ok && res.data && Number.isFinite(res.data.used) ? res.data : null
+  const prev = contextById.get(item.id) || null
+  if (prev?.used === next?.used && prev?.max === next?.max) return
+  if (next) contextById.set(item.id, next)
+  else contextById.delete(item.id)
+  pushTabState(item.id)
 }
 
 /** 側欄與分頁看到的是合併後的狀態，宿主原值留在 `item.state` */
@@ -241,7 +263,8 @@ function viewOf(item) {
  * @returns {boolean}
  */
 function isWatching(id) {
-  return visibleIds.includes(id)
+  // 功能頁各自一個 view：切到別頁時這頁的 DOM 還是 active，只有 document.hidden 會變
+  return !document.hidden && visibleIds.includes(id)
     && document.getElementById('page-chat')?.classList.contains('active')
     && !document.getElementById('termMain')?.classList.contains('hidden')
     && !hostEl?.classList.contains('hidden')
@@ -256,13 +279,27 @@ function isWatching(id) {
 function publishView(id, prev) {
   const item = items.find((entry) => entry.id === id)
   if (!item) return
-  const next = viewOf(item)
-  if (prev === 'running' && (next === 'idle' || next === 'waiting')) {
-    if (!isWatching(id)) unread.add(id)
-    document.dispatchEvent(new CustomEvent('ws:terminal-idle', { detail: { id } }))
-  }
+  noteSettled(item, prev, viewOf(item))
   pushTabState(id)
   setTerminalStatuses(displayedItems())
+}
+
+/**
+ * 運行中 → 閒置／等人：沒在看就亮未讀；是 agent 而且人沒在看（或 App 沒焦點）就跳系統通知。
+ * 純 shell 的指令跑完不通知，免得每個 `ls` 都叮一聲。
+ * @param {{ id: string, preset?: string }} item
+ * @param {string | null | undefined} prev
+ * @param {string} next
+ */
+function noteSettled(item, prev, next) {
+  if (prev !== 'running' || (next !== 'idle' && next !== 'waiting')) return
+  void refreshContext(item)
+  const watching = isWatching(item.id)
+  if (!watching) unread.add(item.id)
+  document.dispatchEvent(new CustomEvent('ws:terminal-idle', { detail: { id: item.id } }))
+  const agent = (item.preset && item.preset !== 'shell') || hookOf(item) !== null
+  if (!agent || (watching && document.hasFocus())) return
+  electronAPI.terminal.notifyAgent(item.id, next === 'waiting' ? 'waiting' : 'done', displayTitle(item)).catch(() => {})
 }
 
 /**
@@ -481,15 +518,24 @@ function initTerminalDrop(pane, term, id) {
  */
 const webglTries = new WeakMap()
 
-function attachRenderer(term) {
-  if ((webglTries.get(term) || 0) > 3) return null
-  // Linux／遠端／軟體渲染常把 WebGL2 拉進 blocklist；先探一下，失敗就留 DOM renderer
+/** WebGL 探測結果（整頁一次）；null＝還沒探 */
+let webglUsable = null
+function canUseWebgl() {
+  if (webglUsable !== null) return webglUsable
+  // Linux／遠端／軟體渲染常把 WebGL2 拉進 blocklist；先探一下，失敗就留 DOM renderer。
+  // 探一次就記住：每次重建畫布都開一個 canvas context 也是成本。沒有 canvas 可探（測試環境）就照常嘗試。
   try {
     const probe = document.createElement('canvas')
-    if (!probe.getContext('webgl2') && !probe.getContext('webgl')) return null
+    webglUsable = Boolean(probe.getContext('webgl2') || probe.getContext('webgl'))
   } catch {
-    return null
+    webglUsable = true
   }
+  return webglUsable
+}
+
+function attachRenderer(term) {
+  if ((webglTries.get(term) || 0) > 3) return null
+  if (!canUseWebgl()) return null
   try {
     const webgl = new WebglAddon()
     webgl.onContextLoss(() => {
@@ -499,6 +545,7 @@ function attachRenderer(term) {
       if (pane) pane.webgl = null
       requestAnimationFrame(() => {
         if (!term.element?.isConnected) return
+        if (pane && !visibleIds.some(id => panes.get(id) === pane)) return
         const next = attachRenderer(term)
         if (pane) pane.webgl = next
       })
@@ -525,7 +572,7 @@ function isCmdShell(id) {
  * @param {boolean} cmd
  */
 function quotePath(filePath, cmd) {
-  return cmd ? `"${filePath}"` : `'${filePath.replace(/'/g, "''")}'`
+  return cmd ? `"${filePath}"` : `'${filePath.replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**
@@ -660,6 +707,7 @@ function createPane(id) {
     // 複製：有選取時的 Ctrl+C、Ctrl+Shift+C、Ctrl+Insert（見 `term-copy.js`）。沒選取的 Ctrl+C 照舊中斷
     if ((!cliMouse() || term.hasSelection()) && handleCopyKey(term, event)) return false
     if (event.ctrlKey && !event.altKey && !event.metaKey) {
+      if (event.shiftKey && ['p', 'P'].includes(event.key) && !event.isComposing && event.keyCode !== 229) return false
       // 切分頁／開關分頁交給工作區（workspace-page.js 的 onGlobalKeydown）。
       // xterm 收了只會送一個 Tab 或 ^T／^W 進 shell，跟使用者要的完全不同
       if (event.key === 'Tab') return false
@@ -753,6 +801,20 @@ function createPane(id) {
   return entry
 }
 
+/**
+ * 開／接回 PTY。main 在送出 open 前要先找可接續的對話，AI 終端機這段會等一陣子；
+ * 期間版面一變，那次 resize 宿主還沒有這個工作階段就被丟掉（或被 open 帶的舊尺寸蓋回），
+ * CLI 會照舊寬度畫在新寬度上，畫面就破了。回來時尺寸不同就補送一次。
+ */
+async function openPty(id, entry, message) {
+  const { cols, rows } = entry.term
+  const snapshot = await call(electronAPI.terminal.open(id, cols, rows), message)
+  if (entry.term.cols !== cols || entry.term.rows !== rows) {
+    void electronAPI.terminal.resize(id, entry.term.cols, entry.term.rows)
+  }
+  return snapshot
+}
+
 /** CLI 內改選舊對話時，補回同一 xterm；PTY 與輸入不重啟，期間輸出先排隊。 */
 async function restorePaneHistory(id) {
   const entry = panes.get(id)
@@ -763,7 +825,7 @@ async function restorePaneHistory(id) {
     entry.ready = false
     try {
       await writeOutput(entry, '')
-      const snapshot = await call(electronAPI.terminal.open(id, entry.term.cols, entry.term.rows), '讀取終端機畫面失敗')
+      const snapshot = await openPty(id, entry, '讀取終端機畫面失敗')
       if (panes.get(id) !== entry) return
       entry.term.reset()
       await entry.conversation.restore()
@@ -792,6 +854,21 @@ function paintPanes() {
     entry.pane.classList.toggle('is-active', at >= 0)
     entry.pane.classList.toggle('is-current', id === currentId && visibleIds.length > 1)
     entry.pane.style.order = at >= 0 ? String(at) : ''
+    if (at >= 0) {
+      entry.rendererUsedAt = ++rendererUse
+      if (!entry.webgl) entry.webgl = attachRenderer(entry.term)
+    }
+  }
+  // dispose 會同步重建 DOM renderer；只在超過上限時收最久沒看的背景格。
+  const rendered = [...panes].filter(([, entry]) => entry.webgl)
+  let excess = rendered.length - MAX_RENDERERS
+  const inactive = rendered.filter(([id]) => !visibleIds.includes(id))
+    .sort(([, a], [, b]) => (a.rendererUsedAt || 0) - (b.rendererUsedAt || 0))
+  for (const [, entry] of inactive) {
+    if (excess <= 0) break
+    entry.webgl.dispose()
+    entry.webgl = null
+    excess--
   }
 }
 
@@ -834,7 +911,7 @@ export async function toggleTerminalSplit(id) {
  * @param {string} id
  * @returns {boolean}
  */
-export function isTerminalSplit(id) {
+function isTerminalSplit(id) {
   return visibleIds.length > 1 && visibleIds.includes(id)
 }
 
@@ -909,13 +986,10 @@ async function openSession(id, isActive = () => true) {
 
   if (fresh) {
     try {
-      const snapshot = await call(
-        electronAPI.terminal.open(id, entry.term.cols, entry.term.rows),
-        '開啟終端機失敗'
-      )
+      const snapshot = await openPty(id, entry, '開啟終端機失敗')
       // 掛上之後、快照回來之前收到的片段先排隊，免得順序顛倒；
       // 快照本身已含 seq 以前的內容，重疊的要丟掉。
-      await entry.conversation.restore()
+      await entry.conversation.restore(snapshot.hasHistory !== false)
       if (snapshot.buffer) await writeOutput(entry, snapshot.buffer)
       entry.seq = snapshot.seq
       entry.ready = true
@@ -940,6 +1014,7 @@ async function openSession(id, isActive = () => true) {
   // 分頁列要有這一格（還原專案分頁時也走這裡）
   trackTerminal(id, trackedTitle(id))
   await reloadList()
+  if (!contextById.has(id)) void refreshContext(items.find((entry) => entry.id === id))
 }
 
 /**
@@ -1174,14 +1249,7 @@ async function reloadList() {
     item.screen = panes.has(item.id) ? (prevScreen.get(item.id) ?? null) : null
     if (Object.prototype.hasOwnProperty.call(item, 'agent')) rememberAgent(item.id, item.agent)
   }
-  for (const item of items) {
-    const prev = prevView.get(item.id)
-    const nextView = viewOf(item)
-    if (prev === 'running' && (nextView === 'idle' || nextView === 'waiting')) {
-      if (!isWatching(item.id)) unread.add(item.id)
-      document.dispatchEvent(new CustomEvent('ws:terminal-idle', { detail: { id: item.id } }))
-    }
-  }
+  for (const item of items) noteSettled(item, prevView.get(item.id), viewOf(item))
   pushAllTabStates()
   ensureLiveTerminalTabs(items)
   checkHostRuntime()
@@ -1334,7 +1402,7 @@ function onTitle(payload) {
   setTerminalStatuses(displayedItems())
 }
 
-export function initTerminalPage() {
+function initTerminalPage() {
   if (initialized) return
   initialized = true
   initWsTabs()
@@ -1454,6 +1522,20 @@ export function pasteIntoFocusedTerminal(text) {
   const entry = pane instanceof HTMLElement ? panes.get(pane.dataset.id || '') : null
   if (!entry || !text) return false
   entry.term.paste(text)
+  return true
+}
+
+/**
+ * 貼進指定的那一格（審查意見「貼到終端機」）；同樣走 `term.paste`，CLI 收到的是一次貼上。
+ * @param {string} id
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function pasteIntoTerminal(id, text) {
+  const entry = panes.get(id)
+  if (!entry || !text) return false
+  entry.term.paste(text)
+  entry.term.focus()
   return true
 }
 

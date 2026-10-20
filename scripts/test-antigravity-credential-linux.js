@@ -6,7 +6,6 @@
 
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
-const os = require('node:os')
 const path = require('node:path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
@@ -66,7 +65,6 @@ async function main() {
 
     if (process.platform === 'linux') {
       // 真實入口不可呼叫 powershell
-      const spawnSync = require('node:child_process').spawnSync
       // 用空 HOME 讓檔案／secret 都失敗；只要不炸、回 null 即可
       const prev = process.env.HOME
       process.env.HOME = path.join(home, 'empty-home')

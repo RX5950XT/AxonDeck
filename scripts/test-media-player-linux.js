@@ -16,7 +16,7 @@ const { tempDir } = require('./lib/test-temp')
 const { makeSamples } = require('./fixtures/media/make-samples')
 const plan = require('../src/main/media-linux/plan')
 const proto = require('../src/main/media-linux/protocol')
-const { createMpvSession } = require('../src/main/media-linux/mpv-ipc')
+const { createMpvSession } = require('../src/main/media-linux/mpv-socket')
 const { EventEmitter } = require('events')
 const { spawn } = require('child_process')
 

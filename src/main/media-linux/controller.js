@@ -19,7 +19,7 @@ const rawFs = require('../raw-fs')
 const { spawn } = require('child_process')
 const plan = require('./plan')
 const playerProtocol = require('./protocol')
-const { createMpvSession } = require('./mpv-ipc')
+const { createMpvSession } = require('./mpv-socket')
 
 const PAGE = path.join(__dirname, '../../renderer/pages/media-player.html')
 const PRELOAD = path.join(__dirname, '../../preload/media-player-preload.js')
@@ -79,7 +79,7 @@ function createController(deps) {
   async function buildQueue(file) {
     if (plan.kindOf(file) === 'playlist') {
       const stat = await rawFs.promises.stat(file).catch(() => null)
-      if (!stat?.isFile() || stat.size > 2 * 1024 * 1024) return { files: [], index: 0 }
+      if (!stat?.isFile() || stat.size > plan.MAX_PLAYLIST_BYTES) return { files: [], index: 0 }
       const text = await rawFs.promises.readFile(file, 'utf8').catch(() => '')
       const listed = plan.parsePlaylist(file, text)
       const files = []

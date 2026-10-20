@@ -10,9 +10,8 @@
  *     換回 HTML5 時收掉 mpv、沒有 mpv 時改提供 ffplay／系統開啟、關視窗收掉 mpv。
  */
 
-const { app, protocol, BrowserWindow } = require('electron')
+const { app, protocol } = require('electron')
 const fs = require('fs')
-const path = require('path')
 const { spawn } = require('child_process')
 const assert = require('node:assert/strict')
 const { tempDir } = require('./lib/test-temp')

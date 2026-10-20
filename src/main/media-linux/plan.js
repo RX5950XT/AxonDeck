@@ -209,6 +209,7 @@ module.exports = {
   naturalSort,
   siblings,
   parsePlaylist,
+  MAX_PLAYLIST_BYTES,
   findSubtitles,
   srtToVtt,
   chooseBackend,

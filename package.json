@@ -1,6 +1,6 @@
 {
   "name": "axondeck",
-  "version": "1.62.2",
+  "version": "1.62.3",
   "description": "AxonDeck - Windows Desktop AI Workbench",
   "main": "src/main/main.js",
   "scripts": {

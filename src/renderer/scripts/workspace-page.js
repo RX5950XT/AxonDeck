@@ -23,7 +23,6 @@ import {
   openReviewTab,
   isTerminalRunnable,
   isDirectRunnable,
-  isLaunchScript,
   runInTerminal,
   openWithSystem
 } from './ws-tabs.js'
@@ -983,12 +982,8 @@ function buildTreeRow(project, entry, depth) {
       void toggleDir(project, entry.rel, row)
       return
     }
-    // `.exe` 跟 Explorer 按兩下同一件事；`.cmd`／`.ps1` 當一鍵啟動腳本跑。
-    // 原始碼（`.js`／`.py`）仍開編輯器——右鍵才有「在終端機執行」。
-    if (isLaunchScript(entry.rel)) {
-      void runInTerminal(entry.rel)
-      return
-    }
+    // `.exe` 跟 Explorer 按兩下同一件事。腳本（`.bat`／`.ps1`／`.py`…）先開編輯器，
+    // 要跑按編輯器右上角「執行」或右鍵「在終端機執行」。
     if (isDirectRunnable(entry.rel)) {
       void openWithSystem(project.id, entry.rel)
       return
@@ -1483,12 +1478,8 @@ function openTreeMenu(project, entry, event) {
     return
   }
   const parent = entry.dir ? entry.rel : entry.rel.split('/').slice(0, -1).join('/')
-  // 執行那兩項擺最上面：對 `.exe` 與一鍵啟動腳本來說點一下就是跑，
-  // 要改腳本內容走右鍵「開啟」（否則檔案樹點下去會直接把伺服器拉起來）。
+  // 執行那幾項擺最上面
   const run = entry.dir ? [] : [
-    ...(isLaunchScript(entry.rel)
-      ? [{ label: '開啟', onSelect: () => void openEditorTab(project, entry.rel) }]
-      : []),
     ...(isTerminalRunnable(entry.rel)
       ? [{ label: '在終端機執行', onSelect: () => void runInTerminal(entry.rel) }]
       : []),

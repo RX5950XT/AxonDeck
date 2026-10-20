@@ -4,6 +4,14 @@
 
 ## 待辦／未解
 
+### 2026-10-20 — Telegram 切回保留每格位置
+
+- [x] 追查切頁與自動重載：舊版背景等待連線超過 60 秒會卸載所有格子，背景導覽也會覆蓋每格網址。
+- [x] 切走暫停連線檢查、保留每格最後前景網址，切回各自還原；子 frame 導覽不寫入。
+- [x] lint、針對性回歸與打包驗收，記錄結果。
+
+Review：`TELEGRAM_BASELINE=1 npx electron scripts/test-telegram-page.js` 在背景重載斷言失敗；修正後 1～4 格的一般切頁、背景 61 秒（測試時鐘）、背景改址還原、子 frame 與前景斷線復原全部通過。`npm run lint` 通過（394 IPC／32 namespace），`node scripts/test-page-windows.js` 通過。`npm run electron:pack` 成功，384 個 src 一致；設 `AXONDECK_ASAR=dist/win-unpacked/resources/app.asar` 重跑同一真實 Electron/webview 測試亦全過。使用隔離本機網頁模擬 Telegram 狀態，未以登入帳號直接重現上游改址；未發版，未更動執行中的正式安裝版。
+
 ### 2026-10-18 — v1.60.0 推送與發行
 
 - [x] 盤點完整變更、同步版號與說明，檢查待提交內容。

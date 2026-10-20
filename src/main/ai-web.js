@@ -172,6 +172,30 @@ function allowPermission(permission, details) {
   return types.length > 0 && types.every((type) => type === 'audio')
 }
 
+// 長對話（尤其一堆數學公式）卡頓的主因是網頁自己每次更新都重排、重畫整串舊訊息（實測 Layout＋Paint 佔 7 成，Edge 也一樣）。
+// 對每則訊息加 content-visibility:auto，畫面外的舊訊息跳過排版與繪製：80 則訊息串流時每幀 180→118ms、300 則捲動 90→123fps。
+// Claude 官方已經自己加了（[data-test-render-count] 外層），不重複。
+// ponytail: 靠各家的訊息選擇器（2026-10 對照公開擴充功能原始碼），改版就對不到——退回原本的樣子，不會出錯
+const RENDER_BOOST_CSS = Object.freeze({
+  chatgpt: '[data-message-author-role]',
+  gemini: '.conversation-container',
+  grok: 'div[id^="response-"]'
+})
+
+/**
+ * 網頁版 AI 的 webview 每次載入文件都補上 RENDER_BOOST_CSS（SPA 站內換頁不會換文件，插一次就一直在）
+ * @param {import('electron').WebContents} contents
+ * @param {string} site
+ */
+function installRenderBoost(contents, site) {
+  const selector = RENDER_BOOST_CSS[site]
+  if (!selector) return
+  const css = `${selector}{content-visibility:auto;contain-intrinsic-size:auto 400px}`
+  contents.on('dom-ready', () => {
+    contents.insertCSS(css).catch((error) => console.error('[ai-web] 加速樣式插不進去:', error))
+  })
+}
+
 /**
  * 網頁版 AI 一個登入分區的設定（main 在 whenReady 叫）
  * @param {import('electron').Session} ses
@@ -188,5 +212,6 @@ function setupSession(ses, { userAgent, shimPath, languages }) {
 
 module.exports = {
   SITES, isSite, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup,
-  chromeUserAgent, electronUserAgent, installChallengeFallback, allowPermission, setupSession, brandList, clientHints
+  chromeUserAgent, electronUserAgent, installChallengeFallback, allowPermission, setupSession, brandList, clientHints,
+  installRenderBoost
 }

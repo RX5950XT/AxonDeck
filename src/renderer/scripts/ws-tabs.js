@@ -1189,7 +1189,7 @@ const RUNNABLE_EXTS = ['exe', 'com', 'msi', 'bat', 'cmd', 'ps1', 'sh', 'py', 'js
 const TERMINAL_EXTS = ['exe', 'bat', 'cmd', 'ps1', 'sh', 'py', 'js', 'mjs', 'jar']
 /** 檔案樹點下去就用系統開啟的（沒有內容可編，開編輯分頁只會看到「無法預覽」） */
 const DIRECT_EXTS = ['exe', 'com', 'msi', 'lnk']
-/** 一鍵啟動腳本：檔案樹點下去開終端機跑。`.js`／`.py` 是原始碼，點下去仍開編輯器 */
+/** 一鍵啟動腳本：在終端機跑時交給 main 包一層（腳本開的瀏覽器改開在專案） */
 const LAUNCH_EXTS = ['bat', 'cmd', 'ps1', 'sh']
 
 /**
@@ -1218,9 +1218,9 @@ export function isDirectRunnable(relPath) {
 
 /**
  * @param {string} relPath
- * @returns {boolean} 檔案樹點下去要開終端機跑嗎
+ * @returns {boolean} 是不是一鍵啟動腳本
  */
-export function isLaunchScript(relPath) {
+function isLaunchScript(relPath) {
   return LAUNCH_EXTS.includes(extOf(relPath))
 }
 
@@ -1533,6 +1533,7 @@ function paintEditor(tab) {
     if (el.unsupportedOpen) el.unsupportedOpen.hidden = !isRunnable(tab.relPath || '')
     if (el.editorPreviewBtn) el.editorPreviewBtn.hidden = true
     if (el.editorSaveBtn) el.editorSaveBtn.hidden = true
+    if (el.editorRunBtn) el.editorRunBtn.hidden = true
     if (el.editorFindBtn) el.editorFindBtn.hidden = true
     // 沒有文字可帶；留著的話會把上一個分頁殘留在 textarea 的選取標成這個檔案送進聊天
     if (el.editorToChatBtn) el.editorToChatBtn.hidden = true
@@ -1571,6 +1572,7 @@ function paintEditor(tab) {
     el.editorSaveBtn.hidden = Boolean(tab.readonly)
     el.editorSaveBtn.textContent = '儲存'
   }
+  if (el.editorRunBtn) el.editorRunBtn.hidden = !tab.projectId || !isTerminalRunnable(tab.relPath || '')
 
   // Monaco 接手之後行號欄是 hidden 的，狀態列也由 `paintMonacoStatus` 蓋過去：
   // 這兩支各要把整份內容掃一遍（組全部行號、兩次 `split('\n')`、一顆 `Blob`），
@@ -1698,6 +1700,19 @@ function ensurePreviewZoom(box) {
 }
 
 /**
+ * HTML 預覽頁裡的 Ctrl+滾輪（wheel 不會穿出 iframe，由頁面裡那段腳本轉過來）。只認目前那個預覽 iframe。
+ * @param {MessageEvent} event
+ */
+function onPreviewFrameZoom(event) {
+  const box = el.editorPreview
+  const frame = box?.querySelector('iframe.ws-editor-frame')
+  const deltaY = event.data?.axondeckZoom
+  if (!box || !frame || event.source !== frame.contentWindow || typeof deltaY !== 'number') return
+  previewZoom = nextZoom(previewZoom, deltaY)
+  applyPreviewZoom(box)
+}
+
+/**
  * @param {HTMLElement} box
  */
 function applyPreviewZoom(box) {
@@ -1785,20 +1800,40 @@ function paintPreview(tab) {
     return
   }
   if (ext === 'html' || ext === 'htm') {
-    const frame = document.createElement('iframe')
-    frame.className = 'ws-editor-frame'
-    frame.setAttribute('sandbox', 'allow-scripts')
-    frame.setAttribute('title', '本機 HTML 預覽')
-    // 這份預覽刻意沒有 Ctrl+滾輪縮放：wheel 事件在 iframe 自己的 document 裡，
-    // 不會冒泡到外層 .ws-editor-preview。要接得到就得往使用者的 HTML 裡塞腳本，不值得。
-    frame.srcdoc = source
-    box.replaceChildren(frame)
+    void paintHtml(tab, box, generation, source)
     return
   }
   box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || '', {
     html: true,
     openLink: (link) => openPreviewLink(tab, link)
   }))
+}
+
+/**
+ * HTML 預覽。以前用 srcdoc：它吃 App 的 CSP（行內腳本全被擋）、相對路徑的 CSS／JS／圖片也解不開。
+ * 改成 main 給的 `vi-media://` 網站網址（每個專案自己一個來源），內容送的是手上這一版（沒存也算）。
+ *
+ * @param {WsTab} tab
+ * @param {HTMLElement} box
+ * @param {number} generation
+ * @param {string} source
+ */
+async function paintHtml(tab, box, generation, source) {
+  box.replaceChildren(hint('HTML 載入中…'))
+  const res = await electronAPI.workspace.previewHtml(tab.projectId, tab.relPath, source)
+  if (generation !== previewGeneration || previewKey.id !== tab.id) return
+  if (!res?.ok) {
+    box.replaceChildren(hint(res?.error?.message || 'HTML 預覽失敗'))
+    return
+  }
+  const frame = document.createElement('iframe')
+  frame.className = 'ws-editor-frame'
+  // 預覽頁的來源跟 App 不同，allow-same-origin 只讓它用自己的 localStorage／讀自己的資源，碰不到 App
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals')
+  frame.setAttribute('title', '本機 HTML 預覽')
+  // Ctrl+滾輪由 main 塞進頁面的那段腳本 postMessage 回來（見 onPreviewFrameZoom）
+  frame.src = res.data.url
+  box.replaceChildren(frame)
 }
 
 /** 預覽裡點到相對路徑連結：照這份 Markdown 所在資料夾解成專案內路徑；資料夾在檔案樹選起來，檔案開分頁 */
@@ -3440,6 +3475,7 @@ export function initWsTabs() {
   el.editorSaveBtn = document.getElementById('wsEditorSaveBtn')
   el.editorDiffBtn = document.getElementById('wsEditorDiffBtn')
   el.editorFindBtn = document.getElementById('wsEditorFindBtn')
+  el.editorRunBtn = document.getElementById('wsEditorRunBtn')
   el.editorExtBanner = document.getElementById('wsEditorExtBanner')
   el.editorExtBannerMsg = document.querySelector('#wsEditorExtBanner .ws-ext-banner-msg')
   el.editorReloadDiskBtn = document.getElementById('wsEditorReloadDiskBtn')
@@ -3643,6 +3679,15 @@ export function initWsTabs() {
   })
 
   el.editorSaveBtn?.addEventListener('click', () => void saveActiveFile())
+  window.addEventListener('message', onPreviewFrameZoom)
+  el.editorRunBtn?.addEventListener('click', async () => {
+    const tab = findTab(activeId)
+    if (!tab || tab.kind !== 'editor' || !tab.projectId || !tab.relPath) return
+    // 先存再跑，跑的才是畫面上這一版；存不成（例如外部改過）就不跑
+    if (tab.dirty) await saveActiveFile()
+    if (tab.dirty) return
+    void runInTerminal(tab.relPath)
+  })
   el.editorDiffBtn?.addEventListener('click', async () => {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor' || !tab.projectId || !tab.relPath) return

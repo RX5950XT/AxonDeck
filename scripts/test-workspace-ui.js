@@ -443,11 +443,9 @@ async function runFileChecks() {
   check('點執行檔直接用系統開啟（不開「無法預覽」分頁）',
     /isDirectRunnable\(entry\.rel\)/.test(workspacePage)
     && /openWithSystem\(project\.id, entry\.rel\)/.test(workspacePage))
-  check('點啟動腳本開終端機跑',
-    /isLaunchScript\(entry\.rel\)/.test(workspacePage)
-    && /runInTerminal\(entry\.rel\)/.test(workspacePage))
-  check('啟動腳本的右鍵有「開啟」（點下去是跑，編輯走右鍵）',
-    /isLaunchScript\(entry\.rel\)[\s\S]{0,180}label: '開啟'/.test(workspacePage))
+  check('點腳本不直接跑（先開編輯器）', !/isLaunchScript\(entry\.rel\)/.test(workspacePage))
+  check('編輯器右上角有「執行」鈕，只給腳本類', hasId('wsEditorRunBtn')
+    && /editorRunBtn\.hidden = !tab\.projectId \|\| !isTerminalRunnable/.test(tabs))
   check('`.js`／`.py` 不在點擊就跑的清單裡',
     /const LAUNCH_EXTS = \['bat', 'cmd', 'ps1', 'sh'\]/.test(tabs)
     && /const DIRECT_EXTS = \['exe', 'com', 'msi', 'lnk'\]/.test(tabs))

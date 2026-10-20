@@ -90,6 +90,18 @@ async function readFile(projectId, relPath) {
 }
 
 /**
+ * HTML 預覽網址（`vi-media://` 的網站主機，相對路徑的 CSS／JS／圖片都載得到）。
+ * `content` 是編輯器手上這一版，還沒存也照它畫。
+ * @returns {Promise<{ url: string }>}
+ */
+async function previewHtml(projectId, relPath, content) {
+  files.resolveExisting(await rootOf(projectId), relPath)
+  if (!/\.html?$/i.test(String(relPath))) throw fail('BAD_PATH', '只能預覽 HTML 檔')
+  if (typeof content !== 'string' || content.length > files.MAX_WRITE_CHARS) throw fail('TOO_LARGE', '內容太大，無法預覽')
+  return { url: media.siteUrlFor(projectId, relPath, content) }
+}
+
+/**
  * Office 文件轉成 PDF（版面檢視）或 xlsx（試算表重算公式、舊格式給內建表格用）。
  * @returns {Promise<{ url: string }>} 轉好的 `vi-media://` 網址
  */
@@ -304,6 +316,7 @@ module.exports = {
   getTabsState,
   listDir,
   readFile,
+  previewHtml,
   convertOffice,
   writeFile,
   getFileMtime,

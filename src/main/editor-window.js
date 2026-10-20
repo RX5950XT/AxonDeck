@@ -171,6 +171,22 @@ async function save(entry, content, expectedMtimeMs) {
   return { mtimeMs: (await fsp.stat(entry.file)).mtimeMs }
 }
 
+/**
+ * 預覽裡點到相對路徑連結：以這扇窗的檔案所在資料夾解路徑，編輯器收得了的格式另開一扇窗。
+ * renderer 只送得出連結原字串，路徑在這裡決定。
+ * @param {{ file: string }} entry
+ * @param {unknown} link
+ */
+async function openLink(entry, link) {
+  if (typeof link !== 'string' || !link || link.length > 2048 || link.includes('\0')) throw fail('BAD_LINK', '連結不合法')
+  let target = link.split('#')[0].split('?')[0]
+  try { target = decodeURIComponent(target) } catch { throw fail('BAD_LINK', '連結不合法') }
+  if (!target || /^[a-z][a-z0-9+.-]*:|^[\\/]/i.test(target)) throw fail('BAD_LINK', '這種連結只能從工作區或檔案頁開')
+  const full = path.resolve(path.dirname(entry.file), target)
+  if (!isEditable(full)) throw fail('UNSUPPORTED', '這種檔案請到檔案頁開')
+  await open(full)
+}
+
 function registerIpc() {
   const invoke = makeInvoke({ isMainSender: (event) => entries.has(event.sender.id), forbidden: '只有編輯視窗可以使用', message: '操作失敗' })
   ipcMain.handle('editorFile:load', (event) => invoke(event, () => load(entryOf(event))))
@@ -179,6 +195,7 @@ function registerIpc() {
     const stat = await fsp.stat(entryOf(event).file).catch(() => null)
     return { exists: Boolean(stat?.isFile()), mtimeMs: stat?.mtimeMs || 0 }
   }))
+  ipcMain.handle('editorFile:openLink', (event, link) => invoke(event, () => openLink(entryOf(event), link)))
   ipcMain.handle('editorFile:setDirty', (event, dirty) => invoke(event, () => { entryOf(event).dirty = dirty === true }))
   ipcMain.handle('editorFile:close', (event) => invoke(event, () => {
     const entry = entryOf(event)

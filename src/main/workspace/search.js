@@ -285,7 +285,6 @@ async function listFiles(root) {
 }
 
 module.exports = {
-  MAX_HITS,
   MAX_SCAN_FILES,
   MAX_FILE_BYTES,
   MAX_LINE_CHARS,

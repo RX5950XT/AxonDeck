@@ -263,6 +263,8 @@ async function saveAccount(account) {
     (item.accountId ? item.accountId === account.accountId : item.label === account.label)
   // 沿用舊 id：供應商設定綁的是我們的 id，換新 id 會讓既有綁定變成 NO_ACCOUNT
   const old = items.find(same)
+  // 滿了還加會被 writeAccounts 截掉，畫面卻說登入成功
+  if (!old && items.length >= MAX_ACCOUNTS) throw authError('TOO_MANY_ACCOUNTS', `最多 ${MAX_ACCOUNTS} 個帳號，請先移除一個`)
   const saved = old ? { ...account, id: old.id } : account
   await writeAccounts([...items.filter((item) => !same(item)), saved])
   return saved

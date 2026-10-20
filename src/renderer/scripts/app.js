@@ -11,6 +11,7 @@ import {
 } from './chat-page.js'
 import { DEFAULT_ASR_API_URL, DEFAULT_ASR_MODEL } from './api.js'
 import { initResizer } from './pane-resize.js'
+import { applyPlatformTexts } from './platform-texts.js'
 import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { createListReorder } from './list-reorder.js'
@@ -18,6 +19,8 @@ import { initNavHistory, noteLocation } from './nav-history.js'
 import { refreshTermAppearancePreview } from './term-appearance-preview.js'
 import { TERM_THEMES, DEFAULT_TERM_THEME, DEFAULT_TERM_BG_OPACITY, MIN_TERM_BG_OPACITY } from './term-themes.js'
 import { initPageWindows, navigateToPage, pageOwner, isPageHost, notifyPageSettings } from './page-windows.js'
+
+applyPlatformTexts()
 
 /** @type {typeof import('./live-caption.js') | null} */
 let liveCaption = null
@@ -148,8 +151,15 @@ export async function openFolderInWorkspace(full) {
  * @param {string} [project] 指定專案（專案腳本開的網址）
  * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的，一律開在 Browser 模式
  */
-export async function openUrlInApp(url, project = '', target = '') {
-  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project, target: 'browser' })
+export async function openUrlInApp(url, project = '', target = '', sourceGuestId = 0) {
+  if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project, target: target === 'tab' ? 'tab' : 'browser', sourceGuestId })
+  if (target === 'tab' && Number.isInteger(sourceGuestId) && sourceGuestId > 0) {
+    const source = [...document.querySelectorAll('#wsBrowserFrame webview')].find((guest) => {
+      try { return guest.getWebContentsId() === sourceGuestId } catch { return false }
+    })
+    if (source?.dataset.projectId) project = source.dataset.projectId
+  }
+  if (target === 'tab' && !project) target = 'browser'
   const onChatPage = document.getElementById('page-chat')?.classList.contains('active')
   if (!project && (target === 'browser' || !onChatPage || chatPaneMode === 'browser')) {
     switchPage('chat')
@@ -181,7 +191,7 @@ async function activateSttSubtab() {
   import('./recorder.js').then((m) => m.refreshRecorderPage())
   const live = await loadLiveCaption()
   live.prewarmEngine()
-  import('./live-history.js').then((m) => m.refreshLiveHistory())
+  import('./live-history.js').then((m) => { m.refreshLiveHistory(); m.refreshFileHistory() })
   const dict = await import('./dictation-page.js')
   await dict.refreshDictationPage()
 }
@@ -445,7 +455,7 @@ function normalizeTtsRate(v) {
  * @param {unknown} v
  * @returns {'linguaforge08q4'|'indextranslate2b'}
  */
-export function normalizeLocalTranslateModel(v) {
+function normalizeLocalTranslateModel(v) {
   return LLM_KEY_SET.has(/** @type {string} */ (v))
     ? /** @type {'linguaforge08q4'|'indextranslate2b'} */ (v)
     : 'linguaforge08q4'
@@ -455,7 +465,7 @@ export function normalizeLocalTranslateModel(v) {
  * @param {unknown} v
  * @returns {'qwen3asr'|'qwen3asrgpu'}
  */
-export function normalizeAsrModelKey(v) {
+function normalizeAsrModelKey(v) {
   return v === 'qwen3asrgpu' ? 'qwen3asrgpu' : 'qwen3asr'
 }
 
@@ -536,9 +546,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   initNavHistory()
   // 終端機跟聊天共用這一頁：側欄的終端機清單啟動時就要接上（動態 import，不卡啟動）
-  document.addEventListener('stt-subtab-changed', () => {
-    activateSttSubtab()
-  })
   // 語音輸入的熱鍵是全域的，停在哪一頁都要收得到 → 啟動就掛，不等使用者切過去
   import('./dictation.js')
     .then((m) => m.initDictation())
@@ -864,8 +871,8 @@ function initNavigation() {
     const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
     if (icon) slot.appendChild(icon)
   })
-  // AI 頁側欄的 Local／ChatGPT／Gemini／Claude／Grok 也用同一套圖示
-  document.querySelectorAll('.chat-panel-actions .nav-icon[data-icon]').forEach((slot) => {
+  // AI 頁側欄的 Local／ChatGPT／Gemini／Claude／Grok／Arena 也用同一套圖示
+  document.querySelectorAll('#chatPanel .nav-icon[data-icon]').forEach((slot) => {
     const icon = toolIcon(/** @type {HTMLElement} */ (slot).dataset.icon)
     if (icon) slot.appendChild(icon)
   })
@@ -977,6 +984,7 @@ export function setChatPaneMode(mode) {
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
+  if (mode !== 'web') document.getElementById('chatPanel')?.classList.remove('is-arena')
   document.getElementById('browserMain')?.classList.toggle('hidden', mode !== 'browser')
   document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
@@ -1031,16 +1039,17 @@ export function switchPage(pageName, subtab = '') {
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => {
     m.start()
-    if (subtab === 'recommend') document.querySelector('#hfSubtabs [data-subtab="recommend"]')?.click()
+    if (subtab === 'recommend' || subtab === 'runtime') document.querySelector(`#hfSubtabs [data-subtab="${subtab}"]`)?.click()
   })
   if (pageName === 'speech') {
     import('./speech-page.js').then((m) => m.refreshSpeechPage())
   }
+  if (pageName === 'imagegen') import('./imagegen-page.js').then((m) => m.refreshImagegenPage())
   if (pageName === 'sysmon') loadSysmonPage().then((m) => m.refreshSysmonPage())
   if (pageName === 'stt') {
     loadSttPage().then((m) => {
       m.refreshSttPage()
-      activateSttSubtab(m.currentSubtab())
+      activateSttSubtab()
     })
   }
   if (pageName === 'translate') {

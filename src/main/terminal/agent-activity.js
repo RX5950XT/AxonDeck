@@ -321,7 +321,6 @@ function createActivity(emit, options = {}) {
 }
 
 module.exports = {
-  grokEventState,
   latestGrokState,
   grokTitle,
   sessionDir,

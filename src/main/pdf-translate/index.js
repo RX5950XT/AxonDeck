@@ -10,6 +10,8 @@ const { StringDecoder } = require('string_decoder')
 const { removeTreeSync } = require('../safe-rm')
 const models = require('../models')
 const runtime = require('./runtime')
+const cache = require('./cache')
+const terms = require('./terms')
 const { fail, validateOptions, publicProgress, warningsOf, splitText, MAX_PDF_BYTES, MAX_LINE_BYTES } = require('./protocol')
 
 let store
@@ -168,7 +170,7 @@ function translationStore() {
     throw fail('NOT_READY', '請先在翻譯頁選擇已設定好的翻譯模型')
   }
   if (choice.mode === 'local' && !models.isDownloaded(choice.modelKey)) throw fail('NOT_READY', '請先下載選定的翻譯模型')
-  return { store: snapshot, local: choice.mode === 'local' }
+  return { store: snapshot, local: choice.mode === 'local', cloud: choice.mode === 'cloud' ? choice : null }
 }
 
 function start(options) {
@@ -233,6 +235,7 @@ async function prepareModels(job) {
 
 async function run(job, previous) {
   if (previous) cleanJob(previous)
+  try { cache.open(app.getPath('userData')) } catch { console.error('[pdf-translate] 譯文快取無法開啟，這次不使用快取') }
   await prepareInput(job)
   const endpoint = await prepareModels(job)
   const worker = path.join(job.dir, 'worker.py')
@@ -281,39 +284,84 @@ function validateRequest(message) {
 const BATCH_CHARS = 3000
 const BATCH_SEGMENTS = 40
 
-/** 同一頁的幾段合成一個請求；模型漏段、併段或原樣回傳的那幾段再個別翻 */
+/** 快取 key：同一段原文在同一組模型、語言、術語、標題下的譯文 */
+function cacheKey(job, parts) {
+  const settings = job.translator.store
+  return cache.keyOf([settings.get('fileLlm'), job.request.targetLang, job.request.sourceLang,
+    settings.get('translateGlossary') ?? null, settings.get('translateGlossaryBuiltin') ?? null,
+    job.document?.title || '', job.document?.terms || [], ...parts])
+}
+
+/** 先查快取，沒翻過的才送出去，翻好的存回去 */
 async function translateBatch(job, messages) {
-  if (messages.length === 1) return [await translateBlock(job, messages[0])]
   messages.forEach(validateRequest)
+  const keys = messages.map((message) => cacheKey(job, [message.text, message.reference || '']))
+  const hits = keys.map((key) => cache.get(key))
+  const fresh = await translateFresh(job, messages.filter((_, index) => hits[index] === null))
+  const replies = new Map(fresh.map((reply) => [reply.id, reply]))
+  return messages.map((message, index) => {
+    if (hits[index] !== null) return { id: message.id, text: hits[index] }
+    cache.set(keys[index], replies.get(message.id).text)
+    return replies.get(message.id)
+  })
+}
+
+function llmOptions(job, extra = {}) {
+  return { mode: 'file', scope: 'file', signal: job.controller.signal,
+    title: job.document?.title || '', docTerms: job.document?.entries, ...extra }
+}
+
+/** 同一頁的幾段合成一個請求；模型漏段、併段或原樣回傳的那幾段再個別翻 */
+async function translateFresh(job, messages) {
+  if (messages.length <= 1) return Promise.all(messages.map((message) => translateBlock(job, message)))
   const llm = require('../local-llm')
   llm.setStore(store)
   const texts = await withRetry(job.controller.signal, () => llm.translateSegments(job.translator.store,
-    messages.map((message) => message.text), job.request.targetLang, { mode: 'file', scope: 'file', signal: job.controller.signal }))
+    messages.map((message) => message.text), job.request.targetLang, llmOptions(job)))
   job.controller.signal.throwIfAborted()
-  return Promise.all(messages.map((message, index) => (texts[index]
-    ? { id: message.id, text: dropLatex(message.text, texts[index]) }
+  return Promise.all(messages.map((message, index) => (texts[index] && dropArtifacts(message.text, texts[index])
+    ? { id: message.id, text: dropArtifacts(message.text, texts[index]) }
     : translateBlock(job, message))))
 }
 
 async function translateBlock(job, message) {
-  validateRequest(message)
   const output = []
   const llm = require('../local-llm')
   llm.setStore(store)
   for (const text of splitText(message.text)) {
     job.controller.signal.throwIfAborted()
     const translated = await withRetry(job.controller.signal, () => llm.translate(job.translator.store, text,
-      job.request.targetLang, { mode: 'file', scope: 'file', signal: job.controller.signal, reference: message.reference }))
+      job.request.targetLang, llmOptions(job, { reference: message.reference })))
     if (typeof translated !== 'string' || !translated.trim()) throw fail('EMPTY_TRANSLATION', '翻譯模型回傳空白內容，已停止')
     output.push(translated)
   }
   job.controller.signal.throwIfAborted()
-  return { id: message.id, text: dropLatex(message.text, output.join('')) }
+  // 整段只剩模型多吐的記號：保留原文，不送空白譯文
+  return { id: message.id, text: dropArtifacts(message.text, output.join('')) || message.text }
 }
 
-/** 原文沒有 $ 卻冒出來＝模型把變數寫成 LaTeX（Yp→$Y_p$）；拿掉記號，PDF 上不會出現 $ */
-function dropLatex(source, text) {
-  return source.includes('$') ? text : text.replace(/\$/g, '')
+// 原文沒有卻冒出來的記號：$＝模型把變數寫成 LaTeX（Yp→$Y_p$）；<<編號>>、<reference> 是我們 prompt 裡的標記
+const ARTIFACTS = [/\$/g, /<<\s*\d+\s*>>/g, /<\/?reference>/gi]
+
+function dropArtifacts(source, text) {
+  return ARTIFACTS.reduce((output, pattern) => (source.match(pattern) ? output : output.replace(pattern, '')), text).trim()
+}
+
+/** 雲端先從原文抽術語（結果也進快取，重翻同一份文件不必再抽）；本地模型不抽 */
+async function prepareDocument(job, sample) {
+  if (!job.translator.cloud || !sample.trim()) return
+  const cached = async (parts, make) => {
+    const key = cacheKey(job, parts)
+    const hit = cache.get(key)
+    if (hit !== null) return hit
+    const value = await make()
+    cache.set(key, value)
+    return value
+  }
+  const found = await terms.extract(sample, { cloud: job.translator.cloud, store: job.translator.store,
+    targetLang: job.request.targetLang, signal: job.controller.signal, cached })
+  // 譯文快取 key 含這份術語：術語不同，譯文就該重翻
+  job.document = { ...job.document, terms: found.terms, entries: found.entries }
 }
 
 function runWorker(job, worker, config) {
@@ -340,7 +388,8 @@ function runWorker(job, worker, config) {
       return batch
     }
     const pump = () => {
-      while (!failed && pending < limit && queue.length) {
+      // 術語還沒抽好就先排隊：每一段都要帶同一份譯名
+      while (!failed && job.document?.ready && pending < limit && queue.length) {
         pending++
         translateBatch(job, nextBatch()).then((replies) => {
           pending--
@@ -376,9 +425,15 @@ function runWorker(job, worker, config) {
           if (!Number.isSafeInteger(message.pages) || message.pages < 1 || !Number.isSafeInteger(message.translatedBlocks)
             || message.translatedBlocks < 0) return stop(fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤'))
           done = message
-        } else if (message.type === 'translate' && queue.length < 10000) {
+        } else if (message.type === 'document' && !job.document) {
+          if (typeof message.title !== 'string' || message.title.length > 300
+            || typeof message.sample !== 'string' || message.sample.length > 30000) return stop(fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤'))
+          job.document = { title: message.title.trim() }
+          prepareDocument(job, message.sample).then(() => { job.document.ready = true; pump() }, stop)
+        } else if (message.type === 'translate' && job.document && queue.length < 10000) {
           queue.push(message)
-        } else if (message.type === 'error') stop(fail('PDF_PARSE_FAILED', 'PDF 無法處理；請確認未加密、檔案完整且模型已安裝'))
+        } else if (message.type === 'error' && message.code === 'PAGES') stop(fail('INVALID_PAGES', '頁碼範圍超出文件頁數'))
+        else if (message.type === 'error') stop(fail('PDF_PARSE_FAILED', 'PDF 無法處理；請確認未加密、檔案完整且模型已安裝'))
         else return stop(fail('WORKER_PROTOCOL', 'PDF 辨識回應格式錯誤'))
       }
       // 這一批資料全部排進佇列才開始送，同一頁的段落才湊得成一批
@@ -439,7 +494,7 @@ async function save(jobId) {
   let temporary
   try {
     const result = await dialog.showSaveDialog({ title: '另存翻譯 PDF',
-      defaultPath: `${path.basename(job.file.name, path.extname(job.file.name))}-${job.request.targetLang}.pdf`,
+      defaultPath: `${path.basename(job.file.name, path.extname(job.file.name))}-${job.request.targetLang}${job.request.dual ? '-雙語' : ''}.pdf`,
       filters: [{ name: 'PDF', extensions: ['pdf'] }] })
     if (result.canceled || !result.filePath) return { saved: false }
     const destination = await assertOutputPath(result.filePath, job)
@@ -453,11 +508,18 @@ async function save(jobId) {
   }
 }
 
+/** 翻譯中不清：正在跑的工作還會寫回去 */
+function clearCache() {
+  assertIdle()
+  return { removed: cache.clear(app.getPath('userData')) }
+}
+
 async function shutdown() {
   if (active) await cancel(active.jobId)
   if (latest) cleanJob(latest)
   if (selected?.clipboard) await fs.unlink(selected.path).catch(() => {})
   selected = null; latest = null
+  cache.close()
 }
 
-module.exports = { init, pick, inspect, pasteImage, start, cancel, status, save, shutdown, assertIdle }
+module.exports = { init, pick, inspect, pasteImage, start, cancel, status, save, clearCache, shutdown, assertIdle }

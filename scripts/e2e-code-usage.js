@@ -87,9 +87,17 @@ app.whenReady().then(async () => {
       `${withPrice.uncostedModels.length} vs ${stats.uncostedModels.length}`)
 
     console.log('\n[E] 重設')
+    // 重設只標成要整份重讀，舊資料留著（來源檔被工具刪掉的那段重讀不回來）
+    const beforeReset = await codeusage.stats({ range: 'all' })
     await codeusage.reset()
-    const empty = await codeusage.stats({ range: '30d' })
-    ok('重設後統計歸零', empty.summary.requests === 0)
+    const marked = await codeusage.stats({ range: 'all' })
+    ok('重設後標成要重讀、舊資料還在', marked.needsRescan === true && marked.summary.requests === beforeReset.summary.requests)
+    await codeusage.sync()
+    const rescanned = await codeusage.stats({ range: 'all' })
+    // 掃描期間這台機器上的 session 還在寫（例如跑這支測試的那個），只允許多一點、不能少也不能翻倍
+    const ratio = rescanned.summary.requests / Math.max(1, beforeReset.summary.requests)
+    ok('整份重讀後數字一致（沒有重複算）', !rescanned.needsRescan && ratio >= 1 && ratio < 1.01,
+      `${beforeReset.summary.requests} → ${rescanned.summary.requests}`)
   } catch (error) {
     failed++
     console.log(`  FAIL 例外 — ${error && (error.stack || error.message)}`)

@@ -26,6 +26,8 @@ impl Popup {
         unsafe { for (_, button) in self.buttons.drain(..) { let _ = DestroyWindow(button); } }
         let p = |n| self.paint.px(n); let width = p(312); let row = p(34);
         if let Some(value)=self.speed {
+            // 滾輪也會 rebuild：不先拆掉舊的 slider 就會疊一顆新的、舊的控制代碼漏掉
+            if !self.speed_slider.is_invalid() { unsafe { let _ = DestroyWindow(self.speed_slider); } }
             self.speed_slider=slider(self.hwnd,"播放速度",SPEED_SLIDER,375,self.paint.dark)?;
             unsafe {
                 SetPropW(self.speed_slider,w!("AxonDeckSliderPanel"),Some(HANDLE(1 as _)))?;

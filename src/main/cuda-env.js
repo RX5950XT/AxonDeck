@@ -210,9 +210,9 @@ async function downloadInstaller(onProgress) {
 function runElevated(file, args) {
   return new Promise((resolve, reject) => {
     // PowerShell Start-Process -Verb RunAs -Wait
-    const argList = args.map((a) => `'${String(a).replace(/'/g, "''")}'`).join(',')
+    const argList = args.map((a) => `'${String(a).replace(/['\u2018-\u201b]/g, '$&$&')}'`).join(',')
     const ps = `
-$p = Start-Process -FilePath '${file.replace(/'/g, "''")}' -ArgumentList @(${argList}) -Verb RunAs -Wait -PassThru
+$p = Start-Process -FilePath '${file.replace(/['\u2018-\u201b]/g, '$&$&')}' -ArgumentList @(${argList}) -Verb RunAs -Wait -PassThru
 exit $p.ExitCode
 `
     const child = spawn(

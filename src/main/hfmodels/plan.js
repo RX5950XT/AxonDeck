@@ -427,18 +427,8 @@ function toPresetArgs(plan, extra = {}) {
 module.exports = {
   planRun,
   kvCacheMiB,
-  planThreads,
-  planTensorSplit,
-  planCpuMoe,
   parseRawArgs,
   toPresetArgs,
-  feasibilityOf,
-  KV_TIERS,
-  FEASIBILITY_LABEL,
   DEFAULT_CTX,
   MIN_CTX,
-  CTX_STEPS,
-  VRAM_SAFETY,
-  OVERHEAD_MIB,
-  CACHE_REUSE
 }

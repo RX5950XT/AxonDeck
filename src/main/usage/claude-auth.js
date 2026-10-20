@@ -224,8 +224,10 @@ module.exports = {
   CLIENT_ID,
   TOKEN_URL,
   LOCK_STALE_MS,
+  acquireLocks,
   configDirOf,
   ensureFreshToken,
   isExpiring,
+  postRefresh,
   _resetForTests: () => { inflight = null }
 }

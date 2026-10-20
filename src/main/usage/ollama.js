@@ -118,7 +118,6 @@ async function syncOllama({
 
 module.exports = {
   applyOllamaUsage,
-  formatActivity,
   syncOllama,
   toPercent
 }

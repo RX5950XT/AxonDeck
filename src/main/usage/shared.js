@@ -110,6 +110,31 @@ function normalizeResetCredits(raw) {
   return { available, credits }
 }
 
+/**
+ * Claude 多帳號：每個存起來的帳號各一份額度（只有存了兩個以上才會有這個欄位）。
+ * @param {unknown} raw
+ */
+function normalizeProfiles(raw) {
+  if (!Array.isArray(raw)) return undefined
+  const profiles = raw
+    .filter((item) => item && typeof item === 'object' && typeof item.id === 'string' && item.id)
+    .slice(0, 10)
+    .map((item) => {
+      const last = safeString(item.lastUpdated, '', 100)
+      return {
+        id: safeString(item.id, '', 100),
+        email: safeString(item.email, '', 200),
+        planName: safeString(item.planName, '', 160),
+        active: item.active === true,
+        status: STATUS_SET.has(item.status) ? item.status : 'disconnected',
+        windows: Array.isArray(item.windows) ? item.windows.map(normalizeWindow).filter(Boolean).slice(0, 8) : [],
+        notes: safeString(item.notes, '', 500),
+        lastUpdated: Number.isFinite(Date.parse(last)) ? last : ''
+      }
+    })
+  return profiles.length ? profiles : undefined
+}
+
 function normalizeAccount(raw) {
   if (!raw || typeof raw !== 'object' || !PROVIDER_SET.has(raw.provider)) {
     throw new UsageError('INVALID_ACCOUNT', '額度帳戶資料格式錯誤')
@@ -121,6 +146,7 @@ function normalizeAccount(raw) {
     : []
   const lastRaw = safeString(raw.lastUpdated, '', 100)
   const resetCredits = normalizeResetCredits(raw.resetCredits)
+  const profiles = raw.provider === 'claude-code' ? normalizeProfiles(raw.profiles) : undefined
   return {
     id: safeString(raw.id, fallback.id, 100) || fallback.id,
     provider: raw.provider,
@@ -133,7 +159,8 @@ function normalizeAccount(raw) {
     windows,
     notes: safeString(raw.notes, '', 1000),
     order: Number.isInteger(order) ? Math.max(0, Math.min(PROVIDER_IDS.length - 1, order)) : fallback.order,
-    ...(resetCredits ? { resetCredits } : {})
+    ...(resetCredits ? { resetCredits } : {}),
+    ...(profiles ? { profiles } : {})
   }
 }
 
@@ -259,7 +286,8 @@ async function fetchJson(url, options = {}) {
   const maxBytes = Math.max(1, Number(options.maxBytes) || API_MAX_BYTES)
   // 429 不重試：連打只會把限流拉長（實測 Claude 的額度 API 被每分鐘同步＋重試打成一直 429）
   const stopStatuses = new Set([...(options.stopStatuses || [401, 403]), 429])
-  const cooldownKey = parsedUrl.origin + parsedUrl.pathname
+  const cooldownKey = parsedUrl.origin + parsedUrl.pathname +
+    (typeof options.cooldownScope === 'string' && options.cooldownScope ? `#${options.cooldownScope}` : '')
   const blockedUntil = rateLimitCooldowns.get(cooldownKey)?.until || 0
   if (Date.now() < blockedUntil) {
     throw new UsageError('RATE_LIMITED', `${label}查詢太頻繁，稍後自動再試`, 429)

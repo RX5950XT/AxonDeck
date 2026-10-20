@@ -143,8 +143,6 @@ function findRepetitionLoop(text) {
 
 module.exports = {
   stripThink,
-  stripPromptLeak,
   stripTranslationNoise,
-  stripWrappingQuotes,
   findRepetitionLoop
 }

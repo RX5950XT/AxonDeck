@@ -139,7 +139,7 @@ async function main() {
     }
     await check('新清單有 Key、舊欄位空白仍可轉錄，使用當頁選用的 Key／模型', async () => {
       await transcribe()
-      assert.equal(await cdp.eval(`document.getElementById('resultText').textContent`), '金鑰回歸通過')
+      assert.equal(await cdp.eval(`document.querySelector('#txHistoryList .live-history-body')?.textContent`), '金鑰回歸通過')
       assert.deepEqual(requests, [{ url: '/v1/audio/transcriptions', key: 'Bearer selected-test-key', model: 'test-model:extended' }])
     })
     await waitFor(() => cdp.eval(`document.getElementById('fileAsrModel').value.startsWith('cloud:')`), '字幕初始化')

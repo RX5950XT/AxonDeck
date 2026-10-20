@@ -5,7 +5,7 @@ const fs = require('../raw-fs')
 const { run, powershellPath, failure } = require('./winget')
 const { commandFile, missingUninstaller } = require('./inventory')
 
-const quote = (value) => `'${String(value).replace(/'/g, "''")}'`
+const quote = (value) => `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
 
 function cleanupScript(target, backup) {
   if (!/^HKEY_(?:LOCAL_MACHINE|CURRENT_USER)\\Software\\(?:WOW6432Node\\)?Microsoft\\Windows\\CurrentVersion\\Uninstall\\[^\\\r\n]+$/i.test(target.registryPath || '')) {

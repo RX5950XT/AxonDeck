@@ -1,7 +1,7 @@
 'use strict'
 // 專案腳本開瀏覽器改道：`node scripts/test-script-launch.js`
 const assert = require('node:assert/strict')
-const { urlArg, rewriteBatch, projectIdOf } = require('../src/main/script-launch')
+const { urlArg, rewriteBatch, projectIdOf, terminalCommand, serverUrl, noteTerminal, setOpenUrl, openScriptUrl } = require('../src/main/script-launch')
 
 assert.equal(urlArg(['AxonDeck.exe', '--axondeck-start', '', 'http://127.0.0.1:8188']), 'http://127.0.0.1:8188')
 assert.equal(urlArg(['x.exe', '/b', '/wait', 'C:\\a\\setup.exe']), '', '不是網址')
@@ -40,4 +40,55 @@ assert.equal(projectIdOf(projects, 'd:\\work\\miroxen\\start.bat'), 'w_b', '最�
 assert.equal(projectIdOf(projects, 'D:\\Work\\x.bat'), 'w_a')
 assert.equal(projectIdOf(projects, 'D:\\Workspaces\\x.bat'), '', 'D:\\Workspace 不能吃到 D:\\Workspaces')
 
-console.log('test-script-launch: 通過')
+assert.equal(rewriteBatch('cd /d "%~dp0" & echo %~nx0', 'D:\\工作\\100%\\a.cmd', true),
+  'cd /d "%AXONDECK_SELF_D%%AXONDECK_SELF_P%" & echo %AXONDECK_SELF_N%%AXONDECK_SELF_X%')
+assert.equal(serverUrl('\x1b[32mLocal: http://localhost:5173/test?a=1&b=2\x1b[0m'), 'http://localhost:5173/test?a=1&b=2')
+assert.equal(serverUrl('http://0.0.0.0:8000'), 'http://127.0.0.1:8000/')
+assert.equal(serverUrl('http://[::]:8000/'), 'http://[::1]:8000/')
+for (const unsafe of ['http://localhost.evil:80/', 'http://127.0.0.1:8000.evil/', 'http://localhost:99999/', 'file:///tmp/x', 'https://example.com:8000/']) {
+  assert.equal(serverUrl(unsafe), '', unsafe)
+}
+
+async function checkTerminal() {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const http = require('node:http')
+  const Module = require('node:module')
+  const { tempDir } = require('./lib/test-temp')
+  const root = tempDir('script-command-')
+  const file = path.join(root, "中文 it's.cmd")
+  fs.writeFileSync(file, '@echo off\r\necho %~dp0\r\n', 'latin1')
+  const load = Module._load
+  Module._load = function (name, ...args) {
+    return name === 'electron' ? { app: { isPackaged: true, getPath: () => root } } : load.call(this, name, ...args)
+  }
+  let command
+  try { command = await terminalCommand(file, 'w_parent', 't_selfcheck') } finally { Module._load = load }
+  const source = Buffer.from(command.split('-EncodedCommand ')[1], 'base64').toString('utf16le')
+  assert.ok(source.includes("$env:AXONDECK_PROJECT='w_parent'"))
+  assert.ok(source.includes("$env:AXONDECK_SCRIPT_RUN='t_selfcheck'"))
+  assert.ok(source.includes(file.replace(/'/g, "''")), '中文與單引號完整保留')
+  assert.ok(source.includes('function Start-Process'), 'PowerShell 開網址也改道')
+  assert.equal(fs.readFileSync(file, 'latin1'), '@echo off\r\necho %~dp0\r\n', '不改原檔')
+  const temp = /& '([^']+\.cmd)'$/.exec(source)?.[1]
+  assert.ok(temp)
+  assert.match(fs.readFileSync(temp, 'latin1'), /%AXONDECK_SELF_D%%AXONDECK_SELF_P%/)
+  fs.rmSync(temp)
+  await assert.rejects(() => terminalCommand(path.join(root, 'hello.js'), 'w_parent', 't_selfcheck'), /不支援/)
+  const server = http.createServer((_req, res) => res.end('ready'))
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${server.address().port}/`
+  const opened = []
+  setOpenUrl((href, project) => opened.push({ href, project }))
+  noteTerminal('terminal:data', { id: 't_other', data: `${url}\n` })
+  noteTerminal('terminal:data', { id: 't_selfcheck', data: 'Local: htt' })
+  noteTerminal('terminal:data', { id: 't_selfcheck', data: `${url.slice(3)}\r\n` })
+  await openScriptUrl(url, 'w_wrong', 't_selfcheck')
+  const deadline = Date.now() + 2000
+  while (!opened.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual(opened, [{ href: url, project: 'w_parent' }], '輸出分塊、點擊時專案、重複網址只開一次')
+  noteTerminal('terminal:status', { id: 't_selfcheck', state: 'exited' })
+  await new Promise((resolve) => server.close(resolve))
+  console.log('test-script-launch: 通過（含真實本機服務）')
+}
+checkTerminal().catch((error) => { console.error(error); process.exitCode = 1 })

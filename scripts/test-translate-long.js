@@ -32,7 +32,11 @@ async function main() {
     { prefix: '', text: 'a'.repeat(1200) }, { prefix: '', text: 'b'.repeat(1200) },
     { prefix: '- ', text: 'first item' }, { prefix: '2. ', text: 'second item' }
   ], '長文不能丟字，清單標記要留在模型輸入外面')
-  assert.equal(box.pack('first line\n\nsecond line'), null, '未超段長的段落應保留原文與空行')
+  assert.deepEqual(Array.from(box.pack('first line\n\nsecond line'), (job) => ({ ...job })),
+    [{ prefix: '', text: 'first line\n\nsecond line' }], '短的多行段落也要進漏行檢查，保留原文與空行')
+  vm.runInContext(`translateLocalOnce = async (text) => text.includes('\\n') ? '只翻到第二行' : ({ first: '第一行', second: '第二行' }[text]);
+    this.translatePacked = translatePacked`, box)
+  assert.equal(await box.translatePacked(box.pack('first\nsecond'), 'zh-TW', {}, 'linguaforge08q4'), '第一行\n第二行', '短多行漏譯時，沿用逐行重翻補齊')
   assert.equal(box.tokens('a'.repeat(2000), 'file', true), 4000)
   assert.equal(box.tokens('a'.repeat(5000), 'file', true), 4096)
   assert.equal(box.tokens('a'.repeat(2000), 'live', true), 256)

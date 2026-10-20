@@ -167,11 +167,11 @@ native/
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
 - Claude 官方訂閱多帳號：併在「Claude 官方訂閱」那張供應商卡裡（第二行是目前帳號；存兩個以上時卡片拉成整列、列出各帳號可切換／移除），終端機登入過的帳號自動記下、卡上「＋ 帳號」走隔離的 `claude auth login`；切換＝換 `.credentials.json` 的 `claudeAiOauth`＋`.claude.json` 的 `oauthAccount`，正在用第三方供應商會順便切回官方。存兩個以上時 Claude 詳情卡一個帳號一段（`profiles`），條上那顆仍是使用中的帳號。
 - 額度條左邊兩顆按鈕「供應商」「用量統計」（顯示目前供應商、目前範圍花費），點開從條上方展開不透明抽屜（疊在內容上、不推擠終端機；點條外或 Esc 收起，彈窗與選單內的點擊不算）。同步診斷已整條拿掉（按鈕、彈窗、IPC）。
-- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。不限保留期（桶子永久留、檔案不看修改時間）；範圍 24 小時／7 天／30 天／全部／自訂（`resolveRange`：起訖日含迄日，兩天內小時桶，超過 96 天改週桶）。
+- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。Antigravity 讀 CLI 的 `~/.gemini/antigravity-cli/conversations/<id>.db`（`gen_metadata` protobuf，`db-sources.js#readAntigravityCli`）＋AGY 反代日誌，兩邊不重疊；CLI 會自己刪對話檔，所以跟 JSONL 一樣一檔一游標（`antigravity:<id>`）、刪檔進封存區；IDE 的用量讀不到。不限保留期（桶子永久留、檔案不看修改時間）；範圍 24 小時／7 天／30 天／全部／自訂（`resolveRange`：起訖日含迄日，兩天內小時桶，超過 96 天改週桶）。
 - Codex 新版把舊 session 壓成 `.jsonl.zst`（Rust `zstd` crate 解壓，JS 退路用 Node 內建 zstd），游標 key 去掉 `.zst`、位移算解壓後的，壓縮前讀過的不重算。Grok 子代理自己的 session 預設跳過（母那一輪的 usage 已含）；母那一輪結束時沒跑完或那一輪沒用量的才照算（`parsers.js#resolveSubagents`；`parent_prompt_id` 跟 `turn_completed.prompt_id` 不是同一套 id，靠「開出來後的下一個 turn_completed」判斷）。Claude resume／fork 複製的訊息跨檔去重（事件帶 `id`，比對其他游標的 `seen`）。OpenCode 遇到還沒完成（無 `time.completed`）且一天內的訊息先停，游標不跳過它。
 - 重讀不丟資料：每個游標記自己貢獻的用量（`contrib`）；檔案被工具刪掉（Claude Code 只留約 30 天）時移進 `archive`（有複本在別檔的訊息 id 進 `archiveIds`），整份重讀時加回去；記帳前就刪掉的才退回 `keepOrphans`（現存最舊檔案之前、那小時沒新資料才留舊桶）。`reset()` 只標成要重讀，不清桶子。
 - 用量統計抽屜：左邊總計（花費＋四種 token，色點兼圖例）在上、趨勢填滿下方；右邊依工具／依模型，每列明細一種 token 一格。整塊固定高度、分佈在自己那欄捲；抽屜窄於 760px（container query）改成一欄往下疊。
-- Haiku 5.5 依逐請求輸入（含快取）是否超過 100K 分開價格級距，同一模型顯示時合併；`RULES_VERSION = 14`（v14：讀 Codex `.zst`、跳過已含在母 session 的 Grok 子代理）會重讀舊桶。單價順序：自訂 → 內建表 → models.dev（`codeusage/models-dev.js`：只收原廠那一家、一天抓一次、小快取 `models-dev-prices.json`，沒給寫入價的非 Anthropic 當 0）；來源自帶金額仍優先。
+- Haiku 5.5 依逐請求輸入（含快取）是否超過 100K 分開價格級距，同一模型顯示時合併；`RULES_VERSION = 16`（v16：讀 Antigravity CLI、它的實驗分流模型名收回本體）會重讀舊桶。單價順序：自訂 → 內建表 → models.dev（`codeusage/models-dev.js`：只收原廠那一家、一天抓一次、小快取 `models-dev-prices.json`，沒給寫入價的非 Anthropic 當 0）；來源自帶金額仍優先。
 - 背景看額度（`usage/quota-watch.js`，帶 `--user-data-dir` 的預覽／e2e 不跑）：每 5 分鐘 tick、30 分鐘同步一次。提醒（`quota-alerts.js`，照 magpie）：週／月窗口 6 小時內重置且用量 < 85%、Codex 重置次數 6 小時內過期 → Windows 通知；每輪窗口只講一次（記號存重置時間，差 10 分鐘內算同一輪）。預熱（`warmup.js`）：設定的 `HH:MM` 到了、5 小時窗口沒在跑（只信 `available` 的官方讀數）就用 CLI 送 hi——Claude `-p --model haiku --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence`、Codex `exec -c mcp_servers={}`；每個時間點一天一次、晚超過 1 小時放掉；只預熱 CLI 目前登入的帳號；工作目錄固定 `userData/warmup`（Claude 會替每個新目錄建空的 `projects/<dir>/memory/`）。記號存 `usage-watch.json`。設定在「額度顯示設定」對話框（usage settings 的 `alerts`／`warmup`）。
 
 ### Claude Code 供應商／MCP／Skills（原 CC Proxy 頁，邏輯都在 `ccswitch-page.js`）
@@ -236,7 +236,7 @@ native/
 ## 已知取捨與未做
 
 - 使用者決定維持：不全面拿掉毛玻璃（ClearType 彩邊）、Telegram 不共用程序（一格當掉會全白）、不改 Tauri。
-- 轉換閘道只有 Codex 的請求形狀對真上游驗過，其餘 mock。Antigravity 用量只統計經過反代的部分。
+- 轉換閘道只有 Codex 的請求形狀對真上游驗過，其餘 mock。Antigravity 用量讀 CLI 本機對話＋反代，IDE 那部分算不到；CLI 的 protobuf 欄位是實測反推，CLI 改版可能要重對。
 - HF：沒真的跑過大模型（只驗 0.8B／4B dense）；CUDA 執行環境沒實際安裝驗過。
 - 網頁版 AI：Grok 登入、Claude 的 Google 登入只驗到登入頁出現，沒輸入真密碼走完；Edge cookie 是 app-bound 加密，不做匯入。
 - 原生媒體：格式清單是白名單不代表每種變種都驗過；DRM、MIDI 不支援；CUE 不分軌；全機安裝不改其他帳戶預設。

@@ -325,12 +325,13 @@ export function bindConversationNav({ pane, term, read, reload, requestJump }) {
   }, 1000)
   return {
     refresh,
-    restore: async () => {
+    restore: async (hasHistory = true) => {
       initializing = true
       await pending
       if (disposed) return
       clearAnchors(); restoreKey = ''
-      await refresh(true, true)
+      // 全新 PTY 沒有舊對話可補；先顯示畫面，對話辨識仍由正常 refresh 接續。
+      if (hasHistory) await refresh(true, true)
       initializing = false
       if (restored.size && !disposed) await write('\r\n\r\n── 即時終端機 ──' + '\r\n'.repeat(term.rows + 1) + '\x1b[2J\x1b[H')
     },

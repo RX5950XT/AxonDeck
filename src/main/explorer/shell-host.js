@@ -119,6 +119,8 @@ async function startShell(deps = {}) {
     entry.resolve(message.ok ? { ok: true, data: message.data } : { ok: false, error: message.error || 'SHELL_FAILED' })
   }
 
+  // sidecar 死掉時 write 會非同步 EPIPE，沒接住整個主程序會掛
+  proc.stdin?.on('error', () => settleAll('SHELL_GONE'))
   proc.on('error', (error) => {
     console.error('[explorer] 殼層 sidecar 錯誤:', error?.message || error)
     ready(false)
@@ -188,5 +190,4 @@ module.exports = {
   resolveExePath,
   startShell,
   READY_TIMEOUT_MS,
-  CALL_TIMEOUT_MS
 }

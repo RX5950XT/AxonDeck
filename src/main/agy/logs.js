@@ -309,7 +309,6 @@ function health() {
 }
 
 module.exports = {
-  MAX_BODY_CHARS,
   STAT_RANGES,
   append,
   cleanup,

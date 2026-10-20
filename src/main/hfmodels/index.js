@@ -200,7 +200,8 @@ async function hardwareInfo() {
     modelsMax: Math.max(1, Math.min(8, Number(store?.get?.('hfModelsMax', 2)) || 2)),
     autoRuntime: !tempUserData,
     // PDF GPU 加速只給驅動夠新的 NVIDIA 顯示卡（cu129 要 576 版以上，cudaReady 的門檻更高）
-    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime', ...(nvidia.cudaReady ? ['pdfruntimegpu'] : [])].filter((key) => Boolean(models.MODELS[key])).map((key) => ({
+    installable: [...RUNTIME_KEYS, 'breezeruntime', 'pdfruntime',
+      ...(nvidia.cudaReady ? ['pdfruntimegpu', 'miroxenruntime'] : [])].filter((key) => Boolean(models.MODELS[key])).map((key) => ({
       key,
       label: models.MODELS[key]?.label || key,
       totalBytes: models.MODELS[key]?.totalBytes || 0,
@@ -451,6 +452,7 @@ async function detail(repoId) {
     repoId,
     card,
     readme,
+    readmeBase: hub.pageBase(repoId),
     info,
     // GGUF 常常沒寫 `general.parameter_count`（unsloth 那批就是），HF 自己解出來的
     // `gguf.total` 才有值——不帶進去的話 MoE 的激活參數永遠算不出來
@@ -884,7 +886,6 @@ module.exports = {
   hardwareInfo,
   currentDevice,
   listDevices,
-  readModelsDir,
   chooseModelsDir,
   setToken,
   tokenStatus,
@@ -898,7 +899,6 @@ module.exports = {
   updateModelSettings,
   refreshFit,
   removeLocal,
-  importLocal,
   pickAndImport,
   openModelsDir,
   rescan,

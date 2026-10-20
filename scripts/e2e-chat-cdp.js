@@ -843,8 +843,8 @@ async function checkAiWeb(cdp, check) {
     icons: document.querySelectorAll('.chat-panel-actions .ws-tool-icon').length
   }))()`)
   check('導覽列叫 Super Intelligence、側欄叫 Agent／Chat', labels.nav === 'Super Intelligence' && labels.modes.join() === 'Agent,Chat', JSON.stringify(labels))
-  check('六顆按鈕：Local、資料夾、ChatGPT、Gemini、Claude、Grok（四家只留圖示）',
-    labels.buttons.join() === 'Local,資料夾,ChatGPT,Gemini,Claude,Grok' && labels.icons === 5, JSON.stringify(labels))
+  check('一排五顆新增鈕：Local、ChatGPT、Gemini、Claude、Grok（都只留圖示）',
+    labels.buttons.join() === 'Local,ChatGPT,Gemini,Claude,Grok' && labels.icons === 5, JSON.stringify(labels))
 
   const before = await cdp.eval(`(async () => (await window.electronAPI.chat.list()).map((c) => c.id))()`)
   const webRows = (site) => cdp.eval(`(async () => (await window.electronAPI.chat.list()).filter((c) => c.web === '${site}').map((c) => c.id))()`)

@@ -265,7 +265,6 @@ function rangeBounds(range, cursor) {
 }
 
 module.exports = {
-  IGNORE_NAMES,
   MAX_HOUR,
   MAX_DAY,
   MAX_URL,
@@ -275,8 +274,6 @@ module.exports = {
   pad,
   fmtHour,
   fmtDay,
-  startOfDay,
-  weekStart,
   splitHours,
   splitDays,
   getDomain,

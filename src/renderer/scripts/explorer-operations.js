@@ -234,7 +234,9 @@ export function mountExplorerOperations(options = {}) {
   }
   const render = () => {
     cards.replaceChildren()
-    const operations = [...state.values()].slice(-8).reverse()
+    // 最近 8 筆＋所有還在跑的：跑很久的那筆不能被後來的小操作擠掉（進度條和取消鈕會跟著消失）
+    const all = [...state.values()]
+    const operations = all.filter((operation, i) => operation.status === 'running' || i >= all.length - 8).reverse()
     for (const operation of operations) cards.append(operationCard(operation, api, render))
     if (!operations.length) {
       const empty = document.createElement('p')

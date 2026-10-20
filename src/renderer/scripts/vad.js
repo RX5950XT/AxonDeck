@@ -10,7 +10,7 @@
  */
 
 /** 系統音訊擷取沒有麥克風底噪（沒播東西時是數位靜音），門檻可以壓得比麥克風場景低 */
-export const DEFAULT_VAD_OPTIONS = {
+const DEFAULT_VAD_OPTIONS = {
   sampleRate: 16000,
   /** 進入語音的 RMS 門檻 */
   onThreshold: 0.004,

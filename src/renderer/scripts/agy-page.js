@@ -818,7 +818,10 @@ function bindEvents() {
   byId('agyRefreshBtn')?.addEventListener('click', () => void refreshAll())
   byId('agyTestBtn')?.addEventListener('click', () => void runSelfTest())
   byId('agyRegenerateBtn')?.addEventListener('click', () => void regenerateKey())
-  byId('agySaveSettingsBtn')?.addEventListener('click', () => void saveSettings())
+  // 跟設定頁其他區一樣改完就存；數字欄的 change 在離開欄位或按 Enter 才發，打字中不會一直重啟服務
+  for (const id of ['agyPortInput', 'agyRetentionInput', 'agyLogBodiesInput']) {
+    byId(id)?.addEventListener('change', () => void saveSettings())
+  }
   byId('agyClearLogsBtn')?.addEventListener('click', () => void clearLogs())
 
   byId('agyKeyToggleBtn')?.addEventListener('click', () => {
@@ -854,7 +857,7 @@ function bindEvents() {
   renderModelCatalog()
 }
 
-export async function initAgyPage() {
+async function initAgyPage() {
   if (initialized) return
   initialized = true
   bindEvents()

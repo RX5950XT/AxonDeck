@@ -24,6 +24,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('pages:visibility', handler)
     }
   },
+  screenTranslate: {
+    open: (options) => ipcRenderer.invoke('screenTranslate:open', options),
+    pause: (paused) => ipcRenderer.invoke('screenTranslate:pause', paused),
+    resize: (bounds) => ipcRenderer.invoke('screenTranslate:resize', bounds),
+    close: () => ipcRenderer.invoke('screenTranslate:close'),
+    status: () => ipcRenderer.invoke('screenTranslate:status'),
+    onState: (callback) => {
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('screenTranslate:state', handler)
+      return () => ipcRenderer.removeListener('screenTranslate:state', handler)
+    }
+  },
   pdfTranslate: {
     pick: () => ipcRenderer.invoke('pdfTranslate:pick'),
     inspect: (filename) => ipcRenderer.invoke('pdfTranslate:inspect', filename),
@@ -32,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancel: (jobId) => ipcRenderer.invoke('pdfTranslate:cancel', jobId),
     status: () => ipcRenderer.invoke('pdfTranslate:status'),
     save: (jobId) => ipcRenderer.invoke('pdfTranslate:save', jobId),
+    clearCache: () => ipcRenderer.invoke('pdfTranslate:clearCache'),
     onProgress: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('pdfTranslate:progress', handler)
@@ -132,6 +145,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ===== 本地模型管理 =====
+  miroxen: {
+    status: (options) => ipcRenderer.invoke('miroxen:status', options),
+    start: () => ipcRenderer.invoke('miroxen:start'),
+    stop: () => ipcRenderer.invoke('miroxen:stop'),
+    openOutput: () => ipcRenderer.invoke('miroxen:openOutput'),
+    api: () => ipcRenderer.invoke('miroxen:api'),
+    setLan: (enabled) => ipcRenderer.invoke('miroxen:setLan', enabled === true)
+  },
   models: {
     status: () => ipcRenderer.invoke('models:status'),
     download: (key) => ipcRenderer.invoke('models:download', key),
@@ -237,7 +258,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('usage:load'),
     sync: () => ipcRenderer.invoke('usage:sync'),
     saveSettings: (settings) => ipcRenderer.invoke('usage:saveSettings', settings),
-    redeemCodexReset: (creditId) => ipcRenderer.invoke('usage:redeemCodexReset', creditId)
+    redeemCodexReset: (creditId) => ipcRenderer.invoke('usage:redeemCodexReset', creditId),
+    claudeAccounts: () => ipcRenderer.invoke('usage:claudeAccounts'),
+    claudeSwitch: (id) => ipcRenderer.invoke('usage:claudeSwitch', id),
+    claudeRemove: (id) => ipcRenderer.invoke('usage:claudeRemove', id),
+    claudeLogin: () => ipcRenderer.invoke('usage:claudeLogin'),
+    claudeLoginCancel: () => ipcRenderer.invoke('usage:claudeLoginCancel')
   },
 
   // ===== AGY 反向代理 =====
@@ -298,6 +324,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revealLink: (id, text, line) => ipcRenderer.invoke('terminal:revealLink', id, text, line),
     /** 終端機裡即將開出來的視窗（Ctrl+G 的記事本）抬到最前面 */
     raiseChildWindow: () => ipcRenderer.invoke('terminal:raiseChildWindow'),
+    /** 這顆終端機綁定的對話目前用掉多少上下文：`{ used, max }`（max 未知是 null）或 null */
+    context: (id) => ipcRenderer.invoke('terminal:context', id),
+    /** 背景 agent 做完（`done`）或等人（`waiting`）時跳系統通知 */
+    notifyAgent: (id, kind, title) => ipcRenderer.invoke('terminal:notifyAgent', id, kind, title),
+    /** 使用者點了那則通知：切回那個終端機。 @param {(payload: { id: string }) => void} handler */
+    onReveal: (handler) => {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('terminal:reveal', wrapped)
+      return () => ipcRenderer.removeListener('terminal:reveal', wrapped)
+    },
     // Ctrl+G 開的編輯分頁：送出＝寫回那個暫存檔並放走卡住的 CLI；取消只放走
     editorSave: (id, content) => ipcRenderer.invoke('terminal:editorSave', id, content),
     editorCancel: (id) => ipcRenderer.invoke('terminal:editorCancel', id),
@@ -374,8 +410,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     renameProject: (id, name) => ipcRenderer.invoke('workspace:renameProject', id, name),
     removeProject: (id) => ipcRenderer.invoke('workspace:removeProject', id),
-    /** @param {string[]} ids 側欄拖曳後的完整順序 */
+    /** @param {Array<string | { id: string, folderId: string }>} ids 側欄順序與分類 */
     reorderProjects: (ids) => ipcRenderer.invoke('workspace:reorderProjects', ids),
+    listFolders: () => ipcRenderer.invoke('workspace:listFolders'),
+    createFolder: (name) => ipcRenderer.invoke('workspace:createFolder', name),
+    updateFolder: (id, patch) => ipcRenderer.invoke('workspace:updateFolder', id, patch),
+    removeFolder: (id) => ipcRenderer.invoke('workspace:removeFolder', id),
+    reorderFolders: (ids) => ipcRenderer.invoke('workspace:reorderFolders', ids),
     /** 專案根目錄（拿去當終端機的 cwd） */
     saveTabsState: (id, tabsState) => ipcRenderer.invoke('workspace:saveTabsState', id, tabsState),
     getTabsState: (id) => ipcRenderer.invoke('workspace:getTabsState', id),
@@ -383,6 +424,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} relPath 專案內的相對路徑，一律用 `/` */
     listDir: (id, relPath) => ipcRenderer.invoke('workspace:listDir', id, relPath),
     readFile: (id, relPath) => ipcRenderer.invoke('workspace:readFile', id, relPath),
+    /** @param {'pdf' | 'xlsx'} target Office 文件轉成原始版面的 PDF，或重算過的 xlsx */
+    convertOffice: (id, relPath, target) => ipcRenderer.invoke('workspace:convertOffice', id, relPath, target),
     /** @param {number} [expectedMtimeMs] 開檔當下磁碟的版本；對不上 main 回 STALE。不帶＝強制覆寫 */
     writeFile: (id, relPath, content, expectedMtimeMs) => (
       ipcRenderer.invoke('workspace:writeFile', id, relPath, content, expectedMtimeMs)
@@ -425,6 +468,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     reveal: (id, relPath) => ipcRenderer.invoke('workspace:reveal', id, relPath),
     /** 用系統預設程式開啟專案裡的檔案（`.exe` ＝把它跑起來） */
     openEntry: (id, relPath) => ipcRenderer.invoke('workspace:openEntry', id, relPath),
+    scriptCommand: (id, relPath, terminalId) => ipcRenderer.invoke('workspace:scriptCommand', id, relPath, terminalId),
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
     extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
@@ -462,6 +506,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     worktreeAdopt: (id, treePath) => ipcRenderer.invoke('workspace:worktreeAdopt', id, treePath),
     worktreeCheck: (id, treePath) => ipcRenderer.invoke('workspace:worktreeCheck', id, treePath),
     worktreeRemove: (id, treePath) => ipcRenderer.invoke('workspace:worktreeRemove', id, treePath),
+    setSetupScript: (id, relPath) => ipcRenderer.invoke('workspace:setSetupScript', id, relPath),
+    worktreeSetupCommand: (id, terminalId) => ipcRenderer.invoke('workspace:worktreeSetupCommand', id, terminalId),
     gitBranches: (id) => ipcRenderer.invoke('workspace:gitBranches', id),
     gitCompareBranch: (id, ref) => ipcRenderer.invoke('workspace:gitCompareBranch', id, ref),
     gitFileVersionsAgainst: (id, relPath, ref) => (
@@ -507,6 +553,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 供應商端點、MCP 檔案路徑、CLI 的 npm 套件名都在 main 的固定表；格式值受白名單限制，
   // 這裡只送得出 preset key、供應商 id、MCP 定義、工具 key 與格式選擇。
   ccswitch: {
+    testMcp: (req) => ipcRenderer.invoke('ccswitch:testMcp', req),
     /** 預設供應商清單 ＋ MCP 範本（不含任何憑證） */
     catalog: () => ipcRenderer.invoke('ccswitch:catalog'),
     listProviders: () => ipcRenderer.invoke('ccswitch:listProviders'),
@@ -712,7 +759,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} id @param {{ key: string, source: string, translation: string }} entry */
     appendTranscript: (id, entry) => ipcRenderer.invoke('sttArchive:appendTranscript', id, entry),
     readTranscript: (id) => ipcRenderer.invoke('sttArchive:readTranscript', id),
-    deleteTranscript: (id) => ipcRenderer.invoke('sttArchive:deleteTranscript', id)
+    deleteTranscript: (id) => ipcRenderer.invoke('sttArchive:deleteTranscript', id),
+    fileTranscripts: () => ipcRenderer.invoke('sttArchive:fileTranscripts'),
+    /** @param {{ name: string, text: string }} entry */
+    saveFileTranscript: (entry) => ipcRenderer.invoke('sttArchive:saveFileTranscript', entry),
+    readFileTranscript: (id) => ipcRenderer.invoke('sttArchive:readFileTranscript', id),
+    deleteFileTranscript: (id) => ipcRenderer.invoke('sttArchive:deleteFileTranscript', id)
   },
 
   // ===== 語音輸入（全域右 Alt）=====
@@ -800,6 +852,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * @returns {Promise<string>} data URL，失敗回空字串
      */
     image: (name) => ipcRenderer.invoke('chat:image', name),
+    saveImage: (name) => ipcRenderer.invoke('chat:saveImage', name),
     /** @param {(payload: { reqId: string, text: string, kind: 'content'|'reasoning' }) => void} callback */
     onDelta: (callback) => {
       const handler = (_event, payload) => callback(payload)
@@ -819,6 +872,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('editorFile:load'),
     save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
     stat: () => ipcRenderer.invoke('editorFile:stat'),
+    openLink: (link) => ipcRenderer.invoke('editorFile:openLink', link),
     setDirty: (dirty) => ipcRenderer.invoke('editorFile:setDirty', dirty),
     close: () => ipcRenderer.invoke('editorFile:close'),
     onCloseRequest: (callback) => {

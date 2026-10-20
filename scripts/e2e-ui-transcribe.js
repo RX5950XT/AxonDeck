@@ -173,8 +173,8 @@ async function main() {
         progress: !document.getElementById('transcribeProgress')?.classList.contains('hidden'),
         pText: document.querySelector('#transcribeProgress .progress-text')?.textContent,
         pPct: document.querySelector('#transcribeProgress .progress-percent')?.textContent,
-        result: !document.getElementById('transcribeResult')?.classList.contains('hidden'),
-        resultText: document.getElementById('resultText')?.textContent?.slice(0, 100),
+        result: !!document.querySelector('#txHistoryList .live-history-body'),
+        resultText: document.querySelector('#txHistoryList .live-history-body')?.textContent?.slice(0, 100),
         toast: document.getElementById('toast')?.classList.contains('hidden') === false
           ? document.querySelector('#toast .toast-message')?.textContent
           : null,

@@ -21,9 +21,6 @@ import {
 } from './model-picker.js'
 import { syncCustomSelects } from './custom-select.js'
 
-/** 子分頁：轉錄與字幕／語音輸入。舊的 `live` 併進 `file` */
-const SUBTABS = new Set(['file', 'dictation'])
-
 /**
  * 共用選單寫 file scope（main 同步到 live）。語音輸入的整理模型由 `dictation-page.js` 畫。
  * @type {Record<'file'|'dictation', { asr: string, llm: string|null, hint: string|null }>}
@@ -33,37 +30,12 @@ const PICKERS = {
   dictation: { asr: 'dictationAsrModel', llm: null, hint: null }
 }
 
-/** @type {'file'|'live'|'dictation'} */
-let activeSubtab = 'file'
 let bound = false
 
 /** 各 scope 目前的選項清單（給「選到還沒裝好的東西」提示用） */
 const opts = {
   file: { asr: [], llm: [] },
   dictation: { asr: [], llm: [] }
-}
-
-/**
- * @returns {'file'|'live'|'dictation'}
- */
-export function currentSubtab() {
-  return activeSubtab
-}
-
-/**
- * @param {'file'|'live'|'dictation'} name
- */
-export function showSubtab(name) {
-  const asked = name === 'live' ? 'file' : name
-  activeSubtab = SUBTABS.has(asked) ? asked : 'file'
-  document.querySelectorAll('#sttSubtabs .subtab').forEach((btn) => {
-    const on = btn.dataset.subtab === activeSubtab
-    btn.classList.toggle('active', on)
-    btn.setAttribute('aria-selected', on ? 'true' : 'false')
-  })
-  document.querySelectorAll('#page-stt .subtab-panel').forEach((panel) => {
-    panel.classList.toggle('active', panel.dataset.subtab === activeSubtab)
-  })
 }
 
 /**
@@ -85,14 +57,6 @@ function bindPicker(scope, kind) {
 function bindOnce() {
   if (bound) return
   bound = true
-
-  document.querySelectorAll('#sttSubtabs .subtab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const name = /** @type {'file'|'live'|'dictation'} */ (btn.dataset.subtab)
-      showSubtab(name)
-      document.dispatchEvent(new CustomEvent('stt-subtab-changed', { detail: { subtab: name } }))
-    })
-  })
 
   for (const scope of /** @type {const} */ (['file', 'dictation'])) {
     bindPicker(scope, 'asr')
@@ -141,5 +105,4 @@ export async function refreshSttPage() {
   }
   // fillSelect 只改原始 <select>；畫面上的 listbox 要跟著換文字
   syncCustomSelects()
-  showSubtab(activeSubtab)
 }

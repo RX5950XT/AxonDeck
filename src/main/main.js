@@ -47,14 +47,17 @@ const termBackground = require('./terminal/background')
 const { registerWorkspaceIpc } = require('./workspace/ipc')
 // 工作區的圖片／PDF／影音串流（只載 files.js，不碰工作區其餘模組）
 const workspaceMedia = require('./workspace/media')
+const extensionManager = require('./browser-extension-manager')
 // 自訂協定的權限只能在 app ready 之前宣告
-protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES])
+protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, extensionManager.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
 const { registerAppInstallerIpc } = require('./app-installer/ipc')
 const { registerBreezeIpc } = require('./breeze-tts/ipc')
+const { registerMiroxenIpc } = require('./miroxen/ipc')
 const { registerPdfTranslateIpc } = require('./pdf-translate/ipc')
+const { registerScreenTranslateIpc } = require('./screen-translate/ipc')
 const { registerCcSwitchIpc } = require('./ccswitch/ipc')
 const { registerCodeUsageIpc } = require('./codeusage/ipc')
 const { registerDictationIpc } = require('./dictation/ipc')
@@ -106,7 +109,27 @@ let terminalMod = null
 let workspaceMod = null
 let explorerMod = null
 let breezeMod = null
+/** 生圖服務：第一次進生成頁才 require */
+let miroxenMod = null
+const loadMiroxen = () => {
+  miroxenMod ||= require('./miroxen')
+  if (store) miroxenMod.setStore(store)
+  return miroxenMod
+}
 let pdfTranslateMod = null
+let screenTranslateMod = null
+
+async function loadScreenTranslate() {
+  if (!store) await initStore()
+  screenTranslateMod ||= require('./screen-translate')
+  screenTranslateMod.init({ store, isDev, preload: path.join(__dirname, '../preload/preload.js'), send: sendToPages })
+  return screenTranslateMod
+}
+
+function assertModelWorkIdle() {
+  pdfTranslateMod?.assertIdle()
+  screenTranslateMod?.assertIdle()
+}
 
 async function loadPdfTranslate() {
   if (!store) await initStore()
@@ -171,6 +194,10 @@ const HIDDEN_FLAG = '--hidden'
 const OPEN_FILE_FLAG = '--open-file='
 const openFileArg = (argv) => argv.find((a) => typeof a === 'string' && a.startsWith(OPEN_FILE_FLAG))?.slice(OPEN_FILE_FLAG.length) || ''
 const startupFile = openFileArg(process.argv)
+// 原生播放器「在檔案頁顯示」叫起來的：用檔案頁開那個位置（只在第一次開主視窗時用一次）
+const REVEAL_FLAG = '--reveal='
+const revealArg = (argv) => argv.find((a) => typeof a === 'string' && a.startsWith(REVEAL_FLAG))?.slice(REVEAL_FLAG.length) || ''
+let startupReveal = revealArg(process.argv)
 const startHidden = process.argv.includes(HIDDEN_FLAG) || Boolean(startupFile)
 
 // 預覽／CDP 會帶 --user-data-dir。Chromium 有時還沒套到 app.getPath('userData')
@@ -216,7 +243,7 @@ const scriptStart = process.argv.includes(scriptLaunch.START_FLAG)
 const scriptUrl = scriptLaunch.urlArg(process.argv)
 const gotInstanceLock = scriptStart && !scriptUrl
   ? false
-  : app.requestSingleInstanceLock({ project: process.env[scriptLaunch.PROJECT_ENV] || '' })
+  : app.requestSingleInstanceLock({ project: process.env[scriptLaunch.PROJECT_ENV] || '', scriptRun: process.env[scriptLaunch.RUN_ENV] || '' })
 const hasInstanceLock = gotInstanceLock && !scriptStart
 if (scriptStart && (!scriptUrl || gotInstanceLock)) app.exit(scriptUrl ? 4 : 3)
 // 用 app.quit() 而不是 app.exit()：exit 是立刻砍掉自己，會來不及讓「我來過了」這個
@@ -225,7 +252,10 @@ else if (!hasInstanceLock) app.quit()
 app.on('second-instance', (_event, argv, _cwd, data) => {
   // 專案腳本（BROWSER 或 start）開的網址：開成那個專案的瀏覽器分頁
   const url = scriptLaunch.forwardedUrl(argv.slice(1))
-  if (url) return openInProjectBrowser(url, typeof data?.project === 'string' ? data.project : '')
+  if (url) return void scriptLaunch.openScriptUrl(url, typeof data?.project === 'string' ? data.project : '',
+    typeof data?.scriptRun === 'string' ? data.scriptRun : '')
+  const reveal = revealArg(argv)
+  if (reveal) return void revealInFiles(reveal)
   const file = openFileArg(argv)
   if (!file) return showMainWindow()
   openFromShell(file)
@@ -239,6 +269,17 @@ function openFromShell(file) {
     .catch((err) => { console.warn('[editor] open failed:', err?.code || 'OPEN_FAILED'); showMainWindow() })
 }
 
+/** 用檔案頁開一個本機位置（新分頁，檔案就選起來）並叫出那扇視窗；路徑不存在就只叫出主視窗 */
+async function revealInFiles(raw) {
+  if (!app.isReady()) return
+  const hit = await require('./terminal/links').resolveCandidate('', raw, { allowUnc: true }).catch(() => null)
+  if (!hit || !pageWindows) return showMainWindow()
+  try {
+    await pageWindows.navigate({ page: 'explorer', action: 'files', full: hit.full, kind: hit.kind })
+  } catch { console.warn('[pages] reveal failed') }
+  showPageWindow('explorer')
+}
+
 /** electron-store 允許的 key（防任意讀寫／XSS 後改 apiUrl 外洩 key） */
 const STORE_ALLOWLIST = new Set([
   'translator',
@@ -247,6 +288,7 @@ const STORE_ALLOWLIST = new Set([
   // 文字轉語音的讀音字典：[{ word, sound }]
   'speechPronunciations',
   'captionDisplayMode',
+  'screenTranslateDisplayMode',
   'asrEngine',
   'asrApiUrl',
   'asrApiKey',
@@ -277,6 +319,7 @@ const STORE_ALLOWLIST = new Set([
   'chatPrompts',
   'chatPromptId',
   'chatThinking',
+  'chatImageOptions',
   // 新對話的取樣參數預設值（每個對話自己那份存在 chats.json）
   'chatParams',
   'sysmonInterval',
@@ -456,6 +499,7 @@ function loadTerminal() {
     terminalMod.setEmitter((channel, payload) => {
       sendToPages(channel, payload)
     })
+    terminalMod.setNotifier(notifyAgent)
   }
   return terminalMod
 }
@@ -948,7 +992,11 @@ function createMainWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     bootLog('did-finish-load')
     scheduleBackgroundServices()
-    pageWindows.navigate({ page: 'chat' }).catch(() => console.error('[pages] 初始頁面載入失敗'))
+    pageWindows.navigate({ page: 'chat' }).catch(() => console.error('[pages] 初始頁面載入失敗')).then(() => {
+      // 要排在第一頁之後：功能頁切換以最後一次為準，先導過去會被這裡的 chat 蓋掉
+      if (startupReveal) void revealInFiles(startupReveal)
+      startupReveal = ''
+    })
   })
 
   // 載入頁面（先掛事件，避免 loadFile 太快把 ready-to-show 漏掉）
@@ -1013,17 +1061,28 @@ function createMainWindow() {
  * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
  * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的（Telegram 等），開在 Browser 模式
  */
-function openInProjectBrowser(url, project = '', target = '') {
-  const outside = () => { shell.openExternal(url).catch(() => {}) }
+function openInProjectBrowser(url, project = '', target = '', sourceGuestId = 0) {
+  const outside = () => {
+    if (project) {
+      void dialog.showMessageBox({ type: 'error', title: '專案瀏覽器', message: '專案瀏覽器開啟失敗，請回到專案後再試一次' })
+      return
+    }
+    shell.openExternal(url).catch(() => {})
+  }
   if (!pageWindows) return outside()
-  pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target }).then(() => {
-    const win = pageWindows.host(pageWindows.contents('chat'))
-    if (!win || win.isDestroyed()) return
-    if (win.isMinimized()) win.restore()
-    win.show()
-    win.focus()
-  }).catch(outside)
+  return pageWindows.navigate({ page: 'chat', action: 'browser', full: url, project, target, sourceGuestId })
+    .then(() => showPageWindow('chat')).catch(outside)
 }
+
+/** 把某個功能頁所在的那扇視窗（主視窗或它彈出去的獨立視窗）叫到前面 */
+function showPageWindow(page) {
+  const win = pageWindows?.host(pageWindows.contents(page))
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+scriptLaunch.setOpenUrl(openInProjectBrowser)
 
 /**
  * 在哪裡點就開在哪裡：AI 頁自己（含裡面的 webview）交給它依主區決定，其他頁一律開在 Browser 模式
@@ -1073,8 +1132,9 @@ function attachWindowSecurity(win) {
     try {
       const url = new URL(params.src)
       if (url.protocol === 'http:' || url.protocol === 'https:' || url.href === 'about:blank') return
-      // Browser 模式的首頁／新分頁：Infinity New Tab Pro 自己的頁面（只放行這個擴充功能、這個 partition）
-      if (url.protocol === 'chrome-extension:' && url.hostname === NEWTAB_EXTENSION_ID && params.partition === 'persist:wsbrowser') return
+      // 插件頁與管理頁只開在瀏覽器分區；renderer 仍不得自行掛 preload。
+      if (params.partition === 'persist:wsbrowser' && (require('../shared/browser-url.mjs').isExtensionManagerUrl(url.href)
+        || (url.protocol === 'chrome-extension:' && session.fromPartition(params.partition).extensions.getExtension(url.hostname)))) return
     } catch { /* 無效網址一律拒絕 */ }
     event.preventDefault()
   })
@@ -1233,7 +1293,8 @@ ipcMain.handle('store:get', async (event, key, defaultValue) => {
   if (key === 'termBgImage') return termBackground.sanitizeName(val)
   if (key === 'termBgOpacity') return sanitizeBgOpacity(val)
   if (key === 'termFontSize') return sanitizeFontSize(val)
-  if (key === 'chatThinking') return val === true
+  if (key === 'chatThinking') return chatParams.sanitizeThinking(val)
+  if (key === 'chatImageOptions') return chatParams.sanitizeImageOptions(val)
   if (key === 'chatParams') return chatParams.sanitize(val)
   if (key === 'dictationEnabled') return val === true
   if (key === 'dictationLang') return DICTATION_LANGS.has(val) ? val : 'zh-TW'
@@ -1412,7 +1473,11 @@ ipcMain.handle('store:set', async (event, key, value) => {
     return true
   }
   if (key === 'chatThinking') {
-    store.set(key, value === true)
+    store.set(key, chatParams.sanitizeThinking(value))
+    return true
+  }
+  if (key === 'chatImageOptions') {
+    store.set(key, chatParams.sanitizeImageOptions(value))
     return true
   }
   if (key === 'chatParams') {
@@ -1697,6 +1762,8 @@ ipcMain.handle('subtitle:setOpacity', (event, value) => {
 ipcMain.handle('models:status', () => models.status())
 
 ipcMain.handle('models:download', async (event, key) => {
+  // 更新引擎要先停服務：執行中的 miroxen.exe 蓋不過去
+  if (key === 'miroxenruntime' && miroxenMod) await miroxenMod.stop()
   return models.download(key, (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       sendToPages('models:progress', progress)
@@ -1709,7 +1776,9 @@ ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 ipcMain.handle('models:delete', async (event, key) => {
   if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
     ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
+  if (screenTranslateMod && ['paddleocrvl16', 'llamaruntime', 'llamaruntimecuda', ...models.LLM_MODEL_KEYS].includes(key)) screenTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
+  if ((key === 'miroxenruntime' || models.MIROXEN_MODEL_KEYS.includes(key)) && miroxenMod) await miroxenMod.stop()
   return models.remove(key)
 })
 
@@ -1920,6 +1989,25 @@ ipcMain.handle('chat:send', async (event, req) => {
 ipcMain.handle('chat:abort', (event, reqId) => (typeof reqId === 'string' && reqId ? chat.abort(reqId) : false))
 // 圖片實體存在 <userData>/chat-images/；renderer 只拿得到檔名，讀取由 main 驗證
 ipcMain.handle('chat:image', (event, name) => loadChatImages().toDataUrl(name))
+// 下載：renderer 只給檔名，main 驗格式後從 chat-images 複製到使用者在存檔對話框選的位置
+ipcMain.handle('chat:saveImage', async (event, name) => {
+  const images = loadChatImages()
+  if (!images.isValidName(name)) return { ok: false, error: '圖片不存在' }
+  const ext = name.slice(name.lastIndexOf('.') + 1)
+  const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender) || undefined, {
+    title: '下載圖片',
+    defaultPath: path.join(app.getPath('downloads'), `axondeck-${name.slice(4)}`),
+    filters: [{ name: '圖片', extensions: [ext] }]
+  })
+  if (result.canceled || !result.filePath) return { ok: true, saved: false }
+  try {
+    await fs.promises.copyFile(images.filePath(name), result.filePath)
+  } catch (e) {
+    console.error('[chat] save image failed:', e?.code || 'unknown')
+    return { ok: false, error: '寫入檔案失敗' }
+  }
+  return { ok: true, saved: true }
+})
 
 // ===== 額度儀錶板 =====
 // URL、憑證路徑、SQL 與 provider 清單固定在 main；renderer 只能觸發整體同步。
@@ -1930,10 +2018,39 @@ registerUsageIpc({
     sync: (...args) => loadUsage().sync(...args),
     saveSettings: (...args) => loadUsage().saveSettings(...args),
     redeemCodexReset: (...args) => loadUsage().redeemCodexReset(...args),
+    listClaudeAccounts: () => loadUsage().listClaudeAccounts(),
+    switchClaudeAccount: (id) => loadUsage().switchClaudeAccount(id),
+    removeClaudeAccount: (id) => loadUsage().removeClaudeAccount(id),
+    loginClaudeAccount: () => loadUsage().loginClaudeAccount(),
+    cancelClaudeLogin: () => loadUsage().cancelClaudeLogin(),
     publicError: (error) => loadUsage().publicError(error)
   },
   isMainSender: assertMainWindowSender
 })
+
+// 額度提醒與 5 小時窗口預熱：額度條沒開著也在背景看（usage/quota-watch.js）
+let quotaWatch = null
+function startQuotaWatch() {
+  const { Notification } = require('electron')
+  const notify = (title, body) => {
+    if (!Notification.isSupported()) return
+    const note = new Notification({ title, body, icon: APP_ICON })
+    note.on('click', showMainWindow)
+    note.show()
+  }
+  quotaWatch = require('./usage/quota-watch').createQuotaWatch({
+    usage: { load: () => loadUsage().load(), sync: () => loadUsage().sync() },
+    notify,
+    file: path.join(app.getPath('userData'), 'usage-watch.json'),
+    // 真的要預熱才載入（開機不多拉模組）
+    warmDeps: {
+      cwd: path.join(app.getPath('userData'), 'warmup'),
+      launch: (...args) => require('./ccswitch/mcp-check').launch(...args),
+      withPath: (...args) => require('./ccswitch/cli-install').withPath(...args)
+    }
+  })
+  quotaWatch.start()
+}
 
 // ===== AGY 反向代理 =====
 // 憑證、上游 URL、project id 與 API key 全在 main；agy* 設定刻意不進 STORE_ALLOWLIST，
@@ -1956,6 +2073,22 @@ registerAgyIpc({
 })
 
 // ===== 終端機 =====
+let agentNotifier = null
+/** 背景 agent 的系統通知；第一次要通知才載入 */
+function notifyAgent(id, kind, title) {
+  agentNotifier ||= require('./agent-notify').createAgentNotifier({ icon: APP_ICON, reveal: revealTerminal })
+  return agentNotifier.notify(id, kind, title)
+}
+
+/** 點了通知：叫出 SI 頁那扇窗，再請它切到那個終端機的專案與分頁 */
+async function revealTerminal(id) {
+  if (pageWindows) {
+    await pageWindows.navigate({ page: 'chat' }).catch(() => console.warn('[pages] reveal terminal failed'))
+    showPageWindow('chat')
+  } else showMainWindow()
+  sendToPages('terminal:reveal', { id })
+}
+
 // shell 執行檔、啟動指令與工作目錄的驗證全在 main；renderer 只送 key 與由系統對話框選出的路徑。
 registerTerminalIpc({
   ipcMain,
@@ -1963,6 +2096,7 @@ registerTerminalIpc({
     catalog: (...args) => loadTerminal().catalog(...args),
     listSessions: (...args) => loadTerminal().listSessions(...args),
     conversation: (...args) => loadTerminal().conversation(...args),
+    contextUsage: (...args) => loadTerminal().contextUsage(...args),
     navJump: (...args) => loadTerminal().navJump(...args),
     // 宿主是不是更新前的舊程式碼（漏這兩支＝更新後 pty.js 的修正永遠不會生效）
     hostState: (...args) => loadTerminal().hostState(...args),
@@ -1979,6 +2113,7 @@ registerTerminalIpc({
     resolveLinks: (...args) => loadTerminal().resolveLinks(...args),
     revealLink: (...args) => loadTerminal().revealLink(...args),
     raiseChildWindow: (...args) => loadTerminal().raiseChildWindow(...args),
+    notifyAgent: (...args) => loadTerminal().notifyAgent(...args),
     // Ctrl+G 的編輯器橋接（漏一支＝那個分頁按送出只會回通用錯誤，CLI 一直卡著）
     editorSave: (...args) => loadTerminal().editorSave(...args),
     editorCancel: (...args) => loadTerminal().editorCancel(...args),
@@ -2010,11 +2145,17 @@ registerWorkspaceIpc({
     renameProject: (...args) => loadWorkspace().renameProject(...args),
     removeProject: (...args) => loadWorkspace().removeProject(...args),
     reorderProjects: (...args) => loadWorkspace().reorderProjects(...args),
+    listFolders: (...args) => loadWorkspace().listFolders(...args),
+    createFolder: (...args) => loadWorkspace().createFolder(...args),
+    updateFolder: (...args) => loadWorkspace().updateFolder(...args),
+    removeFolder: (...args) => loadWorkspace().removeFolder(...args),
+    reorderFolders: (...args) => loadWorkspace().reorderFolders(...args),
     saveTabsState: (...args) => loadWorkspace().saveTabsState(...args),
     getTabsState: (...args) => loadWorkspace().getTabsState(...args),
     getFileMtime: (...args) => loadWorkspace().getFileMtime(...args),
     listDir: (...args) => loadWorkspace().listDir(...args),
     readFile: (...args) => loadWorkspace().readFile(...args),
+    convertOffice: (...args) => loadWorkspace().convertOffice(...args),
     writeFile: (...args) => loadWorkspace().writeFile(...args),
     createEntry: (...args) => loadWorkspace().createEntry(...args),
     renameEntry: (...args) => loadWorkspace().renameEntry(...args),
@@ -2026,6 +2167,7 @@ registerWorkspaceIpc({
     listPorts: (...args) => loadWorkspace().listPorts(...args),
     reveal: (...args) => loadWorkspace().reveal(...args),
     openEntry: (...args) => loadWorkspace().openEntry(...args),
+    scriptCommand: (...args) => loadWorkspace().scriptCommand(...args),
     openExternal: (...args) => loadWorkspace().openExternal(...args),
     gitStatus: (...args) => loadWorkspace().gitStatus(...args),
     gitLog: (...args) => loadWorkspace().gitLog(...args),
@@ -2046,6 +2188,8 @@ registerWorkspaceIpc({
     worktreeAdopt: (...args) => loadWorkspace().worktreeAdopt(...args),
     worktreeCheck: (...args) => loadWorkspace().worktreeCheck(...args),
     worktreeRemove: (...args) => loadWorkspace().worktreeRemove(...args),
+    setSetupScript: (...args) => loadWorkspace().setSetupScript(...args),
+    worktreeSetupCommand: (...args) => loadWorkspace().worktreeSetupCommand(...args),
     watchProject: (...args) => loadWorkspace().watchProject(...args),
     unwatchProject: (...args) => loadWorkspace().unwatchProject(...args),
     agentSessions: (...args) => loadWorkspace().agentSessions(...args),
@@ -2138,18 +2282,18 @@ registerHfModelsIpc({
     inspect: (...args) => loadHfModels().inspect(...args),
     preview: (...args) => loadHfModels().preview(...args),
     detail: (...args) => loadHfModels().detail(...args),
-    install: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().install(...args) },
+    install: (...args) => { assertModelWorkIdle(); return loadHfModels().install(...args) },
     cancelInstall: (...args) => loadHfModels().cancelInstall(...args),
     listLocal: (...args) => loadHfModels().listLocal(...args),
-    removeLocal: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().removeLocal(...args) },
+    removeLocal: (...args) => { assertModelWorkIdle(); return loadHfModels().removeLocal(...args) },
     pickAndImport: (...args) => loadHfModels().pickAndImport(...args),
     openModelsDir: (...args) => loadHfModels().openModelsDir(...args),
     rescan: (...args) => loadHfModels().rescan(...args),
-    updateModelSettings: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().updateModelSettings(...args) },
-    refreshFit: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().refreshFit(...args) },
-    tune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().tune(...args) },
-    autoTune: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().autoTune(...args) },
-    chooseModelsDir: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().chooseModelsDir(...args) },
+    updateModelSettings: (...args) => { assertModelWorkIdle(); return loadHfModels().updateModelSettings(...args) },
+    refreshFit: (...args) => { assertModelWorkIdle(); return loadHfModels().refreshFit(...args) },
+    tune: (...args) => { assertModelWorkIdle(); return loadHfModels().tune(...args) },
+    autoTune: (...args) => { assertModelWorkIdle(); return loadHfModels().autoTune(...args) },
+    chooseModelsDir: (...args) => { assertModelWorkIdle(); return loadHfModels().chooseModelsDir(...args) },
     setToken: (...args) => loadHfModels().setToken(...args),
     tokenStatus: (...args) => loadHfModels().tokenStatus(...args),
     hardwareInfo: (...args) => loadHfModels().hardwareInfo(...args),
@@ -2162,15 +2306,15 @@ registerHfModelsIpc({
       return status
     },
     stopRuntime: (...args) => {
-      pdfTranslateMod?.assertIdle()
+      assertModelWorkIdle()
       const status = loadHfModels().stopRuntime(...args)
       hfLocalModelIds = []
       return status
     },
     currentDevice: (...args) => loadHfModels().currentDevice(...args),
-    applyPresets: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().applyPresets(...args) },
+    applyPresets: (...args) => { assertModelWorkIdle(); return loadHfModels().applyPresets(...args) },
     loadModel: (...args) => loadHfModels().loadModel(...args),
-    unloadModel: (...args) => { pdfTranslateMod?.assertIdle(); return loadHfModels().unloadModel(...args) },
+    unloadModel: (...args) => { assertModelWorkIdle(); return loadHfModels().unloadModel(...args) },
     refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
   },
@@ -2243,6 +2387,36 @@ registerBreezeIpc({
   isMainSender: assertMainWindowSender
 })
 
+/** Miroxen 引擎只發行 Windows 版（miroxen-win-x64＋cuBLAS DLL）；其他平台回固定中文說明，不碰引擎檔案。 */
+const MIROXEN_UNSUPPORTED = 'Linux 版暫不支援「生成圖片影像」：Miroxen 引擎目前只發行 Windows 版（miroxen-win-x64）。聊天裡的雲端生圖模型不受影響。'
+function miroxenService() {
+  if (process.platform === 'win32') {
+    return {
+      status: (options) => loadMiroxen().status(options),
+      start: () => loadMiroxen().start(),
+      stop: () => loadMiroxen().stop(),
+      openOutput: () => loadMiroxen().openOutput(),
+      api: () => loadMiroxen().api(),
+      setLan: (enabled) => loadMiroxen().setLan(enabled)
+    }
+  }
+  const failNow = async () => { throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: MIROXEN_UNSUPPORTED }) }
+  return {
+    status: async () => ({ supported: false, message: MIROXEN_UNSUPPORTED, gpuReady: false, hasNvidia: false, installed: false,
+      version: '', latest: '', update: false, models: [], running: false, starting: false, url: '' }),
+    start: failNow,
+    stop: async () => true,
+    openOutput: failNow,
+    api: failNow,
+    setLan: failNow
+  }
+}
+registerMiroxenIpc({
+  ipcMain,
+  service: miroxenService(),
+  isMainSender: assertMainWindowSender
+})
+
 /** PDF 版面翻譯的 Python 執行環境（paddlepaddle＋uv）目前只鎖了 Windows wheel；其他平台回固定中文說明。 */
 const PDF_TRANSLATE_UNSUPPORTED = 'Linux 版暫不支援 PDF／圖片保留版面翻譯：版面辨識的 Python 執行環境目前只提供 Windows 版。一般文字翻譯不受影響。'
 async function loadPdfTranslateChecked() {
@@ -2260,9 +2434,23 @@ registerPdfTranslateIpc({
     start: async (options) => (await loadPdfTranslateChecked()).start(options),
     cancel: async (jobId) => (await loadPdfTranslateChecked()).cancel(jobId),
     status: async () => (await loadPdfTranslateChecked()).status(),
-    save: async (jobId) => (await loadPdfTranslateChecked()).save(jobId)
+    save: async (jobId) => (await loadPdfTranslateChecked()).save(jobId),
+    clearCache: async () => (await loadPdfTranslateChecked()).clearCache()
   },
   isMainSender: assertMainWindowSender
+})
+
+registerScreenTranslateIpc({
+  ipcMain,
+  service: {
+    open: async (options) => (await loadScreenTranslate()).open(options),
+    pause: async (paused) => (await loadScreenTranslate()).pause(paused),
+    resize: async (bounds) => (await loadScreenTranslate()).resize(bounds),
+    close: async () => (await loadScreenTranslate()).close(),
+    status: async () => (await loadScreenTranslate()).status()
+  },
+  isMainSender: assertMainWindowSender,
+  isOverlaySender: (event) => screenTranslateMod?.owns(event) === true
 })
 
 // ===== 系統監控 =====
@@ -2565,6 +2753,7 @@ app.on('web-contents-created', (_event, contents) => {
     })
   }
   contents.setWindowOpenHandler(({ url, disposition }) => {
+    if (browserExtensions?.openInternalUrl(url, contents)) return { action: 'deny' }
     const partition = aiWebPartitions.get(contents.session)
     // 比照 Chrome 開成小視窗、保留 opener，第三方登入才收得到 postMessage 回傳的結果（Infinity 新分頁的 Google 登入等）：
     // 帶視窗大小的 window.open（new-window）、先開空白頁再導過去的寫法、登入／授權頁。其餘連結才轉成分頁
@@ -2578,6 +2767,10 @@ app.on('web-contents-created', (_event, contents) => {
           webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false }
         }
       }
+    }
+    if (partition === 'persist:wsbrowser-clean' && isWebUrl(url)) {
+      void browserWindow.open(url, '', null, 0, true)
+      return { action: 'deny' }
     }
     // Telegram 等 AI 頁以外的 webview 點的連結開在 Browser 模式
     if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(contents))
@@ -2595,9 +2788,11 @@ app.whenReady().then(() => {
   const aiWeb = require('./ai-web')
   // 跟 navigator.languages 同一份（Electron 用 App 語系＋系統偏好語言排出來的）
   const languages = [...new Set([app.getLocale(), ...app.getPreferredSystemLanguages()].filter(Boolean))].join(',')
-  for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser']) {
+  for (const partition of [...Object.keys(aiWeb.SITES).map((site) => `persist:ai-${site}`), 'persist:wsbrowser', 'persist:wsbrowser-clean']) {
     const ses = session.fromPartition(partition)
     aiWeb.setupSession(ses, { userAgent: app.userAgentFallback, shimPath: path.join(__dirname, '../preload/ai-web-shim.js'), languages })
+    // 被 Cloudflare 擋的分頁改回 Electron 識別重新載入；Grok 另有 grok-clearance（借 Edge 過驗證）
+    if (partition !== 'persist:ai-grok') aiWeb.installChallengeFallback(ses, aiWeb.electronUserAgent(app.userAgentFallback))
     aiWebPartitions.set(ses, partition)
   }
   browserExtensions = require('./browser-extensions').createBrowserExtensions({
@@ -2607,7 +2802,8 @@ app.whenReady().then(() => {
     chromeVersion: process.versions.chrome,
     aliasPreload: path.join(__dirname, '../preload/crx-browser-alias.js'),
     identityPreload: path.join(__dirname, '../preload/crx-identity.js'),
-    openUrl: openInProjectBrowser,
+    openUrl: (url, source) => openInProjectBrowser(url, '', 'tab', source?.id || 0),
+    openCompatible: (url, title) => browserWindow.open(url, title, null, 0, true),
     onActionsChanged: () => {
       sendToPages('workspace:extensionsChanged')
       browserWindow.broadcast('browserWindow:extensionsChanged')
@@ -2653,6 +2849,8 @@ app.whenReady().then(() => {
 
   createMainWindow()
   bootLog('window created')
+  // 預覽／沙箱／e2e 帶 --user-data-dir：不在背景提醒或預熱（會跟正式那份重複跳通知、重複送請求）
+  if (!userDataDir) startQuotaWatch()
   editorWindow.configure({
     isDev,
     preload: path.join(__dirname, '../preload/preload.js'),
@@ -2830,14 +3028,17 @@ app.on('before-quit', (e) => {
     ? ccSwitchMod.stopGateway().catch((err) => console.error('[ccswitch] gateway stop failed:', err))
     : Promise.resolve()
   const stopAgy = Promise.all([
+    screenTranslateMod ? screenTranslateMod.close() : Promise.resolve(),
     pdfTranslateMod ? pdfTranslateMod.shutdown() : Promise.resolve(),
     loadCloudTts().shutdown(),
     breezeMod ? breezeMod.shutdown() : Promise.resolve(),
+    miroxenMod ? miroxenMod.shutdown() : Promise.resolve(),
     stopTerminal,
     stopExplorer,
     stopSysmon,
     stopScreentime,
     stopGateway,
+    ccSwitchMod ? ccSwitchMod.stopMcpChecks() : Promise.resolve(),
     agyMod ? agyMod.shutdown() : Promise.resolve()
   ])
   stopAgy

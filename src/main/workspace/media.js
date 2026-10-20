@@ -37,6 +37,14 @@ const CORS = {
  */
 const LOCAL_ID = '~local'
 
+/** Office 文件轉出來的 PDF／xlsx（`office-convert.js` 的快取），後面只接一個快取檔名 */
+const OFFICE_ID = '~office'
+
+/** @param {string} name 快取檔名 */
+function officeUrlFor(name) {
+  return `${SCHEME}://${TOKEN}/${OFFICE_ID}/${encodeURIComponent(name)}`
+}
+
 /**
  * @param {string} projectId
  * @param {string} rel 專案內的相對路徑（`/` 分隔）
@@ -126,6 +134,7 @@ function register(protocol, rootOf, resolveLocal) {
         if (!files.mediaMime(target)) return new Response(null, { status: 404 })
         return await serve(target, request)
       }
+      if (projectId === OFFICE_ID) return await serve(require('./office-convert').cachedPath(segments.join('/')), request)
       const root = await rootOf(projectId)
       const full = files.resolveIn(root, segments.join('/'))
       if (!files.mediaMime(full)) return new Response(null, { status: 404 })
@@ -138,4 +147,4 @@ function register(protocol, rootOf, resolveLocal) {
   })
 }
 
-module.exports = { SCHEME, PRIVILEGES, LOCAL_ID, urlFor, localUrlFor, localBaseFor, parseRange, register }
+module.exports = { SCHEME, PRIVILEGES, LOCAL_ID, urlFor, officeUrlFor, localUrlFor, localBaseFor, parseRange, register }

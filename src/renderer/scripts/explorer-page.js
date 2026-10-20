@@ -1936,10 +1936,8 @@ async function loadSecond(dirPath, opts = {}) {
 function paintSecondDrives() {
   const host = $('exSecondDrives')
   if (!host) return
-  const here = pathKey(secondPane.cwd)
   host.replaceChildren()
   for (const disk of disks) {
-    const key = pathKey(disk.path)
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'btn-icon ex-second-drive'

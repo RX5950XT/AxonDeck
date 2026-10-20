@@ -615,9 +615,13 @@ function buildModelRow(model) {
     const quota = document.createElement('span')
     quota.className = 'agy-model-tag is-quota'
     const percent = model.remainingFraction * 100
-    // 低於 10% 標紅：claude 系列在這個方案只有 2.7%，選下去很快就撞牆
+    // 上游的單模型數字是該池的 5 小時額度；Argon 例外，它那池只有每週（Pro 方案獨立計）
+    const weekly = model.id.includes('argon')
     if (percent < 10) quota.classList.add('is-low')
-    quota.textContent = `剩餘 ${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}%`
+    quota.textContent = `${weekly ? '週' : '5h'} 剩 ${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}%`
+    quota.title = weekly
+      ? 'Gemini 4 Argon 獨立的每週額度，依 token 成本比例扣'
+      : '同池模型共用的 5 小時額度，依 token 成本比例扣；每週額度見額度儀表板'
     tags.appendChild(quota)
   }
 

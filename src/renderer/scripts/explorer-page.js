@@ -651,8 +651,9 @@ function bindOnce() {
   $('exNewFolderBtn')?.addEventListener('click', newFolder)
   $('exNewFileBtn')?.addEventListener('click', newFile)
   $('exEmptyBinBtn')?.addEventListener('click', () => void emptyBin())
-  $('exViewListBtn')?.addEventListener('click', () => setView('list'))
-  $('exViewGridBtn')?.addEventListener('click', () => setView('grid'))
+  // 換檢視要重畫：清單用類型圖示、方格要縮圖，只換 class 的話方格一直停在類型圖示
+  $('exViewListBtn')?.addEventListener('click', () => { setView('list'); paintList() })
+  $('exViewGridBtn')?.addEventListener('click', () => { setView('grid'); paintList() })
   $('exDualBtn')?.addEventListener('click', () => void toggleDualPane())
   $('exFolderSizesBtn')?.addEventListener('click', () => void toggleFolderSizes())
   $('exDetailToggleBtn')?.addEventListener('click', toggleDetailPane)
@@ -1164,7 +1165,8 @@ function paintList() {
     host.appendChild(after)
     host.scrollTop = scrollTop
   } else {
-    for (const entry of rows) host.appendChild(rowEl(entry))
+    // 超過一頁的資料夾，還沒載到的那幾頁是空位；碰到就丟例外，整個 paintList 停在要縮圖之前
+    for (const entry of rows) if (entry) host.appendChild(rowEl(entry))
   }
   paintFileIcons(host, (target) => electronAPI.explorer.fileIcon(target))
   paintStatus()

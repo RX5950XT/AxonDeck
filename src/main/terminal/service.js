@@ -172,7 +172,8 @@ async function openSession(id, cols, rows) {
   const states = IN_PROCESS
     ? terminal.sessionStates()
     : (await getClient().request('list') || [])
-  await agentResume.begin(safe, states.some(item => item.id === safe.id))
+  const existing = states.some(item => item.id === safe.id)
+  await agentResume.begin(safe, existing)
   void activity.follow(safe)
   const snapshot = IN_PROCESS
     ? terminal.openSessionWithMeta({ ...safe }, cols, rows, editor, editorDir)

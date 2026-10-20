@@ -6,10 +6,8 @@
  * 不做 Windows COM／mtp: 虛擬路徑協定。
  */
 
-const fs = require('fs')
 const fsp = require('../raw-fs').promises
 const path = require('path')
-const os = require('os')
 
 const HINT_NONE =
   'Linux 手機／MTP：請先用系統檔案管理員以 MTP 掛載（gvfs）。未掛載時此處不顯示裝置；完整 Windows MTP（mtp: 虛擬路徑）尚未移植。'

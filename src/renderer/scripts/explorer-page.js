@@ -3030,7 +3030,9 @@ async function openEntry(entry) {
   if (!entry) return
   // 指令列、右鍵、Enter 都會走這裡：要開在作用中的那一欄，回收筒也只看那一欄
   const right = rightActive()
-  if (activeInRecycle()) {
+  // 只有回收筒自己的項目（有 recycleKey）才是「還原」；在回收筒裡打字搜尋出來的是整機搜尋結果，
+  // 照一般檔案開（資料夾就進去），不能丟給 restoreItems 假裝還原成功
+  if (activeInRecycle() && entry.recycleKey) {
     await restoreItems([entry])
     return
   }
@@ -3536,14 +3538,19 @@ async function deleteItems(items, opts = {}) {
 }
 
 async function restoreItems(items) {
+  const restorable = items.filter((item) => item?.recycleKey)
+  // 沒有一筆是回收筒項目（例如整機搜尋結果）：什麼都沒做，就不能說「已還原」
+  if (!restorable.length) {
+    showToast('選取的項目不在資源回收筒裡，無法還原', 'error')
+    return
+  }
   try {
-    for (const item of items) {
-      if (!item.recycleKey) continue
+    for (const item of restorable) {
       await call(electronAPI.explorer.restoreEntry(item.recycleKey), '還原失敗')
     }
     selected = new Set()
     await refreshAfterMutate()
-    showToast('已還原')
+    showToast(restorable.length < items.length ? `已還原 ${restorable.length} 個項目（其餘不在資源回收筒裡）` : '已還原')
   } catch {
     // toast 已顯示
   }

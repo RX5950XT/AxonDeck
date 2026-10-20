@@ -953,6 +953,17 @@ export function setSidebarMode(mode) {
   if (mode === 'browser') import('./browser-page.js').then((m) => m.initBrowserPage())
 }
 
+/** 進 Browser 之前主區顯示的是什麼（離開 Browser 時回到這裡） */
+let lastNonBrowserPane = 'chat'
+
+/**
+ * @param {string} last
+ * @returns {'chat' | 'workspace' | 'web'}
+ */
+export function paneAfterLeavingBrowser(last) {
+  return last === 'workspace' || last === 'web' ? last : 'chat'
+}
+
 function initSidebarModes() {
   document.querySelectorAll('.sidebar-mode').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -960,6 +971,8 @@ function initSidebarModes() {
       setSidebarMode(mode)
       // Browser 沒有別的項目可點：按下去就顯示瀏覽器
       if (mode === 'browser') import('./browser-page.js').then((m) => m.showBrowserPage())
+      // 從 Browser 切到 Agent／Chat：主區也要離開瀏覽器，回到進 Browser 前的畫面（對話、專案或網頁版 AI）
+      else if (chatPaneMode === 'browser') setChatPaneMode(paneAfterLeavingBrowser(lastNonBrowserPane))
     })
   })
   let saved = ''
@@ -979,6 +992,7 @@ export function setChatPaneMode(mode) {
   if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser') return
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
+  if (mode !== 'browser') lastNonBrowserPane = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
   if (mode !== 'web') document.getElementById('chatPanel')?.classList.remove('is-arena')
   document.getElementById('browserMain')?.classList.toggle('hidden', mode !== 'browser')

@@ -241,10 +241,12 @@ function remove(id, { homeDir, env = process.env }) {
 }
 
 /** Claude Code 執行檔：官方安裝器放 `~/.local/bin`，其次找 PATH */
-function findClaude(homeDir, env) {
-  const candidates = [path.join(homeDir, '.local', 'bin', 'claude.exe')]
+function findClaude(homeDir, env, platform = process.platform) {
+  // Linux／macOS 的官方安裝器與 npm 都是不帶副檔名的 `claude`
+  const exe = platform === 'win32' ? 'claude.exe' : 'claude'
+  const candidates = [path.join(homeDir, '.local', 'bin', exe)]
   for (const dir of String(env.PATH || env.Path || '').split(path.delimiter)) {
-    if (dir) candidates.push(path.join(dir, 'claude.exe'))
+    if (dir) candidates.push(path.join(dir, exe))
   }
   return candidates.find((file) => { try { return fs.statSync(file).isFile() } catch { return false } }) || ''
 }
@@ -381,6 +383,7 @@ function resetForTests() {
 
 module.exports = {
   beginLogin,
+  findClaude,
   cancelLogin,
   configure,
   list,

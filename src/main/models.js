@@ -276,6 +276,8 @@ const MODELS = {
     check: _llamaVulkan.check,
     binary: _llamaVulkan.binary
   },
+  // Miroxen 只有 Windows 版（miroxen-win-x64.zip＋cuBLAS DLL），其他平台不列引擎也不列生成模型
+  ...(HOST.platform === 'win32' ? {
   /** Miroxen 引擎：跟著 GitHub latest release 走（`miroxen/runtime.js` 自己裝），只給 CUDA 13 驅動的 NVIDIA 卡 */
   miroxenruntime: {
     label: 'Miroxen 圖片影像引擎',
@@ -338,6 +340,7 @@ const MODELS = {
         'minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors'), 1383677808, '9bac880b1a5d7ac052171cf6cce769f0cceaaa42ffa51de4b8e41143a2bdd2d2']
     ])
   },
+  } : {}),
   /** 微調：繁中／英文／日文三語翻譯（v5e Q4_K_M） */
   linguaforge08q4: {
     label: 'LinguaForge 0.8B · Q4_K_M（繁中/英/日）',

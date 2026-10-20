@@ -43,13 +43,19 @@ function translatorSnapshot() {
   return { store, local: choice.mode === 'local', label: `${choice.mode === 'cloud' ? '雲端' : '本機'} · ${choice.modelId || models.MODELS[choice.modelKey]?.label || choice.modelKey}` }
 }
 
+/**
+ * 取景框是蓋在字上的半透明視窗，擷取時靠 `setContentProtection` 把自己排除；
+ * Linux（X11／Wayland）沒有這個功能，擷取會把取景框一起拍進去，所以先不開放。
+ */
+const UNSUPPORTED_MESSAGE = 'Linux 版暫不支援螢幕翻譯：取景框需要在擷取畫面時把自己排除（Windows 的內容保護），X11／Wayland 沒有對應功能。PDF／圖片與文字翻譯不受影響。'
+
 function open(options) {
   if (!LANGUAGES.has(options?.targetLang) || (options.sourceLang !== 'auto' && !LANGUAGES.has(options.sourceLang))) {
     throw fail('INVALID_LANGUAGE', '不支援這個翻譯語言')
   }
   if (session) { session.win.showInactive(); return status() }
   if (closing) throw fail('BUSY', '取景視窗正在關閉，請稍候再開啟')
-  if (process.platform !== 'win32') throw fail('UNSUPPORTED', '螢幕翻譯目前支援 Windows')
+  if (process.platform !== 'win32') throw fail('UNSUPPORTED', UNSUPPORTED_MESSAGE)
   const missing = ['paddleocrvl16'].filter((key) => !models.isDownloaded(key))
   if (!['llamaruntime', 'llamaruntimecuda'].some((key) => models.isDownloaded(key))) missing.push('llamaruntime')
   if (missing.length) throw fail('NOT_INSTALLED', '請先到 Local SI 安裝 PaddleOCR-VL 與 llama.cpp 執行環境')

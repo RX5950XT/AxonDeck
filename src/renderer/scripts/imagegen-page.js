@@ -114,6 +114,8 @@ function showEmpty(state) {
 }
 
 function emptyStateFor(status) {
+  // Linux 等沒有 Miroxen 引擎的平台：main 直接回 supported:false 與說明
+  if (status.supported === false) return { title: '這個平台暫不支援', text: status.message || '' }
   if (!status.gpuReady) {
     return { title: '需要 NVIDIA 顯示卡', text: status.hasNvidia
       ? 'Miroxen 需要 CUDA 13，請把 NVIDIA 驅動更新到 580 以上再回來。'

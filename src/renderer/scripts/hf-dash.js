@@ -159,7 +159,8 @@ function gpuRows(devices, gpus) {
 
 function vramLabel(device) {
   const total = Number(device.totalMiB)
-  const free = Number(device.freeMiB)
+  // null 不能交給 Number()：會變成 0，畫成整張卡用滿
+  const free = device.freeMiB == null ? NaN : Number(device.freeMiB)
   if (!total || !Number.isFinite(free)) return { text: '', pct: 0 }
   const used = Math.max(0, total - free)
   return {

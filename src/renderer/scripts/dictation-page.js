@@ -298,7 +298,7 @@ function bindOnce() {
     const toInput = /** @type {HTMLInputElement} */ ($('dictationTermTo'))
     const res = await electronAPI.dictation.saveTerm({ from: fromInput.value, to: toInput.value })
     if (!res?.ok || res.data?.ok === false) {
-      showToast('這組詞不能用：只收沒有標點的短詞', 'error')
+      showToast(res?.data?.error === 'FULL' ? '字典已滿，先刪掉幾條再加' : '這組詞不能用：只收沒有標點的短詞', 'error')
       return
     }
     fromInput.value = ''

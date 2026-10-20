@@ -128,6 +128,7 @@ async function main() {
           start: async (request) => { test.starts.push(request); test.job = { jobId: 'test-job-' + test.starts.length, state: 'running', page: 0, pages: 250, stage: 'ocr' }; return { ok: true, data: { jobId: test.job.jobId } } },
           cancel: async (id) => { test.job = { ...test.job, state: 'cancelled' }; return { ok: true, data: true } },
           save: async (id) => { test.saves.push(id); return { ok: true, data: { saved: true, name: 'translated.pdf' } } },
+          clearCache: async () => ({ ok: true, data: { removed: 5 } }),
           onProgress: (callback) => { test.emit = (progress) => { test.job = progress; callback(progress) } }
         }
       }
@@ -179,9 +180,14 @@ async function main() {
       return run.offsetHeight > 0 && !run.disabled && run.textContent === '翻譯檔案' && !!run.closest('#translateInputPane')
         && !root.closest('#translateInputPane') && !!root.closest('.translate-pane') && root.hidden
     })()`)
+    await check('附件下方有頁碼、雙語對照、清除快取', `['pdfTranslatePages', 'pdfTranslateDual', 'pdfTranslateClearCache'].every((id) => document.getElementById(id).offsetHeight > 0)
+      && !!document.getElementById('pdfTranslateOptions').closest('#translateInputPane')`)
+    await cdp.eval(`document.getElementById('pdfTranslatePages').value = '1-3, 5'; document.getElementById('pdfTranslateDual').click()`)
     await cdp.eval(`document.querySelector('#translateTargetLang [data-value="ja"]').click(); pdfUiTest.api.startPdfJob(); pdfUiTest.api.startPdfJob()`)
     await waitFor(() => cdp.eval(`pdfUiTest.starts.length === 1 && document.getElementById('pdfTranslatePick').disabled`), '開始翻譯')
     await check('沿用語言且不重複開始', `pdfUiTest.starts[0].targetLang === 'ja' && pdfUiTest.starts[0].sourceLang === 'auto'`)
+    await check('頁碼與雙語選項送進工作', `pdfUiTest.starts[0].pages === '1-3, 5' && pdfUiTest.starts[0].dual === true`)
+    await check('處理中不能改選項或清快取', `['pdfTranslatePages', 'pdfTranslateDual', 'pdfTranslateClearCache'].every((id) => document.getElementById(id).disabled)`)
     await check('處理中檔案鈕變停止、主翻譯鈕仍可翻文字', `document.getElementById('pdfTranslateRun').textContent === '停止' && !document.getElementById('pdfTranslateRoot').hidden && document.getElementById('translateRunBtn').textContent.trim() === '翻譯'`)
     await cdp.eval(`pdfUiTest.emit({ ...pdfUiTest.job, page: 73, stage: 'translate' })`)
     await check('長篇頁數進度與工作狀態', `document.getElementById('pdfTranslateProgress').max === 250 && document.getElementById('pdfTranslateProgress').value === 73 && document.getElementById('pdfTranslateStatus').textContent.includes('250 頁')`)
@@ -192,6 +198,8 @@ async function main() {
     await cdp.eval(`document.getElementById('pdfTranslateRun').click()`)
     await waitFor(() => cdp.eval(`document.getElementById('pdfTranslateStatus').textContent.includes('已停止')`), '取消')
     await check('取消後沒有未完成輸出可另存', `document.getElementById('pdfTranslateSave').hidden`)
+    await cdp.eval(`document.getElementById('pdfTranslateClearCache').click()`)
+    await waitFor(() => cdp.eval(`document.getElementById('pdfTranslateStatus').textContent === '已清除 5 筆譯文快取'`), '清除快取')
     await cdp.eval(`document.getElementById('pdfTranslateRun').click()`)
     await waitFor(() => cdp.eval(`pdfUiTest.starts.length === 2`), '再翻譯')
     await cdp.eval(`pdfUiTest.emit({ ...pdfUiTest.job, state: 'done', page: 250, pages: 250, translatedBlocks: 800, warnings: [{ code: 'overflow', count: 2 }, { code: 'small_text', count: 3 }] })`)

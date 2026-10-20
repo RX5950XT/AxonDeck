@@ -453,8 +453,6 @@ module.exports = {
   systemToText,
   toolResultText,
   sanitizeSchema,
-  toolsToFunctions,
-  messagesToResponsesInput,
   toResponsesRequest,
   toChatRequest,
   newConsumeState,

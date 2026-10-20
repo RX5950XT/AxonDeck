@@ -260,11 +260,13 @@ async function main() {
     ok('CPU 展開後有完整規格表', extra.cpuSpecs >= 10, String(extra.cpuSpecs))
     ok('主機板區塊有 BIOS 版本與日期',
       extra.board.includes('BIOS 版本') && extra.board.includes('BIOS 日期'), extra.board.slice(0, 160))
+    // 作業系統名稱在副標（規格表不再重抄一次）
     ok('系統區塊有作業系統與音效裝置',
-      extra.system.includes('作業系統') && extra.system.includes('音效裝置'), extra.system.slice(0, 160))
+      /Windows/.test(extra.system) && extra.system.includes('音效裝置'), extra.system.slice(0, 160))
     ok('網路區塊有網路介面卡明細', extra.network.includes('網路介面卡'), extra.network.slice(0, 160))
     ok('儲存區塊有實體磁碟與磁碟區明細',
-      extra.storage.includes('實體磁碟') && extra.storage.includes('磁碟區'), extra.storage.slice(0, 160))
+      // 兩顆以上時實體磁碟明細在各自的卡上，總表不再列一次
+      (extra.diskCards >= 2 || extra.storage.includes('實體磁碟')) && extra.storage.includes('磁碟區'), extra.storage.slice(0, 160))
     ok('同性質的長清單都收在可展開的子項裡', extra.subs >= 4, String(extra.subs))
     // 後補的硬體資訊（都要真的有值，不能只是多一列破折號）
     ok('CPU 規格有 L1 快取', /L1 快取\s*\d/.test(extra.cpu.replace(/\s+/g, ' ')), extra.cpu.slice(0, 200))
@@ -280,7 +282,7 @@ async function main() {
     // `textContent` 把 dt 跟 dd 直接接在一起（「架構x64」而不是「架構 x64」），所以標籤與值之間是 `\s*`
     const flat = (s) => s.replace(/\s+/g, ' ')
     ok('CPU 有架構與外頻', /架構\s*x64/.test(flat(extra.cpu)) && /外頻\s*\d/.test(flat(extra.cpu)), flat(extra.cpu).slice(-260))
-    ok('CPU 有快取階層子項', extra.cpu.includes('快取階層'), extra.cpu.slice(0, 240))
+    ok('CPU 有 L2／L3 快取', /L2 快取\s*\d/.test(flat(extra.cpu)) && /L3 快取\s*\d/.test(flat(extra.cpu)), flat(extra.cpu).slice(0, 240))
     ok('記憶體有通道數與分頁檔', /通道\s*\d+\s*通道/.test(flat(extra.memory)) && extra.memory.includes('分頁檔'), flat(extra.memory).slice(-260))
     ok('儲存有硬體總容量與磁碟區可用', extra.storage.includes('硬體總容量') && extra.storage.includes('磁碟區可用'), flat(extra.storage).slice(0, 240))
     ok('兩顆以上實體碟時每顆一卡', extra.diskCards === 0 || extra.diskCards >= 2, String(extra.diskCards))
@@ -330,9 +332,9 @@ async function main() {
       ok('累計寫入是 TB／GB 等級', /累計寫入\s*[\d.]+\s*(GB|TB)/.test(st), st.slice(-400))
       ok('有剩餘壽命與備援空間', /剩餘壽命\s*\d+%/.test(st) && /可用備援空間\s*\d+%/.test(st), st.slice(-400))
       ok('有 NVMe 規格版本與支援功能', /NVMe 規格版本\s*\d+\.\d+/.test(st) && st.includes('TRIM'), st.slice(-400))
-      ok('實體磁碟列有磁區大小與分割配置', /磁區 \d+B\/\d+B/.test(st) && st.includes('GPT'), st.slice(0, 400))
+      ok('實體磁碟列有磁區大小與分割配置', /磁區\s*\d+B ?\/ ?\d+B/.test(st) && st.includes('GPT'), st.slice(0, 400))
       // 感測器 sidecar 要 UAC（測試裡是關掉的），這格有值就代表退回 NVMe 溫度那條路真的通
-      ok('沒有感測器元件時也看得到硬碟溫度', /各硬碟即時速率[\s\S]*?\d+ °C/.test(st), st.slice(0, 500))
+      ok('沒有感測器元件時也看得到硬碟溫度', /各硬碟讀寫速率[\s\S]*?\d+ °C/.test(st), st.slice(0, 500))
     }
 
     // SMBIOS 沒填時 OEM 會塞這幾個字串，原樣顯示等於規格表上寫著「Default string」
@@ -528,38 +530,26 @@ async function main() {
     ok('取消會關掉彈窗且什麼都沒做',
       (await cdp.eval(`document.getElementById('sysmonKillDialog').open`)) === false)
 
-    // ── 壓力測試面板 ────────────────────────────────────────────
-    await cdp.eval(`document.querySelector('.sysmon-tab[data-subtab="stress"]').click()`)
+    // ── 效能與壓力測試面板（壓力測試併進效能調整分頁）──────────────
+    await cdp.eval(`document.querySelector('.sysmon-tab[data-subtab="oc"]').click()`)
     await sleep(200)
     const stressUi = await cdp.eval(`(() => ({
       webgl2: Boolean(document.createElement('canvas').getContext('webgl2')),
       hasCanvas: Boolean(document.getElementById('sysmonStressCanvas')),
       startDisabled: document.getElementById('sysmonStressStart').disabled,
       stopDisabled: document.getElementById('sysmonStressStop').disabled,
-      cards: document.querySelectorAll('#sysmon-stress .sysmon-stress-card').length,
-      warn: document.querySelectorAll('#sysmon-stress .sysmon-warn').length,
-      // 2×2：四張卡只佔兩種 left 值
-      columns: new Set([...document.querySelectorAll('#sysmon-stress .sysmon-stress-card')]
+      cards: document.querySelectorAll('#sysmon-oc .sysmon-stress-card').length,
+      warn: document.querySelectorAll('#sysmon-oc .sysmon-warn').length,
+      stressTab: Boolean(document.querySelector('.sysmon-tab[data-subtab="stress"]')),
+      // 寬版一排四張、較窄兩兩一排
+      columns: new Set([...document.querySelectorAll('#sysmon-oc .sysmon-stress-card')]
         .map((c) => Math.round(c.getBoundingClientRect().left))).size,
       canvasShown: document.getElementById('sysmonStressCanvas').getClientRects().length > 0
         && document.getElementById('sysmonStressCanvas').getBoundingClientRect().height > 0,
-      gauges: document.querySelectorAll('#sysmon-stress .sysmon-metercell').length,
-      gaugeText: document.getElementById('sysmonStressDisks').textContent
-        + document.getElementById('sysmonStressCpu').textContent,
-      // CPU／GPU 各四格一排：同一組有四個不同的 left 值
-      cpuRow: document.querySelectorAll('#sysmonStressCpu .sysmon-metercell').length,
-      gpuCards: [...document.querySelectorAll('#sysmonStressGpu .sysmon-gpu-gauge-card')].map(card => {
-        const cells = [...card.querySelectorAll('.sysmon-metercell')]
-        const boxes = cells.map(cell => cell.getBoundingClientRect())
-        return { count: cells.length, columns: new Set(boxes.map(box => Math.round(box.left))).size,
-          rows: new Set(boxes.map(box => Math.round(box.top))).size,
-          visible: boxes.every(box => box.width > 0 && box.height > 0),
-          labels: cells.map(cell => cell.querySelector('i')?.textContent) }
-      }),
-      cpuColumns: new Set(
-        [...document.querySelectorAll('#sysmonStressCpu .sysmon-metercell')]
-          .map((el) => Math.round(el.getBoundingClientRect().left))
-      ).size,
+      gaugeText: document.getElementById('sysmonStressDisks').textContent,
+      // CPU／GPU 即時儀表只留效能調整那一份
+      dupGauges: document.querySelectorAll('#sysmonStressCpu, #sysmonStressGpu').length,
+      cpuGauges: document.querySelectorAll('#ocCpuGauges').length,
       diskCells: document.querySelectorAll('#sysmonStressDisks .sysmon-metercell').length,
       benchStartDisabled: document.getElementById('sysmonBenchStart').disabled,
       benchDiskOptions: document.querySelectorAll('#sysmonBenchDisk option').length
@@ -569,24 +559,15 @@ async function main() {
     ok('未開始時「開始」可按、「停止」不可按',
       !stressUi.startDisabled && stressUi.stopDisabled, JSON.stringify(stressUi))
     ok('四項測試都在：CPU／GPU／記憶體／磁碟', stressUi.cards === 4, String(stressUi.cards))
-    ok('排成 2×2', stressUi.columns === 2, `不同左緣=${stressUi.columns}`)
-    ok('CPU 儀錶四格一排（負載／功耗／溫度／轉速）',
-      stressUi.cpuRow === 4 && stressUi.cpuColumns === 4,
-      `${stressUi.cpuRow} 格 / ${stressUi.cpuColumns} 欄`)
-    ok('每張 GPU 儀錶四格一排（負載／功耗／溫度／轉速）',
-      stressUi.gpuCards.length > 0 && stressUi.gpuCards.every(card =>
-        card.count === 4 && card.columns === 4 && card.rows === 1 && card.visible
-        && card.labels.join('/') === '負載/功耗/溫度/轉速'),
-      JSON.stringify(stressUi.gpuCards))
+    ok('壓力測試不再是獨立分頁', !stressUi.stressTab)
+    ok('四張卡一排或兩兩一排', stressUi.columns === 4 || stressUi.columns === 2, `不同左緣=${stressUi.columns}`)
+    ok('CPU／GPU 即時儀表只有一份', stressUi.dupGauges === 0 && stressUi.cpuGauges === 1,
+      `${stressUi.dupGauges} / ${stressUi.cpuGauges}`)
     ok('閒置時 GPU 畫布收起來（不然那張卡會比別人高一截）', !stressUi.canvasShown)
     // 黃色警告條已移除，說明併進各卡的敘述裡
     ok('沒有黃色警告條', stressUi.warn === 0, String(stressUi.warn))
-    ok('上方有即時負載與溫度儀錶', stressUi.gauges >= 8, String(stressUi.gauges))
     // 磁碟那格量的是**讀寫速率**不是容量：容量在壓力測試中不會動，看不出有沒有在跑
-    ok('儀錶有 CPU 的負載／功耗／溫度／轉速與記憶體已用',
-      ['負載', '功耗', '溫度', '轉速', '記憶體已用']
-        .every((label) => stressUi.gaugeText.includes(label)),
-      stressUi.gaugeText.slice(0, 200))
+    ok('記憶體與硬碟儀表有記憶體已用', stressUi.gaugeText.includes('記憶體已用'), stressUi.gaugeText.slice(0, 200))
     ok('硬碟一顆一格（至少記憶體那格在）', stressUi.diskCells >= 2, String(stressUi.diskCells))
     ok('測速位置是磁碟代號下拉（偵測到的硬碟）',
       stressUi.benchDiskOptions >= 1, String(stressUi.benchDiskOptions))

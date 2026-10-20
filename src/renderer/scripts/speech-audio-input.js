@@ -129,6 +129,8 @@ export function createAudioInput({ root, kind, pickId, nameId, call, onChange, o
     recorder = new MediaRecorder(stream)
     recorder.addEventListener('dataavailable', (event) => { if (event.data.size) chunks.push(event.data) })
     recorder.addEventListener('stop', () => {
+      // 拔掉麥克風時 MediaRecorder 會自己停，不經過 stopRecording
+      clearInterval(recordTimer)
       for (const track of stream.getTracks()) track.stop()
       recorder = null
       recordBtn.classList.remove('recording')

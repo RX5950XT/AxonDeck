@@ -11,6 +11,7 @@ const { shell } = require('electron')
 const store = require('./store')
 const files = require('./files')
 const media = require('./media')
+const officeConvert = require('./office-convert')
 const git = require('./git')
 const worktree = require('./worktree')
 const agents = require('./agents')
@@ -51,6 +52,11 @@ const addDropped = (paths) => store.addDropped(paths)
 const renameProject = (id, name) => store.rename(id, name)
 const removeProject = (id) => store.remove(id)
 const reorderProjects = (ids) => store.reorder(ids)
+const listFolders = () => store.listFolders()
+const createFolder = (name) => store.createFolder(name)
+const updateFolder = (id, patch) => store.updateFolder(id, patch)
+const removeFolder = (id) => store.removeFolder(id)
+const reorderFolders = (ids) => store.reorderFolders(ids)
 
 // ===== 檔案 =====
 
@@ -81,6 +87,15 @@ async function readFile(projectId, relPath) {
   // 圖片／PDF／影音不讀內容，給一個串流網址（`image`／`pdf`／`audio`／`video` 其中一個欄位）
   if (file.media) return { ...file, [file.media]: media.urlFor(projectId, file.rel) }
   return /\.md$/i.test(full) ? { ...file, imageBase: media.urlFor(projectId, file.rel) } : file
+}
+
+/**
+ * Office 文件轉成 PDF（版面檢視）或 xlsx（試算表重算公式、舊格式給內建表格用）。
+ * @returns {Promise<{ url: string }>} 轉好的 `vi-media://` 網址
+ */
+async function convertOffice(projectId, relPath, target) {
+  const full = files.resolveExisting(await rootOf(projectId), relPath)
+  return { url: media.officeUrlFor(await officeConvert.convert(full, target)) }
 }
 
 async function writeFile(projectId, relPath, content, expectedMtimeMs) {
@@ -158,6 +173,14 @@ async function openEntry(projectId, relPath) {
   return { opened: true }
 }
 
+/** 檔案與終端機都必須屬於點擊時的同一專案。 */
+async function scriptCommand(projectId, relPath, terminalId) {
+  const full = files.resolveExisting(await rootOf(projectId), relPath)
+  const terminal = await require('../terminal/store').get(terminalId)
+  if (!terminal || terminal.projectId !== projectId) throw fail('FORBIDDEN', '終端機不屬於這個專案')
+  return require('../script-launch').terminalCommand(full, projectId, terminalId)
+}
+
 /**
  * 用系統瀏覽器開一個網址（內建瀏覽器撞到 X-Frame-Options 時的退路）。
  *
@@ -207,6 +230,8 @@ const worktreeAdopt = (projectId, treePath) => worktree.adopt(projectId, treePat
 /** 移除前先問「有沒有東西擋著」，講得出是哪幾個檔案 */
 const worktreeCheck = (projectId, treePath) => worktree.check(projectId, treePath)
 const worktreeRemove = (projectId, treePath) => worktree.remove(projectId, treePath)
+const setSetupScript = (projectId, relPath) => worktree.setSetupScript(projectId, relPath)
+const worktreeSetupCommand = (projectId, terminalId) => worktree.setupCommand(projectId, terminalId)
 /** 審閱：分支清單／跟某條分支的整體比較／單一檔案對基準點的兩份內容 */
 const gitBranches = (projectId) => git.branches(projectId)
 const gitCompareBranch = (projectId, ref) => git.compareBranch(projectId, ref)
@@ -270,10 +295,16 @@ module.exports = {
   renameProject,
   removeProject,
   reorderProjects,
+  listFolders,
+  createFolder,
+  updateFolder,
+  removeFolder,
+  reorderFolders,
   saveTabsState,
   getTabsState,
   listDir,
   readFile,
+  convertOffice,
   writeFile,
   getFileMtime,
   createEntry,
@@ -286,6 +317,7 @@ module.exports = {
   listPorts,
   reveal,
   openEntry,
+  scriptCommand,
   openExternal,
   gitStatus,
   gitLog,
@@ -303,6 +335,8 @@ module.exports = {
   worktreeAdopt,
   worktreeCheck,
   worktreeRemove,
+  setSetupScript,
+  worktreeSetupCommand,
   gitBranches,
   gitCompareBranch,
   gitFileVersionsAgainst,

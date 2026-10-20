@@ -112,15 +112,38 @@ console.log('PASS 對話篩選、跨頁、重複提問、預覽上限與 xterm �
     const service = fs.readFileSync(path.join(__dirname, '../src/main/terminal/service.js'), 'utf8')
     const source = service.slice(service.indexOf('async function conversation('), service.indexOf('\nmodule.exports ='))
     let meta = { cwd: project, preset: 'codex', agentSessionId: fixture.ids.codex }
-    const read = vm.runInNewContext(source + '\n;conversation', { agents, store: { get: async id => id === 'mine' ? meta : null }, agentResume: { capture: async () => {} } })
+    let scans = 0
+    const read = vm.runInNewContext(source + '\n;conversation', { agents, store: { get: async id => id === 'mine' ? meta : null }, agentResume: { capture: async () => { scans++ } } })
     await assert.rejects(read('other'), e => e.code === 'NO_SESSION')
     const own = await read('mine')
     assert.equal(own.sessionId, fixture.ids.codex)
+    assert.equal(scans, 1, '已綁定的對話第一頁要校正目前 CLI 對話')
+    assert(own.nextCursor, '長對話確實需要分段')
+    await read('mine', own.nextCursor)
+    assert.equal(scans, 1, '後續分段不再重掃所有 CLI')
     assert(!('file' in own), '不把原始檔路徑曝露給導覽')
     meta = { cwd: path.join(home, 'other'), preset: 'codex', agentSessionId: fixture.ids.codex }
     await assert.rejects(read('mine'), e => e.code === 'SESSION_NOT_FOUND')
     meta = { cwd: project, preset: 'shell' }
+    const before = scans
     assert.equal((await read('mine')).turns.length, 0)
+    assert.equal(scans, before, '一般終端機不得等待其他 AI 的對話掃描')
+    meta = { cwd: project, preset: 'codex' }
+    assert.equal((await read('mine')).turns.length, 0)
+    assert.equal(scans, before + 1, '未綁定的 AI 分頁仍可即時辨識 CLI 接續的對話')
+    let live = []
+    const openSource = service.slice(service.indexOf('async function openSession('), service.indexOf('async function hostState('))
+    const open = vm.runInNewContext(openSource + '\n;openSession', {
+      store: { get: async () => ({ id: 'mine', ...meta }) }, bridgeTakesOver: () => false,
+      agentResume: { prepare: async item => item, begin: async () => {} },
+      claudeHooks: { prepareResume: async item => item }, activity: { follow() {} }, links: { noteCwd() {} },
+      getClient: () => ({ request: async op => op === 'list' ? live : { seq: 0, buffer: 'live output' } })
+    })
+    assert.equal((await open('mine', 80, 24)).hasHistory, false, '全新分頁不需要等歷史補入')
+    meta = { ...meta, agentSessionId: fixture.ids.codex }
+    assert.equal((await open('mine', 80, 24)).hasHistory, true, '指定接續對話仍要完整補入歷史')
+    meta = { cwd: project, preset: 'codex' }; live = [{ id: 'mine' }]
+    assert.equal((await open('mine', 80, 24)).hasHistory, true, '既有 PTY 即使未綁定仍要辨識及補回歷史')
     for (const file of ['src/main/main.js', 'src/main/terminal/ipc.js', 'src/preload/preload.js']) {
       assert(fs.readFileSync(path.join(__dirname, '..', file), 'utf8').includes('conversation'), `${file} 必須接線`)
     }

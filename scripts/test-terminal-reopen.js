@@ -22,7 +22,7 @@ function load(rel, context, tail) {
 const openSession = fs.readFileSync(path.join(root, 'src/renderer/scripts/terminal-page.js'), 'utf8')
 const openBody = openSession.slice(openSession.indexOf('async function openSession'), openSession.indexOf('function fitPane'))
 const trackAt = openBody.indexOf('trackTerminal(')
-const openAt = openBody.indexOf('electronAPI.terminal.open')
+const openAt = openBody.indexOf('openPty(')
 assert.ok(trackAt !== -1 && openAt !== -1 && trackAt < openAt, '開終端機要先掛上分頁，再等 PTY')
 
 let epoch = 0

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>螢幕翻譯 — AxonDeck</title>
+    <link rel="stylesheet" href="../styles/screen-translate.css" />
+  </head>
+  <body>
+    <header>
+      <span id="status" role="status" data-stage="preparing">準備模型…</span>
+      <span id="language"></span>
+      <div class="controls">
+        <button id="displayMode" type="button" class="text-button" aria-label="切換為僅譯文" title="雙語（點擊切為僅譯文）">雙語</button>
+        <button id="pause" type="button" data-mode="pause" aria-label="暫停" title="暫停">
+          <svg class="icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5v9M10.5 3.5v9" /></svg>
+          <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8z" /></svg>
+          <svg class="icon-retry" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.8 8A4.8 4.8 0 1 1 11.4 4.6M12.6 2.4v2.8H9.8" /></svg>
+        </button>
+        <button id="close" type="button" class="close" aria-label="關閉螢幕翻譯" title="關閉（Esc）">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+      </div>
+    </header>
+    <main id="text" aria-label="取景範圍與譯文">
+      <p id="source"></p>
+      <p id="translation" aria-live="polite" data-empty="true">把視窗蓋到要翻譯的文字上</p>
+    </main>
+    <div class="edge" data-edge="n" aria-hidden="true"></div>
+    <div class="edge" data-edge="s" aria-hidden="true"></div>
+    <div class="edge" data-edge="w" aria-hidden="true"></div>
+    <div class="edge" data-edge="e" aria-hidden="true"></div>
+    <div class="edge corner" data-edge="nw" aria-hidden="true"></div>
+    <div class="edge corner" data-edge="ne" aria-hidden="true"></div>
+    <div class="edge corner" data-edge="sw" aria-hidden="true"></div>
+    <div class="edge corner" data-edge="se" aria-hidden="true"></div>
+    <script type="module" src="../scripts/screen-translate.js"></script>
+  </body>
+</html>

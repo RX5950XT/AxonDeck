@@ -90,7 +90,8 @@ function uuidv7Ms(uuid) {
 
 /**
  * 建一個新的跨行狀態。每個檔案一份。
- * @returns {{ seen: Set<string>, model: string, replay: boolean, isFork: boolean, sessionStartMs: number, lastTotalTokens: number }}
+ * `subagents`／`countChildren` 只有 Grok 用，見 `parseGrokLine`。
+ * @returns {{ seen: Set<string>, model: string, replay: boolean, isFork: boolean, sessionStartMs: number, lastTotalTokens: number, subagents: Array<[string, boolean, number]>, countChildren: string[] }}
  */
 function newState() {
   return {
@@ -99,7 +100,9 @@ function newState() {
     replay: false,
     isFork: false,
     sessionStartMs: 0,
-    lastTotalTokens: 0
+    lastTotalTokens: 0,
+    subagents: [],
+    countChildren: []
   }
 }
 
@@ -156,7 +159,9 @@ function parseClaudeLine(line, state) {
     cacheWrite: Math.max(0, writeTotal - write1h),
     cacheWrite1h: write1h,
     requests: 1,
-    costUsd: null
+    costUsd: null,
+    // resume／fork 會把舊訊息複製進新 session 檔，scan.js 靠它跨檔去重
+    ...(id ? { id } : {})
   }]
 }
 
@@ -268,13 +273,19 @@ function parseCodexLine(line, state) {
  * `turn_completed` 的 `usage` 是這一輪的總量，還帶 `modelUsage` 逐模型細目與
  * `costUsdTicks`。有細目就照細目拆開記，沒有就記整輪。
  *
+ * **子代理**：這一輪的 `usage` 已經含「這一輪結束前跑完的子代理」（Grok 自附的
+ * `docs/user-guide/14-headless-mode.md`），所以子代理自己的 session 預設不算。
+ * 這裡記下開了哪些子代理、跑完沒（`state.subagents`）；開出來之後的下一個 `turn_completed`
+ * 就是它所屬的那一輪（`parent_prompt_id` 跟 `turn_completed.prompt_id` 不是同一套 id，配不起來）。
+ * 那一輪結束時還沒跑完、或那一輪根本沒有用量的，就不在母的 usage 裡，記進 `state.countChildren` 讓它自己的檔照算。
+ *
  * @param {string} line
- * @param {{ seen: Set<string>, model: string }} state
+ * @param {{ seen: Set<string>, model: string, subagents: Array<[string, boolean, number]>, countChildren: string[] }} state
  * @returns {UsageEvent[]}
  */
 function parseGrokLine(line, state) {
   if (line.length > MAX_LINE) return []
-  if (!line.includes('"turn_completed"')) return []
+  if (!line.includes('"turn_completed"') && !line.includes('"subagent_')) return []
   let row
   try {
     row = JSON.parse(line)
@@ -282,9 +293,16 @@ function parseGrokLine(line, state) {
     return []
   }
   const update = row?.params?.update
-  if (update?.sessionUpdate !== 'turn_completed') return []
+  const kind = update?.sessionUpdate
+  if (kind === 'subagent_spawned' || kind === 'subagent_finished') {
+    trackSubagent(update, grokTs(row), state)
+    return []
+  }
+  if (kind !== 'turn_completed') return []
   const usage = update.usage
-  if (!usage || typeof usage !== 'object') return []
+  const hasUsage = Boolean(usage && typeof usage === 'object')
+  resolveSubagents(state, hasUsage && grokHasTokens(usage))
+  if (!hasUsage) return []
 
   // 同一輪可能因為重播被寫兩次；prompt_id 是這一輪的識別
   const id = String(update.prompt_id || row.params?._meta?.eventId || '')
@@ -293,7 +311,7 @@ function parseGrokLine(line, state) {
     state.seen.add(id)
   }
 
-  const ts = toMs(row.timestamp) || toMs(row.params?._meta?.agentTimestampMs)
+  const ts = grokTs(row)
   const detail = usage.modelUsage && typeof usage.modelUsage === 'object' ? usage.modelUsage : null
   const toEvent = (model, part) => ({
     ts,
@@ -310,31 +328,58 @@ function parseGrokLine(line, state) {
       : null
   })
 
-  const hasTokens = (part) => {
-    if (!part || typeof part !== 'object') return false
-    return num(part.inputTokens) > 0
-      || num(part.outputTokens) > 0
-      || num(part.cachedReadTokens) > 0
-      || num(part.cacheCreationTokens) > 0
-      || num(part.reasoningTokens) > 0
-      || (Number.isFinite(Number(part.costUsdTicks)) && Number(part.costUsdTicks) > 0)
-  }
-
   if (detail) {
     const events = Object.entries(detail)
-      .filter(([, part]) => hasTokens(part))
+      .filter(([, part]) => grokHasTokens(part))
       .map(([model, part]) => toEvent(model, part))
     if (events.length) return events
   }
   // 被使用者取消（stop_reason: "cancelled"）或中斷的 turn 沒有任何 token，
   // 不能 fallback 成未知模型的一筆請求（實測會多出一筆 0 token 的 unknown 模型且無單價）
-  if (!hasTokens(usage)) return []
+  if (!grokHasTokens(usage)) return []
   return [toEvent('unknown', usage)]
+}
+
+function grokTs(row) {
+  return toMs(row.timestamp) || toMs(row.params?._meta?.agentTimestampMs)
+}
+
+function grokHasTokens(part) {
+  if (!part || typeof part !== 'object') return false
+  return num(part.inputTokens) > 0
+    || num(part.outputTokens) > 0
+    || num(part.cachedReadTokens) > 0
+    || num(part.cacheCreationTokens) > 0
+    || num(part.reasoningTokens) > 0
+    || (Number.isFinite(Number(part.costUsdTicks)) && Number(part.costUsdTicks) > 0)
+}
+
+/** `subagents` 每筆是 `[子 session id, 跑完了沒, 開的時間]` */
+function trackSubagent(update, ts, state) {
+  const child = String(update.child_session_id || update.subagent_id || '')
+  if (!child) return
+  const entry = state.subagents.find((item) => item[0] === child)
+  if (update.sessionUpdate === 'subagent_finished') {
+    if (entry) entry[1] = true
+    return
+  }
+  if (!entry) state.subagents.push([child, false, ts])
+}
+
+/**
+ * 母的一輪結束：這一輪開的子代理在這裡定案。
+ * @param {object} state
+ * @param {boolean} counted 這一輪有沒有真的記到用量
+ */
+function resolveSubagents(state, counted) {
+  for (const [child, finished] of state.subagents) {
+    if ((!counted || !finished) && !state.countChildren.includes(child)) state.countChildren.push(child)
+  }
+  state.subagents = []
 }
 
 module.exports = {
   MAX_LINE,
-  USD_TICKS,
   newState,
   toMs,
   uuidv7Ms,

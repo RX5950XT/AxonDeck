@@ -344,11 +344,9 @@ module.exports = {
   isUnc,
   isDevicePath,
   parentOf,
-  isAllowedAbs,
   resolveAbs,
   resolveExisting,
   isProtected,
-  isSystemLocked,
   assertMutable,
   assertCreatable,
   removeLinkOrTree

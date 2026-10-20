@@ -3,9 +3,10 @@
 /**
  * Codex／Grok 的憑證讀取（Main Process）。
  *
- * **只讀不寫**：憑證由各自的 CLI 維護，我們去動它只會把使用者的登入弄壞。
- * Grok 過期交給 CLI 續期；Codex 用 refresh token 換一顆新的，**只留在記憶體**，不寫回檔案——
- * 寫回去等於跟 CLI 搶同一份狀態，兩邊各自 refresh 會互相作廢對方的 refresh token。
+ * Grok 只讀：過期交給 CLI 續期。
+ * Codex 由我們用 refresh token 換新的，**換完要寫回 `~/.codex/auth.json`**：OpenAI 的 refresh token
+ * 用一次就作廢、改發新的，只留在記憶體的話 CLI 手上那顆已經失效，App 重開或 CLI 下次續期都會被登出。
+ * 寫回只換 tokens 那幾欄，寫之前重讀確認 CLI 沒有搶先續期過（換過就不蓋它的）。
  *
  * 用到的 `client_id` 是各家**公開的桌面應用 client**（沒有 secret，CLI 自己也是用同一個）。
  * CLAUDE.md 禁止的是把 client **secret** 寫進原始碼，不是這個。
@@ -154,7 +155,7 @@ function readGrokFile() {
  * @param {string} url
  * @param {Record<string, string>} form
  * @param {{ fetchImpl?: Function }} [options]
- * @returns {Promise<{ accessToken: string, expiresAt: number }>}
+ * @returns {Promise<{ accessToken: string, refreshToken: string, idToken: string, expiresAt: number }>}
  */
 async function exchange(url, form, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch
@@ -193,7 +194,36 @@ async function exchange(url, form, options = {}) {
   const expiresAt = Number(claims.exp)
     ? Number(claims.exp) * 1000
     : Date.now() + (Number.isFinite(expiresIn) ? expiresIn * 1000 : 3600_000)
-  return { accessToken, expiresAt }
+  return {
+    accessToken,
+    // 有給新的 refresh token＝舊的已經作廢（rotation）
+    refreshToken: typeof payload.refresh_token === 'string' ? payload.refresh_token : '',
+    idToken: typeof payload.id_token === 'string' ? payload.id_token : '',
+    expiresAt
+  }
+}
+
+/**
+ * 把換到的新一組寫回 Codex CLI 的 auth.json（原子替換，其他欄位不動）。
+ * @param {string} usedRefresh 這次拿去換的那顆
+ * @param {{ accessToken: string, refreshToken: string, idToken: string }} fresh
+ */
+function writeBackCodex(usedRefresh, fresh) {
+  if (!fresh.refreshToken) return
+  const file = codexAuthPath()
+  const data = readJson(file)
+  // CLI 在我們等網路時自己續期過：檔案裡已經是更新的那組，不能拿我們的蓋回去
+  if (!data || !data.tokens || typeof data.tokens !== 'object' || data.tokens.refresh_token !== usedRefresh) return
+  const tokens = { ...data.tokens, access_token: fresh.accessToken, refresh_token: fresh.refreshToken }
+  if (fresh.idToken) tokens.id_token = fresh.idToken
+  const tmp = `${file}.${process.pid}.tmp`
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ ...data, tokens, last_refresh: new Date().toISOString() }, null, 2), { mode: 0o600 })
+    fs.renameSync(tmp, file)
+  } catch (error) {
+    try { fs.unlinkSync(tmp) } catch { /* 沒建成 */ }
+    console.error('[gateway] 寫回 Codex 登入失敗:', error?.code || 'unknown')
+  }
 }
 
 /**
@@ -289,6 +319,7 @@ async function refresh(provider, options) {
       refresh_token: file.refreshToken,
       client_id: CODEX_CLIENT_ID
     }, options)
+    writeBackCodex(file.refreshToken, fresh)
   }
 
   cache.set(provider, {
@@ -320,14 +351,10 @@ function detect() {
 
 module.exports = {
   STALE_MS,
-  CODEX_CLIENT_ID,
-  CODEX_TOKEN_URL,
   configure,
   jwtClaims,
   codexAuthPath,
   grokAuthPath,
-  readCodexFile,
-  readGrokFile,
   acquire,
   invalidate,
   detect

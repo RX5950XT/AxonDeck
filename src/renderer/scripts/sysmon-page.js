@@ -208,6 +208,8 @@ function saveOpenSubs() {
 }
 
 const DASH = '—'
+/** Linux 版：Windows 專屬的欄位（Windows 目錄、Windows 更新）不顯示 */
+const IS_LINUX = typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Windows/.test(navigator.userAgent)
 
 /** LibreHardwareMonitor 的感測器型別 → 中文與單位 */
 const SENSOR_TYPES = Object.freeze({
@@ -570,7 +572,6 @@ function describeStorage(s, inv, sensors) {
 
   const summary = {
     id: 'storage',
-    span: 2,
     title: '儲存',
     accent: 'var(--accent-hover)',
     sub: pdisks.length ? pdisks.map((d) => d.name).join('、') : '偵測中…',
@@ -592,8 +593,8 @@ function describeStorage(s, inv, sensors) {
         text: `讀 ${fmtRate(d.read)}　寫 ${fmtRate(d.write)}${d.temp != null ? `　${d.temp.toFixed(0)} °C` : ''}`
       }))
     },
+    // 讀寫速率與硬碟數已在標題列，各硬碟速率在上面的長條
     specs: [
-      ['實體磁碟', pdisks.length ? `${pdisks.length} 顆` : DASH],
       ['磁碟區', realVols.length ? `${realVols.length} 個` : DASH],
       ['硬體總容量', rawTotal ? fmtBytes(rawTotal) : DASH],
       ['磁碟區總容量', volTotal ? fmtBytes(volTotal) : DASH],
@@ -602,20 +603,11 @@ function describeStorage(s, inv, sensors) {
       ['健康狀態', worst ? `${HEALTH_TEXT[worst.health?.level] || DASH}${worst.health?.reason ? `（${worst.health.reason}）` : ''}` : DASH],
       ['最高溫度', maxTemp ? `${maxTemp.toFixed(0)} °C` : DASH],
       ['最長通電時數', fmtHours(maxHours) || DASH],
-      ['累計寫入量', totalWritten ? fmtBytes(totalWritten) : DASH],
-      ['目前讀取', fmtRate(read)],
-      ['目前寫入', fmtRate(write)]
+      ['累計寫入量', totalWritten ? fmtBytes(totalWritten) : DASH]
     ],
     groups: [
-      {
-        title: '各硬碟即時速率',
-        rows: diskRows.map((d) => [d.label, [
-          `讀 ${fmtRate(d.read)}`,
-          `寫 ${fmtRate(d.write)}`,
-          d.temp != null ? `${d.temp.toFixed(0)} °C` : ''
-        ].filter(Boolean).join(' · ')])
-      },
-      {
+      // 多顆硬碟時每顆有自己的卡，這份清單只在單顆時列
+      !many && {
         title: '實體磁碟',
         rows: pdisks.map((d) => [d.name, [
           d.mediaType, d.busType, fmtBytes(d.size),
@@ -679,34 +671,13 @@ function describeStorage(s, inv, sensors) {
         ['溫度', temp != null ? `${temp.toFixed(0)} °C` : DASH],
         ['健康', sm ? (HEALTH_TEXT[sm.health?.level] || DASH) : (p.health === 'Healthy' ? '健康' : (p.health || DASH))]
       ],
-      viz: {
+      // 讀寫、溫度已在標題列；型號、匯流排、容量在標題與副標
+      viz: size ? {
         kind: 'meters',
-        label: '即時狀態',
-        items: [
-          {
-            label: '讀寫',
-            value: rate,
-            max: Math.max(1024, ...diskRows.map((x) => x.read + x.write)),
-            text: `讀 ${fmtRate(row?.read || 0)}　寫 ${fmtRate(row?.write || 0)}`
-          },
-          size ? {
-            label: '已用容量',
-            value: used,
-            max: size,
-            text: `${fmtBytes(used)} / ${fmtBytes(size)}`
-          } : null,
-          temp != null ? {
-            label: '溫度',
-            value: temp,
-            max: 100,
-            text: `${temp.toFixed(0)} °C`
-          } : null
-        ].filter(Boolean)
-      },
+        label: '容量',
+        items: [{ label: '已用', value: used, max: size, text: `${fmtBytes(used)} / ${fmtBytes(size)}` }]
+      } : null,
       specs: [
-        ['型號', p.name],
-        ['匯流排', [p.mediaType, p.busType].filter(Boolean).join(' · ') || DASH],
-        ['容量', fmtBytes(p.size)],
         ...(inv?.platform === 'linux' ? [['已用容量', ownVols.length
           ? `${fmtBytes(used)} / ${fmtBytes(ownVols.reduce((n, v) => n + v.size, 0))}（${ownVols.map((v) => v.drive).join('、')}）`
           : '本系統沒有掛載這顆碟的檔案系統']] : []),
@@ -755,6 +726,7 @@ function describeBlocks(s, inv) {
     const cpuCount = (inv?.cpus || []).length
     out.push({
       id: 'cpu',
+      span: 2,
       title: 'CPU',
       accent: 'var(--accent-primary)',
       sub: cpu ? `${cpu.name} · ${cpu.cores} 核心 / ${cpu.threads} 執行緒` : '偵測中…',
@@ -768,14 +740,13 @@ function describeBlocks(s, inv) {
         ['風扇', cpuFan != null ? `${Math.round(cpuFan)} RPM` : DASH]
       ],
       viz: { kind: 'cores', label: '每執行緒負載', values: s.cpu?.perCore || [] },
+      // 型號、核心數已在副標；Hypervisor 在系統卡
       specs: cpu ? [
-        ['型號', cpu.name],
         ['製造商', cpu.vendor],
         ['系列', cpu.description || DASH],
         ['架構', cpu.arch || DASH],
         ['插槽', cpu.socket],
         ['實體插槽數', cpuCount > 1 ? `${cpuCount} 顆` : '1 顆'],
-        ['核心 / 執行緒', `${cpu.cores} / ${cpu.threads}`],
         ['已啟用核心', cpu.enabledCores ? `${cpu.enabledCores} 核` : DASH],
         ['基礎時脈', fmtMhz(cpu.maxClockMhz)],
         ['外頻', cpu.extClockMhz ? fmtMhz(cpu.extClockMhz) : DASH],
@@ -786,7 +757,6 @@ function describeBlocks(s, inv) {
         ['L3 快取', cpu.l3CacheKb ? fmtBytes(cpu.l3CacheKb * 1024) : DASH],
         ['定址寬度', cpu.addressWidth ? `${cpu.addressWidth} 位元` : DASH],
         ['硬體虛擬化', cpu.virtualization ? '已啟用' : '未啟用'],
-        ['Hypervisor', inv?.system?.hypervisor ? '執行中' : '未執行'],
         ['核心電壓', cpu.voltage > 0 ? `${cpu.voltage.toFixed(2)} V` : DASH],
         ['處理器 ID', cpu.processorId || DASH]
       ] : [],
@@ -800,13 +770,7 @@ function describeBlocks(s, inv) {
             ].filter(Boolean).join(' · ')])
           }
           : { title: '處理器', rows: [] },
-        {
-          title: '快取階層',
-          rows: (inv?.caches || []).map((c) => [
-            `L${c.level}`,
-            [fmtBytes(c.sizeKb * 1024), c.purpose].filter(Boolean).join(' · ')
-          ])
-        },
+        // L1～L3 已在規格表，不再另列快取階層
         ...sensorGroups(sensors, 'Cpu', 'CPU ')
       ]
     })
@@ -855,12 +819,8 @@ function describeBlocks(s, inv) {
           { label: '系統快取', value: cache, max: total || 1, text: fmtBytes(cache) }
         ]
       },
+      // 容量在副標；用量／可用／快取／認可在標題列與長條
       specs: [
-        ['總容量', fmtBytes(total)],
-        ['已使用', `${fmtBytes(used)}（${pct.toFixed(1)}%）`],
-        ['可用', fmtBytes(avail)],
-        ['系統快取', fmtBytes(cache)],
-        ['已認可 / 上限', `${fmtBytes(committed)} / ${fmtBytes(commitLimit)}`],
         ['虛擬記憶體', osInfo?.virtualKb ? fmtBytes(osInfo.virtualKb * 1024) : DASH],
         ['分頁檔', pageTotal > 0
           ? `${fmtBytes(pageUsed * 1048576)} / ${fmtBytes(pageTotal * 1048576)}`
@@ -942,11 +902,8 @@ function describeBlocks(s, inv) {
       const fanText = gpuFanRpm != null
         ? `${Math.round(gpuFanRpm)} RPM`
         : (g.fan != null ? `${g.fan}%` : DASH)
-      const many = nvCards.length + invGpus.filter((x, idx) => !usedInv.has(idx) && !isVirtualGpu(x)).length > 1
-        || nvCards.length > 1
       pushGpu({
         id: `gpu${i}`,
-        span: many ? 1 : 2,
         title: nvCards.length > 1 || i > 0 ? `GPU ${i + 1}` : 'GPU',
         accent: 'var(--success)',
         sub: g.name,
@@ -959,29 +916,22 @@ function describeBlocks(s, inv) {
           ['VRAM', vramTotal ? fmtBytes(vramUsed) : DASH],
           ['風扇', fanText]
         ],
+        // 使用率與溫度已在標題列；這裡只畫標題列沒有的總量比例
         viz: {
           kind: 'meters',
           label: '即時狀態',
           items: [
-            { label: '使用率', value: util, max: 100, text: `${Math.round(util)}%` },
             vramTotal
               ? { label: 'VRAM', value: vramUsed, max: vramTotal, text: `${fmtBytes(vramUsed)} / ${fmtBytes(vramTotal)}` }
-              : null,
-            g.temperature != null
-              ? { label: '溫度', value: g.temperature, max: 100, text: `${g.temperature} °C` }
               : null,
             g.clockSm ? { label: '核心時脈', value: g.clockSm, max: 3200, text: fmtMhz(g.clockSm) } : null
           ].filter(Boolean)
         },
         specs: [
-          ['名稱', g.name],
           ['繪圖處理器', info?.processor || DASH],
           ['驅動版本', info?.driver || DASH],
           ['驅動日期', info?.driverDate || DASH],
           ['VBIOS', g.vbios || DASH],
-          ['專用記憶體', vramTotal ? fmtBytes(vramTotal) : DASH],
-          ['已用 VRAM', vramTotal ? `${fmtBytes(vramUsed)}（${((vramUsed / vramTotal) * 100).toFixed(1)}%）` : DASH],
-          ['核心時脈', g.clockSm ? fmtMhz(g.clockSm) : DASH],
           ['記憶體時脈', g.clockMem ? fmtMhz(g.clockMem) : DASH],
           ['匯流排介面', g.pcieGen ? `PCIe Gen${g.pcieGen} × ${g.pcieWidth || '?'}` : DASH],
           ['目前顯示模式', info?.width ? `${info.width} × ${info.height} @ ${info.refreshHz} Hz` : DASH],
@@ -1007,7 +957,6 @@ function describeBlocks(s, inv) {
     const gpuFanRpm = findFan(sensors, { ...GPU_FAN, name: hw?.n || g.name })
     pushGpu({
       id: `gpu${idx}`,
-      span: (nvCards.length + leftovers.length) > 1 ? 1 : 2,
       title: (nvCards.length + leftovers.length) > 1 ? `GPU ${idx + 1}` : 'GPU',
       accent: 'var(--success)',
       sub: g.name,
@@ -1019,24 +968,16 @@ function describeBlocks(s, inv) {
         ['風扇', gpuFanRpm != null ? `${Math.round(gpuFanRpm)} RPM` : DASH],
         ['資料來源', g.source || 'Windows 計數器']
       ],
-      viz: utilKnown ? {
-        kind: 'meters',
-        label: '即時狀態',
-        items: [{ label: '使用率', value: pct, max: 100, text: `${Math.round(pct)}%` }]
-      } : null,
+      viz: null,
       specs: linuxInv ? [
-        ['名稱', g.name || DASH],
         ['廠商', g.processor || DASH],
         ['驅動程式', g.driver || '未載入驅動'],
         ['DRM 裝置', g.mode ? `/dev/dri/${g.mode}` : DASH],
         ['PCI ID', g.pnpId || DASH],
-        ['專用記憶體', g.vram ? fmtBytes(g.vram) : DASH],
         ['資料來源', g.source || DASH]
       ] : [
-        ['名稱', g.name || DASH],
         ['驅動版本', g.driver || DASH],
         ['驅動日期', g.driverDate || DASH],
-        ['專用記憶體', g.vram ? fmtBytes(g.vram) : DASH],
         ['目前顯示模式', g.width ? `${g.width} × ${g.height} @ ${g.refreshHz} Hz` : DASH]
       ],
       groups: sensorGroups(sensors, isGpuType, 'GPU ', hw?.n || g.name)
@@ -1072,7 +1013,6 @@ function describeBlocks(s, inv) {
     const vram = (s.processes || []).reduce((n, p) => n + (p.gpuMemory || 0), 0)
     pushGpu({
       id: 'gpu0',
-      span: 2,
       title: 'GPU',
       accent: 'var(--success)',
       sub: '偵測中…',
@@ -1081,18 +1021,12 @@ function describeBlocks(s, inv) {
       spark: { key: 'gpu0', value: pct, max: 100 },
       stats: [
         ['專用記憶體', fmtBytes(vram)],
-        ['資料來源', 'Windows 計數器']
+        ['資料來源', IS_LINUX ? '偵測中…' : 'Windows 計數器']
       ],
-      viz: {
-        kind: 'meters',
-        label: '即時狀態',
-        items: [{ label: '使用率', value: pct, max: 100, text: `${Math.round(pct)}%` }]
-      },
+      viz: null,
       specs: [['溫度與功耗', '需要 NVIDIA 顯示卡或完整感測器']],
       groups: sensorGroups(sensors, isGpuType, 'GPU ')
     })
-  } else if (gpuBlocks.length > 1) {
-    gpuBlocks.forEach((b) => { b.span = 1 })
   }
 
   // ── 儲存 ───────────────────────────────────────────────────────
@@ -1130,9 +1064,8 @@ function describeBlocks(s, inv) {
           text: `↓ ${fmtRate(n.rx)}　↑ ${fmtRate(n.tx)}`
         }))
       },
+      // 速率在標題列；主機名稱、工作群組在系統卡
       specs: [
-        ['目前下載', fmtRate(rx)],
-        ['目前上傳', fmtRate(tx)],
         ['實體網路卡', nics.length ? `${nics.length} 張` : DASH],
         ['已連線', online.length ? `${online.length} 張` : DASH],
         ['主要連線', main ? (main.connection || main.name) : DASH],
@@ -1142,9 +1075,7 @@ function describeBlocks(s, inv) {
         ['預設閘道', online.find((n) => n.gateway)?.gateway || DASH],
         ['DNS 伺服器', online.find((n) => n.dns)?.dns || DASH],
         ['DHCP 伺服器', online.find((n) => n.dhcpServer)?.dhcpServer || DASH],
-        ['連線速率', main?.speed > 0 && main.speed < 1e12 ? `${Math.round(main.speed / 1e6)} Mbps` : DASH],
-        ['主機名稱', inv?.system?.hostname || DASH],
-        ...(inv?.platform === 'linux' ? [] : [['工作群組', inv?.system?.workgroup || DASH]])
+        ['連線速率', main?.speed > 0 && main.speed < 1e12 ? `${Math.round(main.speed / 1e6)} Mbps` : DASH]
       ],
       groups: [
         {
@@ -1202,9 +1133,7 @@ function describeBlocks(s, inv) {
         ['型號', board?.product || (inv?.platform === 'linux' ? (sys?.model || DASH) : DASH)],
         ['版本', board?.version || DASH],
         ['主機板序號', board?.serial || DASH],
-        ['晶片組插槽', inv?.cpus?.[0]?.socket || DASH],
         ['BIOS 廠商', bios?.vendor || DASH],
-        ['BIOS 版本', bios?.version || DASH],
         ['BIOS 日期', bios?.releaseDate || DASH],
         ['BIOS 內部版本', bios?.internalVersion || DASH],
         ['系統 BIOS 字串', bios?.systemBios || DASH],
@@ -1213,11 +1142,9 @@ function describeBlocks(s, inv) {
         ['USB 控制器', usb.length ? `${usb.length} 組` : DASH],
         ['機殼型式', chassis?.type || DASH],
         ['機殼序號', chassis?.serial || DASH],
-        ['系統型號', sys ? `${sys.vendor} ${sys.model}`.trim() || DASH : DASH],
         ['系統家族', sys?.family || DASH],
         ['開機方式', sys?.bootState || DASH],
         ['韌體模式', inv?.security?.firmware || DASH],
-        ['安全開機', inv?.security?.secureBoot === 'on' ? '已啟用' : (inv?.security?.secureBoot === 'off' ? '未啟用' : DASH)],
         ['TPM', inv?.security?.tpm || DASH]
       ],
       groups: [
@@ -1274,15 +1201,11 @@ function describeBlocks(s, inv) {
         // 上半是桌面配置（Electron 的 screen，主要顯示器是可靠的），
         // 下半是 EDID 面板規格——兩份對不起來，所以 EDID 那幾行一律列「全部面板」，
         // 不假裝其中一台是「主要」的（見上面的註解）
+        // 台數、解析度、更新率、縮放已在標題列；面板型號在副標
         specs: [
-          ['連接台數', `${Math.max(monitors.length, displays.length)} 台`],
-          ['主要解析度', main ? `${main.width} × ${main.height}` : DASH],
-          ['更新率', main?.refreshHz ? `${main.refreshHz} Hz` : DASH],
-          ['縮放', main?.scale ? `${Math.round(main.scale * 100)}%` : DASH],
           ['色彩深度', main?.colorDepth ? `${main.colorDepth} 位元` : DASH],
           ['方向', main?.rotation ? `旋轉 ${main.rotation}°` : '橫向'],
           ['最高解析度', desktopArea ? `${desktopArea.w} × ${desktopArea.h}` : DASH],
-          ['面板型號', joinAll(monitors.map((mo) => mo.name || mo.vendor))],
           ['面板原生解析度', joinAll(monitors.map((mo) => fmtNative(mo.native)))],
           ['面板接頭', joinAll(monitors.map((mo) => mo.connector))],
           ['面板尺寸', joinAll(monitors.map((mo) => (mo.sizeCm ? `${diagonalInch(mo.sizeCm)}"` : '')))]
@@ -1341,23 +1264,18 @@ function describeBlocks(s, inv) {
       ],
       viz: null,
       specs: inv?.platform === 'linux' ? [
-        // Linux：沒有 Windows 目錄／功能更新版本／工作群組這些概念，改列發行版、核心、主機名稱
-        ['作業系統', osInfo?.caption || DASH],
+        // Linux：沒有 Windows 目錄／功能更新版本／工作群組這些概念，改列發行版、核心；作業系統在副標，主機名稱等在標題列
         ['發行版版本', osInfo ? [osInfo.version, osInfo.edition ? `（${osInfo.edition}）` : ''].join('') || DASH : DASH],
         ['核心版本', osInfo?.build || DASH],
         ['核心組建', osInfo?.displayVersion || DASH],
         ['系統架構', osInfo?.arch || DASH],
         ['語系', osInfo?.languages || DASH],
         ['時區', inv?.timeZone?.caption || DASH],
-        ['主機名稱', sys?.hostname || DASH],
         ['登入使用者', sys?.user || DASH],
         ['製造商 / 型號', sys ? `${sys.vendor} ${sys.model}`.trim() || DASH : DASH],
         ['根目錄', osInfo?.systemDrive || DASH],
-        ['虛擬化', sys?.hypervisor ? '虛擬機（hypervisor）' : '實體機'],
-        ['處理程序數', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))],
-        ['已開機', fmtUptime(osInfo?.bootedAt)]
+        ['虛擬化', sys?.hypervisor ? '虛擬機（hypervisor）' : '實體機']
       ] : [
-        ['作業系統', osInfo?.caption || DASH],
         ['功能更新版本', osInfo?.displayVersion || DASH],
         ['版本 / 組建', osInfo
           ? `${osInfo.version} (${osInfo.build}${osInfo.ubr ? `.${osInfo.ubr}` : ''})`
@@ -1369,15 +1287,12 @@ function describeBlocks(s, inv) {
         ['時區', inv?.timeZone?.caption || DASH],
         // WMI 的 InstallDate 常常是空的，退回 Windows 目錄的建立時間（見 probe.ps1）
         ['安裝日期', osInfo?.installedAt || inv?.security?.installedAt || DASH],
-        ['電腦名稱', sys?.hostname || DASH],
         ['登入使用者', sys?.user || DASH],
         [sys?.inDomain ? '網域' : '工作群組', sys?.workgroup || DASH],
         ['製造商 / 型號', sys ? `${sys.vendor} ${sys.model}`.trim() || DASH : DASH],
         ['系統磁碟', osInfo?.systemDrive || DASH],
         ['Windows 目錄', osInfo?.windowsDir || DASH],
-        ['虛擬化', sys?.hypervisor ? 'Hypervisor 執行中' : '未執行'],
-        ['處理程序數', String(s.processes.reduce((n, p) => n + (p.count || 1), 0))],
-        ['已開機', fmtUptime(osInfo?.bootedAt)]
+        ['虛擬化', sys?.hypervisor ? 'Hypervisor 執行中' : '未執行']
       ],
       groups: [
         {
@@ -1402,10 +1317,10 @@ function describeBlocks(s, inv) {
           title: '藍牙',
           rows: (inv?.bluetooth || []).map((b) => [b.name, b.status === 'OK' ? '正常' : (b.status || DASH)])
         },
-        {
+        ...(IS_LINUX ? [] : [{
           title: 'Windows 更新',
           rows: (inv?.hotfixes || []).map((h) => [h.id, h.installedOn || DASH])
-        },
+        }]),
         {
           title: '電池',
           rows: batteries.map((b) => [b.name, [
@@ -1443,7 +1358,7 @@ function ensureBlock(desc) {
   const el = document.createElement('section')
   el.className = 'sysmon-block'
   el.dataset.block = desc.id
-  el.dataset.span = String(desc.span || 2)
+  el.dataset.span = String(desc.span || 1)
   if (desc.accent) el.style.setProperty('--block-accent', desc.accent)
 
   const head = document.createElement('button')
@@ -1639,6 +1554,9 @@ function buildBody(b, desc) {
     b.body.appendChild(buildSpecList(desc.specs, b.slots.specs))
   }
 
+  // 收起的子清單排成一排膠囊，展開的那個自己佔滿一列
+  const subs = document.createElement('div')
+  subs.className = 'sysmon-subs'
   for (const group of desc.groups) {
     if (!group.rows.length) continue
     const det = document.createElement('details')
@@ -1655,9 +1573,10 @@ function buildBody(b, desc) {
       else openSubs.delete(key)
       saveOpenSubs()
     })
-    b.body.appendChild(det)
+    subs.appendChild(det)
     b.slots.groups.push(slots)
   }
+  if (subs.childElementCount) b.body.appendChild(subs)
 }
 
 /** @param {any} b @param {any} desc */
@@ -1693,7 +1612,7 @@ function renderBlocks() {
     // 順序可能變（第二張顯示卡是晚一點才被偵測到的），但只有真的不對位才動 DOM
     if (host.children[index] !== b.el) host.insertBefore(b.el, host.children[index] || null)
 
-    b.el.dataset.span = String(desc.span || 2)
+    b.el.dataset.span = String(desc.span || 1)
     b.name.textContent = desc.title
     b.name.title = desc.title
     b.sub.textContent = desc.sub
@@ -1731,6 +1650,13 @@ function renderBlocks() {
     }
     updateBody(b, desc)
   })
+  // 這輪沒出現的（例如顯示卡少一張）要拿掉，不然舊數值會凍結在畫面上
+  const ids = new Set(descs.map((desc) => desc.id))
+  for (const [id, b] of blocks) {
+    if (ids.has(id)) continue
+    b.el.remove()
+    blocks.delete(id)
+  }
 }
 
 // ===== 進程表 =====
@@ -2230,7 +2156,6 @@ async function toggleMemStress(run) {
   }
 }
 
-/** 壓力測試頁上方那一條即時儀錶：跑測試時不必切回總覽也看得到負載與溫度 */
 /** main 那邊 5 分鐘到會自己停，不發事件：畫面還寫「執行中」時順手問一次真相 */
 function syncStressStatus() {
   const cpuStat = $('sysmonCpuStressStat')
@@ -2255,23 +2180,17 @@ function syncStressStatus() {
   }).finally(() => { state.stressSyncing = false })
 }
 
+/**
+ * 效能與壓力測試頁的「記憶體與硬碟」那一排。CPU／GPU 的即時儀表由 sysmon-oc.js 畫（同一頁只留一份）。
+ */
 function renderStressGauges() {
   syncStressStatus()
   const s = state.sample
-  const cpuHost = $('sysmonStressCpu')
-  const gpuHost = $('sysmonStressGpu')
   const diskHost = $('sysmonStressDisks')
-  if (!cpuHost || !gpuHost || !diskHost || !s) return
-  const sensors = s.sensors
+  if (!diskHost || !s) return
   const total = s.totalMemory || 0
   const used = Math.max(0, total - (s.memory?.available || 0))
-  const gpuCards = s.gpu?.cards?.length
-    ? s.gpu.cards
-    : [{ name: 'GPU', utilization: 0, power: null, temperature: null, fan: null }]
-  const cpuTemp = findSensor(sensors, 'Cpu', 'Temperature')
-  const cpuPower = findSensor(sensors, 'Cpu', 'Power')
-  const cpuFan = findFan(sensors, CPU_FAN)
-  const hwGroups = gpuHwGroups(sensors)
+  paintGpuPick(s.gpu?.cards || [])
 
   /** 磁碟列 → 顯示標籤（型號＋代號），跟總覽的儲存區塊同一套對法 */
   const pdisks = state.inventory?.physicalDisks || []
@@ -2288,15 +2207,6 @@ function renderStressGauges() {
       }
     })
 
-  // CPU／GPU 各固定四格：負載／功耗／溫度／轉速
-  const cpuItems = [
-    { label: '負載', value: s.cpu?.total || 0, max: 100, text: `${(s.cpu?.total || 0).toFixed(0)}%` },
-    { label: '功耗', value: cpuPower || 0, max: 250, text: cpuPower != null ? `${cpuPower.toFixed(0)} W` : '需完整感測器' },
-    { label: '溫度', value: cpuTemp || 0, max: 100, text: cpuTemp != null ? `${cpuTemp.toFixed(0)} °C` : '需完整感測器' },
-    { label: '轉速', value: cpuFan || 0, max: 3000, text: cpuFan != null ? `${Math.round(cpuFan)} RPM` : '需完整感測器' }
-  ]
-  const gpuFanFor = (card, i) => findFan(sensors, { ...GPU_FAN, name: hwGroups[i]?.n || card.name })
-
   // 記憶體壓力測試量的就是「吃掉多少容量」；硬碟一格一顆，看的是「有沒有在讀寫」
   const diskItems = [
     { key: 'mem', label: '記憶體已用', value: used, max: total || 1, text: `${fmtBytes(used)} / ${fmtBytes(total)}` },
@@ -2308,9 +2218,6 @@ function renderStressGauges() {
     })
   ]
 
-  renderGaugeRow(cpuHost, cpuItems, stressCpuSlots)
-  paintStressGpuCards(gpuHost, gpuCards, gpuFanFor)
-  paintGpuPick(gpuCards)
   // 硬碟的數量會變（隨身碟插拔），數量對不上就整排重畫
   renderGaugeRow(diskHost, diskItems, stressDiskSlots, true)
 }
@@ -2344,7 +2251,6 @@ function renderGaugeRow(host, items, slots, rebuildOnChange = false) {
       host.appendChild(cell)
       slots.push({ fill, text })
     }
-    return
   }
   items.forEach((item, i) => {
     const slot = slots[i]
@@ -2357,54 +2263,7 @@ function renderGaugeRow(host, items, slots, rebuildOnChange = false) {
 }
 
 /** @type {Array<{ fill: HTMLElement, text: HTMLElement }>} */
-const stressCpuSlots = []
-/** @type {Map<string, Array<{ fill: HTMLElement, text: HTMLElement }>>} */
-const stressGpuSlotMap = new Map()
 const stressDiskSlots = []
-
-/**
- * @param {HTMLElement} host
- * @param {any[]} cards
- * @param {(card: any, i: number) => number|null} fanOf
- */
-function paintStressGpuCards(host, cards, fanOf) {
-  if (!host) return
-  const want = cards.map((c, i) => String(c.index ?? i)).join('|')
-  if (host.dataset.cards !== want) {
-    host.replaceChildren()
-    stressGpuSlotMap.clear()
-    host.dataset.cards = want
-    cards.forEach((card, i) => {
-      const wrap = document.createElement('section')
-      wrap.className = 'sysmon-gpu-gauge-card'
-      const title = document.createElement('h4')
-      title.textContent = cards.length > 1 ? `GPU ${i + 1} · ${card.name || ''}` : (card.name || 'GPU')
-      const gauges = document.createElement('div')
-      gauges.className = 'sysmon-gauges sysmon-gauges-gpu'
-      wrap.append(title, gauges)
-      host.appendChild(wrap)
-      stressGpuSlotMap.set(String(i), [])
-    })
-  }
-  cards.forEach((card, i) => {
-    const gauges = host.children[i]?.querySelector('.sysmon-gauges')
-    const slots = stressGpuSlotMap.get(String(i)) || []
-    const rpm = fanOf(card, i)
-    const items = [
-      { label: '負載', value: card.utilization || 0, max: 100, text: `${Math.round(card.utilization || 0)}%` },
-      { label: '功耗', value: card.power || 0, max: 400, text: card.power != null ? `${card.power.toFixed(0)} W` : DASH },
-      { label: '溫度', value: card.temperature || 0, max: 100, text: card.temperature != null ? `${card.temperature} °C` : DASH },
-      {
-        label: '轉速',
-        value: rpm || 0,
-        max: 3000,
-        text: rpm != null ? `${Math.round(rpm)} RPM` : (card.fan != null ? `${card.fan}%` : DASH)
-      }
-    ]
-    renderGaugeRow(gauges, items, slots)
-    stressGpuSlotMap.set(String(i), slots)
-  })
-}
 
 function paintGpuPick(cards) {
   const host = $('sysmonGpuPick')
@@ -2475,7 +2334,8 @@ async function runBench() {
   $('sysmonBenchStop').disabled = false
   showBenchResult(`準備中…（${drive}）`)
   const sizeMb = Number($('sysmonBenchSize')?.value || 1024)
-  const res = await electronAPI.sysmon.diskBench({ drive, sizeMb })
+  // 丟例外也要把 benching 收回來，不然測速鈕會一直鎖著
+  const res = await electronAPI.sysmon.diskBench({ drive, sizeMb }).catch(() => null)
   state.benching = false
   $('sysmonBenchStart').disabled = false
   $('sysmonBenchStop').disabled = true
@@ -2555,11 +2415,12 @@ function switchSubtab(name) {
     renderBlocks()
     loadInventory()
   }
-  if (name === 'stress') renderStressGauges()
   if (name === 'fans') showFanPanel()
   else hideFanPanel()
-  if (name === 'oc') showOcPanel()
-  else hideOcPanel()
+  if (name === 'oc') {
+    showOcPanel()
+    renderStressGauges()
+  } else hideOcPanel()
   if (name === 'screentime') showScreentimePanel()
   else hideScreentimePanel()
   if (name === 'disk') showDiskPanel()
@@ -2600,8 +2461,10 @@ function loadInventory() {
 function paintSample(sample) {
   if (state.subtab === 'overview') renderBlocks()
   else if (state.subtab === 'processes') rebuildRows()
-  else if (state.subtab === 'stress') renderStressGauges()
-  else if (state.subtab === 'oc') onOcSample(sample)
+  else if (state.subtab === 'oc') {
+    onOcSample(sample)
+    renderStressGauges()
+  }
 }
 
 function onSample(sample) {

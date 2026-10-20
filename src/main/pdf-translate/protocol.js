@@ -15,7 +15,24 @@ function validateOptions(options) {
   if (!TARGETS.has(options.targetLang)) throw fail('INVALID_LANGUAGE', '不支援這個翻譯語言')
   const sourceLang = options.sourceLang || 'auto'
   if (sourceLang !== 'auto' && !TARGETS.has(sourceLang)) throw fail('INVALID_LANGUAGE', '不支援這個來源語言')
-  return { fileId: options.fileId, targetLang: options.targetLang, sourceLang }
+  return { fileId: options.fileId, targetLang: options.targetLang, sourceLang,
+    pages: parsePages(options.pages), dual: options.dual === true }
+}
+
+/** 「1-3, 5, 8-」→ [[1,3],[5,5],[8,0]]（0＝到最後一頁）；空白＝整份 */
+function parsePages(value) {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return null
+  if (typeof value !== 'string' || value.length > 200) throw fail('INVALID_PAGES', '頁碼範圍格式錯誤，例如 1-3, 5')
+  const ranges = value.split(/[,，、]/).map((part) => part.trim()).filter(Boolean).map((part) => {
+    const match = part.match(/^(\d{1,5})(?:\s*[-~～]\s*(\d{0,5}))?$/)
+    if (!match) throw fail('INVALID_PAGES', '頁碼範圍格式錯誤，例如 1-3, 5')
+    const start = Number(match[1])
+    const end = match[2] === undefined ? start : match[2] === '' ? 0 : Number(match[2])
+    if (start < 1 || (end && end < start)) throw fail('INVALID_PAGES', '頁碼範圍格式錯誤，例如 1-3, 5')
+    return [start, end]
+  })
+  if (!ranges.length || ranges.length > 50) throw fail('INVALID_PAGES', '頁碼範圍格式錯誤，例如 1-3, 5')
+  return ranges
 }
 
 function publicProgress(message) {

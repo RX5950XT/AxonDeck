@@ -71,6 +71,24 @@ function applyClaudeUsage(raw, nowMs, subscriptionType = '') {
 }
 
 /**
+ * 打額度 API。`cooldownScope` 給多帳號用：被 429 的冷卻一個帳號算一個，不連坐其他帳號。
+ * @param {string} token
+ * @param {{ fetchImpl?: Function, cooldownScope?: string }} [options]
+ */
+function requestClaudeUsage(token, { fetchImpl, cooldownScope } = {}) {
+  return fetchJson(ENDPOINTS.claude, {
+    fetchImpl,
+    cooldownScope,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'anthropic-beta': 'oauth-2025-04-20',
+      'User-Agent': CLAUDE_CODE_USER_AGENT,
+      Accept: 'application/json'
+    }
+  })
+}
+
+/**
  * @param {{ homeDir: string, env?: object, nowMs?: number, fetchImpl?: Function, authFetchImpl?: Function, log?: Function }} args
  *   `authFetchImpl` 是續期那條（`claude-auth.js`）用的，測試要 mock 就兩個都給
  */
@@ -110,15 +128,7 @@ async function syncClaude({ homeDir, env = process.env, nowMs = Date.now(), fetc
   }
   await refresh({})
 
-  const request = () => fetchJson(ENDPOINTS.claude, {
-    fetchImpl,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'anthropic-beta': 'oauth-2025-04-20',
-      'User-Agent': CLAUDE_CODE_USER_AGENT,
-      Accept: 'application/json'
-    }
-  })
+  const request = () => requestClaudeUsage(token, { fetchImpl })
 
   try {
     let usage
@@ -149,4 +159,4 @@ async function syncClaude({ homeDir, env = process.env, nowMs = Date.now(), fetc
   }
 }
 
-module.exports = { applyClaudeUsage, syncClaude }
+module.exports = { applyClaudeUsage, requestClaudeUsage, syncClaude }

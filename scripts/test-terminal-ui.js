@@ -28,17 +28,17 @@ const source = `${readPlain('term-ime.js')}\n${readPlain('terminal-page.js')}`
 
 function load(extra = {}) {
   const context = {
-    ...extra,
     console,
     document: { hidden: false, getElementById: () => null },
     requestAnimationFrame: () => 0,
     window: { setTimeout, clearTimeout },
     // 被剝掉的 import 裡，只有這兩支在模組載入當下就會被呼叫（外觀預設值）
     normalizeAppearance: () => ({ theme: 'black', image: '', opacity: 20 }),
-    applyAppearance: () => ({ theme: {}, allowTransparency: false })
+    applyAppearance: () => ({ theme: {}, allowTransparency: false }),
+    ...extra
   }
   vm.createContext(context)
-  vm.runInContext(`${source}\nthis.api = { drainOutput, syncImeCaret, fitAndSync }`, context)
+  vm.runInContext(`${source}\nthis.api = { drainOutput, syncImeCaret, fitAndSync, paintPanes, panes, show: ids => { visibleIds = ids; currentId = ids[0] } }`, context)
   return context.api
 }
 
@@ -48,6 +48,40 @@ function fakeTerm(writes) {
 }
 
 async function main() {
+  {
+    let created = 0, disposed = 0
+    const frames = []
+    class WebglAddon {
+      constructor() { created++ }
+      onContextLoss(callback) { this.lose = callback }
+      dispose() { disposed++ }
+    }
+    const api = load({ WebglAddon, requestAnimationFrame: callback => frames.push(callback) })
+    for (let i = 1; i <= 8; i++) api.panes.set('t' + i, {
+      pane: { classList: { toggle() {} }, style: {} },
+      term: { loadAddon() {}, element: { isConnected: true } }, webgl: new WebglAddon()
+    })
+    const first = api.panes.get('t1').webgl
+    for (const id of ['t1', 't2', 't1']) { api.show([id]); api.paintPanes() }
+    assert.equal(disposed, 0, '常用分頁切換不能同步拆掉 WebGL')
+    assert.equal(api.panes.get('t1').webgl, first, '切回沿用原本的畫布')
+    api.panes.set('t9', { pane: { classList: { toggle() {} }, style: {} }, term: { loadAddon() {} }, webgl: new WebglAddon() })
+    api.show(['t9']); api.paintPanes()
+    assert.equal([...api.panes.values()].filter(entry => entry.webgl).length, 8, 'GPU 畫布仍有上限')
+    assert.equal(api.panes.get('t3').webgl, null, '優先收最久沒看的背景格')
+    assert.equal(api.panes.get('t1').webgl, first, '最近看的格子保留')
+    api.show(['t3', 't8', 't9']); api.paintPanes()
+    assert.equal(created, 10, '被收掉的格子切回只重建一次')
+    for (const id of ['t3', 't8', 't9']) assert(api.panes.get(id).webgl, '並排格不可被回收')
+    assert.equal([...api.panes.values()].filter(entry => entry.webgl).length, 8)
+    const lost = api.panes.get('t3').webgl
+    api.show(['t9']); api.paintPanes()
+    lost.lose(); frames.shift()()
+    assert.equal(created, 10, '背景 context 遺失不可自行重建畫布')
+    api.show(['t3']); api.paintPanes()
+    assert.equal(created, 11, '真正切回才恢復遺失的 context')
+    ok('快速切換保留 WebGL，超過 8 格回收最久沒看的背景畫布，並排格保留')
+  }
   // xterm 的 custom handler 回 false 不會取消瀏覽器的原生貼上。
   {
     const page = readPlain('terminal-page.js')

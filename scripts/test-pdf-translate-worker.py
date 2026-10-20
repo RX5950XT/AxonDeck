@@ -231,7 +231,8 @@ def test_incremental(root):
 def test_validation(root):
     base = config(root / "source.pdf", root / "invalid.pdf", root)
     for change in ({"outputPath": base["inputPath"]}, {"endpoint": {"baseUrl": "https://example.com/v1"}},
-                   {"endpoint": {"baseUrl": "http://127.0.0.1:8080/v1?key=secret"}}, {"ocrModel": "unknown"}, {"layoutDevice": "gpu:0; rm"}):
+                   {"endpoint": {"baseUrl": "http://127.0.0.1:8080/v1?key=secret"}}, {"ocrModel": "unknown"}, {"layoutDevice": "gpu:0; rm"},
+                   {"pages": [[0, 1]]}, {"pages": [[3, 2]]}, {"pages": "1-2"}, {"dual": "yes"}):
         try:
             worker.validate_config({**base, **change})
             raise AssertionError("錯誤 config 被接受")
@@ -313,6 +314,92 @@ def test_image(root):
     print("PASS 圖片：單頁輸入走同一管線，輸出單頁翻譯 PDF")
 
 
+FLOW_TRANSLATIONS = {
+    "Deep learning models are useful and the method that we propose here is simple. It works well.":
+        "深度學習模型很有用，我們提出的方法很簡單。效果很好。",
+    "This paragraph continues onto the following page without a break. Done here.":
+        "這段文字延續到下一頁，中間沒有斷開。到此結束。",
+}
+
+
+class FlowLayout:
+    """兩欄頁＋接續頁：每頁的正文框（PDF 座標）"""
+
+    PAGES = [[(30, 50, 230, 100), (270, 50, 470, 100), (270, 400, 470, 450)], [(30, 50, 230, 100)]]
+
+    def __init__(self):
+        self.calls = 0
+
+    def predict(self, image, **_kwargs):
+        sx, sy = image.shape[1] / 500, image.shape[0] / 600
+        boxes = self.PAGES[self.calls]
+        self.calls += 1
+        return iter([{"res": {"boxes": [{"label": "text", "coordinate": [x0 * sx, y0 * sy, x1 * sx, y1 * sy]}
+                                        for x0, y0, x1, y1 in boxes]}}])
+
+
+class FlowReplies:
+    def __init__(self, output):
+        self.output, self.seen, self.requests, self.documents = output, 0, [], []
+
+    def readline(self, _limit):
+        lines = self.output.getvalue().splitlines()
+        while True:
+            message = json.loads(lines[self.seen])
+            self.seen += 1
+            if message["type"] == "document":
+                self.documents.append(message)
+            if message["type"] == "translate":
+                break
+        self.requests.append(message["text"])
+        text = FLOW_TRANSLATIONS.get(message["text"], "譯文")
+        return json.dumps({"id": message["id"], "text": text}, ensure_ascii=False) + "\n"
+
+
+def test_flow(root):
+    source, output = root / "flow.pdf", root / "flow-dual.pdf"
+    with fitz.open() as doc:
+        first = doc.new_page(width=500, height=600)
+        for x, y, text in ((32, 70, "Deep learning models are useful"), (32, 85, "and the method that we"),
+                           (272, 70, "propose here is simple."), (272, 85, "It works well."),
+                           (272, 420, "This paragraph continues"), (272, 435, "onto the following")):
+            first.insert_text((x, y), text, fontsize=10)
+        second = doc.new_page(width=500, height=600)
+        second.insert_text((32, 70), "page without a break.", fontsize=10)
+        second.insert_text((32, 85), "Done here.", fontsize=10)
+        doc.new_page(width=500, height=600).insert_text((32, 70), "Skipped page text.", fontsize=10)
+        doc.set_metadata({"title": "Flow fixture paper"})
+        doc.set_toc([[1, "Start", 1], [1, "Skipped", 3]])
+        doc.save(source)
+    stream = io.StringIO()
+    reply = FlowReplies(stream)
+    worker.run({**config(source, output, root), "pages": [[1, 2]], "dual": True}, reply, stream, FlowLayout(), FlowLayout())
+    done = json.loads(stream.getvalue().splitlines()[-1])
+    assert done["type"] == "done" and done["pages"] == 3, done
+    assert reply.documents and reply.documents[0]["title"] == "Flow fixture paper", reply.documents
+    assert "Skipped page text." not in reply.documents[0]["sample"] and "propose here" in reply.documents[0]["sample"]
+    # 換欄、換頁切開的句子接起來送一次，後半不另外送
+    assert set(FLOW_TRANSLATIONS) <= set(reply.requests), reply.requests
+    assert not {"propose here is simple. It works well.", "page without a break. Done here."} & set(reply.requests)
+    assert "Skipped page text." not in reply.requests
+    with fitz.open(output) as doc:
+        # 原 1、譯 1、原 2、譯 2、原 3（沒選的頁只放原文）
+        assert doc.page_count == 5, doc.page_count
+        assert "Deep learning" in doc[0].get_text() and "Skipped page text." in doc[4].get_text()
+        left, right = doc[1].get_text(clip=fitz.Rect(0, 0, 250, 600)), doc[1].get_text(clip=fitz.Rect(250, 0, 500, 300))
+        assert "深度學習" in left and "效果很好" in right and "Deep" not in left and "propose" not in right, (left, right)
+        assert "這段文字" in doc[1].get_text(clip=fitz.Rect(250, 380, 500, 600)), doc[1].get_text()
+        assert "到此結束" in "".join(doc[3].get_text().split()) and "page without" not in doc[3].get_text(), doc[3].get_text()
+        assert [entry[2] for entry in doc.get_toc()] == [2, 5], doc.get_toc()
+    try:
+        worker.run({**config(source, root / "none.pdf", root), "pages": [[9, 0]]}, io.StringIO(), io.StringIO(), FlowLayout(), FlowLayout())
+        raise AssertionError("超出頁數的範圍被接受")
+    except worker.WorkerError as error:
+        assert error.code == "PAGES"
+    assert worker.split_translation({"text": "ab"}, {"text": "cd"}, "譯") == ("譯", "cd")
+    print("PASS 接段：雙欄換欄、跨頁接著翻再切回；頁碼範圍；雙語對照與書籤")
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -324,6 +411,7 @@ def main():
         test_pdf(root)
         test_image(root)
         test_incremental(root)
+        test_flow(root)
         test_validation(root)
         print(f"PREVIEW {root}", flush=True)
         if "--preview" in sys.argv:

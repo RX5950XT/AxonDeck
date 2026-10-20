@@ -28,6 +28,7 @@ $('bwUrl').value = safeUrl(params.get('url'))
 const refreshActions = createBrowserActions($('bwActions'), () => 0, api)
 
 api.onState((state) => {
+  $('bwCompatible').hidden = !state.compatible
   if (document.activeElement !== $('bwUrl') && state.url) $('bwUrl').value = state.url
   $('bwBack').disabled = !state.canGoBack
   $('bwFwd').disabled = !state.canGoForward

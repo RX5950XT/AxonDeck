@@ -13,6 +13,7 @@
  * **這裡不打任何網路**：全部來自本機檔案。
  */
 
+const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const pricing = require('./pricing')
@@ -22,8 +23,6 @@ const dbSources = require('./db-sources')
 
 const HOUR_MS = 3600_000
 const DAY_MS = 24 * HOUR_MS
-/** 桶子保留多久 */
-const RETENTION_DAYS = 90
 /** 一次 stats 最多回幾格序列 */
 const MAX_SERIES_POINTS = 96
 /** 模型分佈最多回幾筆 */
@@ -162,13 +161,12 @@ function addEvent(buckets, provider, event) {
 function loadBuckets(raw) {
   const buckets = new Map()
   if (!Array.isArray(raw)) return buckets
-  const cutoff = Date.now() - RETENTION_DAYS * DAY_MS
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
     const ts = Number(item.ts)
     const provider = String(item.provider || '')
     const model = String(item.model || '')
-    if (!Number.isFinite(ts) || ts < cutoff || !provider || !model) continue
+    if (!Number.isFinite(ts) || !provider || !model) continue
     // 舊檔裡已經記進去的假 id（`m` 之類）讀檔時就丟掉，不必等使用者去按重掃
     if (pricing.isJunkModel(model)) continue
     const input = Number(item.input) || 0
@@ -212,7 +210,12 @@ function loadBuckets(raw) {
  * 三家 JSONL 來源的定義。路徑固定在 main，renderer 碰不到。
  * @returns {Array<object>}
  */
-function jsonlSources() {
+/**
+ * @param {{ countChildren?: Set<string>, knownIds?: Iterable<string> }} [extra]
+ *   `countChildren`：Grok 子代理裡**要另外算**的那些（母那一輪沒含到的）；
+ *   `knownIds`：已被刪掉的檔算過、但還有複本在別的檔的 Claude 訊息 id
+ */
+function jsonlSources(extra = {}) {
   const home = homeDir()
   return [
     {
@@ -220,6 +223,7 @@ function jsonlSources() {
       // 有 axondeck-probe.exe 就走原生解析（usage.rs），規則與 parsers.js 一致
       native: 'claude',
       roots: [path.join(home, '.claude', 'projects')],
+      knownIds: extra.knownIds,
       match: (name) => name.endsWith('.jsonl'),
       parseLine: parsers.parseClaudeLine,
       newState: parsers.newState,
@@ -233,11 +237,12 @@ function jsonlSources() {
         path.join(home, '.codex', 'sessions'),
         path.join(home, '.codex', 'archived_sessions')
       ],
-      match: (name) => name.endsWith('.jsonl'),
+      // 新版 Codex 會把舊 session 壓成 `.jsonl.zst`（實測本機九成的 session 都是）
+      match: (name) => name.endsWith('.jsonl') || name.endsWith('.jsonl.zst'),
       parseLine: parsers.parseCodexLine,
       newState: parsers.newState,
-      // 檔名含 UUID；session 會被搬進 archived_sessions，游標不能認絕對路徑
-      keyOf: (file) => path.basename(file)
+      // 檔名含 UUID；session 會被搬進 archived_sessions、也會被壓縮，游標不能認絕對路徑或副檔名
+      keyOf: (file) => path.basename(file).replace(/\.zst$/, '')
     },
     {
       provider: 'grok',
@@ -250,9 +255,32 @@ function jsonlSources() {
       parseLine: parsers.parseGrokLine,
       newState: parsers.newState,
       // 檔名一律叫 updates.jsonl，session 身分在上一層資料夾名
-      keyOf: (file) => path.basename(path.dirname(file))
+      keyOf: (file) => path.basename(path.dirname(file)),
+      // 子代理預設不算（母 session 已含），母那一輪沒含到的才照算
+      skipFile: (file) => !extra.countChildren?.has(path.basename(path.dirname(file))) && isGrokSubagent(file)
     }
   ]
+}
+
+/**
+ * Grok 子代理自己的 session。母 session 那一輪的 `usage` 已經含「那一輪結束前跑完的子代理」
+ * （`~/.grok/docs/user-guide/14-headless-mode.md`；實測子代理的 modelCalls 跟母那一輪的完全對得上），
+ * 再讀子代理自己的檔會算兩次（實測本機 58 個、3700 萬 token）。哪些例外要照算見 `grokCountChildren`。
+ * @param {string} file updates.jsonl
+ * @returns {boolean}
+ */
+function isGrokSubagent(file) {
+  const dir = path.dirname(file)
+  const read = (name) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+  // prompt_context.json 開 session 就寫；summary.json 之後才有，當備援
+  if (read('prompt_context.json')?.audience === 'subagent') return true
+  return String(read('summary.json')?.session_kind || '').startsWith('subagent')
 }
 
 /**
@@ -273,33 +301,94 @@ function sync(options = {}) {
 /**
  * @param {{ onProgress?: (payload: object) => void }} options
  */
+/**
+ * Grok 要另外算的子代理：母 session 解析時定案的（`parsers.js#resolveSubagents`），
+ * 加上開了一天、母那一輪還沒結束的（母那一輪大概永遠不會記到用量了）。
+ * @param {Record<string, object>} cursors
+ * @returns {Set<string>}
+ */
+function grokCountChildren(cursors) {
+  const out = new Set()
+  const stale = Date.now() - DAY_MS
+  for (const [key, cursor] of Object.entries(cursors)) {
+    if (!key.startsWith('grok:')) continue
+    for (const id of cursor?.countChildren || []) out.add(id)
+    for (const entry of cursor?.subagents || []) {
+      if (Array.isArray(entry) && Number(entry[2]) < stale) out.add(String(entry[0]))
+    }
+  }
+  return out
+}
+
+/**
+ * 被工具刪掉的檔：它貢獻的用量併進封存區，之後整份重讀時加回去。訊息 id 只留還有複本在別的檔的那些
+ * （Claude resume／fork 會複製舊訊息；不留的話重讀時那份複本會被當成新的再算一次）。
+ * @param {Record<string, object>} removed `pruneCursors` 清掉的游標
+ * @param {Record<string, object>} cursors 還在的游標
+ * @param {Map<string, object>} archive 就地併入
+ * @param {Set<string>} archiveIds 就地併入
+ */
+function archiveRemoved(removed, cursors, archive, archiveIds) {
+  const gone = Object.values(removed).filter(Boolean)
+  for (const cursor of gone) {
+    for (const bucket of loadBuckets(cursor.contrib).values()) mergeBucket(archive, bucket)
+  }
+  const ids = gone.flatMap((cursor) => (Array.isArray(cursor.seen) ? cursor.seen : []))
+  if (!ids.length) return
+  const alive = new Set(Object.values(cursors).flatMap((cursor) => (Array.isArray(cursor?.seen) ? cursor.seen : [])))
+  for (const id of ids) {
+    if (alive.has(id)) archiveIds.add(id)
+  }
+}
+
 async function runSync(options) {
   const s = await getStore()
   // 正規化規則改過 → 舊桶子掛在舊 key 上，增量掃描永遠碰不到它們。
   // 自己整份重讀一次，不必使用者去按「全部重讀」。
   const fullRescan = pricing.needsFullRescan(s.get('rulesVersion', 0))
-  if (fullRescan) await reset()
-  const buckets = loadBuckets(s.get('buckets', []))
-  const cursors = s.get('cursors', {}) || {}
-  const dbCursors = s.get('dbCursors', {}) || {}
-  const sinceMs = Date.now() - scan.SCAN_WINDOW_DAYS * DAY_MS
+  // 重讀時舊桶子先留著：來源檔已被工具自己刪掉的那段（Claude Code 只留約 30 天）重讀不回來
+  const previous = fullRescan ? loadBuckets(s.get('buckets', [])) : null
+  const buckets = fullRescan ? new Map() : loadBuckets(s.get('buckets', []))
+  const cursors = fullRescan ? {} : s.get('cursors', {}) || {}
+  const dbCursors = fullRescan ? {} : s.get('dbCursors', {}) || {}
+  // 被工具刪掉的檔留下的用量與訊息 id；整份重讀時靠它補回來源已經不在的那段
+  const archive = loadBuckets(s.get('archive', []))
+  const archiveIds = new Set((s.get('archiveIds', []) || []).filter((id) => typeof id === 'string'))
+  // 「全部」要真的是全部：不限檔案修改時間，游標讓之後每次只讀新增的部分
+  const sinceMs = 0
   const report = { providers: {}, scannedBytes: 0 }
 
-  for (const source of jsonlSources()) {
-    options.onProgress?.({ provider: source.provider, state: 'scanning' })
-    const result = await scan.scanSource(
-      source,
-      cursors,
-      (event) => addEvent(buckets, source.provider, event),
-      sinceMs
-    )
-    report.providers[source.provider] = result
+  // 每個檔累計貢獻多少，存在它的游標上（`contrib`）；檔案被刪時才知道要封存哪一份
+  const contribs = new Map()
+  const fold = (provider) => (event, key) => {
+    addEvent(buckets, provider, event)
+    if (!contribs.has(key)) contribs.set(key, loadBuckets(cursors[key]?.contrib))
+    addEvent(contribs.get(key), provider, event)
+  }
+  const scanOnce = async (source) => {
+    const result = await scan.scanSource(source, cursors, fold(source.provider), sinceMs)
     report.scannedBytes += result.scannedBytes
+    return result
+  }
+
+  for (const source of jsonlSources({ countChildren: grokCountChildren(cursors), knownIds: archiveIds })) {
+    options.onProgress?.({ provider: source.provider, state: 'scanning' })
+    let result = await scanOnce(source)
+    if (source.provider === 'grok') {
+      // 母 session 這一輪才定案要另外算的子代理，剛才那一輪已經被跳過了：補掃一次（其他檔沒變，很快）
+      const countChildren = grokCountChildren(cursors)
+      const late = [...countChildren].some((id) => !cursors[`grok:${id}`])
+      if (late) result = await scanOnce(jsonlSources({ countChildren }).find((item) => item.provider === 'grok'))
+    }
+    report.providers[source.provider] = result
+  }
+  for (const [key, map] of contribs) {
+    if (cursors[key]) cursors[key] = { ...cursors[key], contrib: [...map.values()] }
   }
 
   // OpenCode：SQL 直接依時間增量，不需要檔案游標
   options.onProgress?.({ provider: 'opencode', state: 'scanning' })
-  const opencodeSince = Number(dbCursors.opencode) || (Date.now() - RETENTION_DAYS * DAY_MS)
+  const opencodeSince = Number(dbCursors.opencode) || 0
   const opencodeEvents = dbSources.readOpencode(opencodeSince)
   for (const event of opencodeEvents) addEvent(buckets, 'opencode', event)
   if (opencodeEvents.length) {
@@ -311,7 +400,7 @@ async function runSync(options) {
   options.onProgress?.({ provider: 'antigravity', state: 'scanning' })
   const agyDb = paths.userDataPath ? path.join(paths.userDataPath, 'agy-logs.db') : ''
   // 游標是結束時間（antigravityEnd）；舊版只存開始時間，沿用一次當起點
-  const agySince = Number(dbCursors.antigravityEnd) || Number(dbCursors.antigravity) || (Date.now() - RETENTION_DAYS * DAY_MS)
+  const agySince = Number(dbCursors.antigravityEnd) || Number(dbCursors.antigravity) || 0
   const agyEvents = agyDb ? dbSources.readAntigravity(agySince, agyDb) : []
   for (const event of agyEvents) addEvent(buckets, 'antigravity', event)
   if (agyEvents.length) {
@@ -319,12 +408,30 @@ async function runSync(options) {
   }
   report.providers.antigravity = { files: 1, events: agyEvents.length }
 
-  scan.pruneCursors(cursors)
-  const cutoff = Date.now() - RETENTION_DAYS * DAY_MS
-  const rows = [...buckets.values()].filter((bucket) => bucket.ts >= cutoff)
+  if (previous) {
+    // 有記帳的已刪檔整份加回去；記帳之前就被刪掉的（舊版沒記）才退回用舊桶子推
+    for (const bucket of archive.values()) mergeBucket(buckets, bucket)
+    // JSONL：現存最舊檔案的修改時間之前才可能有檔被刪；SQLite 兩家整份都在，只補新資料最早那筆之前的
+    const since = Object.fromEntries(Object.entries(report.providers).map(([provider, result]) => [
+      provider,
+      Number.isFinite(result.oldestMtimeMs) ? result.oldestMtimeMs : earliestTs(buckets, provider)
+    ]))
+    keepOrphans(buckets, previous, since)
+  }
+  archiveRemoved(scan.pruneCursors(cursors), cursors, archive, archiveIds)
+  // shortcut: 桶子永久保留（一年約幾 MB），真的太大再把舊的小時桶併成日桶
+  const rows = [...buckets.values()]
   const syncedAt = Date.now()
   // electron-store 每次 set 都會重讀與重寫 JSON；大游標檔案要一次寫完。
-  s.set({ buckets: rows, cursors, dbCursors, rulesVersion: pricing.RULES_VERSION, syncedAt })
+  s.set({
+    buckets: rows,
+    cursors,
+    dbCursors,
+    archive: [...archive.values()],
+    archiveIds: [...archiveIds],
+    rulesVersion: pricing.RULES_VERSION,
+    syncedAt
+  })
 
   return { ...report, fullRescan, buckets: rows.length, syncedAt }
 }
@@ -370,15 +477,17 @@ function addTotals(item, row) {
  * @param {Array<object>} rows
  * @param {number} from
  * @param {number} to
- * @param {'hour'|'day'} bucket
+ * @param {'hour'|'day'|'week'} bucket
  * @returns {Array<object>}
  */
 function fillSeries(rows, from, to, bucket) {
-  const step = bucket === 'hour' ? HOUR_MS : DAY_MS
-  // 日桶要切在「當地」零點：直接取 DAY_MS 的整數倍是 UTC 零點，臺灣凌晨 0～8 點會算進前一天
+  const step = bucket === 'hour' ? HOUR_MS : bucket === 'week' ? 7 * DAY_MS : DAY_MS
+  // 週桶從週一開始：1970-01-01 是週四，往後 4 天才是第一個週一
+  const base = bucket === 'week' ? 4 * DAY_MS : 0
+  // 日／週桶要切在「當地」零點：直接取 DAY_MS 的整數倍是 UTC 零點，臺灣凌晨 0～8 點會算進前一天
   const slotOf = (ts) => {
-    const offset = bucket === 'day' ? new Date(ts).getTimezoneOffset() * 60_000 : 0
-    return Math.floor((ts - offset) / step) * step + offset
+    const offset = bucket === 'hour' ? 0 : new Date(ts).getTimezoneOffset() * 60_000
+    return Math.floor((ts - offset - base) / step) * step + offset + base
   }
   const start = slotOf(from)
   const end = slotOf(to)
@@ -427,15 +536,54 @@ function withCost(bucket, custom) {
  * @param {{ range?: string, provider?: string }} [query]
  * @returns {Promise<object>}
  */
+let modelsDevPrices = null
+/** 內建表沒有的模型用 models.dev 補；沒設 userData（測試）就不連網 */
+function modelsDev() {
+  if (!modelsDevPrices && paths.userDataPath) {
+    modelsDevPrices = require('./models-dev').createModelsDev({
+      file: path.join(paths.userDataPath, 'models-dev-prices.json'),
+      normalize: pricing.normalizeModel
+    })
+    pricing.setFallbackPrice(modelsDevPrices.priceOf)
+  }
+  return modelsDevPrices
+}
+
+/**
+ * `YYYY-MM-DD` → 當地零點；格式錯或日期不存在（2/30）回 NaN。
+ * @param {unknown} text
+ * @returns {number}
+ */
+function parseDay(text) {
+  const match = typeof text === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(text) : null
+  if (!match) return NaN
+  const [y, m, d] = match.slice(1).map(Number)
+  const date = new Date(y, m - 1, d)
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d ? date.getTime() : NaN
+}
+
+/**
+ * 範圍白名單＋自訂起訖日（含迄日當天）。自訂的格式不對就退回 7 天，不信任 renderer 給的數字。
+ * @param {{ range?: string, from?: string, to?: string }} query
+ * @returns {{ rangeKey: string, from: number, to: number, bucket: 'hour'|'day' }}
+ */
+function resolveRange(query) {
+  const now = Date.now()
+  if (query.range === 'custom') {
+    const from = parseDay(query.from)
+    const to = Math.min(now, parseDay(query.to) + DAY_MS)
+    if (from < to) return { rangeKey: 'custom', from, to, bucket: to - from <= 2 * DAY_MS ? 'hour' : 'day' }
+  }
+  const rangeKey = Object.prototype.hasOwnProperty.call(STAT_RANGES, query.range) ? query.range : '7d'
+  const range = STAT_RANGES[rangeKey]
+  return { rangeKey, from: range.hours ? now - range.hours * HOUR_MS : 0, to: now, bucket: range.bucket }
+}
+
 async function stats(query = {}) {
+  await modelsDev()?.ensure()
   const s = await getStore()
   const custom = pricing.sanitizeCustomPrices(s.get('customPrices', {}))
-  const rangeKey = Object.prototype.hasOwnProperty.call(STAT_RANGES, query.range)
-    ? query.range
-    : '7d'
-  const range = STAT_RANGES[rangeKey]
-  const to = Date.now()
-  const from = range.hours ? to - range.hours * HOUR_MS : 0
+  const { rangeKey, from, to, bucket: rangeBucket } = resolveRange(query)
 
   const all = loadBuckets(s.get('buckets', []))
   const providerFilter = PROVIDERS.some((item) => item.key === query.provider)
@@ -443,7 +591,7 @@ async function stats(query = {}) {
     : ''
 
   const rows = [...all.values()]
-    .filter((bucket) => bucket.ts >= from && (!providerFilter || bucket.provider === providerFilter))
+    .filter((bucket) => bucket.ts >= from && bucket.ts < to && (!providerFilter || bucket.provider === providerFilter))
     .map((bucket) => withCost(bucket, custom))
 
   const summary = {
@@ -497,17 +645,21 @@ async function stats(query = {}) {
     }
   }
 
-  const seriesFrom = from || (rows.length ? Math.min(...rows.map((row) => row.ts)) : to)
+  // 不用 Math.min(...rows)：「全部」的小時桶會多到超過參數上限
+  const seriesFrom = from || rows.reduce((min, row) => Math.min(min, row.ts), to)
+  // 「全部」超過圖表格數上限就改成一週一格，不然最早那段會被切掉
+  const bucket = rangeBucket === 'day' && (to - seriesFrom) / DAY_MS >= MAX_SERIES_POINTS ? 'week' : rangeBucket
   const uncostedList = [...uncosted].sort()
   return {
     range: rangeKey,
-    bucket: range.bucket,
+    bucket,
     from: seriesFrom,
     to,
     syncedAt: Number(s.get('syncedAt', 0)) || 0,
     needsRescan: pricing.needsFullRescan(s.get('rulesVersion', 0)),
     summary,
-    series: fillSeries(rows, seriesFrom, to, range.bucket),
+    // 自訂範圍的 to 是隔天零點（不含），序列只畫到前一刻
+    series: fillSeries(rows, seriesFrom, to - 1, bucket),
     models: [...byModel.values()].sort((a, b) => b.tokens - a.tokens).slice(0, MAX_MODEL_ROWS),
     providers: PROVIDERS.map((item) => ({
       key: item.key,
@@ -531,17 +683,78 @@ async function savePrices(raw) {
   return pricing.priceList(clean)
 }
 
-/** 重新掃描：把游標清掉，下一次同步從頭讀 */
+/**
+ * @param {Map<string, object>} buckets
+ * @param {string} provider
+ * @returns {number} 這家最早的桶子；沒有就 Infinity
+ */
+function earliestTs(buckets, provider) {
+  let min = Infinity
+  for (const bucket of buckets.values()) {
+    if (bucket.provider === provider && bucket.ts < min) min = bucket.ts
+  }
+  return min
+}
+
+/**
+ * 重新掃描：標成要整份重讀，下一次同步從頭讀。**桶子不清**——重讀時才知道哪段
+ * 來源檔已經不在了，那段要靠舊桶子留著（`keepOrphans`）。
+ */
 async function reset() {
   const s = await getStore()
-  s.set({ buckets: [], cursors: {}, dbCursors: {}, syncedAt: 0 })
+  s.set({ cursors: {}, dbCursors: {}, rulesVersion: 0 })
   return true
+}
+
+/**
+ * 重讀後把「重讀不回來」的舊桶子併回去——只給**記帳之前**就被刪掉的檔用（之後刪的有 `archive`）。
+ * 兩個條件都要成立才留舊的：
+ * 1. 早於 `before[家]`（現存最舊來源檔的時間）——之後的時段來源檔都還在，重讀結果就是完整答案，
+ *    沒資料就是真的沒有（或新規則刻意不算，例如 Grok 子代理），不能拿舊的補。
+ * 2. 那一小時重讀後一筆都沒有——有新資料的小時以新的為準（舊的可能是舊規則算錯的）。
+ * 模型名照新規則重新正規化。同一小時只剩部分檔案時，記帳前被刪的那部分推不回來（舊版沒有逐檔紀錄）。
+ * @param {Map<string, object>} buckets 重讀結果，就地補進去
+ * @param {Map<string, object>} previous 重讀前的桶子
+ * @param {Record<string, number>} before 每家「這之前才可能缺檔」的時間；沒有的家＝沒有任何現存來源，全留
+ */
+function keepOrphans(buckets, previous, before) {
+  const covered = new Set([...buckets.values()].map((bucket) => `${bucket.ts}|${bucket.provider}`))
+  for (const old of previous.values()) {
+    const limit = Object.prototype.hasOwnProperty.call(before, old.provider) ? before[old.provider] : Infinity
+    // 桶子是整點起算：整個小時都在 limit 之前才算「可能缺檔」
+    if (old.ts + HOUR_MS > limit || covered.has(`${old.ts}|${old.provider}`)) continue
+    mergeBucket(buckets, old)
+  }
+}
+
+/**
+ * 把一個舊桶子併進表裡：模型名照新規則重新正規化，撞到同一格（兩個舊名正規化成同一個）就加總。
+ * @param {Map<string, object>} buckets 就地併入
+ * @param {object} old
+ */
+function mergeBucket(buckets, old) {
+  const model = pricing.normalizeModel(old.model)
+  if (pricing.isJunkModel(model)) return
+  const longContext = old.longContext && Boolean(pricing.priceFor(model)?.longContext)
+  const key = bucketKey(old.ts, old.provider, model, longContext)
+  const into = buckets.get(key)
+  if (!into) {
+    buckets.set(key, { ...old, model, longContext })
+    return
+  }
+  const merged = { ...into }
+  for (const field of ['input', 'output', 'reasoning', 'cacheRead', 'cacheWrite', 'cacheWrite1h', 'requests']) {
+    merged[field] = (into[field] || 0) + (old[field] || 0)
+  }
+  merged.reportedCost = into.reportedCost === null && old.reportedCost === null
+    ? null
+    : (into.reportedCost || 0) + (old.reportedCost || 0)
+  buckets.set(key, merged)
 }
 
 module.exports = {
   PROVIDERS,
   STAT_RANGES,
-  RETENTION_DAYS,
   HOUR_MS,
   DAY_MS,
   configure,
@@ -549,6 +762,10 @@ module.exports = {
   addEvent,
   loadBuckets,
   fillSeries,
+  resolveRange,
+  keepOrphans,
+  archiveRemoved,
+  grokCountChildren,
   withCost,
   sync,
   stats,

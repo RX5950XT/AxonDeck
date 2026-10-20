@@ -27,7 +27,11 @@ async function main() {
   })
   assert.equal(x11.display, 'x11')
   assert.match(x11.note, /X11/)
-  assert.match(x11.note, /Wayland/)
+  assert.match(x11.note, /XRecord/)
+  assert.doesNotMatch(x11.note, /Windows/)
+  const wl = hotkey.detectDisplayServer({ XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'wayland-0' })
+  assert.match(wl.note, /XWayland/)
+  assert.doesNotMatch(wl.note, /Windows/)
   assert.equal(hotkey.hotkeyLimitations({ DISPLAY: ':0', XDG_SESSION_TYPE: 'x11' }).canGlobalHook, true)
 
   // 假 uiohook：start／stop 不應 throw

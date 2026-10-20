@@ -3,6 +3,7 @@
 const path = require('path')
 const { syncAntigravity, mergeExpectedWindows } = require('./antigravity')
 const { syncClaude } = require('./claude')
+const claudeAccounts = require('./claude-accounts')
 const { syncCommandCode } = require('./commandcode')
 const { syncCodex } = require('./codex')
 const { consumeCodexReset } = require('./codex-reset')
@@ -81,7 +82,19 @@ function mergeAccountState(currentRaw, previousRaw, nowMs = Date.now()) {
     current.accuracy = 'estimated'
     current.notes = '部分 Antigravity 額度未回傳，已保留上次資料或顯示為已用盡。'
   }
+  if (current.profiles && previous?.profiles) current.profiles = mergeProfiles(current.profiles, previous.profiles, nowMs)
   return normalizeAccount(current)
+}
+
+/** Claude 多帳號：某個帳號這輪查不到（429、網路）就沿用它上次的額度，跟整張卡同一套 6h 軟快取 */
+function mergeProfiles(profiles, previousProfiles, nowMs) {
+  return profiles.map((profile) => {
+    const old = previousProfiles.find((item) => item.id === profile.id)
+    const oldTime = Date.parse(old?.lastUpdated || '')
+    if (profile.windows.length || profile.status !== 'connected' || !old?.windows?.length ||
+      !Number.isFinite(oldTime) || nowMs - oldTime >= CACHE_TTL_MS) return profile
+    return { ...profile, windows: old.windows, lastUpdated: old.lastUpdated, notes: appendCacheNote(profile.notes) }
+  })
 }
 
 function resolveHomeDir(env = process.env) {
@@ -113,7 +126,7 @@ async function runProviders({ previousAccounts, diagnostics, nowMs }) {
   const log = createLogger(diagnostics)
   const args = { homeDir, nowMs, log }
   const jobs = [
-    () => syncClaude(args),
+    () => syncClaude(args).then((account) => claudeAccounts.withProfiles(account, args)),
     () => syncCodex(args),
     () => syncAntigravity({ nowMs, log }),
     () => syncOpenCode({ ...args, env: process.env }),
@@ -199,6 +212,32 @@ async function redeemCodexReset(creditId) {
   return { outcome, state }
 }
 
+// ===== Claude 多帳號（claude-accounts.js） =====
+
+function listClaudeAccounts() {
+  return claudeAccounts.list({ homeDir: resolveHomeDir() })
+}
+
+/** 切完馬上重同步一次，額度條換成新帳號 */
+async function switchClaudeAccount(id) {
+  const account = await claudeAccounts.switchTo(id, { homeDir: resolveHomeDir() })
+  await syncInFlight?.catch(() => {})
+  const state = await sync().catch(() => null)
+  return { account, state }
+}
+
+function removeClaudeAccount(id) {
+  return claudeAccounts.remove(id, { homeDir: resolveHomeDir() })
+}
+
+function loginClaudeAccount() {
+  return claudeAccounts.beginLogin({ homeDir: resolveHomeDir() })
+}
+
+function cancelClaudeLogin() {
+  return claudeAccounts.cancelLogin()
+}
+
 function resetForTests() {
   syncInFlight = null
   resetRateLimitsForTests()
@@ -206,12 +245,17 @@ function resetForTests() {
 }
 
 module.exports = {
+  cancelClaudeLogin,
   coalesceSync,
+  listClaudeAccounts,
+  loginClaudeAccount,
   load,
   mergeAccountState,
   publicError,
   redeemCodexReset,
+  removeClaudeAccount,
   resetForTests,
   saveSettings,
+  switchClaudeAccount,
   sync
 }

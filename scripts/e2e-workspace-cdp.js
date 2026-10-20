@@ -477,6 +477,35 @@ async function main() {
         `document.getElementById('wsGitBranch').textContent.includes('main')`, 10000)
       ok('[E] 讀得到分支名', branchOk,
         String(await cdp.eval(`document.getElementById('wsGitBranch').textContent`)))
+      const gitOpt = { cwd: PROJECT_DIR, stdio: 'ignore' }
+      execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/example/e2e.git'], gitOpt)
+      await cdp.eval(`document.getElementById('wsGitRefreshBtn').click()`)
+      ok('[E] GitHub 遠端存在時按鈕可用', await waitInPage(cdp, `!document.getElementById('wsGitHubBtn').disabled`, 10000))
+      const stable = await cdp.eval(`(async () => {
+        const button = document.getElementById('wsGitHubBtn')
+        let dimmed = false
+        const observer = new MutationObserver(records => {
+          if (button.disabled || records.some(record => record.oldValue !== null)) dimmed = true
+        })
+        observer.observe(button, { attributes: true, attributeFilter: ['disabled'], attributeOldValue: true })
+        try {
+          for (let i = 0; i < 3; i++) {
+            const branch = document.getElementById('wsGitBranch')
+            const updated = new Promise((resolve, reject) => {
+              const timer = setTimeout(() => { rendered.disconnect(); reject(new Error('Git refresh timeout')) }, 10000)
+              const rendered = new MutationObserver(() => { clearTimeout(timer); rendered.disconnect(); resolve() })
+              rendered.observe(branch, { childList: true })
+            })
+            document.dispatchEvent(new CustomEvent('ws:terminal-idle'))
+            await updated
+          }
+          return !dimmed && !button.disabled && button.getBoundingClientRect().width > 0
+        } finally { observer.disconnect() }
+      })()`)
+      ok('[E] 連續 Git 更新期間 GitHub 按鈕不變灰', stable)
+      execFileSync('git', ['remote', 'remove', 'origin'], gitOpt)
+      await cdp.eval(`document.getElementById('wsGitRefreshBtn').click()`)
+      ok('[E] 移除 GitHub 遠端後按鈕停用', await waitInPage(cdp, `document.getElementById('wsGitHubBtn').disabled`, 10000))
       // 列上的檔名拆成「檔名」與「所在資料夾」兩段（面板只有 280px），
       // 完整的相對路徑在整列的 title 上——要比對路徑就看那裡。
       const changed = await cdp.eval(

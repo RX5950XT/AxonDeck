@@ -103,7 +103,6 @@ async function resolveCommandCodeKey({ homeDir, env = process.env }) {
 }
 
 module.exports = {
-  readCcSwitchKey,
   readOpenCodeAuthKey,
   resolveApiKey,
   resolveCommandCodeKey

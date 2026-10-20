@@ -17,10 +17,12 @@
  */
 
 const { execFile } = require('child_process')
+const path = require('path')
 const http = require('http')
 
 /** 單次指令逾時 */
 const TIMEOUT_MS = 8000
+const SYSTEM32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
 /** 最多列幾個埠 */
 const MAX_PORTS = 200
 /** HTTP 探測逾時：本機服務該立刻回，等不到就當不是網頁 */
@@ -127,10 +129,80 @@ function probeHttp(port) {
  * @param {string | undefined} contentType
  * @returns {boolean}
  */
+async function windowsListening() {
+  const [netstat, tasks] = await Promise.all([
+    run(path.join(SYSTEM32, 'netstat.exe'), ['-ano', '-p', 'TCP']),
+    run(path.join(SYSTEM32, 'tasklist.exe'), ['/FO', 'CSV', '/NH'])
+  ])
+  return { ports: parseNetstat(netstat), names: parseTasklist(tasks) }
+}
+
 function isWebPage(status, contentType) {
   if (!status) return false
   if (status >= 300 && status < 400) return true
   return status >= 200 && status < 300 && /text\/html/i.test(String(contentType || ''))
+}
+
+/** /proc/net/tcp 的本機位址欄（十六進位、IPv4 是 little-endian）是不是本機打得開的 */
+function procLocal(hex) {
+  const addr = String(hex || '').toUpperCase()
+  if (addr.length === 8) return addr === '00000000' || addr === '0100007F'
+  // IPv6：:: 或 ::1（四個 32-bit 字各自 little-endian），以及 IPv4-mapped 的 0.0.0.0／127.0.0.1
+  return addr === '0'.repeat(32) || addr === '000000000000000000000000' + '01000000'
+    || addr === '0000000000000000FFFF000000000000' || addr === '0000000000000000FFFF00000100007F'
+}
+
+/**
+ * 解析 `/proc/net/tcp`／`tcp6`：`sl local_address rem_address st … uid timeout inode`，
+ * 狀態 `0A` 是 LISTEN。
+ * @param {string} raw
+ * @returns {Map<number, string>} port → socket inode
+ */
+function parseProcNet(raw) {
+  /** @type {Map<number, string>} */
+  const found = new Map()
+  for (const line of String(raw || '').split('\n').slice(1)) {
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 10 || cols[3] !== '0A') continue
+    const [host, portHex] = cols[1].split(':')
+    if (!procLocal(host)) continue
+    const port = parseInt(portHex, 16)
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) continue
+    if (!found.has(port)) found.set(port, cols[9])
+  }
+  return found
+}
+
+/**
+ * Linux：讀 /proc（不跑 ss／netstat，發行版不一定有裝）。別的使用者的程序讀不到 fd，
+ * 那些埠照樣列出來，只是沒有 PID 與程序名。
+ * @param {string} [root]
+ * @returns {Promise<{ ports: Map<number, number>, names: Map<number, string> }>}
+ */
+async function linuxListening(root = '/proc') {
+  const fsp = require('fs').promises
+  const read = (file) => fsp.readFile(path.join(root, file), 'utf8').catch(() => '')
+  const [tcp, tcp6] = await Promise.all([read('net/tcp'), read('net/tcp6')])
+  const inodes = new Map([...parseProcNet(tcp6), ...parseProcNet(tcp)])
+  const wanted = new Map([...inodes].map(([port, inode]) => [inode, port]))
+  /** @type {Map<number, number>} */
+  const ports = new Map([...inodes.keys()].map((port) => [port, 0]))
+  /** @type {Map<number, string>} */
+  const names = new Map()
+  const pids = (await fsp.readdir(root).catch(() => [])).filter((name) => /^\d+$/.test(name))
+  for (const pid of pids) {
+    if (!wanted.size) break
+    const fds = await fsp.readdir(path.join(root, pid, 'fd')).catch(() => [])
+    for (const fd of fds) {
+      const link = await fsp.readlink(path.join(root, pid, 'fd', fd)).catch(() => '')
+      const inode = /^socket:\[(\d+)\]$/.exec(link)?.[1]
+      if (!inode || !wanted.has(inode)) continue
+      ports.set(/** @type {number} */ (wanted.get(inode)), Number(pid))
+      if (!names.has(Number(pid))) names.set(Number(pid), (await read(`${pid}/comm`)).trim())
+      wanted.delete(inode)
+    }
+  }
+  return { ports, names }
 }
 
 /**
@@ -138,12 +210,7 @@ function isWebPage(status, contentType) {
  * @returns {Promise<Array<{ port: number, pid: number, process: string, web: boolean }>>}
  */
 async function list() {
-  const [netstat, tasks] = await Promise.all([
-    run('netstat', ['-ano', '-p', 'TCP']),
-    run('tasklist', ['/FO', 'CSV', '/NH'])
-  ])
-  const ports = parseNetstat(netstat)
-  const names = parseTasklist(tasks)
+  const { ports, names } = process.platform === 'win32' ? await windowsListening() : await linuxListening()
   const rows = [...ports.entries()]
     .filter(([port]) => !NOISE_PORTS.has(port))
     .sort((a, b) => a[0] - b[0])
@@ -155,10 +222,11 @@ async function list() {
 
 module.exports = {
   NOISE_PORTS,
-  MAX_PORTS,
   parseAddress,
   parseNetstat,
   parseTasklist,
+  parseProcNet,
+  linuxListening,
   isWebPage,
   list
 }

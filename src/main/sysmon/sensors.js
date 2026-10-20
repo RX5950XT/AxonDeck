@@ -95,6 +95,8 @@ function createSensorBridge(deps = {}) {
   /** 連上的時間與連續重試次數：撐得夠久就歸零，才不會在「一連上就死」時每 3 秒重生一次 */
   let connectedAt = 0
   let retries = 0
+  // 驅動被系統擋下不會自己好：不自動重拉（每次重拉都是一次提權啟動），等使用者按啟用
+  let driverBlocked = false
   /** 同一時間只允許一個啟動流程，避免風扇在 starting 狀態錯過接管。 */
   let pendingEnable = null
   let pendingResolve = null
@@ -131,7 +133,7 @@ function createSensorBridge(deps = {}) {
   }
 
   function scheduleReconnect(reason) {
-    if (!onLost || reconnectTimer) return
+    if (!onLost || reconnectTimer || driverBlocked) return
     if (state === 'declined' || state === 'missing') return
     const delay = Math.min(reconnectMaxMs, reconnectDelayMs * (2 ** Math.min(retries, 5)))
     retries += 1
@@ -155,6 +157,7 @@ function createSensorBridge(deps = {}) {
     if (payload && payload.error) {
       // sidecar 自己知道驅動載不起來時會回這個
       state = 'blocked'
+      if (payload.error === 'driver') driverBlocked = true
       message = payload.error === 'driver'
         ? '系統擋下了讀取感測器所需的核心驅動（常見原因：已開啟「記憶體完整性」，或防毒把驅動隔離）。CPU 與主機板溫度會維持空白，其餘數值不受影響。'
         : '感測器讀取失敗，其餘數值不受影響。'
@@ -230,6 +233,7 @@ function createSensorBridge(deps = {}) {
      */
     enable(opts = {}) {
       const elevate = opts.elevate === true
+      if (elevate) driverBlocked = false
       if (state === 'on') return Promise.resolve({ state, message })
       if (state === 'starting' && pendingEnable) return pendingEnable
       // Linux／macOS：沒有 WinRing0／PawnIO／具名管道 sidecar，明確標成 missing
@@ -294,7 +298,8 @@ function createSensorBridge(deps = {}) {
             // 只有「跑著跑著斷掉」才重拉：stop() 走的是 finish()，那條會先把 state 設成 off
             if (pendingResolve) {
               cleanup()
-              settle('blocked', '感測器尚未就緒，請重試。')
+              // sidecar 先送錯誤框再結束：保留 handleLine 寫好的原因
+              settle('blocked', state === 'blocked' ? message : '感測器尚未就緒，請重試。')
             } else if (state === 'on') {
               state = 'off'
               if (healthTimer) { clearTimeout(healthTimer); healthTimer = null }
@@ -334,7 +339,7 @@ function createSensorBridge(deps = {}) {
               '-NonInteractive',
               '-ExecutionPolicy', 'Bypass',
               '-Command',
-              `Start-Process -FilePath '${exe.replace(/'/g, "''")}' -ArgumentList '${pipeName}' -Verb RunAs -WindowStyle Hidden`
+              `Start-Process -FilePath '${exe.replace(/['\u2018-\u201b]/g, '$&$&')}' -ArgumentList '${pipeName}' -Verb RunAs -WindowStyle Hidden`
             ], { windowsHide: true, stdio: 'ignore' })
           } catch {
             cleanup()
@@ -435,5 +440,5 @@ function createSensorBridge(deps = {}) {
 
 module.exports = {
   createSensorBridge, resolveSensorExe, PAWNIO_URL,
-  STALE_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, STABLE_MS
+  STALE_MS
 }

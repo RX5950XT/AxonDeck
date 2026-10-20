@@ -67,7 +67,9 @@ async function resolveCandidate(cwd, raw, opts = {}) {
     : text
   // 相對路徑沒有基準就不猜：`process.cwd()` 是 App 自己的目錄，跟畫面上看到的無關
   if (!path.isAbsolute(expanded) && !cwd) return null
-  const full = path.resolve(cwd || '', expanded)
+  // Git Bash／MSYS 印的 `/d/foo` 就是 `D:\foo`；照字面解會變成目前磁碟的 `\d\foo`
+  const msys = process.platform === 'win32' ? /^\/([A-Za-z])(?:\/(.*))?$/.exec(expanded) : null
+  const full = msys ? path.resolve(`${msys[1].toUpperCase()}:\\`, msys[2] || '') : path.resolve(cwd || '', expanded)
   if (!opts.allowUnc && full.startsWith('\\\\')) return null
   const stat = await statSoon(full)
   if (!stat) return null

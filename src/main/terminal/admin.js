@@ -49,7 +49,7 @@ let runtime = null
  */
 function psArgList(args) {
   return args
-    .map((a) => `[char]34 + '${String(a).replace(/'/g, "''")}' + [char]34`)
+    .map((a) => `[char]34 + '${String(a).replace(/['\u2018-\u201b]/g, '$&$&')}' + [char]34`)
     .join(" + ' ' + ")
 }
 
@@ -202,7 +202,7 @@ function ensureHost() {
       if (env.runAsNode) {
         // ShellExecute 提權不保證繼承自訂環境變數，在提權後明確設定 Node 模式。
         const command = "$env:ELECTRON_RUN_AS_NODE = '1'; $env:ELECTRON_NO_ASAR = '1'; & "
-          + [env.execPath, ...args].map(value => `'${value.replace(/'/g, "''")}'`).join(' ')
+          + [env.execPath, ...args].map(value => `'${value.replace(/['\u2018-\u201b]/g, '$&$&')}'`).join(' ')
         launchExe = 'powershell.exe'
         launchArgs = ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')]
       }
@@ -213,7 +213,7 @@ function ensureHost() {
           '-NonInteractive',
           '-ExecutionPolicy', 'Bypass',
           '-Command',
-          `Start-Process -FilePath '${launchExe.replace(/'/g, "''")}' -ArgumentList (${psArgList(launchArgs)}) -Verb RunAs -WindowStyle Hidden`
+          `Start-Process -FilePath '${launchExe.replace(/['\u2018-\u201b]/g, '$&$&')}' -ArgumentList (${psArgList(launchArgs)}) -Verb RunAs -WindowStyle Hidden`
         ], { windowsHide: true, stdio: 'ignore' })
       } catch {
         fail('無法啟動管理員終端機。')

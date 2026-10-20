@@ -14,6 +14,7 @@ import { noteLocation } from './nav-history.js'
 import { renderMarkdown } from './markdown.js'
 import { createChatSidebar } from './chat-sidebar.js'
 import { openParamsDialog, countParams } from './chat-params-panel.js'
+import { initComposerMenus, refreshComposerMenus, setImageMode } from './chat-composer-menus.js'
 import { openImageViewer } from './image-viewer.js'
 import { classifyModel, MODEL_TYPES } from '../../shared/cloud-model-types.mjs'
 import { initCustomSelects, syncCustomSelects } from './custom-select.js'
@@ -46,7 +47,6 @@ let composerEl = null
 let attachmentsEl = null
 let fileInput = null
 let attachBtn = null
-let thinkBtn = null
 let paramsBtn = null
 let sendBtn = null
 let newBtn = null
@@ -144,7 +144,6 @@ export function initChatPage() {
   attachmentsEl = document.getElementById('chatAttachments')
   fileInput = document.getElementById('chatFileInput')
   attachBtn = document.getElementById('chatAttachBtn')
-  thinkBtn = document.getElementById('chatThinkBtn')
   paramsBtn = document.getElementById('chatParamsBtn')
   sendBtn = document.getElementById('chatSendBtn')
   newBtn = document.getElementById('chatNewBtn')
@@ -193,6 +192,7 @@ export function initChatPage() {
     btn.addEventListener('click', () => void handleNew('', /** @type {HTMLElement} */ (btn).dataset.aiWeb))
   })
   document.getElementById('chatNewFolderBtn')?.addEventListener('click', () => void sidebar.createFolder())
+  document.getElementById('chatArenaBtn')?.addEventListener('click', () => void import('./ai-web-page.js').then((m) => m.openArena()))
   paramsBtn?.addEventListener('click', () => void handleParams())
   modelSelect?.addEventListener('change', handleModelChange)
   promptSelect?.addEventListener('change', handlePromptChange)
@@ -237,7 +237,7 @@ export function initChatPage() {
 export async function refreshChatPage() {
   initChatPage()
   if (!inited) return
-  await Promise.all([refreshModelSelect(), refreshPromptSelect(), refreshThinkToggle(), refreshBanner()])
+  await Promise.all([refreshModelSelect(), refreshPromptSelect(), refreshComposerMenus(), refreshBanner()])
   await sidebar.reload()
   const list = sidebar.list()
   if (!currentId || !list.some((c) => c.id === currentId)) {
@@ -347,8 +347,13 @@ async function handleNew(folderId = '', site = '') {
     return
   }
   setChatPaneMode('chat')
-  openSeq += 1
+  const seq = ++openSeq
   const conv = await electronAPI.chat.create(folderId)
+  // 建立途中點了別的對話：主區已經是那一則，只把新對話補進側欄
+  if (seq !== openSeq) {
+    await sidebar.reload()
+    return
+  }
   currentId = conv.id
   currentIsWeb = false
   noteLocation()
@@ -384,9 +389,9 @@ function renderMessages(messages) {
   if (!messagesEl) return
   messagesEl.replaceChildren()
   if (!messages.length) {
-    const empty = document.createElement('p')
+    const empty = document.createElement('div')
     empty.className = 'chat-empty'
-    empty.textContent = '開始新的對話吧。'
+    fillEmpty(empty)
     messagesEl.appendChild(empty)
     return
   }
@@ -399,6 +404,24 @@ function renderMessages(messages) {
     })
   })
   scrollToBottom()
+}
+
+/**
+ * 空對話的歡迎區：標題＋目前的模型
+ * @param {Element} el
+ */
+function fillEmpty(el) {
+  const option = modelSelect?.selectedOptions?.[0]
+  const image = option?.dataset.image === '1'
+  const title = document.createElement('p')
+  title.className = 'chat-empty-title'
+  title.textContent = image ? '想畫什麼？' : '有什麼想聊的？'
+  const model = document.createElement('p')
+  model.className = 'chat-empty-model'
+  model.textContent = option?.dataset.model
+    ? `${image ? '生圖模型' : '模型'}：${option.dataset.model}`
+    : '先在下方選一顆模型'
+  el.replaceChildren(title, model)
 }
 
 /**
@@ -462,12 +485,46 @@ function buildImageRow(urls, names) {
       loadImage(name).then((dataUrl) => {
         if (!img.isConnected) return
         if (dataUrl) img.src = dataUrl
-        else img.remove()
+        else wrap.remove()
       })
     }
-    row.appendChild(img)
+    const wrap = document.createElement('span')
+    wrap.className = 'chat-img-wrap'
+    wrap.append(img, buildImageDownload(name))
+    row.appendChild(wrap)
   }
   return row
+}
+
+/**
+ * 圖片右上角的下載鈕（只有已落檔、有檔名的圖才有）
+ * @param {string} name
+ * @returns {HTMLButtonElement}
+ */
+function buildImageDownload(name) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'chat-img-download'
+  btn.title = '下載圖片'
+  btn.setAttribute('aria-label', '下載圖片')
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14')
+  svg.appendChild(path)
+  btn.appendChild(svg)
+  btn.addEventListener('click', async (event) => {
+    event.stopPropagation()
+    try {
+      const result = await electronAPI.chat.saveImage(name)
+      if (result?.saved) showToast('已下載圖片')
+      else if (result && !result.ok) showToast(result.error || '下載失敗', 'error')
+    } catch (e) {
+      showToast(cleanIpcError(e), 'error')
+    }
+  })
+  return btn
 }
 
 /**
@@ -698,7 +755,8 @@ function startEdit(wrap, index) {
   }
   const submit = async () => {
     save.disabled = true
-    const conv = await electronAPI.chat.editMessage(convId, index, area.value)
+    // 丟例外也要把送出鈕放回來
+    const conv = await electronAPI.chat.editMessage(convId, index, area.value).catch(() => null)
     if (!conv) {
       save.disabled = false
       showToast('這則訊息現在不能編輯', 'error')
@@ -758,9 +816,9 @@ function armMessageDelete(btn, index) {
   clearTimeout(Number(btn.dataset.timer))
   const convId = currentId
   void (async () => {
-    const ok = await electronAPI.chat.deleteMessage(convId, index)
+    const ok = await electronAPI.chat.deleteMessage(convId, index).catch(() => false)
     if (!ok) showToast('這則訊息現在不能刪除', 'error')
-    const conv = await electronAPI.chat.get(convId)
+    const conv = await electronAPI.chat.get(convId).catch(() => null)
     if (conv && convId === currentId) showConversation(conv)
     await sidebar.reload()
   })()
@@ -777,12 +835,12 @@ function initComposer() {
   inputEl.addEventListener('blur', () => composerEl?.classList.remove('is-focused'))
   attachBtn?.addEventListener('click', () => fileInput?.click())
   fileInput?.addEventListener('change', onFilePicked)
-  thinkBtn?.addEventListener('click', toggleThinking)
   if (composerEl) {
     composerEl.addEventListener('dragover', onDragOver)
     composerEl.addEventListener('dragleave', onDragLeave)
     composerEl.addEventListener('drop', onDrop)
   }
+  initComposerMenus()
   autoGrowInput()
 }
 
@@ -948,19 +1006,6 @@ function renderAttachments() {
 function clearAttachments() {
   attachments = []
   renderAttachments()
-}
-
-async function toggleThinking() {
-  if (!thinkBtn) return
-  const next = thinkBtn.getAttribute('aria-pressed') !== 'true'
-  thinkBtn.setAttribute('aria-pressed', String(next))
-  await electronAPI.store.set('chatThinking', next)
-}
-
-async function refreshThinkToggle() {
-  if (!thinkBtn) return
-  const on = await electronAPI.store.get('chatThinking', false)
-  thinkBtn.setAttribute('aria-pressed', String(on === true))
 }
 
 // ===== 送出與串流 =====
@@ -1132,6 +1177,7 @@ async function refreshModelSelect() {
       index += 1
       option.dataset.providerId = provider.id
       option.dataset.model = model
+      if (imageSet.has(model)) option.dataset.image = '1'
       // 生圖模型在選單裡標出來，不然選到之後只會覺得「怎麼回了一張圖」
       option.textContent = imageSet.has(model) ? `🖼 ${model}` : model
       if (provider.id === activeProviderId && model === currentModel) {
@@ -1153,6 +1199,22 @@ async function refreshModelSelect() {
     modelSelect.prepend(placeholder)
   }
   modelSelect.disabled = index === 0
+  syncModelKind()
+}
+
+/** 生圖模型：輸入列換成生圖選項、提示字改成描述圖片 */
+function syncModelKind() {
+  const option = modelSelect?.selectedOptions?.[0]
+  const image = option?.dataset.image === '1'
+  setImageMode(image)
+  composerEl?.classList.toggle('is-image-model', image)
+  if (inputEl) {
+    inputEl.placeholder = image
+      ? '描述想生成的圖片…（附上圖片＝參考圖；不附則接著改上一張）'
+      : '輸入訊息…（可貼上或拖入圖片）'
+  }
+  const empty = messagesEl?.querySelector('.chat-empty')
+  if (empty) fillEmpty(empty)
 }
 
 async function handleModelChange() {
@@ -1162,6 +1224,7 @@ async function handleModelChange() {
   // 先寫 model 的話它會對著舊供應商的清單檢查，然後被收斂成別的模型。
   await electronAPI.store.set('chatProviderId', option.dataset.providerId || '')
   await electronAPI.store.set('chatModelId', option.dataset.model || '')
+  syncModelKind()
   await refreshBanner()
 }
 
@@ -1363,7 +1426,11 @@ function appendModelRow(value, options = {}) {
   remove.title = '移除'
   remove.setAttribute('aria-label', '移除模型')
   remove.textContent = '−'
-  remove.addEventListener('click', () => row.remove())
+  remove.addEventListener('click', () => {
+    row.remove()
+    // 列已拔掉，冒泡到設定頁的 click 找不到 #set-cloud，自動儲存不會觸發：改由清單自己發
+    modelListEl?.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   row.append(input, type, remove)
   modelListEl.appendChild(row)
   initCustomSelects(row)

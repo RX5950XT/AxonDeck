@@ -129,15 +129,17 @@ async function listSessions() {
 
 /** 刪工作樹前只讀宿主快照；不掃 AI 紀錄，也不啟動新的宿主。 */
 async function listRunningUnder(req) {
-  const path = require('path').win32
+  // Windows 路徑不分大小寫；Linux 走 posix、照原樣比對
+  const path = IN_PROCESS ? require('path').posix : require('path').win32
   if (typeof req?.path !== 'string' || !path.isAbsolute(req.path) || /[\0\r\n]/.test(req.path)) {
     throw Object.assign(new Error('BAD_PATH'), { code: 'BAD_PATH', userMessage: '工作樹路徑不合法' })
   }
-  const normalize = (value) => path.resolve(value).toLowerCase()
+  const normalize = (value) => (IN_PROCESS ? path.resolve(value) : path.resolve(value).toLowerCase())
   const root = normalize(req.path)
   const prefix = root.endsWith(path.sep) ? root : root + path.sep
   const items = await store.list()
-  const states = await getClient().request('list')
+  // Linux 的終端機跑在 App 裡（沒有宿主程序）：直接讀 PTY 的狀態，不要去連 Windows 宿主
+  const states = IN_PROCESS ? terminal.sessionStates() : await getClient().request('list')
   if (states !== null && !Array.isArray(states)) {
     throw Object.assign(new Error('HOST_STATE'), { code: 'HOST_STATE', userMessage: '讀不到終端機狀態，暫時無法移除工作樹' })
   }

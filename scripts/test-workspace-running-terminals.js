@@ -13,7 +13,7 @@ async function test(name, run) {
   console.log(`  PASS ${name}`)
 }
 
-function harness(items, states) {
+function harness(items, states, platform = 'win32') {
   const requests = []
   const denied = new Proxy({}, { get: (_, name) => () => assert.fail(`唯讀查詢不可呼叫 ${String(name)}`) })
   const state = { items, states, error: null }
@@ -32,13 +32,17 @@ function harness(items, states) {
     write() { assert.fail('不可寫入終端機') }
     kill() { assert.fail('不可結束終端機') }
   }
-  const mocks = { './store': store, './pty': denied, './links': denied, './foreground': denied,
+  // Linux：終端機在 App 內（IN_PROCESS），只能讀 pty.sessionStates，不可碰 Windows 宿主
+  const pty = platform === 'win32' ? denied : new Proxy({ sessionStates: () => { requests.push(['sessionStates']); return state.states } }, {
+    get: (target, name) => name in target ? target[name] : denied[name]
+  })
+  const mocks = { './store': store, './pty': pty, './links': denied, './foreground': denied,
     './editor-bridge': denied, './clipboard-image': denied, './background': denied,
     './claude-hooks': denied, '../workspace/agents': denied, './host-client': { HostClient },
     './agent-activity': { createActivity: () => denied, shellCommandOpen: denied.shellCommandOpen },
     './agent-resume': { createTracker: () => denied }, path,
     electron: { app: { getPath: key => { assert.equal(key, 'userData'); return 'D:\\isolated-test' } } } }
-  const context = { module: { exports: {} }, require: name => {
+  const context = { module: { exports: {} }, process: { platform, env: {} }, require: name => {
     assert.ok(name in mocks, `不可載入真實模組：${name}`)
     return mocks[name]
   } }
@@ -125,10 +129,26 @@ async function errors() {
   })
 }
 
+async function linux() {
+  await test('Linux：讀 App 內的 PTY 狀態、不連宿主，路徑區分大小寫', async () => {
+    const h = harness([], [{ id: 'inside', state: 'running', cwd: '/home/u/repo/wt-1/src' },
+      { id: 'case', state: 'running', cwd: '/home/u/repo/WT-1' },
+      { id: 'neighbor', state: 'idle', cwd: '/home/u/repo/wt-10' }], 'linux')
+    assert.equal((await h.list({ path: '/home/u/repo/wt-1/' })).map(item => item.id).join(','), 'inside')
+    assert.equal(JSON.stringify(h.requests), JSON.stringify([['sessionStates']]))
+  })
+  await test('Linux：相對路徑與控制字元一樣擋下', async () => {
+    const h = harness([], [], 'linux')
+    for (const req of [{ path: 'relative' }, { path: '/repo\n' }]) await assert.rejects(h.list(req), { code: 'BAD_PATH' })
+    assert.equal(h.requests.length, 0)
+  })
+}
+
 async function main() {
   await paths()
   await metadata()
   await errors()
+  await linux()
   console.log(`\n${passed} passed, 0 failed`)
 }
 

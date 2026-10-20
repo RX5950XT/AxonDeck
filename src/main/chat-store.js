@@ -709,9 +709,7 @@ module.exports = {
   updateFolder,
   removeFolder,
   moveToFolder,
-  pruneImages,
   MAX_CONVERSATIONS,
   MAX_MESSAGES,
   MAX_CONTENT,
-  MAX_FOLDERS
 }

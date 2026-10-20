@@ -12,6 +12,9 @@
 
 const fs = require('fs')
 const path = require('path')
+const toml = require('smol-toml')
+const assert = require('assert/strict')
+const { editMcpToml } = require('../src/main/ccswitch/toml-edit')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
 const ROOT = path.join(__dirname, '..')
@@ -51,6 +54,67 @@ homes.configure({
     set: (key, value) => { bag.set(key, value) }
   })
 })
+
+async function preservedToml(eol, bom, ending) {
+  const file = path.join(codexHome, 'config.toml')
+  const prefix = bom + '# 我的模型註解' + eol + 'model  =  "gpt-6.1-sol" # 保留順序' + eol + eol
+  const first = '[mcp_servers.first]' + eol + 'command="node" # 不要洗掉' + eol + eol
+  const target = '[mcp_servers."my.server"]' + eol + 'command="old"' + eol +
+    '[mcp_servers."my.server".env]' + eol + 'KEY="value"' + eol
+  const tail = eol + '# 專案的註解' + eol + "[projects.'C:\\work']" + eol + 'trust_level="trusted"' + ending
+  fs.writeFileSync(file, prefix + first + target + tail)
+  await homes.upsert('codex', 'my.server', { command: 'new', env: { KEY: 'new-value' } })
+  let raw = fs.readFileSync(file, 'utf8')
+  const tag = `${eol === '\r\n' ? 'CRLF' : 'LF'}／${bom ? 'BOM' : '無 BOM'}／${ending ? '尾換行' : '無尾換行'}`
+  ok(`${tag} 修改只換目標含子表`, raw.startsWith(prefix + first) && raw.endsWith(tail) && raw.includes('new-value') && !raw.includes('"old"'))
+  const changed = raw.slice((prefix + first).length, -tail.length)
+  ok(`${tag} 換行未混用`, eol === '\n' ? !raw.includes('\r') : !raw.replace(/\r\n/g, '').includes('\n'))
+  await homes.upsert('codex', 'added', { command: 'node', args: ['-v'] })
+  raw = fs.readFileSync(file, 'utf8')
+  ok(`${tag} 新增在最後 MCP 後，其他位元組保留`, raw.startsWith(prefix + first + changed) && raw.endsWith(tail) && raw.indexOf('[mcp_servers.added]') < raw.indexOf('[projects.'))
+  await homes.remove('codex', 'my.server')
+  raw = fs.readFileSync(file, 'utf8')
+  ok(`${tag} 刪除含子表`, raw.startsWith(prefix + first) && raw.endsWith(tail) && !raw.includes('my.server'))
+}
+
+function unsafeTomlFallbacks() {
+  const forms = [
+    'mcp_servers = { demo = { command = "old" } }',
+    '[mcp_servers]\ndemo.command = "old"',
+    '[mcp_servers.demo]\ncommand="old"\n[unrelated]\nkey=1\n[mcp_servers.demo.env]\nA="b"',
+    '[mcp_servers.demo]\ncommand="old"\n[[mcp_servers.demo.nested]]\nkey="value"'
+  ]
+  for (const form of forms) {
+    const raw = '# fallback 哨兵\n' + form + '\n'
+    const root = toml.parse(raw)
+    const expected = { ...root, mcp_servers: { ...root.mcp_servers, demo: { ...root.mcp_servers.demo, command: 'new' } } }
+    const text = editMcpToml(raw, expected)
+    ok(`不安全切塊退回完整重寫：${form.split('\n')[0]}`, text === toml.stringify(expected) && !text.includes('fallback 哨兵'))
+  }
+  const raw = '# 必須保留\nmodel="old"\n'
+  assert.throws(() => editMcpToml(raw, { model: 'old', mcp_servers: { bad: { command: undefined } } }), /MCP_HOME_TOML_STRINGIFY/)
+  ok('驗證失敗不產生可寫回文字', true)
+}
+
+function otherTomlBoundaries() {
+  for (const raw of ['', '\uFEFF', '# top\nmodel="x"', '# top\r\nmodel="x"\r\n']) {
+    const expected = { ...toml.parse(raw.replace(/^\uFEFF/, '')), mcp_servers: { added: { command: 'node' } } }
+    const text = editMcpToml(raw, expected)
+    ok('沒有 MCP 時原文字保留，接檔尾且保留尾換行', text.startsWith(raw) && text.endsWith('\n') === raw.endsWith('\n') && text.includes('[mcp_servers.added]'))
+  }
+  const raw = 'note="""\n[mcp_servers.fake]\n"""\n# keep\n[mcp_servers.real]\ncommand="old"\n\n# unrelated\n[other]\nkey=3\n'
+  const expected = { ...toml.parse(raw), mcp_servers: { real: { command: 'new' } } }
+  const text = editMcpToml(raw, expected)
+  ok('多行字串內的假表頭不拿來切塊', text.startsWith(raw.slice(0, raw.indexOf('[mcp_servers.real]'))) && text.endsWith('\n\n# unrelated\n[other]\nkey=3\n'))
+  const quoted = '[mcp_servers.\'my.server\']\ncommand="node"\n[mcp_servers.\'my.server\'.headers]\nA="old"\n'
+  const next = { mcp_servers: { 'my.server': { command: 'new', headers: { A: 'new' } } } }
+  ok('單引號 id 與 headers 子表可一起替換', editMcpToml(quoted, next).includes('[mcp_servers."my.server".headers]'))
+  ok('內容相同不動任何位元組', editMcpToml(quoted, toml.parse(quoted)) === quoted)
+  const prefix = '# keep\nnote="""\n文字""""\n\n[[other]]\nkey=3\n\n'
+  const tricky = prefix + '[mcp_servers.real]\ncommand="old"\n'
+  const replaced = editMcpToml(tricky, { ...toml.parse(tricky), mcp_servers: { real: { command: 'new' } } })
+  ok('多行字串尾端引號與非 MCP array of tables 保留原文', replaced.startsWith(prefix) && replaced.includes('command = "new"'))
+}
 
 async function asyncSections() {
 try {
@@ -175,6 +239,14 @@ try {
     await homes.toggle('opencode', 'remote1', true)
     ok('重開寫回 enabled', JSON.parse(fs.readFileSync(file, 'utf8')).mcp.remote1.enabled === true)
   }
+  console.log('\n[F] TOML 局部寫回保留原文')
+  for (const eol of ['\n', '\r\n']) {
+    for (const bom of ['', '\uFEFF']) {
+      for (const ending of ['', eol]) await preservedToml(eol, bom, ending)
+    }
+  }
+  unsafeTomlFallbacks()
+  otherTomlBoundaries()
 } finally {
     if (prevCodex === undefined) delete process.env.CODEX_HOME
     else process.env.CODEX_HOME = prevCodex

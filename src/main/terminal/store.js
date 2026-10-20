@@ -521,7 +521,6 @@ module.exports = {
   normalizeProjectId,
   normalizeCwd,
   normalizeTitle,
-  defaultTitle,
   sanitizeAll,
   list,
   get,

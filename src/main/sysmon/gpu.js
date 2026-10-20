@@ -66,9 +66,10 @@ function createGpuFeed(deps = {}) {
         `--query-gpu=${QUERY}`,
         '--format=csv,noheader,nounits',
         `-l`, String(intervalSec)
-        // detached（DETACHED_PROCESS）：主控台程式不另外掛一顆隱形 conhost.exe（實測少一個程序、約 9MB）；
-        // 輸出一樣走管道，收掉一樣靠 stop() 的 kill
-      ], { windowsHide: true, detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+        // 不可 detached：detached 會跳出 libuv 的 kill-on-close job，App 當掉、強制結束或更新重啟沒走到
+        // before-quit 時，這顆就變孤兒一直輪詢（實測一台機器累積 5 顆、各 15MB，跑了好幾天）。
+        // 代價是多一顆隱形 conhost（約 9MB），只在系統監控頁開著時存在
+      ], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
     } catch {
       available = false
       return

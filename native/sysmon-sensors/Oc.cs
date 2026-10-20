@@ -657,13 +657,13 @@ namespace AxonDeckSensors
 
         private static string Num(float value)
         {
-            if (float.IsNaN(value) || value == 0) return "null";
+            if (!float.IsFinite(value) || value == 0) return "null";
             return value.ToString("0.###", CultureInfo.InvariantCulture);
         }
 
         private static string NumZero(float value)
         {
-            if (float.IsNaN(value) || value < 0) return "null";
+            if (!float.IsFinite(value) || value < 0) return "null";
             return value.ToString("0.###", CultureInfo.InvariantCulture);
         }
 

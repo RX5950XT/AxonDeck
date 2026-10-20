@@ -1,6 +1,7 @@
 import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
-import { renderMarkdown } from './markdown.js'
+import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
+import { renderMarkdown, resolveLinkPath } from './markdown.js'
 import { showMenu } from './ws-menu.js'
 import { askInput } from './app-dialog.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
@@ -14,8 +15,11 @@ import {
 import { paintAiSession, startAiSessionWatch, stopAiSessionWatch } from './ws-ai-session.js'
 import { initAiSessionFind, closeAiSessionFind } from './ws-ai-session-find.js'
 import { nextZoom } from './ws-zoom.js'
+import { renderOffice, SIMPLE_EXTS, SHEET_EXTS } from './ws-office.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { terminalLabel, terminalTabTitle } from './term-title.js'
+import { terminalStatuses } from './ws-terminal-status.js'
+import { watchWorktreeSetup } from './ws-worktree-flow.js'
 import {
   addComment, listComments, removeComment, clearComments, countComments,
   formatComments, sendToChat
@@ -51,6 +55,8 @@ const MAX_TAB_TITLE = 28
  *   image?: string,
  *   imageBase?: string,
  *   pdf?: string,
+ *   office?: string,
+ *   officeMode?: 'layout' | 'simple',
  *   audio?: string,
  *   video?: string,
  *   unsupported?: boolean,
@@ -63,6 +69,7 @@ const MAX_TAB_TITLE = 28
  *   admin?: boolean,
  *   cwd?: string,
  *   unread?: boolean,
+ *   context?: { used: number, max: number | null } | null,
  *   diffData?: { diff: string, additions: number, deletions: number },
  *   diffView?: boolean,
  *   loadError?: string,
@@ -75,19 +82,14 @@ const MAX_TAB_TITLE = 28
 /** @type {WsTab[]} */
 let tabs = []
 let activeId = ''
+/** 最近切到的終端機分頁（審查意見「貼到終端機」貼給它） */
+let lastTerminalId = ''
 let initialized = false
 let browserSeq = 0
 let persistTimer = 0
 let projectSwitch = 0
 /** 切走專案時停放的瀏覽器 webview，key = projectId::tabId */
 const parkedBrowsers = new Set()
-// 目前專案裡切到背景（hidden）的瀏覽器分頁，閒置超過這麼久就拆掉 webview（一顆約 100–300MB），
-// 分頁本身留著，點回來 paintBrowser 照 tab.url 重建。停放的別專案不碰：它們換頁不會寫回 tab.url。
-// ponytail: 固定 10 分鐘、每分鐘掃一次；要可調再進設定
-const BROWSER_IDLE_MS = 10 * 60 * 1000
-/** @type {WeakMap<Element, number>} */
-const browserHiddenSince = new WeakMap()
-let browserSweepTimer = 0
 
 /** 目前選定的專案（由 workspace-page 設定，用來決定新終端機的 cwd） */
 let project = null
@@ -386,6 +388,11 @@ function renderTabs() {
       status.className = tab.state === 'waiting' ? 'ws-tab-status-label is-waiting' : 'ws-tab-status-label'
       status.textContent = tab.stateLabel || '已停止'
       open.appendChild(status)
+      const ctx = document.createElement('span')
+      ctx.className = 'ws-tab-context'
+      ctx.textContent = contextText(tab.context)
+      ctx.hidden = !tab.context
+      open.appendChild(ctx)
     }
     if (tab.dirty) {
       const dot = document.createElement('span')
@@ -440,8 +447,21 @@ function tabTooltip(tab) {
   const parts = [tab.title]
   if (tab.stateLabel) parts.push(tab.stateLabel)
   if (tab.admin) parts.push('管理員')
+  if (tab.context) {
+    const { used, max } = tab.context
+    parts.push(`上下文 ${used.toLocaleString()}${max ? ` / ${max.toLocaleString()}` : ''} tokens`)
+  }
   if (tab.cwd) parts.push(tab.cwd)
   return parts.join(' · ')
+}
+
+/**
+ * 分頁上那一小段上下文用量：記錄有給上限（Codex）畫百分比，沒有（Claude）只寫用了幾 K。
+ * @param {{ used: number, max: number | null } | null | undefined} ctx
+ */
+function contextText(ctx) {
+  if (!ctx) return ''
+  return ctx.max ? `${Math.min(100, Math.round((ctx.used / ctx.max) * 100))}%` : `${Math.round(ctx.used / 1000)}K`
 }
 
 /**
@@ -782,6 +802,7 @@ async function activate(id) {
   if (tab.kind !== 'ai-session') stopAiSessionWatch()
 
   if (tab.kind === 'terminal') {
+    lastTerminalId = id
     // 終端機那一格由 terminal-page 管；它會自己 showSurface('terminal')
     const mod = await import('./terminal-page.js')
     if (generation !== projectSwitch || activeId !== id || findTab(id) !== tab) return
@@ -854,7 +875,7 @@ export function retargetTabs(projectId, fromRel, toRel) {
       : oldId
     retargetModel(oldId, tab.id)
     tab.relPath = nextRel
-    for (const key of ['image', 'video', 'imageBase', 'pdf', 'audio']) {
+    for (const key of ['image', 'video', 'imageBase', 'pdf', 'office', 'audio']) {
       if (!tab[key]) continue
       const url = new URL(tab[key])
       url.pathname = `${url.pathname.split('/').slice(0, 2).join('/')}/${nextRel.split('/').map(encodeURIComponent).join('/')}`
@@ -1016,14 +1037,15 @@ export function paintTerminalTab(id, meta) {
   if (!tab) return
   // 有沒有在並排顯示只影響右鍵選單那一行字，不必重畫分頁
   tab.split = meta.split === true
-  const before = `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}`
+  const before = `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}|${contextText(tab.context)}`
   tab.title = meta.title || tab.title
   tab.state = meta.state
   tab.stateLabel = meta.stateLabel
   tab.admin = meta.admin
   tab.cwd = meta.cwd
   tab.unread = meta.unread
-  if (before === `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}`) return
+  tab.context = meta.context || null
+  if (before === `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}|${contextText(tab.context)}`) return
   const row = el.strip?.querySelector(`.ws-tab[data-id="${CSS.escape(id)}"]`)
   const open = row?.querySelector('.ws-tab-open')
   if (open) {
@@ -1034,6 +1056,11 @@ export function paintTerminalTab(id, meta) {
     if (status) {
       status.textContent = tab.stateLabel
       status.classList.toggle('is-waiting', tab.state === 'waiting')
+    }
+    const ctx = /** @type {HTMLElement | null} */ (open.querySelector('.ws-tab-context'))
+    if (ctx) {
+      ctx.textContent = contextText(tab.context)
+      ctx.hidden = !tab.context
     }
     const label = open.querySelector('.ws-tab-label')
     if (label && renamingId !== id) label.textContent = terminalLabel(tab.title, MAX_TAB_TITLE)
@@ -1118,6 +1145,7 @@ const PREVIEWABLE_EXTS = ['md', 'markdown', 'html', 'htm', 'svg']
  */
 function readonlyNote(file, isSvg) {
   return file.pdf ? 'PDF 預覽，不能在這裡編輯。'
+    : file.office ? 'Office 文件預覽，不能在這裡編輯。'
     : file.audio ? '音訊預覽，不能在這裡編輯。'
     : file.video ? '影片預覽，不能在這裡編輯。'
     : file.image && !isSvg ? '圖片預覽，不能在這裡編輯。'
@@ -1218,13 +1246,15 @@ export async function openWithSystem(projectId, relPath) {
  *
  * @param {string} relPath
  */
-export async function runInTerminal(relPath) {
+export async function runInTerminal(relPath, options = {}) {
   const rel = String(relPath || '')
   // 送進終端機的是「按鍵」，換行＝直接執行下一行，一定要擋
   if (!rel || /[\r\n]/.test(rel)) return
   const name = rel.split('/').pop() || rel
   const runner = { js: 'node', mjs: 'node', py: 'python', jar: 'java -jar', sh: 'bash' }[extOf(rel)] || '&'
-  await newTerminalWithCommand(`執行 ${name}`, `${runner} './${rel.replace(/'/g, "''")}'`)
+  const result = await newTerminalWithCommand(`執行 ${name}`, `${runner} './${rel.replace(/['\u2018-\u201b]/g, '$&$&')}'`, undefined,
+    options.setupProjectId ? '' : isLaunchScript(rel) ? rel : '', options.setupProjectId)
+  return result
 }
 
 /**
@@ -1265,7 +1295,7 @@ export async function openEditorTab(proj, relPath, line = 0) {
     return
   }
 
-  const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.audio && !file.video) || file.tooLarge)
+  const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || file.tooLarge)
   const isSvg = extOf(relPath) === 'svg'
 
   /** @type {WsTab} */
@@ -1277,11 +1307,12 @@ export async function openEditorTab(proj, relPath, line = 0) {
     relPath,
     content: file.content || '',
     dirty: false,
-    preview: Boolean(file.image || file.pdf || file.audio || file.video)
+    preview: Boolean(file.image || file.pdf || file.office || file.audio || file.video)
       || (!unsupported && PREVIEWABLE_EXTS.includes(extOf(relPath))),
     image: file.image || '',
     imageBase: file.imageBase || '',
     pdf: file.pdf || '',
+    office: file.office || '',
     audio: file.audio || '',
     video: file.video || '',
     unsupported,
@@ -1527,11 +1558,14 @@ function paintEditor(tab) {
 
   const ext = extOf(tab.relPath || '')
   const previewable = PREVIEWABLE_EXTS.includes(ext)
-  const isMedia = Boolean(tab.image || tab.pdf || tab.audio || tab.video)
+  const isMedia = Boolean(tab.image || tab.pdf || tab.office || tab.audio || tab.video)
 
   if (el.editorPreviewBtn) {
-    el.editorPreviewBtn.hidden = (!previewable && !isMedia) || (isMedia && ext !== 'svg')
-    el.editorPreviewBtn.textContent = tab.preview ? '編輯' : '預覽'
+    // Office 文件這顆鈕換成「原始版面／簡易檢視」切換（doc／ppt 只有原始版面，不給切）
+    el.editorPreviewBtn.hidden = tab.office ? !SIMPLE_EXTS.has(ext)
+      : (!previewable && !isMedia) || (isMedia && ext !== 'svg')
+    el.editorPreviewBtn.textContent = tab.office ? (officeModeOf(tab) === 'layout' ? '簡易檢視' : '原始版面')
+      : tab.preview ? '編輯' : '預覽'
   }
   if (el.editorSaveBtn) {
     el.editorSaveBtn.hidden = Boolean(tab.readonly)
@@ -1625,7 +1659,7 @@ function releasePreviewMedia(box) {
  * 預覽區比對用的 `previewKey.source`。分頁物件被丟掉了，這幾格沒人清，
  * 1.4MB 的檔就這樣一直留在記憶體裡。
  */
-function resetEditorSurface() {
+function resetEditorSurface(keepEditors = false) {
   cancelShadowSync()
   const text = /** @type {HTMLTextAreaElement | null} */ (el.editorText)
   if (text) text.value = ''
@@ -1638,7 +1672,7 @@ function resetEditorSurface() {
   // 自繪的逐行 diff：一份大變更就是好幾萬個 DOM 節點，沒人收就一直掛著
   if (el.diffContent) el.diffContent.replaceChildren()
   // 一個分頁都不剩了，兩顆 Monaco 編輯器空殼也沒必要留（下次開檔會重建）
-  if (monaco) releaseEditors()
+  if (monaco) releaseEditors(keepEditors)
   hideExtBanner()
 }
 
@@ -1685,7 +1719,7 @@ function paintPreview(tab) {
   const on = Boolean(tab.preview)
   const ext = extOf(tab.relPath || '')
   const nextIsPdf = Boolean(tab.pdf)
-  const previewOnly = Boolean((tab.image || tab.pdf || tab.audio || tab.video) && ext !== 'svg')
+  const previewOnly = Boolean((tab.image || tab.pdf || tab.office || tab.audio || tab.video) && ext !== 'svg')
   if (el.editorFindBtn) {
     el.editorFindBtn.hidden = previewOnly
     el.editorFindBtn.title = on ? '切到編輯並尋找 (Ctrl+F)' : '尋找與取代 (Ctrl+F)'
@@ -1703,7 +1737,7 @@ function paintPreview(tab) {
   // 已經是同一個分頁、同一份內容就不重畫。以前每次切回來都要重跑一次
   // Markdown 解析／重建 iframe／把整份 PDF 從 base64 解出來再重新排版一次。
   // 比的是內容字串本身（不是長度）：同長度的修改也要重畫。
-  const source = tab.pdf || tab.audio || tab.video || tab.image || (tab.content || '')
+  const source = tab.pdf || (tab.office ? `${tab.office}#${officeModeOf(tab)}` : '') || tab.audio || tab.video || tab.image || (tab.content || '')
   if (previewKey.id === tab.id && previewKey.source === source && box.firstChild) {
     previewIsPdf = nextIsPdf
     ensurePreviewZoom(box)
@@ -1719,6 +1753,10 @@ function paintPreview(tab) {
 
   if (tab.pdf) {
     void paintPdf(tab, box, generation)
+    return
+  }
+  if (tab.office) {
+    void paintOffice(tab, box, generation, ext)
     return
   }
   if (tab.audio || tab.video) {
@@ -1757,7 +1795,81 @@ function paintPreview(tab) {
     box.replaceChildren(frame)
     return
   }
-  box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || ''))
+  box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || '', {
+    html: true,
+    openLink: (link) => openPreviewLink(tab, link)
+  }))
+}
+
+/** 預覽裡點到相對路徑連結：照這份 Markdown 所在資料夾解成專案內路徑；資料夾在檔案樹選起來，檔案開分頁 */
+function openPreviewLink(tab, link) {
+  const target = resolveLinkPath(tab.relPath || '', link)
+  if (!target || !project || project.id !== tab.projectId) {
+    showToast('這個連結指到專案外面，沒有開', 'error')
+    return
+  }
+  if (target.dir) {
+    document.dispatchEvent(new CustomEvent('ws:active-file', {
+      detail: { projectId: project.id, rel: target.path, dir: true }
+    }))
+    return
+  }
+  void openEditorTab(project, target.path)
+}
+
+/** Office 文件預設怎麼看：試算表看表格，其他照原始版面 */
+function officeModeOf(tab) {
+  if (!tab.officeMode) tab.officeMode = SHEET_EXTS.has(extOf(tab.relPath || '')) ? 'simple' : 'layout'
+  return tab.officeMode
+}
+
+/**
+ * Office 文件預覽。「原始版面」請 main 用 Office／LibreOffice 轉成 PDF 再交給 pdf.js；
+ * 轉不了（沒裝、檔案有密碼）而內建畫得出來就退回「簡易檢視」並說明原因。
+ *
+ * @param {WsTab} tab
+ * @param {HTMLElement} box
+ * @param {number} generation
+ * @param {string} ext
+ */
+async function paintOffice(tab, box, generation, ext) {
+  const current = () => generation === previewGeneration && previewKey.id === tab.id
+  /** @param {'pdf' | 'xlsx'} target */
+  const convert = async (target) => {
+    const res = await electronAPI.workspace.convertOffice(tab.projectId, tab.relPath, target)
+    if (!res?.ok) throw new Error(res?.error?.message || '轉檔失敗')
+    return res.data.url
+  }
+  const layout = officeModeOf(tab) === 'layout'
+  box.replaceChildren(hint(layout ? '正在照原始版面排版（第一次開會比較久）…' : '文件載入中…'))
+  let note = ''
+  if (layout) {
+    try {
+      const url = await convert('pdf')
+      if (!current()) return
+      previewIsPdf = true
+      ensurePreviewZoom(box)
+      void paintPdf(tab, box, generation, url)
+      return
+    } catch (err) {
+      if (!current()) return
+      const message = err instanceof Error ? err.message : '轉檔失敗'
+      if (!SIMPLE_EXTS.has(ext)) {
+        box.replaceChildren(hint(`${message}。可以用系統程式開啟這個檔案。`))
+        return
+      }
+      note = `${message}，先用簡易檢視顯示。`
+    }
+  }
+  try {
+    const node = await renderOffice(tab.office || '', ext, { convertXlsx: () => convert('xlsx') })
+    if (!current()) return
+    if (note) node.prepend(hint(note))
+    box.replaceChildren(node)
+  } catch (err) {
+    console.warn('[工作區] Office 預覽失敗', err)
+    if (current()) box.replaceChildren(hint(`這份文件打不開（${err instanceof Error ? err.message : '格式不支援'}），可以用系統程式開啟。`))
+  }
 }
 
 /** pdf.js 只在真的開了 PDF 才載（那支 min 檔快 500KB，不該進開機路徑） */
@@ -1776,9 +1888,10 @@ let pdfLib = null
  * @param {WsTab} tab
  * @param {HTMLElement} box
  * @param {number} generation
+ * @param {string} [url] 要畫的 PDF；Office 文件給的是轉出來的那份
  */
-async function paintPdf(tab, box, generation) {
-  const source = tab.pdf || ''
+async function paintPdf(tab, box, generation, url = tab.pdf || '') {
+  const source = previewKey.source
   const isCurrent = () => generation === previewGeneration
     && previewKey.id === tab.id
     && previewKey.source === source
@@ -1797,7 +1910,7 @@ async function paintPdf(tab, box, generation) {
     // `tab.pdf` 是 main 給的 `vi-media://` 網址：pdf.js 用 Range 只讀看得到的那幾頁
     // （關掉串流與自動預抓，幾百 MB 的 PDF 也不會整份搬進記憶體）
     const doc = await pdfLib.getDocument({
-      url: tab.pdf || '', isEvalSupported: false, disableStream: true, disableAutoFetch: true
+      url, isEvalSupported: false, disableStream: true, disableAutoFetch: true
     }).promise
     if (!isCurrent()) { await destroyPdfDocument(doc); return }
     let page = 1
@@ -1905,6 +2018,27 @@ function hint(text) {
  * @param {boolean} [force] true＝使用者按過「覆寫」，不帶版本硬寫
  */
 async function saveActiveFile(force = false) {
+  const tab = findTab(activeId)
+  if (!tab) return
+  // 連按 Ctrl+S：第二次帶的是第一次寫入前的 mtime，會被 main 當成 STALE 擋下。等前一次寫完再存一次
+  if (tab.saving) {
+    tab.saveAgain = true
+    return
+  }
+  tab.saving = true
+  try {
+    await saveFileNow(force)
+  } finally {
+    tab.saving = false
+    if (tab.saveAgain) {
+      tab.saveAgain = false
+      if (findTab(activeId) === tab) void saveActiveFile()
+    }
+  }
+}
+
+/** @param {boolean} force */
+async function saveFileNow(force) {
   const tab = findTab(activeId)
   const text = /** @type {HTMLTextAreaElement | null} */ (el.editorText)
   if (!tab || tab.kind !== 'editor' || !text || tab.readonly) return
@@ -2250,6 +2384,7 @@ function paintReviewCount(tab) {
   if (el.reviewCount) el.reviewCount.textContent = `${total} 則意見`
   const empty = total === 0
   if (el.reviewToAiBtn) /** @type {HTMLButtonElement} */ (el.reviewToAiBtn).disabled = empty
+  if (el.reviewToTermBtn) /** @type {HTMLButtonElement} */ (el.reviewToTermBtn).disabled = empty
   if (el.reviewClearBtn) /** @type {HTMLButtonElement} */ (el.reviewClearBtn).disabled = empty
 }
 
@@ -2342,6 +2477,32 @@ function reviewToAi() {
   showToast('意見已經帶進聊天輸入框')
 }
 
+/**
+ * 把整包意見貼進這個專案最近用的 AI 終端機（參考 paseo 的 review 附件），只填入不送出。
+ * 純 shell 不收：多行文字貼進 pwsh 每一行都會被當指令執行。
+ */
+async function reviewToTerminal() {
+  const tab = findTab(activeId)
+  const projectId = tab?.projectId || project?.id || ''
+  const text = projectId ? formatComments(projectId, tab?.reviewRef || '') : ''
+  if (!text) {
+    showToast('還沒有任何意見', 'error')
+    return
+  }
+  const agents = new Set(terminalStatuses()
+    .filter((row) => row.preset && row.preset !== 'shell' && !['exited', 'stopped'].includes(row.state)).map((row) => row.id))
+  const terms = tabs.filter((row) => row.kind === 'terminal' && agents.has(row.id))
+  const target = terms.find((row) => row.id === lastTerminalId) || terms[terms.length - 1]
+  if (!target) {
+    showToast('這個專案沒有開著的 AI 終端機', 'error')
+    return
+  }
+  await activate(target.id)
+  const mod = await import('./terminal-page.js')
+  if (mod.pasteIntoTerminal(target.id, text)) showToast('意見已經貼進終端機，確認後按 Enter 送出')
+  else showToast('貼不進終端機', 'error')
+}
+
 /** 把編輯器裡選取的那幾行帶進聊天 */
 function selectionToChat() {
   const tab = findTab(activeId)
@@ -2379,6 +2540,7 @@ function selectionToChat() {
 function safeUrl(raw) {
   const value = String(raw || '').trim()
   if (!value) return ''
+  if (isInternalBrowserUrl(value)) return new URL(value).href
   const parse = (text) => {
     try {
       return new URL(text)
@@ -2530,36 +2692,7 @@ function ensureBrowserGuest(tab) {
     if (activeId === target.id) paintBrowserChrome(target)
   })
   host.appendChild(guest)
-  if (!browserSweepTimer) browserSweepTimer = window.setInterval(sweepBrowserGuests, 60_000)
   return guest
-}
-
-function sweepBrowserGuests() {
-  const nodes = [...(el.browserFrame?.querySelectorAll('webview') || [])]
-  if (!nodes.length) {
-    clearInterval(browserSweepTimer)
-    browserSweepTimer = 0
-    return
-  }
-  const now = Date.now()
-  for (const node of nodes) {
-    const guest = /** @type {any} */ (node)
-    if (!guest.hidden || guest.dataset.projectId !== (project?.id || '') || isAudible(guest)) {
-      browserHiddenSince.delete(guest)
-    } else if (!browserHiddenSince.has(guest)) {
-      browserHiddenSince.set(guest, now)
-    } else if (now - browserHiddenSince.get(guest) >= BROWSER_IDLE_MS) {
-      guest.remove()
-    }
-  }
-}
-
-function isAudible(guest) {
-  try {
-    return !!guest.isCurrentlyAudible()
-  } catch {
-    return false // 還沒載入完的 webview 呼叫會丟錯
-  }
 }
 
 /**
@@ -3004,7 +3137,7 @@ function toggleMenu() {
  * @param {string} preset
  * @param {boolean} admin
  */
-async function newTerminal(preset, admin) {
+async function newTerminal(preset, admin, isActive) {
   try {
     const created = await call(electronAPI.terminal.create({
       preset,
@@ -3014,11 +3147,22 @@ async function newTerminal(preset, admin) {
       projectId: project?.id || '',
       admin
     }), '建立終端機失敗')
+    if (isActive && !isActive()) return
     const mod = await import('./terminal-page.js')
-    await mod.openTerminalSession(created.id)
+    if (isActive && !isActive()) return
+    if (isActive) await mod.openTerminalSession(created.id, isActive)
+    else await mod.openTerminalSession(created.id)
+    if (isActive && !isActive()) return
+    return created.id
   } catch {
     // call 已經吐過 toast
   }
+}
+
+/** 指令面板與 worktree 共用「＋」的建立流程。 */
+export function newPresetTerminal(preset) {
+  const generation = projectSwitch
+  return newTerminal(preset, false, () => generation === projectSwitch)
 }
 
 /** Ctrl+Shift+T：開一個一般終端機（跟「＋ → 終端機」同一條路） */
@@ -3032,17 +3176,33 @@ export function newShellTerminal() {
  * @param {string} command
  * @param {{ agent: string, sessionId: string }} [resumeInfo]
  */
-export async function newTerminalWithCommand(title, command, resumeInfo) {
+export async function newTerminalWithCommand(title, command, resumeInfo, scriptRel = '', setupProjectId = '') {
+  const owner = project
   try {
+    if (setupProjectId && owner?.id !== setupProjectId) throw new Error('PROJECT_CHANGED')
     const created = await call(electronAPI.terminal.create({
+      ...(setupProjectId ? { shell: 'powershell' } : {}),
       preset: resumeInfo?.agent || 'shell',
       ...(resumeInfo ? { agentSessionId: resumeInfo.sessionId } : {}),
-      cwd: project?.path || '',
-      projectId: project?.id || '',
+      cwd: owner?.path || '',
+      projectId: owner?.id || '',
       title
     }), '建立終端機失敗')
+    if (setupProjectId && project?.id !== setupProjectId) throw new Error('PROJECT_CHANGED')
     const mod = await import('./terminal-page.js')
-    await mod.openTerminalSession(created.id)
+    if (setupProjectId) await mod.openTerminalSession(created.id, () => project?.id === setupProjectId)
+    else await mod.openTerminalSession(created.id)
+    if (setupProjectId) {
+      command = await call(electronAPI.workspace.worktreeSetupCommand(setupProjectId, created.id), '準備初始化腳本失敗')
+      if (project?.id !== setupProjectId) throw new Error('PROJECT_CHANGED')
+      const stop = watchWorktreeSetup(electronAPI.terminal, created.id)
+      try {
+        const sent = await electronAPI.terminal.write(created.id, `${command}\r`)
+        if (!sent?.ok || sent.data === false) throw new Error('SETUP_WRITE_FAILED')
+      } catch (error) { stop(); throw error }
+      return created.id
+    }
+    if (scriptRel) command = await call(electronAPI.workspace.scriptCommand(owner?.id || '', scriptRel, created.id), '準備啟動腳本失敗')
     if (!resumeInfo) await electronAPI.terminal.write(created.id, `${command}\r`)
   } catch {
     // call 已經吐過 toast
@@ -3106,7 +3266,7 @@ async function restoreProjectTabs(proj, generation) {
           if (file.nativeMedia && !item.dirty) continue
           const hasDraft = typeof item.draftContent === 'string'
             && (item.dirty === true || Boolean(item.draftContent)) && item.draftContent !== file.content
-          const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.audio && !file.video) || file.tooLarge)
+          const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || file.tooLarge)
           const isSvg = extOf(item.relPath) === 'svg'
           tabs.push({
             id: item.id,
@@ -3117,10 +3277,11 @@ async function restoreProjectTabs(proj, generation) {
             content: hasDraft ? item.draftContent : (file.content || ''),
             savedContent: file.content || '',
             dirty: hasDraft,
-            preview: Boolean(item.preview || (file.image || file.pdf || file.audio || file.video)),
+            preview: Boolean(item.preview || (file.image || file.pdf || file.office || file.audio || file.video)),
             image: file.image || '',
             imageBase: file.imageBase || '',
             pdf: file.pdf || '',
+            office: file.office || '',
             audio: file.audio || '',
             video: file.video || '',
             unsupported,
@@ -3219,14 +3380,13 @@ export async function setActiveProject(next) {
     // 丟掉的話那個工作階段就再也叫不出來了（側欄已經沒有清單接住它）
     tabs = tabs.filter((t) => t.kind === 'terminal')
   }
-  // 分頁清單換掉了，上一個專案的 Monaco model 沒人收——每切一次專案就多留
-  // 一整份檔案內容（草稿在上面 `persistTabsNow` 的 `stash()` 已經收走了）
-  disposeModelsExcept(tabs.map((t) => t.id))
+  // 草稿已寫入；保留最近 model，超過快取上限才收，切回不必重新解析整份檔案。
+  disposeModelsExcept(tabs.map((t) => t.id), Boolean(next))
   // 上一個專案的瀏覽器分頁停放著，prune 只收沒人要的那些
   pruneBrowserGuests()
   // 還沒倒回去的那份影子是上一個專案的內容，別讓它落到新專案的畫面上；
   // 預覽區的 iframe／影片也要收（切走了還在背景跑）
-  resetEditorSurface()
+  resetEditorSurface(Boolean(next))
   activeId = ''
   if (!keepTerminal) {
     renderTabs()
@@ -3358,6 +3518,7 @@ export function initWsTabs() {
   el.reviewList = document.getElementById('wsReviewList')
   el.reviewCount = document.getElementById('wsReviewCount')
   el.reviewToAiBtn = document.getElementById('wsReviewToAiBtn')
+  el.reviewToTermBtn = document.getElementById('wsReviewToTermBtn')
   el.reviewClearBtn = document.getElementById('wsReviewClearBtn')
   el.reviewCloseBtn = document.getElementById('wsReviewCloseBtn')
 
@@ -3418,7 +3579,7 @@ export function initWsTabs() {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor' || tab.unsupported) return
     const ext = extOf(tab.relPath || '')
-    const previewOnly = Boolean((tab.image || tab.pdf || tab.audio || tab.video) && ext !== 'svg')
+    const previewOnly = Boolean((tab.image || tab.pdf || tab.office || tab.audio || tab.video) && ext !== 'svg')
     if (previewOnly) return
     if (tab.preview) {
       tab.preview = false
@@ -3493,6 +3654,12 @@ export function initWsTabs() {
   el.editorPreviewBtn?.addEventListener('click', () => {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor') return
+    if (tab.office) {
+      tab.officeMode = officeModeOf(tab) === 'layout' ? 'simple' : 'layout'
+      if (el.editorPreviewBtn) el.editorPreviewBtn.textContent = tab.officeMode === 'layout' ? '簡易檢視' : '原始版面'
+      paintPreview(tab)
+      return
+    }
     tab.preview = !tab.preview
     if (el.editorPreviewBtn) el.editorPreviewBtn.textContent = tab.preview ? '編輯' : '預覽'
     paintPreview(tab)
@@ -3532,6 +3699,7 @@ export function initWsTabs() {
     if (el.reviewPanel) el.reviewPanel.hidden = true
   })
   el.reviewToAiBtn?.addEventListener('click', reviewToAi)
+  el.reviewToTermBtn?.addEventListener('click', () => { void reviewToTerminal() })
   el.reviewClearBtn?.addEventListener('click', () => {
     const tab = findTab(activeId)
     const projectId = tab?.projectId || project?.id || ''

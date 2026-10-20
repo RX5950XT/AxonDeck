@@ -154,6 +154,13 @@ console.log('\n[C] 壞掉的 settings.json 不可以當成空物件')
   }
   ok('最外層不是物件會拋錯', shapeErr === 'SETTINGS_INVALID_SHAPE', shapeErr)
 
+  // PowerShell 5.1／記事本存的檔開頭有 BOM：要讀得到、切得過去，不能當壞檔
+  fs.writeFileSync(claudeSettings.settingsPath(), '﻿{\r\n  "model": "opus",\r\n  "env": { "MY_OWN": "1" }\r\n}\r\n')
+  ok('開頭有 BOM 的 settings.json 讀得到', claudeSettings.readSettings().model === 'opus')
+  claudeSettings.applyEnv({ ANTHROPIC_BASE_URL: 'https://bom' })
+  const bomAfter = JSON.parse(fs.readFileSync(claudeSettings.settingsPath(), 'utf8'))
+  ok('有 BOM 的檔切供應商後保留使用者的 env', bomAfter.env.MY_OWN === '1' && bomAfter.env.ANTHROPIC_BASE_URL === 'https://bom')
+
   fs.unlinkSync(claudeSettings.settingsPath())
   ok('檔案不存在時回空物件', Object.keys(claudeSettings.readSettings()).length === 0)
   const fresh = claudeSettings.applyEnv({ ANTHROPIC_BASE_URL: 'https://x' })

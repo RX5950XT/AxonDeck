@@ -203,7 +203,10 @@ async function run(rawSpec) {
   }
   state.status = finalStatus(state, cancelled)
   const result = snapshot(state)
-  result.paths = state.items.filter((item) => item.status === 'completed').map((item) => item.destination)
+  const completed = state.items.filter((item) => item.status === 'completed')
+  result.paths = completed.map((item) => item.destination)
+  // 跟 paths 逐一對位的來源：略過撞名的項目後，拿原本的選取清單對位會把東西搬回錯的資料夾
+  result.sources = completed.map((item) => item.source)
   result.canUndo = state.mode === 'copy' || state.mode === 'move'
   if (state.firstError) Object.defineProperty(result, 'errorObject', {
     value: state.firstError,

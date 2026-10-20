@@ -18,7 +18,7 @@ foreach ($root in @('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
 }
 $null = [Windows.Management.Deployment.PackageManager,Windows.Management.Deployment,ContentType=WindowsRuntime]
 foreach ($p in (New-Object Windows.Management.Deployment.PackageManager).FindPackagesForUser('')) {
-  $items += @{kind='msix';name=[string]$p.DisplayName;version=[string]$p.Id.Version.Major+'.'+$p.Id.Version.Minor+'.'+$p.Id.Version.Build+'.'+$p.Id.Version.Revision;packageFullName=[string]$p.Id.FullName;architecture=([string]$p.Id.Architecture).ToLowerInvariant();scope='user';framework=[bool]$p.IsFramework}
+  $items += @{kind='msix';name=[string]$p.DisplayName;version=[string]$p.Id.Version.Major+'.'+$p.Id.Version.Minor+'.'+$p.Id.Version.Build+'.'+$p.Id.Version.Revision;packageFullName=[string]$p.Id.FullName;architecture=([string]$p.Id.Architecture).ToLowerInvariant();scope='user';framework=[bool]$p.IsFramework;signature=[string]$p.SignatureKind}
 }
 ConvertTo-Json -InputObject @($items) -Depth 3 -Compress`
 
@@ -78,7 +78,14 @@ function mergeInventory(rows, entries) {
       }
     } else result.push({ ...row, identity: `${row.id}\0${row.version}\0${row.name}\0${result.filter((x) => x.id === row.id && x.name === row.name && x.version === row.version).length}` })
   }
-  return result
+  return visibleRows(result)
+}
+
+// 比照 Windows「已安裝的應用程式」：共用執行環境（x86／x64、多版本並存）由系統依需要保留與回收；
+// 和傳統安裝同名的自簽 MSIX 是它的身分套件（Edge、Google App），解除安裝要走傳統那筆，不另列。
+function visibleRows(rows) {
+  const registry = new Set(rows.filter((x) => x.kind === 'registry').map((x) => x.name.toLowerCase()))
+  return rows.filter((x) => !x.framework && !(x.kind === 'msix' && x.signature === 'Developer' && registry.has(x.name.toLowerCase())))
 }
 
 module.exports = { readInventory, mergeInventory, commandFile, missingUninstaller }

@@ -3,7 +3,7 @@
  * 圖片／PDF／影音走 vi-media 串流；Markdown 只讀受限文字，不轉 base64。
  */
 
-import { renderMarkdown } from './markdown.js'
+import { renderMarkdown, resolveLinkPath } from './markdown.js'
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'])
 const VIDEO_EXT = new Set(['mp4', 'webm'])
@@ -116,7 +116,7 @@ async function loadMarkdown(item, readMarkdown, host, seq) {
     if (!data || typeof data.text !== 'string') throw new Error('markdown')
     const article = document.createElement('article')
     article.className = 'ex-preview-markdown md-content'
-    article.appendChild(renderMarkdown(data.text))
+    article.appendChild(renderMarkdown(data.text, 0, '', { html: true, openLink: (link) => openLinkFrom(item.path, link) }))
     if (data.truncated) article.appendChild(hint('內容已截到預覽上限'))
     host.replaceChildren(article)
   } catch {
@@ -264,6 +264,27 @@ function step(delta) {
 let currentResolveUrl = null
 /** @type {((path: string) => Promise<any>) | null} */
 let currentReadMarkdown = null
+/** @type {((path: string, dir: boolean) => void) | null} */
+let currentOpenPath = null
+
+/**
+ * Markdown 裡點到相對路徑連結：解成同一顆磁碟上的完整路徑。
+ * 預覽得了的檔案就地換過去；資料夾和其他檔案關掉預覽、交給檔案頁打開那一層。
+ */
+function openLinkFrom(fromPath, link) {
+  const drive = /^([A-Za-z]:)\\(.*)$/.exec(fromPath)
+  const target = drive && resolveLinkPath(drive[2], link)
+  if (!target) return // 網路磁碟（\\server\share）上的相對連結不處理
+  const full = `${drive[1]}\\${target.path.replace(/\//g, '\\')}`
+  const next = { path: full, name: full.split('\\').pop() || full }
+  if (!target.dir && isPreviewable(next)) {
+    openPreview({ item: next, list: [next], mediaUrl: currentResolveUrl, readMarkdown: currentReadMarkdown, openPath: currentOpenPath })
+    return
+  }
+  const open = currentOpenPath
+  closePreview()
+  open?.(full, target.dir)
+}
 
 function onKey(event) {
   if (!ui) return
@@ -290,10 +311,11 @@ export function closePreview() {
   items = []
   currentResolveUrl = null
   currentReadMarkdown = null
+  currentOpenPath = null
   document.removeEventListener('keydown', onKey, true)
 }
 
-export function openPreview({ item, list, mediaUrl, readMarkdown }) {
+export function openPreview({ item, list, mediaUrl, readMarkdown, openPath }) {
   const candidates = (Array.isArray(list) ? list : [item]).filter(isPreviewable)
   if (!item || !isPreviewable(item) || typeof mediaUrl !== 'function') return false
   closePreview()
@@ -301,6 +323,7 @@ export function openPreview({ item, list, mediaUrl, readMarkdown }) {
   index = Math.max(0, items.findIndex((entry) => entry.path === item.path))
   currentResolveUrl = mediaUrl
   currentReadMarkdown = readMarkdown
+  currentOpenPath = typeof openPath === 'function' ? openPath : null
   createUi()
   document.addEventListener('keydown', onKey, true)
   ui.root.focus({ preventScroll: true })

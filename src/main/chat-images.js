@@ -141,7 +141,16 @@ async function prune(keep) {
   return removed
 }
 
+/**
+ * 已驗證檔名 → 實體路徑（呼叫端要先 isValidName）
+ * @param {string} name
+ */
+function filePath(name) {
+  return path.join(imagesDir(), name)
+}
+
 module.exports = {
+  filePath,
   saveMany,
   toDataUrl,
   prune,
@@ -149,5 +158,4 @@ module.exports = {
   release,
   isValidName,
   MAX_IMAGES_PER_MESSAGE,
-  MAX_IMAGE_BYTES
 }

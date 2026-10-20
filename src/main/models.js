@@ -44,6 +44,47 @@ function breezeRuntime() {
 }
 
 /**
+ * Miroxen 的模型都放在同一個 `models/miroxen/`（引擎用 `--models` 指過去，資料夾結構照 Miroxen README）。
+ * 圖片標準版與 Turbo 共用文字／視覺編碼器、VAE 與 tokenizer：檔案在了就不重下，刪除時只刪沒人用的。
+ * 每個檔案固定 revision＋SHA-256；本機檔名照 Miroxen 的預設（上游檔名不同時下載後改名）。
+ */
+const HF = (repo, rev, file) => `https://huggingface.co/${repo}/resolve/${rev}/${file}`
+const QI = 'image/qwen-image-2.1/'
+const H3 = 'video/minimax-h3/'
+const QI_SHARED = [
+  [`${QI}Qwen-Image-2.1-Turbo-Abliterated-Uncensored-AD-Q4_K.gguf`, HF('AtomicChat/Qwen-Image-2.1-Turbo-Abliterated-Uncensored-GGUF',
+    'df96693dbdfb8738c0bf1bbd0337d149808db948', 'Qwen-Image-2.1-Turbo-Uncensored-AD-Q4_K.gguf'),
+  5287517120, '8123f36d2b3e562deef164dffdae33bdb1d152797ad10bb630827eaa7bce795d'],
+  [`${QI}mmproj-Qwen3VL-8B-Instruct-F16.gguf`, HF('Qwen/Qwen3-VL-8B-Instruct-GGUF', 'f982a07559d4a2f6c8744d840bf6fccab30eea96',
+    'mmproj-Qwen3VL-8B-Instruct-F16.gguf'), 1159029824, 'ca524100ebf825c9a870db1c580d03879e0da0ab2541697e2458e64891cf9d38'],
+  [`${QI}vae/texture_fix_vae_for_qwen_image_2.1_bf16.safetensors`, HF('madebyollin/texture-fix-vae-for-qwen-image-2.1',
+    '1f80456b6de9d89043c133ff1f3875449b8bd016', 'texture_fix_vae_for_qwen_image_2.1_bf16.safetensors'),
+  675509688, '05e9af8da4697d1a5118b674c3d90e95f932702d2c5a8900d7d4f05076403cc7'],
+  [`${QI}hf/processor/tokenizer.json`, HF('Qwen/Qwen-Image-2.1', 'd26bb61231c349cf6b7896fa83353113880e1ba3', 'processor/tokenizer.json'),
+    11422654, 'aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4']
+]
+const H3_REV = 'd629413c2e5b51b38c453668b75ca3b06ca92703'
+const H3_HF_REV = '42ed227ee7df40d41602854ae760620d6eb651fe'
+const H3_LORA_REV = 'a29e57d195f80ead07c89f89e55ecf2911e893c5'
+
+/**
+ * @param {Array<[string, string, number, string]>} list [本機相對路徑, 下載網址, 位元組, SHA-256]
+ */
+function miroxenFiles(list) {
+  return {
+    dir: 'miroxen',
+    runtime: 'miroxen',
+    requires: 'miroxenruntime',
+    kind: 'imagegen',
+    totalBytes: list.reduce((sum, [, , bytes]) => sum + bytes, 0),
+    files: list.map(([file]) => file),
+    urls: Object.fromEntries(list.map(([file, url]) => [file, url])),
+    fileBytes: Object.fromEntries(list.map(([file, , bytes]) => [file, bytes])),
+    sha256: Object.fromEntries(list.map(([file, , , sha]) => [file, sha]))
+  }
+}
+
+/**
  * 模型 registry
  * files 為相對於模型資料夾的路徑，自 base URL 直接下載（免解壓）
  * archive: true 表示下載到的是 zip，下載後解壓到模型資料夾根層
@@ -268,6 +309,71 @@ const MODELS = {
     binary: _llamaVulkan.binary,
     ...(_llamaVulkan.stripComponents ? { stripComponents: _llamaVulkan.stripComponents } : {})
   },
+  // Miroxen 只有 Windows 版（miroxen-win-x64.zip＋cuBLAS DLL），其他平台不列引擎也不列生成模型
+  ...(HOST.platform === 'win32' ? {
+  /** Miroxen 引擎：跟著 GitHub latest release 走（`miroxen/runtime.js` 自己裝），只給 CUDA 13 驅動的 NVIDIA 卡 */
+  miroxenruntime: {
+    label: 'Miroxen 圖片影像引擎',
+    kind: 'runtime',
+    runtime: 'miroxen',
+    description: '圖片與影音生成專用；NVIDIA RTX 30／40／50（驅動 580 以上），Miroxen 發新版可直接更新。',
+    totalBytes: 700000000,
+    files: []
+  },
+  miroxenqwenturbo: {
+    label: 'Qwen-Image-2.1 Turbo · 圖片（8 步）',
+    description: '文字生圖、編輯、透明圖；固定 8 步，約比標準版快 4.5 倍。和標準版共用編碼器與 VAE。',
+    ...miroxenFiles([
+      [`${QI}Qwen-Image-2.1-Turbo-Q8_0.gguf`, HF('AtomicChat/Qwen-Image-2.1-Turbo-GGUF', 'f5996597b053664d0885cfaa0dcc88afb47f92f6',
+        'Qwen-Image-2.1-Turbo-Q8_0.gguf'), 7591554784, '99f498fb7188be7eac9eb5f345a9e074d30eef3ca235b419e92563e5b48073c4'],
+      ...QI_SHARED
+    ])
+  },
+  miroxenqwen: {
+    label: 'Qwen-Image-2.1 標準 · 圖片（40 步）',
+    description: '細節與文字最穩；可用 LoRA。和 Turbo 共用編碼器與 VAE。',
+    ...miroxenFiles([
+      [`${QI}qwen-image-2.1-UC-Q8_0.gguf`, HF('abenzerps/Qwen-Image-2.1-Uncensored-GGUF', '6b34e59458d3eb7ba6a6f86a116aed5253dc02c3',
+        'qwen-image-2.1-UC-Q8_0.gguf'), 7591557920, 'cde456c72ea3ecebfc1be783300e972711d875e0c5f1bed33d42b66b156affa8'],
+      ...QI_SHARED
+    ])
+  },
+  miroxenh3: {
+    label: 'MiniMax-H3 · 影音',
+    description: '文字／首尾幀生成影片與配套音訊，也能用圖片、影片、音訊當參考素材；建議 16GB 以上顯存。',
+    ...miroxenFiles([
+      [`${H3}minimax_h3_fl2va_pruned-Q4_K.gguf`, HF('unsloth/MiniMax-H3-GGUF', H3_REV, 'minimax_h3_fl2va_pruned-Q4_K.gguf'),
+        11420663904, 'dd948e08ad0ba3c71bd42f368e283dd82e790f5122a63b276e22a3e0283d0c10'],
+      [`${H3}minimax_h3_ref2va_pruned-Q4_K.gguf`, HF('unsloth/MiniMax-H3-GGUF', H3_REV, 'minimax_h3_ref2va_pruned-Q4_K.gguf'),
+        11381096544, '2fa5840021cf6967843eaeefde9aaa277e540de02986d5ee3d5b0e6a7a8c9dec'],
+      [`${H3}MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-Q3_K_S_vis.gguf`, HF('pottokao/MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-GGUF',
+        '823f5ab888c52d5413c00518c70f5955dcbccb83', 'MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-Q3_K_S_vis.gguf'),
+      12646554528, '74b04cd89568fe4e74f371ebec3c52bbe16ffe25a9f3ba0c50687db556e6151d'],
+      [`${H3}vae/minimax_h3_video_vae_fp16.safetensors`, HF('unsloth/MiniMax-H3-GGUF', H3_REV, 'vae/minimax_h3_video_vae_fp16.safetensors'),
+        5207808496, '7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522'],
+      [`${H3}vae/minimax_h3_audio_vae_fp32.safetensors`, HF('unsloth/MiniMax-H3-GGUF', H3_REV, 'vae/minimax_h3_audio_vae_fp32.safetensors'),
+        605254808, '8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48'],
+      [`${H3}hf/tokenizer/tokenizer.json`, HF('MiniMaxAI/MiniMax-H3', H3_HF_REV, 'tokenizer/tokenizer.json'),
+        7032403, 'a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7'],
+      [`${H3}hf/vae/config.json`, HF('MiniMaxAI/MiniMax-H3', H3_HF_REV, 'vae/config.json'),
+        2011, '78f67deec3d63aae807f2bfe7154bc1e26f6372cb20b63265fcbae1b62bb5745'],
+      [`${H3}hf/audio_vae/config.json`, HF('MiniMaxAI/MiniMax-H3', H3_HF_REV, 'audio_vae/config.json'),
+        2271, '9a3c645ff892b376c6f5f4c8685964cd75474731af594ff058492a0000caabb6']
+    ])
+  },
+  miroxenh3turbo: {
+    label: 'MiniMax-H3 加速 LoRA（4／8 步）',
+    description: '影片只算 4 或 8 步，約快 4～7 倍；工作台勾選後自動套用建議步數。需先有 MiniMax-H3。',
+    ...miroxenFiles([
+      ['loras/video/minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors', HF('lightx2v/Minimax-h3-Turbo', H3_LORA_REV,
+        'minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors'), 1383677808, 'c3d4a2cf618efea71b9e21a4baaa12d412f1eb6c2b6f86efacaf0ebb6814b689'],
+      ['loras/video/minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors', HF('lightx2v/Minimax-h3-Turbo', H3_LORA_REV,
+        'minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors'), 1383677808, '9b0efe3613b43a84e30febaa43af27432ea9d0711eac7bba904b2556b175f6d4'],
+      ['loras/video/minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors', HF('lightx2v/Minimax-h3-Turbo', H3_LORA_REV,
+        'minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors'), 1383677808, '9bac880b1a5d7ac052171cf6cce769f0cceaaa42ffa51de4b8e41143a2bdd2d2']
+    ])
+  },
+  } : {}),
   /** 微調：繁中／英文／日文三語翻譯（v5e Q4_K_M） */
   linguaforge08q4: {
     label: 'LinguaForge 0.8B · Q4_K_M（繁中/英/日）',
@@ -289,6 +395,9 @@ const MODELS = {
     gguf: 'Index-Translate-2B.Q4_K_M.gguf'
   }
 }
+
+/** Miroxen 圖片／影音模型（共用 `models/miroxen/`） */
+const MIROXEN_MODEL_KEYS = Object.keys(MODELS).filter((key) => MODELS[key].runtime === 'miroxen' && MODELS[key].kind !== 'runtime')
 
 /** 本地翻譯模型 key 白名單（順序：推薦在前） */
 const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
@@ -366,7 +475,7 @@ function modelsRoot() {
  * 單一模型的資料夾
  */
 function modelDir(key) {
-  return path.join(modelsRoot(), key)
+  return path.join(modelsRoot(), MODELS[key]?.dir || key)
 }
 
 /**
@@ -378,6 +487,9 @@ function isDownloaded(key) {
   if (!def) return false
   if (def.runtime === 'pdf' && def.kind === 'runtime') {
     return !activeDownloads.has(key) && require('./pdf-translate/runtime').isReady(modelDir(key), def.gpu ? 'gpu' : 'cpu')
+  }
+  if (def.runtime === 'miroxen' && def.kind === 'runtime') {
+    return !activeDownloads.has(key) && require('./miroxen/runtime').isReady(modelDir(key))
   }
   if (def.kind === 'ocr' && activeDownloads.has(key)) return false
   if (def.kind === 'tts' && activeDownloads.has(key)) return false
@@ -423,7 +535,7 @@ function status() {
  * @returns {string}
  */
 function psQuote(s) {
-  return s.replace(/'/g, "''")
+  return s.replace(/['\u2018-\u201b]/g, '$&$&')
 }
 
 /**
@@ -502,8 +614,14 @@ async function download(key, onProgress) {
       activeDownloads.delete(key)
       return status()
     }
+    if (def.runtime === 'miroxen' && def.kind === 'runtime') {
+      await require('./miroxen/runtime').install({ dir: modelDir(key), signal: controller.signal, expand: expandArchive,
+        onProgress: progress => onProgress({ key, ...progress }) })
+      activeDownloads.delete(key)
+      return status()
+    }
     const dependency = key === 'paddleocrvl16' ? 'ppdoclayoutv3'
-      : (def.runtime === 'breeze' || (def.runtime === 'pdf' && def.kind === 'ocr')) ? def.requires : null
+      : (def.runtime === 'breeze' || def.runtime === 'miroxen' || (def.runtime === 'pdf' && def.kind === 'ocr')) ? def.requires : null
     if (dependency && (!isDownloaded(dependency)
       || (key === 'paddleocrvl16' && !isDownloaded('pdfruntime')))) {
       const cancelDependency = () => cancelDownload(dependency)
@@ -513,7 +631,8 @@ async function download(key, onProgress) {
           onProgress(progress)
           onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
             stage: key === 'paddleocrvl16' ? '準備 PDF 辨識模型與執行環境…'
-              : def.runtime === 'pdf' ? '準備 PDF 執行環境…' : '準備語音執行環境…',
+              : def.runtime === 'pdf' ? '準備 PDF 執行環境…'
+                : def.runtime === 'miroxen' ? '準備圖片影像引擎…' : '準備語音執行環境…',
             cancellable: progress.cancellable ?? !progress.stage })
         })
       }
@@ -524,7 +643,8 @@ async function download(key, onProgress) {
       const dest = path.join(modelDir(key), file)
       await fsp.mkdir(path.dirname(dest), { recursive: true })
 
-      if (!def.sha256?.[file] && fs.existsSync(dest)) {
+      // 共用資料夾（Miroxen）裡別的模型已經下好、大小對得上的檔案不重下
+      if ((!def.sha256?.[file] || (def.dir && sizeMatches(dest, def.fileBytes?.[file]))) && fs.existsSync(dest)) {
         received += (await fsp.stat(dest)).size
         emit(true)
         continue
@@ -532,7 +652,7 @@ async function download(key, onProgress) {
 
       const completed = received
       const result = await downloadFile({
-        url: def.base + file,
+        url: def.urls?.[file] || def.base + file,
         dest,
         expectedBytes: def.fileBytes?.[file] || (def.sha256?.[file] && def.files.length === 1 ? def.totalBytes : undefined),
         sha256: def.sha256?.[file],
@@ -591,8 +711,30 @@ async function remove(key) {
       await new Promise((r) => setTimeout(r, 50))
     }
   }
-  removeTreeSync(modelDir(key))
+  if (MODELS[key].dir) await removeSharedFiles(key)
+  else removeTreeSync(modelDir(key))
   return status()
+}
+
+/** @param {string} file @param {number | undefined} bytes */
+function sizeMatches(file, bytes) {
+  try { return !!bytes && fs.statSync(file).size === bytes } catch { return false }
+}
+
+/**
+ * 共用資料夾只刪這顆自己的檔案，其他已下載模型還用得到的留著（例如 Turbo 與標準版共用的編碼器）。
+ * @param {string} key
+ */
+async function removeSharedFiles(key) {
+  const def = MODELS[key]
+  const inUse = new Set(Object.entries(MODELS)
+    .filter(([other, d]) => other !== key && d.dir === def.dir && isDownloaded(other))
+    .flatMap(([, d]) => d.files))
+  for (const file of def.files.filter((f) => !inUse.has(f))) {
+    const target = path.join(modelDir(key), file)
+    await fsp.rm(target, { force: true })
+    await fsp.rm(`${target}.part`, { force: true })
+  }
 }
 
 /**
@@ -628,6 +770,7 @@ module.exports = {
   LLAMA_BUILD,
   LLAMA_BUILD_LINUX_CUDA,
   expandArchive,
+  MIROXEN_MODEL_KEYS,
   isLlmKey,
   isAsrKey,
   RETIRED_MODEL_KEYS,

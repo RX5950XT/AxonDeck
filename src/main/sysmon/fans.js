@@ -388,7 +388,11 @@ function createFanEngine(deps = {}) {
     // 緊急判定用**未平滑的原始值**：平滑會把反應延後最多 SMOOTH_N 秒，
     // 而這條是安全網，慢三秒才全速就失去意義了
     state.panic = Boolean(spec?.temp) && raw >= config.panicTemp
-    if (state.panic) return 100
+    if (state.panic) {
+      // 不清掉的話，退出緊急後溫度落在舊讀數 ±遲滯內會一直沿用 100
+      state.lastX = null
+      return 100
+    }
 
     // 遲滯：來源值沒動多少就沿用上次算好的目標，不然溫度在門檻附近抖動會讓轉速跟著抖
     if (state.lastX !== null && Math.abs(smoothed.value - state.lastX) < HYSTERESIS && state.target !== null) {
@@ -614,12 +618,9 @@ function createFanEngine(deps = {}) {
 module.exports = {
   TICK_MS,
   MAX_STEP,
-  HYSTERESIS,
   SMOOTH_N,
   MIN_FLOOR,
   DEFAULT_PANIC_TEMP,
-  IDENTIFY_MS,
-  IDENTIFY_PWM,
   SLOTS,
   SOURCES,
   DEFAULT_POINTS,

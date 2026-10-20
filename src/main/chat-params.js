@@ -72,4 +72,55 @@ function toRequestFields(params) {
   return body
 }
 
-module.exports = { sanitize, toRequestFields, NUMBER_SPECS }
+/**
+ * 思考強度（設定 store 的 `chatThinking`，全域一份）。
+ * `default`＝不帶欄位、讓模型用自己的預設；`off`＝明確關掉（OpenAI 風格的 `none`）。
+ * 其餘照 OpenAI／OpenRouter 的 effort 名稱原樣送出，不認得的上游會自己夾到支援的檔位。
+ */
+const THINK_LEVELS = Object.freeze(['default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+
+/**
+ * 舊版存的是布林：true＝當年固定送的 medium，false＝不送。
+ * @param {unknown} value
+ * @returns {string}
+ */
+function sanitizeThinking(value) {
+  if (value === true) return 'medium'
+  return THINK_LEVELS.includes(/** @type {string} */ (value)) ? /** @type {string} */ (value) : 'default'
+}
+
+/**
+ * @param {unknown} level
+ * @param {boolean} local 本機 llama-server：關思考要走 chat template 的 `enable_thinking`
+ * @returns {Record<string, unknown>}
+ */
+function thinkingFields(level, local) {
+  const value = sanitizeThinking(level)
+  if (value === 'default') return {}
+  if (value === 'off') {
+    return local ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: 'none' }
+  }
+  return { reasoning_effort: value }
+}
+
+const ASPECT_RATIOS = Object.freeze(['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'])
+const IMAGE_RESOLUTIONS = Object.freeze(['auto', '1K', '2K', '4K'])
+
+/**
+ * 生圖選項（設定 store 的 `chatImageOptions`）；`auto` 一律不送。
+ * @param {unknown} raw
+ * @returns {{ aspectRatio: string, resolution: string }}
+ */
+function sanitizeImageOptions(raw) {
+  const obj = raw && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {}
+  return {
+    aspectRatio: ASPECT_RATIOS.includes(/** @type {string} */ (obj.aspectRatio)) ? /** @type {string} */ (obj.aspectRatio) : 'auto',
+    resolution: IMAGE_RESOLUTIONS.includes(/** @type {string} */ (obj.resolution)) ? /** @type {string} */ (obj.resolution) : 'auto'
+  }
+}
+
+module.exports = {
+  sanitize, toRequestFields, NUMBER_SPECS,
+  THINK_LEVELS, sanitizeThinking, thinkingFields,
+  ASPECT_RATIOS, IMAGE_RESOLUTIONS, sanitizeImageOptions
+}

@@ -6,7 +6,7 @@
  * 本機這三家加起來是 **5 GB 等級**（實測：Codex 4.2GB／Claude 543MB／Grok 444MB 都在 90 天內），
  * 每次同步整份重讀不可行。所以：
  *
- * 1. **只看保留期內修改過的檔案**（`SCAN_WINDOW_DAYS`）。
+ * 1. **只看 `sinceMs` 之後修改過的檔案**（呼叫端給 0 ＝全部）。
  * 2. **每個檔案記一個位移游標**，下次只從上次讀到的地方往後讀。JSONL 是附加寫入，
  *    所以位移永遠有效；檔案變小（Grok 的 rewind 會截斷）就整份重讀。
  * 3. **逐行串流**，不把整個檔案讀進記憶體；解析器自己會先用字串比對擋掉九成的行。
@@ -18,11 +18,10 @@
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+const zlib = require('zlib')
 const { StringDecoder } = require('string_decoder')
 const nativeProbe = require('../native-probe')
 
-/** 只掃這麼多天內修改過的檔案 */
-const SCAN_WINDOW_DAYS = 90
 /**
  * 單一檔案的讀取上限。**不能設太小**：讀取是逐行串流、不佔記憶體，而超過上限的檔案
  * 會被整個跳過——本機實測就有一個 50MB 以上的 Claude session，那一整份用量憑空消失
@@ -31,6 +30,11 @@ const SCAN_WINDOW_DAYS = 90
 const MAX_FILE_BYTES = 1024 * 1024 * 1024
 /** 一次掃描最多處理幾個檔案（防止資料夾異常膨脹時卡住 UI） */
 const MAX_FILES = 4000
+
+/** @param {string} file */
+function isZst(file) {
+  return file.endsWith('.zst')
+}
 
 /**
  * 遞迴找檔案。**不跟隨符號連結**（Grok 的 session 目錄實際遇過連結成環）。
@@ -83,21 +87,34 @@ async function collectFiles(dir, match, sinceMs, out, depth = 0) {
  * @returns {Promise<number>} 這次讀到哪（下次的 offset）
  */
 async function streamFile(file, offset, parseLine, state, onEvent) {
-  let size = 0
-  try {
-    size = fs.statSync(file).size
-  } catch {
-    return offset
+  let stream
+  // `.zst` 是 Codex 壓好的舊 session，不會再變；位移算解壓後的，前面讀過的直接丟掉
+  let skip = 0
+  if (isZst(file)) {
+    stream = fs.createReadStream(file).pipe(zlib.createZstdDecompress())
+    skip = offset
+  } else {
+    let size = 0
+    try {
+      size = fs.statSync(file).size
+    } catch {
+      return offset
+    }
+    if (size <= offset) return size
+    // 固定 end，這一輪只看 stat() 時已存在的位元組；新追加的內容留給下一輪。
+    stream = fs.createReadStream(file, { start: offset, end: size - 1 })
   }
-  if (size <= offset) return size
-
-  // 固定 end，這一輪只看 stat() 時已存在的位元組；新追加的內容留給下一輪。
-  const stream = fs.createReadStream(file, { start: offset, end: size - 1 })
   const decoder = new StringDecoder('utf8')
   let pending = ''
   let completeOffset = offset
   try {
-    for await (const chunk of stream) {
+    for await (let chunk of stream) {
+      if (skip > 0) {
+        const drop = Math.min(skip, chunk.length)
+        skip -= drop
+        chunk = chunk.subarray(drop)
+        if (!chunk.length) continue
+      }
       pending += decoder.write(chunk)
       let index
       while ((index = pending.indexOf('\n')) >= 0) {
@@ -116,6 +133,8 @@ async function streamFile(file, offset, parseLine, state, onEvent) {
   } finally {
     stream.destroy()
   }
+  // 解壓後還不到上次的位移：內容跟游標對不上，維持原游標不前進
+  if (skip > 0) return offset
   // 沒有換行的尾端可能只是尚未寫完的 JSON，不能把游標推過去。
   return completeOffset
 }
@@ -139,12 +158,14 @@ async function streamFile(file, offset, parseLine, state, onEvent) {
  *   整個 session 的用量算兩次（實測重現）。key 必須跟著檔案走：Codex 與
  *   Claude 用檔名（唯一 UUID），Grok 用上一層資料夾名（session UUID，
  *   檔名一律叫 updates.jsonl 不能用）。省略時退回絕對路徑（相容舊行為）。
+ * @param {((file: string) => boolean) | undefined} [source.skipFile] 這份不算（例如已經算進母 session 的子代理）
  * @param {string} [source.native] 原生解析器名稱（`claude`／`codex`／`grok`）；有 axondeck-probe.exe 時
  *   改走 `runNative`，`parseLine` 只剩退路用途
  * @param {Record<string, { offset: number, mtimeMs: number, seen?: string[] }>} cursors 就地更新
- * @param {(event: object) => void} onEvent
+ * @param {Iterable<string>} [source.knownIds] 已經算過、但游標已經不在的訊息 id（被刪掉的檔留下的）
+ * @param {(event: object, key: string) => void} onEvent 第二個參數是游標 key（哪個檔貢獻的）
  * @param {number} sinceMs
- * @returns {Promise<{ files: number, scannedBytes: number }>}
+ * @returns {Promise<{ files: number, scannedBytes: number, oldestMtimeMs: number }>}
  */
 async function scanSource(source, cursors, onEvent, sinceMs) {
   /** @type {string[]} */
@@ -153,17 +174,36 @@ async function scanSource(source, cursors, onEvent, sinceMs) {
     await collectFiles(root, source.match, sinceMs, files)
   }
 
-  /** @type {Array<{ file: string, key: string, offset: number, state: object }>} */
+  // 壓縮到一半時 `.jsonl` 跟 `.jsonl.zst` 會同時在：同一個 key 只認還沒壓的那份
+  files.sort((a, b) => Number(isZst(a)) - Number(isZst(b)))
+  const taken = new Set()
+
+  /** @type {Array<{ file: string, key: string, offset: number, state: object, packed?: number }>} */
   const jobs = []
+  // 現存檔案裡最舊的修改時間：工具自己清檔是由舊往新刪，比這更早的那段才可能有檔案已經不在
+  let oldestMtimeMs = Infinity
   for (const file of files) {
     const key = source.keyOf ? `${source.provider}:${source.keyOf(file)}` : file
+    if (taken.has(key) || source.skipFile?.(file)) continue
+    taken.add(key)
     const previous = cursors[key]
     let offset = previous && Number.isFinite(previous.offset)
       ? Math.max(0, Math.floor(previous.offset)) : 0
     let size = 0
     try {
-      size = fs.statSync(file).size
+      const stat = fs.statSync(file)
+      size = stat.size
+      oldestMtimeMs = Math.min(oldestMtimeMs, stat.mtimeMs)
     } catch {
+      continue
+    }
+    if (isZst(file)) {
+      // 壓縮檔的游標是解壓後位移，跟檔案大小比沒意義；壓縮檔大小沒變＝讀過了
+      if (previous?.packed === size) {
+        cursors[key] = { ...previous, path: file }
+        continue
+      }
+      jobs.push({ file, key, offset, packed: size, state: restoreState(source.newState(), previous) })
       continue
     }
     // 檔案變小＝被截斷（Grok rewind）或換過一份，整份重讀；只留去重 id——
@@ -185,6 +225,22 @@ async function scanSource(source, cursors, onEvent, sinceMs) {
   const exe = source.native && jobs.length ? nativeProbe.resolveProbeExe() : ''
   const results = exe ? await runNative(exe, source.native, jobs) : null
 
+  // 別的檔已經算過的訊息不再算：Claude 的 resume／fork 會把舊訊息整段複製進新檔（實測 128 則）。
+  // 各檔游標本來就存了自己的 seen，合起來就是全域清單，不必另外存
+  const counted = new Set(source.knownIds || [])
+  for (const [key, cursor] of Object.entries(cursors)) {
+    if (!key.startsWith(`${source.provider}:`) || !Array.isArray(cursor?.seen)) continue
+    for (const id of cursor.seen) counted.add(id)
+  }
+  /** @param {string} key */
+  const emitFor = (key) => (event) => {
+    if (event.id) {
+      if (counted.has(event.id)) return
+      counted.add(event.id)
+    }
+    onEvent(event, key)
+  }
+
   let scannedBytes = 0
   for (let i = 0; i < jobs.length; i += 1) {
     const job = jobs[i]
@@ -193,9 +249,9 @@ async function scanSource(source, cursors, onEvent, sinceMs) {
     if (results) {
       next = results[i].next
       state = results[i].state
-      for (const event of results[i].events) onEvent(event)
+      results[i].events.forEach(emitFor(job.key))
     } else {
-      next = await streamFile(job.file, job.offset, source.parseLine, state, onEvent)
+      next = await streamFile(job.file, job.offset, source.parseLine, state, emitFor(job.key))
     }
     scannedBytes += Math.max(0, next - job.offset)
     cursors[job.key] = {
@@ -207,12 +263,17 @@ async function scanSource(source, cursors, onEvent, sinceMs) {
       sessionStartMs: Number(state.sessionStartMs || 0),
       lastTotalTokens: Number(state.lastTotalTokens || 0),
       seen: seenList(state.seen),
+      subagents: Array.isArray(state.subagents) ? state.subagents : [],
+      countChildren: Array.isArray(state.countChildren) ? state.countChildren : [],
+      packed: job.packed,
+      // 這個檔累計貢獻的用量（index.js 維護）；檔案被工具刪掉後靠它把那份留下來
+      contrib: cursors[job.key]?.contrib,
       // 穩定 key 不是路徑，清游標時要另外知道檔案在哪
       path: job.file
     }
   }
 
-  return { files: files.length, scannedBytes }
+  return { files: files.length, scannedBytes, oldestMtimeMs }
 }
 
 /**
@@ -239,6 +300,8 @@ function restoreState(state, previous) {
       if (typeof id === 'string') state.seen.add(id)
     }
   }
+  if (Array.isArray(previous.subagents)) state.subagents = previous.subagents.filter(Array.isArray)
+  if (Array.isArray(previous.countChildren)) state.countChildren = previous.countChildren.filter((id) => typeof id === 'string')
   return state
 }
 
@@ -304,22 +367,24 @@ function runNative(exe, parser, jobs) {
  * 穩定 key（`provider:檔名`）本身不是路徑，檔案位置存在游標的 `path` 欄位；
  * 舊格式（key 就是路徑、沒有 `path` 欄）一併視為過期丟掉。
  * @param {Record<string, object>} cursors
+ * @returns {Record<string, object>} 被清掉的游標（呼叫端要把它們的 `contrib` 封存起來）
  */
 function pruneCursors(cursors) {
+  /** @type {Record<string, object>} */
+  const removed = {}
   for (const key of Object.keys(cursors)) {
     const cursor = cursors[key]
     if (!cursor || typeof cursor.path !== 'string' || !fs.existsSync(cursor.path)) {
+      removed[key] = cursor
       delete cursors[key]
     }
   }
+  return removed
 }
 
 module.exports = {
-  SCAN_WINDOW_DAYS,
   MAX_FILE_BYTES,
   MAX_FILES,
-  collectFiles,
-  streamFile,
   scanSource,
   pruneCursors
 }

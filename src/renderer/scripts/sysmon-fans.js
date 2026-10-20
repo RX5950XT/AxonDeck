@@ -687,23 +687,25 @@ function renderBar(data) {
 
 // ===== 資料流 =====
 
-let pendingSave = null
+/** 每條通道各留最後一次還沒送出的修改（只留一筆的話，改 B 再改 A 會把 B 弄丟） */
+const pendingSaves = new Map()
 
 function saveChannel(id, patch) {
   if (state.busy) {
     // 上一次還沒回來：留住最後一次、回來後補送。直接丟掉的話晶片停在舊曲線，下一秒輪詢再把點畫回去
-    pendingSave = { id, patch: { ...(pendingSave?.id === id ? pendingSave.patch : {}), ...patch } }
+    pendingSaves.set(id, { ...(pendingSaves.get(id) || {}), ...patch })
     return Promise.resolve()
   }
   state.busy = true
   return electronAPI.sysmon.fanSetChannel(id, patch)
     // 還有一筆等著送就不畫這次的回應，免得把畫面拉回較舊的那一版
-    .then((res) => { if (res?.ok && !pendingSave) render(res.data) })
+    .then((res) => { if (res?.ok && !pendingSaves.size) render(res.data) })
     .finally(() => {
       state.busy = false
-      const next = pendingSave
-      pendingSave = null
-      if (next) saveChannel(next.id, next.patch)
+      const [next] = pendingSaves
+      if (!next) return
+      pendingSaves.delete(next[0])
+      saveChannel(next[0], next[1])
     })
 }
 
@@ -718,7 +720,7 @@ function render(data) {
 }
 
 function poll() {
-  electronAPI.sysmon.fanList().then((res) => { if (res?.ok) render(res.data) })
+  electronAPI.sysmon.fanList().then((res) => { if (res?.ok) render(res.data) }).catch(() => {})
 }
 
 // ===== 事件 =====
@@ -738,7 +740,7 @@ function onEditorInput(event) {
   saveChannel(state.selectedId, { [fieldName]: value })
 }
 
-export function initFanPanel() {
+function initFanPanel() {
   if (state.inited) return
   state.inited = true
 

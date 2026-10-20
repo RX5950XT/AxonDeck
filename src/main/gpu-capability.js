@@ -148,9 +148,7 @@ function clearGpuCapabilityCache() {
 }
 
 module.exports = {
-  MIN_VRAM_MIB,
   eligibleDevices,
   detectGpuCapability,
-  parseNvidiaSmi,
   clearGpuCapabilityCache
 }

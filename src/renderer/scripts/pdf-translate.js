@@ -27,6 +27,10 @@ function paint() {
   el.pick.disabled = pending || running
   el.chip.hidden = !file
   el.remove.hidden = !file || running
+  el.options.hidden = !file
+  el.pages.disabled = running
+  el.dual.disabled = running
+  el.clearCache.disabled = pending || running
   // 檔案有自己的開始／停止鈕，主翻譯鈕留給文字，兩邊可同時跑。
   el.run.textContent = running ? '停止' : '翻譯檔案'
   el.run.disabled = pending || (!running && !ready)
@@ -165,7 +169,8 @@ async function startPdfJob() {
   setError()
   paint()
   try {
-    const result = await electronAPI.pdfTranslate.start({ fileId: file.fileId, ...getLanguages() })
+    const result = await electronAPI.pdfTranslate.start({ fileId: file.fileId, ...getLanguages(),
+      pages: el.pages.value, dual: el.dual.checked })
     if (!result.ok) throw new Error(result.error?.message || '無法開始檔案翻譯')
     // 進度可能比 start 的回覆更早到；不要把完成狀態蓋回處理中。
     if (job?.jobId !== result.data.jobId) job = { jobId: result.data.jobId, state: 'running' }
@@ -217,12 +222,35 @@ async function save() {
   }
 }
 
+async function clearCache() {
+  if (pending || isPdfRunning()) return
+  pending = true
+  let removed = null
+  setError()
+  paint()
+  try {
+    const result = await electronAPI.pdfTranslate.clearCache()
+    if (!result.ok) throw new Error(result.error?.message || '無法清除譯文快取')
+    removed = result.data.removed
+  } catch (error) {
+    setError(cleanIpcError(error))
+  } finally {
+    pending = false
+    paint()
+    if (removed !== null) {
+      el.root.hidden = false
+      el.status.hidden = false
+      el.status.textContent = removed ? `已清除 ${removed} 筆譯文快取` : '譯文快取本來就是空的'
+    }
+  }
+}
+
 const ACCEPT = /\.(pdf|png|jpe?g|webp|bmp|tiff?)$/i
 
 export function initPdfTranslate(options) {
   getLanguages = options.getLanguages
   const pane = document.getElementById(options.dropTarget || 'translateInputPane')
-  el = Object.fromEntries(['root', 'pick', 'run', 'remove', 'chip', 'file', 'status', 'progress', 'warnings', 'error', 'setup', 'setupText', 'models', 'save']
+  el = Object.fromEntries(['root', 'pick', 'run', 'remove', 'chip', 'file', 'status', 'progress', 'warnings', 'error', 'setup', 'setupText', 'models', 'save', 'options', 'pages', 'dual', 'clearCache']
     .map((key) => [key, document.getElementById(`pdfTranslate${key[0].toUpperCase()}${key.slice(1)}`)]))
   if (!el.root) return
   if (!electronAPI.pdfTranslate) {
@@ -233,6 +261,7 @@ export function initPdfTranslate(options) {
   el.run.addEventListener('click', () => (isPdfRunning() ? cancelPdfJob() : startPdfJob()))
   el.remove.addEventListener('click', detachPdfFile)
   el.save.addEventListener('click', save)
+  el.clearCache.addEventListener('click', clearCache)
   el.models.addEventListener('click', () => switchPage('hfmodels'))
   if (pane) {
     pane.addEventListener('dragover', (event) => {

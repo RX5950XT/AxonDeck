@@ -169,6 +169,8 @@ namespace AxonDeckSensors
                 }
                 sb.Append("}}");
                 _bytes.Clear();
+                // 掉事件／程序太多只影響這一段：回報過就清掉，不然網路統計會永久停用到 sidecar 重啟
+                if (_error == 234 || _error == 13) _error = 0;
                 _ready = true;
                 _from = now;
                 _lastClock = clock;

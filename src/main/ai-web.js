@@ -82,7 +82,8 @@ function brandList(major, version, brand = 'Google Chrome') {
 /** 照請求自己的 UA 產生 `Sec-CH-UA` 那三個標頭（Grok 用的是 Edge 的 UA，品牌就要是 Edge）；認不出版號回 null */
 function clientHints(userAgent) {
   const major = Number(String(userAgent).match(/Chrome\/(\d+)/)?.[1])
-  if (!major) return null
+  // 照實報 Electron 的分頁（installChallengeFallback）不補：原版 Electron 本來就不送
+  if (!major || /\sElectron\//.test(userAgent)) return null
   const brand = /\sEdg\//.test(userAgent) ? 'Microsoft Edge' : 'Google Chrome'
   return {
     'sec-ch-ua': brandList(major, String(major), brand).map((b) => `"${b.brand}";v="${b.version}"`).join(', '),
@@ -135,6 +136,31 @@ function chromeUserAgent(fallback) {
   return String(fallback).replace(/\s(Electron|axondeck)\/\S+/gi, '').replace(/Chrome\/(\d+)[\d.]+/, 'Chrome/$1.0.0.0')
 }
 
+/** Electron 原本的識別，只拿掉 App 名字（帶 App 名字一樣過不了 Cloudflare） */
+function electronUserAgent(fallback) {
+  return String(fallback).replace(/\saxondeck\/\S+/gi, '')
+}
+
+/**
+ * Cloudflare 驗證認得出「裝成 Chrome 的 Electron」：自動檢查不過、勾選框點了也一直重來；照實報 Electron 卻多半直接放行
+ * （2026-10-17 實測 ACS／OUP／RSC／SSRN，換 Chrome 版號、標頭順序、拿掉 shim 都沒用，只有 UA 帶 Electron 有用）。
+ * 平常仍裝 Chrome（Google 登入等要），哪個分頁的整頁回應被 Cloudflare 擋就把那個分頁改回 Electron 識別重新載入；
+ * 通行證綁識別，那個分頁之後一直用它。同一個 session 的 onHeadersReceived 只能掛一個（Grok 分區有自己的 grok-clearance）。
+ * @param {import('electron').Session} ses
+ * @param {string} electronUa
+ */
+function installChallengeFallback(ses, electronUa) {
+  ses.webRequest.onHeadersReceived({ urls: ['https://*/*'] }, (details, callback) => {
+    callback({})
+    const contents = details.webContents
+    if (details.resourceType !== 'mainFrame' || !contents || contents.isDestroyed() || contents.getUserAgent() === electronUa) return
+    const mitigated = Object.entries(details.responseHeaders || {}).find(([key]) => key.toLowerCase() === 'cf-mitigated')?.[1]
+    if (!String(mitigated || '').includes('challenge')) return
+    contents.setUserAgent(electronUa)
+    setImmediate(() => { if (!contents.isDestroyed()) contents.reload() })
+  })
+}
+
 // Electron 沒設處理器時所有權限一律放行（通知、相機、定位…），真 Chrome 會先問；兩者都不對。
 // 只給網頁版 AI 會用到的：麥克風（語音輸入，只限聲音）、剪貼簿、全螢幕。通知等其他一律不給。
 const ALLOWED_PERMISSIONS = new Set(['clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'media'])
@@ -162,5 +188,5 @@ function setupSession(ses, { userAgent, shimPath, languages }) {
 
 module.exports = {
   SITES, isSite, safeUrl, isChatUrl, sanitizeWeb, titleFromPage, installGoogleLoginFix, isLoginPopup,
-  chromeUserAgent, allowPermission, setupSession, brandList, clientHints
+  chromeUserAgent, electronUserAgent, installChallengeFallback, allowPermission, setupSession, brandList, clientHints
 }

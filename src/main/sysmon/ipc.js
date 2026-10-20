@@ -60,12 +60,10 @@ function registerSysmonIpc({ ipcMain, service, isMainSender }) {
       err.userMessage = '請選擇要測試的磁碟（C:、D:…）'
       throw err
     }
-    const { statSync } = require('fs')
     const path = require('path')
     const dir = path.join(drive + path.sep)
-    try {
-      if (!statSync(dir).isDirectory()) throw new Error('not dir')
-    } catch {
+    // 不用同步 stat：睡著的網路磁碟會卡死主程序
+    if (!(await require('../explorer/drives').isDirSoon(dir))) {
       const err = new Error('bad drive')
       err.code = 'SYSMON_BAD_DIR'
       err.userMessage = `找不到磁碟 ${drive}`

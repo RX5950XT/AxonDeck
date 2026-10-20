@@ -50,6 +50,10 @@
             <span class="nav-icon" data-icon="speaker"></span>
             <span class="nav-text">文字轉語音</span>
           </button>
+          <button class="nav-tab" data-page="imagegen" title="生成圖片影像" aria-label="生成圖片影像">
+            <span class="nav-icon" data-icon="image"></span>
+            <span class="nav-text">生成圖片影像</span>
+          </button>
           <button class="nav-tab" data-page="sysmon" title="系統監控" aria-label="系統監控">
             <span class="nav-icon" data-icon="activity"></span>
             <span class="nav-text">系統監控</span>
@@ -125,6 +129,9 @@
                     <button type="button" id="projNewBtn" class="btn btn-primary btn-sm proj-action-btn">
                       ＋ 加入專案
                     </button>
+                    <button type="button" id="projNewFolderBtn" class="btn btn-secondary btn-sm" title="新增資料夾" aria-label="新增專案資料夾">
+                      分類＋
+                    </button>
                   </div>
                   <div class="proj-unified-list">
                     <div id="projList" class="chat-list proj-list" aria-label="專案清單"></div>
@@ -145,22 +152,11 @@
                 </section>
 
                 <section class="sidebar-panel" id="chatPanel" role="tabpanel">
-                  <!-- 六顆都是「新增」：Local＝本機／API 對話，其餘四家＝網頁版 AI 對話（ai-web-page.js），都列在下面清單 -->
-                  <div class="chat-panel-actions">
-                    <button type="button" id="chatNewBtn" class="btn btn-secondary btn-sm chat-new-btn" title="新對話（本機／API 模型）">
-                      <span class="nav-icon" data-icon="local"></span>Local
-                    </button>
-                    <button
-                      type="button"
-                      id="chatNewFolderBtn"
-                      class="btn btn-secondary btn-sm chat-new-folder-btn"
-                      title="新增資料夾"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 7.5h5l1.6 2H20v8.5H4Z" />
-                        <path d="M12 12v4" />
-                        <path d="M10 14h4" />
-                      </svg>資料夾
+                  <!-- 第一排五顆都是「新增一則對話」：Local＝本機／API，其餘四家＝網頁版 AI（ai-web-page.js），都列在下面清單。
+                       資料夾是整理清單的動作，放搜尋框旁；Arena 不是對話、也不多開（只有一個），釘在清單最上面 -->
+                  <div class="chat-panel-actions" role="group" aria-label="新增對話">
+                    <button type="button" id="chatNewBtn" class="btn btn-secondary btn-sm chat-new-btn" title="新增 Local 對話（本機／API 模型）" aria-label="Local">
+                      <span class="nav-icon" data-icon="local"></span>
                     </button>
                     <button type="button" class="btn btn-secondary btn-sm ai-web-btn" data-ai-web="chatgpt" title="新增 ChatGPT 網頁版對話" aria-label="ChatGPT">
                       <span class="nav-icon" data-icon="openai"></span>
@@ -175,13 +171,27 @@
                       <span class="nav-icon" data-icon="grok"></span>
                     </button>
                   </div>
-                  <input
-                    type="search"
-                    id="chatSearchInput"
-                    class="input input-sm chat-search"
-                    placeholder="搜尋對話…"
-                    aria-label="搜尋對話"
-                  />
+                  <div class="chat-search-row">
+                    <input
+                      type="search"
+                      id="chatSearchInput"
+                      class="input input-sm chat-search"
+                      placeholder="搜尋對話…"
+                      aria-label="搜尋對話"
+                    />
+                    <button type="button" id="chatNewFolderBtn" class="btn btn-secondary btn-sm chat-new-folder-btn" title="新增資料夾" aria-label="新增資料夾">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7.5h5l1.6 2H20v8.5H4Z" />
+                        <path d="M12 12v4" />
+                        <path d="M10 14h4" />
+                      </svg>
+                    </button>
+                  </div>
+                  <button type="button" id="chatArenaBtn" class="chat-arena-entry" title="LLM Arena（只開一個，切走也保留畫面）">
+                    <span class="nav-icon" data-icon="arena"></span>
+                    <span class="chat-arena-name">Arena</span>
+                    <span class="chat-arena-meta">模型競技場</span>
+                  </button>
                   <div id="chatList" class="chat-list" aria-label="對話清單"></div>
                 </section>
 
@@ -229,7 +239,7 @@
                     id="chatInput"
                     class="chat-input"
                     rows="1"
-                    placeholder="輸入訊息…（Enter 送出，Shift+Enter 換行，可貼上或拖入圖片）"
+                    placeholder="輸入訊息…（可貼上或拖入圖片）"
                   ></textarea>
                   <div class="chat-composer-bar">
                     <button
@@ -246,15 +256,32 @@
                     <button
                       type="button"
                       id="chatThinkBtn"
-                      class="composer-btn composer-toggle"
-                      aria-pressed="false"
-                      title="思考模式：送出 reasoning_effort，部分模型才支援"
+                      class="composer-btn"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                      title="思考強度"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M12 3.5a4.5 4.5 0 0 0-4.4 5.4A3.6 3.6 0 0 0 9 15.8V18a1.5 1.5 0 0 0 1.5 1.5h3A1.5 1.5 0 0 0 15 18v-2.2a3.6 3.6 0 0 0 1.4-6.9A4.5 4.5 0 0 0 12 3.5Z" />
                         <path d="M9.8 21.2h4.4" />
                       </svg>
                       <span>思考</span>
+                    </button>
+                    <button
+                      type="button"
+                      id="chatImageBtn"
+                      class="composer-btn"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                      title="生圖的比例與解析度"
+                      hidden
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+                        <circle cx="9" cy="10" r="1.6" />
+                        <path d="m20.5 16-4.8-4.8L7 19.5" />
+                      </svg>
+                      <span>圖片選項</span>
                     </button>
                     <button
                       type="button"
@@ -484,6 +511,7 @@
                       <div class="ws-review-head">
                         <span id="wsReviewCount">0 則意見</span>
                         <button type="button" id="wsReviewToAiBtn" class="btn btn-primary btn-sm">交給 AI</button>
+                        <button type="button" id="wsReviewToTermBtn" class="btn btn-secondary btn-sm" title="貼進這個專案最近用的 AI 終端機（不會自動送出）">貼到終端機</button>
                         <button type="button" id="wsReviewClearBtn" class="btn btn-secondary btn-sm">全部清掉</button>
                         <button type="button" id="wsReviewCloseBtn" class="btn btn-secondary btn-sm">收起來</button>
                       </div>
@@ -623,11 +651,16 @@
                               <button type="button" class="agy-range-btn is-active" data-cu-range="7d" aria-pressed="true">7 天</button>
                               <button type="button" class="agy-range-btn" data-cu-range="30d" aria-pressed="false">30 天</button>
                               <button type="button" class="agy-range-btn" data-cu-range="all" aria-pressed="false">全部</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="custom" aria-pressed="false" aria-controls="cuCustomRange">自訂</button>
                             </div>
                             <button type="button" id="cuPricesBtn" class="btn btn-secondary btn-sm">單價</button>
                             <button type="button" id="cuSyncBtn" class="btn btn-primary btn-sm"
                               title="增量掃描本機 session 記錄；規則改版會自動重讀">掃描本機記錄</button>
                         </div>
+                      </div>
+                      <div id="cuCustomRange" class="cu-custom-range" role="group" aria-label="自訂日期範圍" hidden>
+                        <label>起日<input id="cuFrom" class="input" type="date"></label>
+                        <label>迄日<input id="cuTo" class="input" type="date"></label>
                       </div>
                       <p id="cuError" class="live-error hidden" role="alert"></p>
                       <p id="cuUncosted" class="cu-note hidden" role="status"></p>
@@ -1098,7 +1131,7 @@
                 </section>
               </div>
 
-              <!-- 執行環境：啟動列、本機模型（含資料夾）、占用、推論、log -->
+              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推論（含占用）、log -->
               <div class="subtab-panel active" id="hf-runtime" data-subtab="runtime" role="tabpanel">
                 <div class="hf-runtime-layout">
                   <section class="hf-panel hf-run" aria-label="啟動與載入">
@@ -1119,41 +1152,48 @@
                     <dl class="hf-specs hidden" id="hfUsageSpecs"></dl>
                   </section>
 
-                  <div class="hf-runtime-grid">
-                    <section class="hf-panel" aria-label="本機模型">
-                      <div class="hf-section-head">
-                        <h2>本機模型</h2>
-                        <div class="hf-library-actions" role="group" aria-label="本機模型操作">
-                          <button type="button" id="hfRescanBtn" class="btn btn-secondary btn-sm">重新掃描</button>
-                          <button type="button" id="hfImportBtn" class="btn btn-secondary btn-sm">匯入 .gguf</button>
-                        </div>
-                      </div>
-                      <div class="hf-dir-row">
-                        <span class="hf-setting-value" id="hfModelsDirText"
-                              title="舊模型留在原地不搬。一顆一個子資料夾，mmproj-*.gguf 同夾。">—</span>
-                        <div class="hf-inline-actions">
-                          <button type="button" id="hfOpenFolderBtn" class="btn btn-secondary btn-sm">開啟</button>
-                          <button type="button" id="hfChooseDirBtn" class="btn btn-secondary btn-sm">變更</button>
-                        </div>
-                      </div>
-                      <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
-                    </section>
+                  <!-- Miroxen 的 API／區網（工作台內嵌時不顯示自己的 API 分頁，改在這裡） -->
+                  <section class="hf-panel hidden" id="hfMiroxenApi" aria-label="圖片影像 API">
+                    <div class="hf-section-head">
+                      <h2>圖片影像 API（Miroxen）</h2>
+                      <label class="hf-check"><input type="checkbox" id="hfMiroxenLan"> 允許區網其他裝置連線</label>
+                    </div>
+                    <div id="hfMiroxenApiRows"></div>
+                    <p class="setting-hint" id="hfMiroxenApiHint"></p>
+                  </section>
 
-                    <section class="hf-panel" aria-label="占用">
-                      <h2>占用</h2>
-                      <div id="hfOccupancy" class="hf-gpu-meters" aria-label="CPU 與記憶體占用">
-                        <p class="setting-hint">讀取占用…</p>
+                  <section class="hf-panel" aria-label="本機模型">
+                    <div class="hf-section-head">
+                      <h2>本機模型</h2>
+                      <div class="hf-library-actions" role="group" aria-label="本機模型操作">
+                        <button type="button" id="hfRescanBtn" class="btn btn-secondary btn-sm">重新掃描</button>
+                        <button type="button" id="hfImportBtn" class="btn btn-secondary btn-sm">匯入 .gguf</button>
                       </div>
-                      <div id="hfGpuMeters" class="hf-gpu-meters" aria-label="GPU 占用">
-                        <p class="setting-hint">讀取顯示卡…</p>
+                    </div>
+                    <div class="hf-dir-row">
+                      <span class="hf-setting-value" id="hfModelsDirText"
+                            title="舊模型留在原地不搬。一顆一個子資料夾，mmproj-*.gguf 同夾。">—</span>
+                      <div class="hf-inline-actions">
+                        <button type="button" id="hfOpenFolderBtn" class="btn btn-secondary btn-sm">開啟</button>
+                        <button type="button" id="hfChooseDirBtn" class="btn btn-secondary btn-sm">變更</button>
                       </div>
-                    </section>
-                  </div>
+                    </div>
+                    <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
+                  </section>
 
                   <section class="hf-panel" aria-label="推論">
                     <h2>推論</h2>
                     <div class="hf-infer-grid">
                       <div>
+                        <div class="hf-occupancy" role="group" aria-label="占用">
+                          <span class="hf-setting-label">占用</span>
+                          <div id="hfOccupancy" class="hf-gpu-meters" aria-label="CPU 與記憶體占用">
+                            <p class="setting-hint">讀取占用…</p>
+                          </div>
+                          <div id="hfGpuMeters" class="hf-gpu-meters" aria-label="GPU 占用">
+                            <p class="setting-hint">讀取顯示卡…</p>
+                          </div>
+                        </div>
                         <dl class="hf-specs" id="hfHardwareSpecs"></dl>
                         <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>
                         <div id="cudaEnvRow" class="cuda-env-row hidden">
@@ -1238,12 +1278,10 @@
                   aria-selected="false" aria-controls="sysmon-screentime">使用時長</button>
                 <button type="button" class="sysmon-tab" data-subtab="processes" role="tab"
                   aria-selected="false" aria-controls="sysmon-processes">處理程序</button>
-                <button type="button" class="sysmon-tab" data-subtab="stress" role="tab"
-                  aria-selected="false" aria-controls="sysmon-stress">壓力測試</button>
                 <button type="button" class="sysmon-tab" data-subtab="fans" role="tab"
                   aria-selected="false" aria-controls="sysmon-fans">風扇控制</button>
                 <button type="button" class="sysmon-tab" data-subtab="oc" role="tab"
-                  aria-selected="false" aria-controls="sysmon-oc">效能調整</button>
+                  aria-selected="false" aria-controls="sysmon-oc">效能與壓力測試</button>
                 <button type="button" class="sysmon-tab" data-subtab="disk" role="tab"
                   aria-selected="false" aria-controls="sysmon-disk">磁碟空間</button>
               </nav>
@@ -1322,27 +1360,74 @@
                 </div>
                 <p id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></p>
                 <p id="sysmonNetworkNote" class="sysmon-detail sysmon-proc-note">欄名顯示整機占用；拖曳或用 Alt＋方向鍵調換欄位，名稱固定在第一欄。</p>
-                <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
+                <p class="sysmon-detail sysmon-proc-note" id="sysmonProcNote">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 
-              <!-- 壓力測試：CPU／GPU／記憶體／磁碟四項，上方一條即時負載與溫度儀錶 -->
-              <div id="sysmon-stress" class="sysmon-panel" role="tabpanel">
-                <div class="sysmon-stress-gaugeboard" role="status" aria-live="off"
-                  aria-label="壓力測試即時負載與溫度">
-                  <section class="sysmon-gauge-group">
-                    <h3>CPU</h3>
-                    <div id="sysmonStressCpu" class="sysmon-gauges sysmon-gauges-cpu"></div>
+              <!--
+                風扇控制：左邊是通用機殼示意圖（晶片給不出實體位置，所以是槽位＋使用者指派，
+                配一顆「識別」按鈕讓人用聽的認），右邊是可拖點的轉速曲線。
+                內容全部由 sysmon-fans.js 產生。
+              -->
+              <div id="sysmon-fans" class="sysmon-panel" role="tabpanel">
+                <div class="fan-bar">
+                  <label class="fan-switch">
+                    <input type="checkbox" id="fanEnabled" />
+                    <span class="fan-switch-track" aria-hidden="true"></span>
+                    <span class="fan-switch-text">接管風扇</span>
+                  </label>
+                  <span id="fanStatus" class="fan-status" role="status" aria-live="polite"></span>
+                  <span class="fan-bar-spacer"></span>
+                  <button type="button" id="fanTaskBtn" class="btn btn-secondary btn-sm" hidden>建立排程工作</button>
+                  <button type="button" id="fanResetBtn" class="btn btn-secondary btn-sm">全部還原 BIOS</button>
+                </div>
+                <div id="fanNotices" class="fan-notices"></div>
+                <div class="fan-layout">
+                  <section class="fan-card fan-chassis-card">
+                    <header class="fan-card-head">
+                      <h2>機殼配置</h2>
+                      <span class="fan-card-hint">斜上方視角示意圖</span>
+                    </header>
+                    <div id="fanChassis" class="fan-chassis"></div>
+                    <p class="fan-hint">位置靠聽的：用「識別」讓那顆全速轉幾秒。</p>
                   </section>
-                  <section class="sysmon-gauge-group">
-                    <h3>GPU</h3>
-                    <div id="sysmonStressGpu" class="sysmon-gpu-gauges"></div>
+                  <section class="fan-card fan-list-card">
+                    <header class="fan-card-head">
+                      <h2>風扇通道</h2>
+                      <span class="fan-card-hint">點一列展開設定</span>
+                    </header>
+                    <div id="fanList" class="fan-list"></div>
+                    <div id="fanEditor" class="fan-editor" hidden></div>
                   </section>
-                  <section class="sysmon-gauge-group">
+                </div>
+              </div>
+
+              <!--
+                效能與壓力測試：上面是即時儀表（套用或壓測時看得到時脈／功耗／溫度在動），
+                中間一排四項壓力測試，下面兩欄是 Ryzen Master／Afterburner 的可調項。套用是按鈕。
+              -->
+              <div id="sysmon-oc" class="sysmon-panel" role="tabpanel">
+                <div class="oc-bar">
+                  <span id="ocStatus" class="oc-status" role="status" aria-live="polite"></span>
+                  <span class="oc-bar-spacer"></span>
+                  <button type="button" id="ocAuthBtn" class="btn btn-secondary btn-sm" hidden>授權效能調整（pkexec）</button>
+                  <button type="button" id="ocResetBtn" class="btn btn-secondary btn-sm">還原出廠</button>
+                  <button type="button" id="ocApplyBtn" class="btn btn-primary btn-sm">套用</button>
+                </div>
+                <div id="ocNotices" class="oc-notices"></div>
+                <div class="oc-dash" id="ocDash" role="status" aria-live="off" aria-label="效能調整即時儀表">
+                  <section class="oc-dash-group">
+                    <h3>處理器即時</h3>
+                    <div id="ocCpuGauges" class="sysmon-gauges"></div>
+                    <div id="ocCpuCores" class="oc-coregrid" aria-label="每核時脈"></div>
+                    <p class="oc-spark-legend"><i class="oc-spark-swatch is-clock"></i>時脈（這一分鐘）<i class="oc-spark-swatch is-temp"></i>溫度</p>
+                    <canvas id="ocCpuSpark" class="oc-spark" width="640" height="56" aria-hidden="true"></canvas>
+                  </section>
+                  <div id="ocGpuDashHost" class="oc-gpu-dash-host"></div>
+                  <section class="oc-dash-group">
                     <h3>記憶體與硬碟</h3>
                     <div id="sysmonStressDisks" class="sysmon-gauges sysmon-gauges-disk"></div>
                   </section>
                 </div>
-
                 <div class="sysmon-stress-grid">
                   <section class="sysmon-stress-card">
                     <h2>CPU 壓力測試</h2>
@@ -1430,70 +1515,7 @@
                     <div id="sysmonBenchResult" class="sysmon-bench-result" role="status" aria-live="polite"></div>
                   </section>
                 </div>
-              </div>
-
-              <!--
-                風扇控制：左邊是通用機殼示意圖（晶片給不出實體位置，所以是槽位＋使用者指派，
-                配一顆「識別」按鈕讓人用聽的認），右邊是可拖點的轉速曲線。
-                內容全部由 sysmon-fans.js 產生。
-              -->
-              <div id="sysmon-fans" class="sysmon-panel" role="tabpanel">
-                <div class="fan-bar">
-                  <label class="fan-switch">
-                    <input type="checkbox" id="fanEnabled" />
-                    <span class="fan-switch-track" aria-hidden="true"></span>
-                    <span class="fan-switch-text">接管風扇</span>
-                  </label>
-                  <span id="fanStatus" class="fan-status" role="status" aria-live="polite"></span>
-                  <span class="fan-bar-spacer"></span>
-                  <button type="button" id="fanTaskBtn" class="btn btn-secondary btn-sm" hidden>建立排程工作</button>
-                  <button type="button" id="fanResetBtn" class="btn btn-secondary btn-sm">全部還原 BIOS</button>
-                </div>
-                <div id="fanNotices" class="fan-notices"></div>
-                <div class="fan-layout">
-                  <section class="fan-card fan-chassis-card">
-                    <header class="fan-card-head">
-                      <h2>機殼配置</h2>
-                      <span class="fan-card-hint">斜上方視角示意圖</span>
-                    </header>
-                    <div id="fanChassis" class="fan-chassis"></div>
-                    <p class="fan-hint">位置靠聽的：用「識別」讓那顆全速轉幾秒。</p>
-                  </section>
-                  <section class="fan-card fan-list-card">
-                    <header class="fan-card-head">
-                      <h2>風扇通道</h2>
-                      <span class="fan-card-hint">點一列展開設定</span>
-                    </header>
-                    <div id="fanList" class="fan-list"></div>
-                    <div id="fanEditor" class="fan-editor" hidden></div>
-                  </section>
-                </div>
-              </div>
-
-              <!--
-                效能調整：上面是即時儀表（套用後看得到時脈／功耗／溫度在動），
-                下面兩欄是 Ryzen Master／Afterburner 的可調項。套用是按鈕。
-              -->
-              <div id="sysmon-oc" class="sysmon-panel" role="tabpanel">
-                <div class="oc-bar">
-                  <span id="ocStatus" class="oc-status" role="status" aria-live="polite"></span>
-                  <span class="oc-bar-spacer"></span>
-                  <button type="button" id="ocAuthBtn" class="btn btn-secondary btn-sm" hidden>授權效能調整（pkexec）</button>
-                  <button type="button" id="ocResetBtn" class="btn btn-secondary btn-sm">還原出廠</button>
-                  <button type="button" id="ocApplyBtn" class="btn btn-primary btn-sm">套用</button>
-                </div>
-                <div id="ocNotices" class="oc-notices"></div>
                 <p class="oc-hint" id="ocHint">PBO／Curve Optimizer／功耗與時脈牆；只這次開機有效，過熱即還原。</p>
-                <div class="oc-dash" id="ocDash" role="status" aria-live="off" aria-label="效能調整即時儀表">
-                  <section class="oc-dash-group">
-                    <h3>處理器即時</h3>
-                    <div id="ocCpuGauges" class="sysmon-gauges"></div>
-                    <div id="ocCpuCores" class="oc-coregrid" aria-label="每核時脈"></div>
-                    <p class="oc-spark-legend"><i class="oc-spark-swatch is-clock"></i>時脈（這一分鐘）<i class="oc-spark-swatch is-temp"></i>溫度</p>
-                    <canvas id="ocCpuSpark" class="oc-spark" width="640" height="56" aria-hidden="true"></canvas>
-                  </section>
-                  <div id="ocGpuDashHost" class="oc-gpu-dash-host"></div>
-                </div>
                 <div class="oc-layout">
                   <section class="oc-card" id="ocCpuCard">
                     <header class="oc-card-head">
@@ -1671,7 +1693,6 @@
               <div class="dict-panel-head">
                 <h3>轉錄紀錄</h3>
               </div>
-              <p id="sttTxEmpty" class="dict-empty">還沒有轉錄</p>
               <div id="transcribeProgress" class="progress-panel hidden">
                 <div class="progress-spinner" aria-hidden="true"></div>
                 <div
@@ -1687,16 +1708,7 @@
                 <p class="progress-text" role="status" aria-live="polite">正在轉錄中...</p>
                 <p class="progress-percent" aria-hidden="true">0%</p>
               </div>
-              <div id="transcribeResult" class="result-panel hidden">
-                <div class="result-header">
-                  <div class="result-actions">
-                    <button id="copyResultBtn" class="btn btn-secondary">📋 複製</button>
-                    <button id="saveResultBtn" class="btn btn-secondary">💾 儲存</button>
-                  </div>
-                </div>
-                <p id="resultWarning" class="result-warning hidden" role="status"></p>
-                <div id="resultText" class="result-text"></div>
-              </div>
+              <div id="txHistoryList" class="dict-records rec-list"></div>
             </section>
 
             </div>
@@ -1793,7 +1805,7 @@
                       按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
                     </p>
                     <p id="dictationHotkeyTipLinux" class="setting-hint dict-hotkey-note" hidden>
-                      <strong>Wayland：</strong>全域右 Alt 可能無效或需額外權限。<strong>X11：</strong>uiohook 監聽通常較穩，但仍無法吞鍵。
+                      <strong>X11：</strong>只能監聽右 Alt、無法攔截，前景程式也會收到這顆鍵。<strong>Wayland：</strong>只在 XWayland 視窗位於前景時有效。
                     </p>
                     <p id="dictationHotkeyNote" class="setting-hint dict-hotkey-note" hidden></p>
                   </div>
@@ -1980,6 +1992,15 @@
               </div>
             </div>
           </section>
+          <!-- 生成圖片影像：內嵌 Miroxen 工作台（引擎與模型在 Local SI 安裝） -->
+          <section id="page-imagegen" class="page" aria-label="生成圖片影像">
+            <div id="imagegenEmpty" class="imagegen-empty" hidden>
+              <h2 id="imagegenEmptyTitle"></h2>
+              <p id="imagegenEmptyText" class="setting-hint"></p>
+              <button type="button" id="imagegenEmptyAction" class="btn btn-primary"></button>
+            </div>
+            <iframe id="imagegenFrame" class="imagegen-frame" title="Miroxen 工作台" hidden></iframe>
+          </section>
           <section id="page-translate" class="page" aria-label="翻譯">
             <!-- 模型選單與語音轉文字頁共用同一份設定，改哪邊都一樣 -->
             <div class="page-header page-header-row">
@@ -1990,6 +2011,7 @@
                     <select id="translatePageModel" class="model-chip-select" aria-label="翻譯模型"></select>
                   </label>
                 </div>
+                <button type="button" id="screenTranslateOpen" class="btn btn-secondary btn-sm" title="移動、縮放取景框，自動翻譯框內的螢幕文字">螢幕翻譯</button>
                 <details class="translate-voice" name="translateTopbar">
                   <summary id="translateVoiceTitle">EdgeTTS</summary>
                   <div class="settings-card">
@@ -2114,6 +2136,13 @@
                     <span id="pdfTranslateFile" class="file-chip-name"></span>
                     <button type="button" id="pdfTranslateRun" class="btn btn-primary btn-sm">翻譯檔案</button>
                     <button type="button" id="pdfTranslateRemove" class="file-chip-remove" aria-label="移除附件">×</button>
+                  </div>
+                  <div id="pdfTranslateOptions" class="file-options" hidden>
+                    <label class="file-option">頁碼
+                      <input type="text" id="pdfTranslatePages" class="input input-sm file-option-pages" placeholder="全部，例如 1-3, 5" maxlength="200" spellcheck="false" />
+                    </label>
+                    <label class="file-option"><input type="checkbox" id="pdfTranslateDual" /> 雙語對照（原文頁＋譯文頁）</label>
+                    <button type="button" id="pdfTranslateClearCache" class="btn btn-secondary btn-sm" title="翻過的段落會記住譯文，同一份文件重翻直接沿用；清掉後全部重新翻">清除譯文快取</button>
                   </div>
                   <div id="pdfTranslateSetup" class="file-setup" hidden>
                     <p id="pdfTranslateSetupText"></p>
@@ -2380,7 +2409,7 @@
                     <p class="install-error" id="installError" role="alert" hidden></p>
                     <div id="installJobs" class="install-jobs" aria-label="安裝工作" hidden></div>
                     <div id="installList" class="install-list" aria-label="應用程式"></div>
-                    <p class="setting-hint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
+                    <p class="setting-hint" id="installFootHint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
                   </section>
                   <section class="settings-section" id="set-cli" data-section="cli">
                     <header class="settings-section-head">
@@ -2499,7 +2528,6 @@
                           </label>
                           <div class="agy-setting-actions">
                             <button type="button" id="agyClearLogsBtn" class="btn btn-secondary btn-sm">清空日誌</button>
-                            <button type="button" id="agySaveSettingsBtn" class="btn btn-primary btn-sm">儲存設定</button>
                           </div>
                         </div>
                       </section>
@@ -2693,6 +2721,22 @@
           <fieldset class="usage-settings-group">
             <legend>每一家顯示</legend>
             <div id="usageBarToggles" class="usage-provider-toggles"></div>
+          </fieldset>
+          <fieldset class="usage-settings-group">
+            <legend>提醒與預熱</legend>
+            <label class="usage-provider-toggle">
+              <input type="checkbox" id="usageResetReminder" />
+              <span>週／月額度 6 小時內重置但還剩 15% 以上、Codex 重置次數快過期時跳通知</span>
+            </label>
+            <div class="setting-group">
+              <label for="usageWarmClaude">Claude 5 小時窗口預熱時間</label>
+              <input type="text" id="usageWarmClaude" class="input" placeholder="例如 06:00, 11:00（留空＝不預熱）" spellcheck="false" />
+            </div>
+            <div class="setting-group">
+              <label for="usageWarmCodex">Codex 5 小時窗口預熱時間</label>
+              <input type="text" id="usageWarmCodex" class="input" placeholder="例如 06:00（留空＝不預熱）" spellcheck="false" />
+            </div>
+            <p class="dialog-desc">到了時間、窗口沒在跑，就用官方 CLI 送一句「hi」讓窗口提早開始計時（只預熱 CLI 目前登入的帳號，App 要開著）。</p>
           </fieldset>
         </div>
         <footer class="dialog-actions">

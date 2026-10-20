@@ -6,7 +6,7 @@
  * 第三參數 `point` 貼在游標或鍵盤列的座標，並夾在視窗內。
  */
 
-/** @typedef {{ label: string, onSelect: () => void, danger?: boolean, checked?: boolean, disabled?: boolean } | { separator: true }} MenuItem */
+/** @typedef {{ label: string, onSelect: () => void, danger?: boolean, checked?: boolean, disabled?: boolean, hint?: string } | { separator: true }} MenuItem */
 
 /** @type {{ el: HTMLElement, anchor: HTMLElement, cleanup: () => void } | null} */
 let open = null
@@ -86,6 +86,12 @@ function buildItem(item) {
   if (item.checked !== undefined) btn.setAttribute('aria-checked', String(item.checked))
   btn.disabled = item.disabled === true
   btn.textContent = item.label
+  if (item.hint) {
+    const hint = document.createElement('span')
+    hint.className = 'chat-menu-hint'
+    hint.textContent = item.hint
+    btn.appendChild(hint)
+  }
   btn.addEventListener('click', () => {
     closeChatMenu()
     item.onSelect()

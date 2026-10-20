@@ -544,7 +544,7 @@ function packLinguaforge(text, max = LINGUAFORGE_CHUNK_CHARS) {
     }
   }
   flush()
-  if (jobs.length === 1 && !jobs[0].prefix) return null
+  if (jobs.length === 1 && !jobs[0].prefix && !jobs[0].text.includes('\n')) return null
   return jobs.length ? jobs : null
 }
 
@@ -825,7 +825,15 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
   // 雲端無 modelKey（非 LinguaForge 訓練格式）→ 傳 null 走通用指令
   const messages = [{ role: 'system', content: buildSystemPrompt(null, targetLang, options.mode) }]
   if (options.mode !== 'live') messages[0].content += '完整翻譯全文，保留段落、標題與清單；不要摘要或省略內容。'
-  const terms = glossary.find(options.glossary, text)
+  // 優先順序：使用者詞條 > PDF 這份文件抽出的術語（依上下文定的）> 內建詞庫（跨學科通用譯名）
+  const terms = options.docTerms ? glossary.find(options.glossary && { ...options.glossary, builtin: false }, text) : glossary.find(options.glossary, text)
+  if (options.docTerms) {
+    const known = new Set(terms.map((term) => term.source.toLowerCase()))
+    const fromDoc = glossary.match(options.docTerms, text).map((term) => ({ source: term.source, targets: [term.target] }))
+    for (const term of [...fromDoc, ...glossary.find(options.glossary, text)]) {
+      if (!known.has(term.source.toLowerCase())) { known.add(term.source.toLowerCase()); terms.push(term) }
+    }
+  }
   if (terms.length) {
     messages[0].content += '\n術語對照（原文出現時譯文用右邊的譯名；列了多個的依上下文選最合適的一個）：\n'
       + terms.map((term) => `${term.source} → ${term.targets.join('／')}`).join('\n')
@@ -836,6 +844,7 @@ async function translateCloud(text, targetLang, cfg, context = {}, options = {})
     // PDF 片段：數學照抄（模型常把 Yp 寫成 $Y_p$），片段各自讀得通
     messages[0].content += '\n數學符號、變數與公式照原文寫法照抄，不要改寫成 LaTeX、不要加 $。'
       + '片段不要用「之」「的」「自」這類虛字開頭或結尾去接別段。'
+    if (options.title) messages[0].content += `\n文件標題（只用來判斷領域與用語，不要翻譯或輸出）：${options.title}`
   }
   if (options.reference) {
     messages[0].content += `\n下面是同一頁的原文，只用來判斷詞義與用語。使用者訊息可能是句子的片段，只翻譯那個片段本身的每個字，不要加入參考裡的其他字，也不要加省略號：\n<reference>\n${options.reference}\n</reference>`
@@ -973,8 +982,10 @@ async function translate(store, text, targetLang, opts = {}) {
       previousTranslation: opts.previousTranslation || ''
     }
     const options = { mode: opts.mode || 'file', modelKey: localKey, signal: opts.signal, reference: opts.reference, segments: opts.segments,
+      title: opts.title, docTerms: opts.docTerms,
       // 內建譯名都是繁中，只給繁中目標
       glossary: targetLang === 'zh-TW' ? glossary.load(store) : null }
+    await glossary.warm(options.glossary)
 
     let result
     if (translator === 'local') {
@@ -1056,12 +1067,6 @@ module.exports = {
   resolveLocalTranslateModel,
   getLoadInfo,
   resolveLinguaforgeDecode,
-  LINGUAFORGE_KEYS,
-  isLinguaforge,
-  LINGUAFORGE_CHUNK_CHARS,
-  LINGUAFORGE_EOS_TOKEN_IDS,
-  LINGUAFORGE_DECODE,
   DEFAULT_LLM_KEY,
-  FALLBACK_LLM_KEY,
   LLM_MODEL_KEYS
 }

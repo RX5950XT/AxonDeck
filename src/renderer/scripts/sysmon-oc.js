@@ -1012,7 +1012,7 @@ export function onOcSample(sample) {
 function poll() {
   electronAPI.sysmon.ocStatus().then((res) => {
     if (res?.ok) render(res.data)
-  })
+  }).catch(() => {})
 }
 
 /** 綁套用／還原一次。 */

@@ -281,6 +281,25 @@ function planLabel(account, label) {
   return plan.startsWith(`${label} `) ? plan.slice(label.length + 1) : plan
 }
 
+/** Claude 多帳號：一個帳號一段（email、方案、使用中），底下是它自己的額度 */
+function createProfile(profile, label) {
+  const section = createElement('section', 'usage-profile')
+  section.setAttribute('aria-label', profile.email || label)
+  const head = createElement('div', 'usage-profile-head')
+  head.appendChild(createElement('span', 'usage-profile-email', profile.email || label))
+  if (profile.active) head.appendChild(createElement('span', 'cc-badge is-active', '使用中'))
+  const plan = planLabel({ ...profile, status: 'connected' }, label)
+  if (plan) head.appendChild(createElement('span', 'usage-profile-plan', plan))
+  section.appendChild(head)
+  if (profile.windows.length) {
+    const quotaList = createElement('div', 'usage-quota-list')
+    for (const window of profile.windows) quotaList.appendChild(createQuotaRow(window))
+    section.appendChild(quotaList)
+  }
+  if (profile.notes) section.appendChild(createElement('p', profile.windows.length ? 'usage-card-note' : 'usage-empty', profile.notes))
+  return section
+}
+
 function createCard(account) {
   const meta = PROVIDER_META.get(account.provider) || { label: account.provider, accent: '#818cf8' }
   const status = deriveStatus(account)
@@ -290,11 +309,14 @@ function createCard(account) {
 
   const header = createElement('header', 'usage-card-head')
   header.appendChild(createElement('h2', 'usage-provider-name', meta.label))
-  const plan = planLabel(account, meta.label)
+  // 多帳號時方案名寫在各帳號那一段，標題不再重複
+  const plan = account.profiles?.length ? '' : planLabel(account, meta.label)
   if (plan) header.appendChild(createElement('span', 'usage-card-plan', plan))
   card.appendChild(header)
 
-  if (account.windows.length) {
+  if (account.profiles?.length) {
+    for (const profile of account.profiles) card.appendChild(createProfile(profile, meta.label))
+  } else if (account.windows.length) {
     const quotaList = createElement('div', 'usage-quota-list')
     for (const window of account.windows) quotaList.appendChild(createQuotaRow(window))
     card.appendChild(quotaList)
@@ -372,7 +394,8 @@ function createChip(account, bar, reorder) {
   const plan = bar.showPlan ? planLabel(account, meta.label) : ''
   if (plan) open.appendChild(createElement('span', 'quota-item-plan', plan))
   open.setAttribute('aria-label', describeAccount(account, windows))
-  open.title = account.notes || meta.label
+  const activeEmail = account.profiles?.find((profile) => profile.active)?.email
+  open.title = activeEmail ? `${meta.label}：${activeEmail}` : account.notes || meta.label
   open.addEventListener('click', () => {
     if (performance.now() < suppressClickUntil) return
     togglePopover(account.provider, open)
@@ -636,6 +659,25 @@ function populateSettingsDialog() {
     barFragment.appendChild(row)
   }
   byId('usageBarToggles').replaceChildren(barFragment)
+  byId('usageResetReminder').checked = state.settings.alerts?.resetReminder !== false
+  byId('usageWarmClaude').value = (state.settings.warmup?.claude || []).join(', ')
+  byId('usageWarmCodex').value = (state.settings.warmup?.codex || []).join(', ')
+}
+
+/**
+ * 「06:00, 11:30」→ ['06:00', '11:30']；`6:00` 補零。有一個看不懂就回 null（整份不存）。
+ * @param {string} text
+ * @returns {string[] | null}
+ */
+function parseWarmTimes(text) {
+  const parts = String(text || '').split(/[,，、\s]+/).filter(Boolean)
+  const out = []
+  for (const part of parts) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(part)
+    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return null
+    out.push(`${match[1].padStart(2, '0')}:${match[2]}`)
+  }
+  return [...new Set(out)].sort().slice(0, 4)
 }
 
 function readDialogSettings() {
@@ -650,7 +692,16 @@ function readDialogSettings() {
     hideDisconnected: checked.has('hideDisconnected'),
     showLastSync: checked.has('showLastSync')
   }
-  return { ...state.settings, visibleProviders, bar }
+  const claude = parseWarmTimes(byId('usageWarmClaude').value)
+  const codex = parseWarmTimes(byId('usageWarmCodex').value)
+  if (!claude || !codex) return null
+  return {
+    ...state.settings,
+    visibleProviders,
+    bar,
+    alerts: { resetReminder: byId('usageResetReminder').checked },
+    warmup: { claude, codex }
+  }
 }
 
 async function saveUsageSettings(settings) {
@@ -673,7 +724,12 @@ function bindControls() {
   })
   byId('usageSettingsCancel')?.addEventListener('click', () => settingsDialog.close())
   byId('usageSettingsSave')?.addEventListener('click', async () => {
-    if (await saveUsageSettings(readDialogSettings())) settingsDialog.close()
+    const settings = readDialogSettings()
+    if (!settings) {
+      showToast('預熱時間要寫成 06:00 這種格式，多個用逗號隔開', 'error')
+      return
+    }
+    if (await saveUsageSettings(settings)) settingsDialog.close()
   })
 
   // 條很窄、顆數多時會超出去：直向滾輪也拿來左右捲
@@ -696,7 +752,7 @@ function bindControls() {
   })
 }
 
-export async function initQuotaBar() {
+async function initQuotaBar() {
   if (initialized || !byId('quotaBar')) return
   initialized = true
   state = initialState()
@@ -712,6 +768,14 @@ export async function initQuotaBar() {
   }
   render()
   startTimers()
+}
+
+/** 切換 Claude 帳號後 main 已經重同步過：直接換上新狀態，不用等下一輪 */
+export function applyQuotaState(next) {
+  if (!next) return
+  state = next
+  lastError = ''
+  render()
 }
 
 /** 工作區主區剛顯示出來時叫：先把快取畫上去，太舊就馬上同步一次 */

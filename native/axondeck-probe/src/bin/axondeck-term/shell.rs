@@ -118,6 +118,16 @@ pub fn startup_command(key: Option<&str>, session_id: &str, agent_session_id: &s
     preset_command(key).to_string()
 }
 
+/// npm 版 codex 原生檔所在資料夾與套件根目錄（同 codex.js 給的環境）。PATH 把它排最前，
+/// `codex` 就直接跑原生檔：npm 的 node 外殼會被別處「殺光 node.exe」連帶收掉整個 Codex。
+fn codex_native(shim: &str) -> Option<(String, String)> {
+    let root = Path::new(shim).parent()?.join("node_modules").join("@openai").join("codex");
+    let (package, triple) = if cfg!(target_arch = "aarch64") { ("codex-win32-arm64", "aarch64-pc-windows-msvc") }
+        else { ("codex-win32-x64", "x86_64-pc-windows-msvc") };
+    let bin = root.join("node_modules").join("@openai").join(package).join("vendor").join(triple).join("bin");
+    bin.join("codex.exe").is_file().then(|| (bin.to_string_lossy().into_owned(), root.to_string_lossy().into_owned()))
+}
+
 /// home 由 main 按對話記錄查得，只覆寫兩家 CLI 官方支援的環境鍵。
 pub fn agent_environment(mut env: Vec<(String, String)>, agent: &str, home: &str) -> Vec<(String, String)> {
     if agent == "opencode" && !env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_TUI_CONFIG") && !value.is_empty()) {
@@ -126,6 +136,13 @@ pub fn agent_environment(mut env: Vec<(String, String)>, agent: &str, home: &str
                 let config = dir.join("opencode/tui.json");
                 if config.is_file() { set_var(&mut env, "OPENCODE_TUI_CONFIG", &config.to_string_lossy()); }
             }
+        }
+    }
+    if agent == "codex" {
+        if let Some((bin, root)) = codex_native(&resolve_exe("codex.cmd")) {
+            prepend_path(&mut env, &bin);
+            set_var(&mut env, "CODEX_MANAGED_PACKAGE_ROOT", &root);
+            set_var(&mut env, "CODEX_MANAGED_BY_NPM", "1");
         }
     }
     if agent == "claude" {
@@ -386,6 +403,22 @@ mod tests {
         assert_eq!(safe_editor_dir("C:\\x\\other"), "");
         assert_eq!(safe_editor_dir("relative\\editor-bridge"), "");
         assert_eq!(safe_editor_dir("C:\\a;b\\editor-bridge"), "");
+    }
+
+    #[test]
+    fn codex_native_layout() {
+        let dir = std::env::temp_dir().join(format!("axondeck-codex-native-{}", std::process::id()));
+        let triple = if cfg!(target_arch = "aarch64") { "codex-win32-arm64/vendor/aarch64-pc-windows-msvc" }
+            else { "codex-win32-x64/vendor/x86_64-pc-windows-msvc" };
+        let bin = dir.join("node_modules/@openai/codex/node_modules/@openai").join(triple).join("bin");
+        assert_eq!(codex_native(&dir.join("codex.cmd").to_string_lossy()), None);
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("codex.exe"), b"").unwrap();
+        let (found, root) = codex_native(&dir.join("codex.cmd").to_string_lossy()).unwrap();
+        assert!(Path::new(&found).join("codex.exe").is_file());
+        assert!(root.ends_with("codex"));
+        assert_eq!(codex_native(""), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

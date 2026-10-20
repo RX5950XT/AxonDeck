@@ -111,6 +111,8 @@ function createWebServer(deps = {}) {
         const url = req.url || ''
         const pathOnly = url.split('?')[0]
         if (pathOnly !== WS_PATH) { socket.destroy(); return }
+        // WebSocket 不受 CORS 管，任何網頁都連得到本機埠：只收瀏覽器外掛（或沒帶 Origin）的連線
+        if (/^(https?:|null$)/i.test(String(req.headers.origin || ''))) { socket.destroy(); return }
         const key = req.headers['sec-websocket-key']
         if (!key) { socket.destroy(); return }
         socket.write(

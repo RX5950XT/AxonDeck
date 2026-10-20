@@ -29,6 +29,10 @@ struct State {
     is_fork: bool,
     session_start_ms: f64,
     last_total_tokens: f64,
+    /// Grok：`[子 session id, 跑完了沒, 開的時間]`，見 parsers.js#trackSubagent
+    subagents: Vec<(String, bool, f64)>,
+    /// Grok：母那一輪沒含到、要讀它自己的檔照算的子代理
+    count_children: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +56,9 @@ struct Event {
     cache_write1h: f64,
     requests: f64,
     cost_usd: Option<f64>,
+    /// Claude 的訊息 id：resume／fork 會把舊訊息複製進新 session 檔，scan.js 靠它跨檔去重
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -198,7 +205,7 @@ fn claude(row: &Value, sc: &mut Scan) -> Vec<Event> {
         return vec![];
     }
     let id = first_truthy(&[at(row, "/message/id"), at(row, "/requestId"), at(row, "/uuid")], "");
-    if !sc.first_time(id) {
+    if !sc.first_time(id.clone()) {
         return vec![];
     }
     let write1h = num(at(u, "/cache_creation/ephemeral_1h_input_tokens"));
@@ -214,6 +221,7 @@ fn claude(row: &Value, sc: &mut Scan) -> Vec<Event> {
         cache_write1h: write1h,
         requests: 1.0,
         cost_usd: None,
+        id: (!id.is_empty()).then_some(id),
     }]
 }
 
@@ -285,6 +293,7 @@ fn codex(row: &Value, sc: &mut Scan) -> Vec<Event> {
         cache_write1h: 0.0,
         requests: 1.0,
         cost_usd: None,
+        id: None,
     }]
 }
 
@@ -312,16 +321,56 @@ fn grok_event(ts: f64, model: String, part: &Value) -> Event {
         cache_write1h: 0.0,
         requests: if calls == 0.0 { 1.0 } else { calls },
         cost_usd: js_number(part.get("costUsdTicks")).filter(|n| n.is_finite()).map(|n| n / USD_TICKS),
+        id: None,
+    }
+}
+
+fn grok_ts(row: &Value) -> f64 {
+    let ts = to_ms(row.get("timestamp"));
+    if ts == 0.0 { to_ms(at(row, "/params/_meta/agentTimestampMs")) } else { ts }
+}
+
+/// parsers.js#trackSubagent
+fn grok_track_subagent(update: &Value, ts: f64, st: &mut State) {
+    let child = first_truthy(&[update.get("child_session_id"), update.get("subagent_id")], "");
+    if child.is_empty() {
+        return;
+    }
+    let entry = st.subagents.iter_mut().find(|e| e.0 == child);
+    if update.get("sessionUpdate").and_then(Value::as_str) == Some("subagent_finished") {
+        if let Some(e) = entry {
+            e.1 = true;
+        }
+        return;
+    }
+    if entry.is_none() {
+        st.subagents.push((child, false, ts));
+    }
+}
+
+/// parsers.js#resolveSubagents
+fn grok_resolve_subagents(st: &mut State, counted: bool) {
+    for (child, finished, _) in std::mem::take(&mut st.subagents) {
+        if (!counted || !finished) && !st.count_children.contains(&child) {
+            st.count_children.push(child);
+        }
     }
 }
 
 fn grok(row: &Value, sc: &mut Scan) -> Vec<Event> {
     let Some(update) = at(row, "/params/update") else { return vec![] };
-    if update.get("sessionUpdate").and_then(Value::as_str) != Some("turn_completed") {
+    let kind = update.get("sessionUpdate").and_then(Value::as_str);
+    if kind == Some("subagent_spawned") || kind == Some("subagent_finished") {
+        grok_track_subagent(update, grok_ts(row), &mut sc.st);
+        return vec![];
+    }
+    if kind != Some("turn_completed") {
         return vec![];
     }
     let usage = update.get("usage");
-    if !is_obj(usage) {
+    let has_usage = is_obj(usage);
+    grok_resolve_subagents(&mut sc.st, has_usage && grok_has_tokens(usage.unwrap()));
+    if !has_usage {
         return vec![];
     }
     let u = usage.unwrap();
@@ -329,10 +378,7 @@ fn grok(row: &Value, sc: &mut Scan) -> Vec<Event> {
     if !sc.first_time(id) {
         return vec![];
     }
-    let mut ts = to_ms(row.get("timestamp"));
-    if ts == 0.0 {
-        ts = to_ms(at(row, "/params/_meta/agentTimestampMs"));
-    }
+    let ts = grok_ts(row);
     if let Some(Value::Object(detail)) = u.get("modelUsage") {
         let events: Vec<Event> = detail
             .iter()
@@ -359,7 +405,7 @@ fn wanted(parser: &str, line: &[u8]) -> bool {
     match parser {
         "claude" => has("\"usage\"") && has("\"assistant\""),
         "codex" => has("\"token_count\"") || has("\"turn_context\"") || has("\"session_meta\""),
-        _ => has("\"turn_completed\""),
+        _ => has("\"turn_completed\"") || has("\"subagent_"),
     }
 }
 
@@ -379,8 +425,25 @@ fn stream_file(job: &Job, parser_name: &str, parse: Parser, sc: &mut Scan, event
     if file.seek(SeekFrom::Start(job.offset)).is_err() {
         return job.offset;
     }
-    let mut reader = BufReader::with_capacity(1 << 20, file.take(size - job.offset));
-    let mut complete = job.offset;
+    let reader = BufReader::with_capacity(1 << 20, file.take(size - job.offset));
+    scan_lines(reader, job.offset, parser_name, parse, sc, events)
+}
+
+/// Codex 把舊 session 壓成 `.jsonl.zst`：內容不會再變，游標用解壓後的位移，
+/// 跟壓縮前那份 `.jsonl` 的游標接得上（同一個 session 不會算兩次）
+fn stream_zst(job: &Job, parser_name: &str, parse: Parser, sc: &mut Scan, events: &mut Vec<Event>) -> u64 {
+    let Ok(file) = File::open(&job.file) else { return job.offset };
+    let Ok(decoder) = zstd::stream::read::Decoder::new(file) else { return job.offset };
+    let mut reader = BufReader::with_capacity(1 << 20, decoder);
+    match std::io::copy(&mut (&mut reader).take(job.offset), &mut std::io::sink()) {
+        Ok(n) if n == job.offset => {}
+        _ => return job.offset,
+    }
+    scan_lines(reader, job.offset, parser_name, parse, sc, events)
+}
+
+fn scan_lines(mut reader: impl BufRead, start: u64, parser_name: &str, parse: Parser, sc: &mut Scan, events: &mut Vec<Event>) -> u64 {
+    let mut complete = start;
     let mut buf = Vec::new();
     loop {
         buf.clear();
@@ -408,7 +471,11 @@ fn run_job(job: &Job, parser_name: &str, parse: Parser) -> Output {
     let seen = st.seen.iter().cloned().collect();
     let mut sc = Scan { st, seen };
     let mut events = Vec::new();
-    let next = stream_file(job, parser_name, parse, &mut sc, &mut events);
+    let next = if job.file.ends_with(".zst") {
+        stream_zst(job, parser_name, parse, &mut sc, &mut events)
+    } else {
+        stream_file(job, parser_name, parse, &mut sc, &mut events)
+    };
     Output { next, state: sc.st, events }
 }
 

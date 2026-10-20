@@ -1,7 +1,6 @@
 'use strict'
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
-const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
@@ -23,16 +22,6 @@ if (process.platform === 'linux') {
 }
 
 // expandArchive：造一個小 tar.gz，解到暫存
-const src = models
-const expand = (() => {
-  // 透過重新讀原始碼不穩定；改用下載路徑旁的行為：直接測 tar 解壓邏輯鏡像
-  const { spawn } = require('child_process')
-  return (archivePath, destDir) => new Promise((resolve, reject) => {
-    const child = spawn('tar', ['-xzf', archivePath, '-C', destDir], { stdio: 'ignore' })
-    child.on('error', reject)
-    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(String(code))))
-  })
-})()
 
 if (process.platform !== 'win32') {
   const tmp = tempDir('ad-models-')

@@ -180,7 +180,5 @@ async function syncGrok({
 
 module.exports = {
   applyGrokBilling,
-  parseGrokSession,
-  resolveGrokConfig,
   syncGrok
 }

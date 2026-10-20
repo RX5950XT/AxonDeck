@@ -43,6 +43,16 @@ pub static MEDIA: Suite = Suite {
 };
 /// resources\media\axondeck-media.exe → 安裝目錄的 AxonDeck.exe
 fn app_exe() -> PathBuf { engine::runtime().parent().and_then(Path::parent).map(|dir| dir.join("AxonDeck.exe")).unwrap_or_default() }
+/// 「在檔案頁顯示」交給 AxonDeck（main 的 `--reveal=`，App 沒開會順便叫起來）；旁邊沒有主程式（開發版）才開系統檔案總管
+pub fn reveal(file: &Path) {
+    let app = app_exe();
+    let mut arg = std::ffi::OsString::from("--reveal=");
+    arg.push(file);
+    if app.is_file() && Command::new(&app).arg(arg).spawn().is_ok() { return; }
+    let mut select = std::ffi::OsString::from("/select,");
+    select.push(file);
+    let _ = Command::new("explorer.exe").arg(select).spawn();
+}
 fn editor_formats() -> &'static Value {
     static FORMATS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     FORMATS.get_or_init(|| serde_json::from_str(include_str!("../../../../../src/main/editor-formats.json")).expect("embedded editor format list"))
@@ -294,7 +304,9 @@ fn backup(s: &Suite) -> Result<(PathBuf, Value), String> {
     }
     let report = json!({"version":1,"player":(s.command)(),"backup":folder,"entries":entries});
     save_report(&folder, &report)?;
-    let output = Command::new("reg.exe").args(["export", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts"])
+    // 指名 System32：裸檔名會先搜應用程式目錄
+    let reg = format!("{}\\System32\\reg.exe", std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into()));
+    let output = Command::new(reg).args(["export", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts"])
         .arg(folder.join("file-exts.reg")).arg("/y").creation_flags(0x08000000).output().map_err(|_| "無法備份 Windows 關聯")?;
     if !output.status.success() { return Err("Windows 關聯備份失敗，未切換預設".into()); }
     Ok((folder, report))

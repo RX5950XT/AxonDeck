@@ -56,7 +56,11 @@ const PER_TOKENS = 1_000_000
  *    v7 那條「4.6 是 1e9」是拿實收價去反推單價表推錯的，會把 4.6 灌水 10 倍。
  */
 // v11：Haiku 5.5 依逐請求輸入長度分桶，舊桶需要重掃才能分開兩級單價。
-const RULES_VERSION = 11
+// v12：AGY 的輸入扣掉快取讀取（promptTokenCount 本來就含快取），舊桶重算。
+// v13：Grok 的 `-build` 端點別名一律收回本體（4.7 起不必逐顆加別名），舊桶重新歸到本體。
+// v14：Codex 讀得到 `.jsonl.zst`；以前讀過、後來被壓縮的 session 游標已被清掉，不重掃會算兩次。
+//      同一版跳過 Grok 子代理自己的 session（母 session 已含），舊桶子裡算兩次的要重算。
+const RULES_VERSION = 14
 
 /**
  * @typedef {object} Price
@@ -205,6 +209,8 @@ function normalizeModel(raw) {
   // 價錢一樣，要合起來算。**`lite` 不在這裡**：Flash-Lite 是另一顆模型，
   // 價格只有 Flash 的三分之一，剝掉就會把它算成貴的那顆（實測 732 筆全被算錯）
   id = id.replace(/-thinking$/, '')
+  // Grok CLI 記的是端點別名（`grok-4.7-build`），價錢跟本體一樣
+  if (id.startsWith('grok')) id = id.replace(/-build$/, '')
   if (id.startsWith('gemini')) id = id.replace(/-(extra-low|low|medium|high|tiered)$/, '')
   // 「大版本-小版本」寫法收斂成小數點：Claude Code 實際寫的是 `claude-haiku-4-5`、`claude-3-7-sonnet`，
   // 但公開報價與別的來源都寫 `claude-haiku-4.5`、`claude-3.7-sonnet`，不轉的話這顆永遠對不到單價
@@ -231,7 +237,7 @@ function isJunkModel(model) {
 }
 
 /**
- * 取單價：使用者自訂優先，其次內建表。
+ * 取單價：使用者自訂優先，其次內建表，最後 models.dev。
  * @param {string} model 已正規化的 id
  * @param {Record<string, Price>} [custom] 使用者自訂單價
  * @returns {Price | null}
@@ -239,7 +245,15 @@ function isJunkModel(model) {
 function priceFor(model, custom = {}) {
   const own = custom && custom[model]
   if (own && Number.isFinite(own.input) && Number.isFinite(own.output)) return own
-  return BUILTIN_PRICES[model] || null
+  return BUILTIN_PRICES[model] || fallbackPrice(model) || null
+}
+
+/** 第三順位：內建表沒有的模型（`models-dev.js` 的原廠公開報價）。只補不蓋 */
+let fallbackPrice = () => null
+
+/** @param {(model: string) => Price | null} fn */
+function setFallbackPrice(fn) {
+  fallbackPrice = typeof fn === 'function' ? fn : () => null
 }
 
 /**
@@ -344,14 +358,12 @@ function needsFullRescan(storedVersion) {
 }
 
 module.exports = {
-  PER_TOKENS,
   RULES_VERSION,
   needsFullRescan,
-  BUILTIN_PRICES,
-  ALIASES,
   normalizeModel,
   isJunkModel,
   priceFor,
+  setFallbackPrice,
   costOf,
   costParts,
   sanitizeCustomPrices,

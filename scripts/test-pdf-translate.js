@@ -61,6 +61,7 @@ const box = vm.createContext({ module: { exports: {} }, Buffer, structuredClone,
             if (mode === 'protocol') child.stdout.emit('data', Buffer.from('private upstream body\n'))
             else {
               child.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'progress', page: 1, pages: 250, stage: 'ocr' }) + '\n'))
+              child.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'document', title: 'Fixture', sample: 'Hello' }) + '\n'))
               child.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'translate', id: 0, text: 'Hello' }) + '\n'))
             }
           })
@@ -120,6 +121,20 @@ async function run() {
   await verifyPdfOwnership()
   assert.throws(() => protocol.validateOptions({}), /選擇 PDF/)
   assert.throws(() => protocol.validateOptions({ fileId: 'a'.repeat(36), targetLang: 'xx' }), /語言/)
+  const options = (extra) => protocol.validateOptions({ fileId: 'a'.repeat(36), targetLang: 'zh-TW', ...extra })
+  assert.deepEqual(options({ pages: ' 1-3, 5，8- ', dual: true }).pages, [[1, 3], [5, 5], [8, 0]])
+  assert.equal(options({ pages: '' }).pages, null); assert.equal(options({ dual: 'yes' }).dual, false)
+  for (const pages of ['0', '3-2', 'a-b', '1;2', 12]) assert.throws(() => options({ pages }), /頁碼/)
+  const terms = require('../src/main/pdf-translate/terms')
+  assert.deepEqual(terms.parseTerms('```json\n[{"src":"Transformer","tgt":"轉換器"},{"src":"Ghost","tgt":"鬼"},{"src":"a=b","tgt":"x"},{"src":1}]\n```',
+    'We use a Transformer. a=b'), [{ src: 'Transformer', tgt: '轉換器' }], '只收原文出現過、格式正確的術語')
+  assert.deepEqual(terms.parseTerms('not json', 'x'), [])
+  const cache = require('../src/main/pdf-translate/cache')
+  cache.open(root)
+  const key = cache.keyOf(['model', 'Hello'])
+  assert.equal(cache.get(key), null); cache.set(key, '你好'); cache.set(cache.keyOf(['blank']), '  ')
+  assert.equal(cache.get(key), '你好'); assert.equal(cache.get(cache.keyOf(['blank'])), null)
+  cache.close()
   const long = 'A'.repeat(2200) + '。' + '𠮷'.repeat(1800)
   const chunks = protocol.splitText(long)
   assert.equal(chunks.join(''), long); assert(chunks.every((text) => text.length <= 1800 && !/[\uD800-\uDBFF]$/.test(text)))
@@ -149,6 +164,9 @@ async function run() {
   assert.deepEqual(JSON.parse(JSON.stringify(service.status().job.warnings)), [{ code: 'overflow', count: 1 }])
   assert(!JSON.stringify(events).includes('private-runtime-key'))
   assert.equal(released, 1)
+  // 前面直接測 cache 存的 1 筆＋第一次翻譯的那一段
+  assert.equal(service.clearCache().removed, 2, '翻過的段落要進快取')
+  assert.equal(service.clearCache().removed, 0)
   destination = input
   await assert.rejects(service.save(job.jobId), /新的檔名/)
   assert(fs.readFileSync(input).equals(sourceBytes))
@@ -212,10 +230,10 @@ async function run() {
   const handlers = new Map()
   registerPdfTranslateIpc({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     service: { status: () => ({ ready: true }) }, isMainSender: (event) => event.allowed })
-  assert.equal(handlers.size, 7)
+  assert.equal(handlers.size, 8)
   // 三份清單對齊：ipc.js、main.js 轉發、preload 缺任一都會回通用碼。
   const mainSource = fs.readFileSync(path.resolve('src/main/main.js'), 'utf8')
-  for (const method of ['pick', 'inspect', 'pasteImage', 'start', 'cancel', 'status', 'save']) {
+  for (const method of ['pick', 'inspect', 'pasteImage', 'start', 'cancel', 'status', 'save', 'clearCache']) {
     assert.match(mainSource, new RegExp(`${method}: async`), `main.js 轉發缺 ${method}`)
   }
   assert.match(fs.readFileSync(path.resolve('src/preload/preload.js'), 'utf8'), /pasteImage: \(payload\)/)

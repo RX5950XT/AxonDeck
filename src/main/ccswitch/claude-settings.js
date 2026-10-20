@@ -183,6 +183,8 @@ function readJsonFile(file, maxBytes = MAX_SETTINGS_BYTES) {
     wrapped.userMessage = `讀取 ${label} 失敗`
     throw wrapped
   }
+  // PowerShell 5.1 的 `Set-Content -Encoding UTF8`、記事本存檔會在開頭塞 BOM，JSON.parse 不收
+  raw = raw.replace(/^﻿/, '')
   if (!raw.trim()) return {}
   let parsed
   try {
@@ -447,16 +449,13 @@ module.exports = {
   sanitizeEnv,
   stripManaged,
   mergeEnv,
-  baseUrlOf,
   readJsonFile,
   writeJsonFile,
   backupFile,
   readSettings,
   writeSettings,
-  backupSettings,
   applyEnv,
   readManagedEnv,
-  HOOK_MARKER,
   HOOK_SPECS,
   HOOK_EVENT_NAMES,
   mergeHooks,

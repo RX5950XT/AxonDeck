@@ -245,7 +245,6 @@ async function countTokens({ inner, model, signal, options }) {
 }
 
 module.exports = {
-  BASE_URLS,
   UpstreamError,
   buildBody,
   countTokens,

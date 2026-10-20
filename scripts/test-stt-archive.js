@@ -104,6 +104,25 @@ archive.registerSttArchiveIpc({
   const goodResolve = await handlers['sttArchive:resolveRecording']('main', a)
   ok('[E] resolve 回目錄內路徑',
     goodResolve.ok === true && goodResolve.data.path === path.join(root, 'recordings', a))
+  // [F] 檔案轉錄紀錄：id 擋路徑、存讀刪、清單新到舊
+  for (const bad of ['../tx-1700000000000', 'tx-1', 'live-1700000000000']) {
+    await assert.rejects(archive.readFileTranscript(bad), /轉錄紀錄 id 無效/, bad)
+    passed += 1
+  }
+  assert.throws(() => archive.saveFileTranscript({ name: 'a.mp3', text: '  ' }), /空的/)
+  const t1 = archive.saveFileTranscript({ name: 'a.mp3', text: '第一份\n第二行' })
+  const t2 = archive.saveFileTranscript({ name: 'b.mp3', text: '第二份' })
+  ok('[F] 同毫秒也不撞名', t1 !== t2)
+  const txs = await archive.listFileTranscripts()
+  ok('[F] 新的在前、帶檔名', txs.length === 2 && txs[0].id === t2 && txs[1].name === 'a.mp3')
+  const txRows = await archive.readFileTranscript(t1)
+  ok('[F] 讀回全文（同字幕形狀）', txRows.length === 1 && txRows[0].source === '第一份\n第二行' && txRows[0].translation === '')
+  fs.writeFileSync(path.join(root, 'file-transcripts', 'tx-1600000000000.json'), '{壞掉')
+  ok('[F] 壞檔不擋清單', (await archive.listFileTranscripts()).length === 2)
+  archive.deleteFileTranscript(t1)
+  ok('[F] 刪掉', (await archive.listFileTranscripts()).length === 1)
+  const savedIpc = await handlers['sttArchive:saveFileTranscript']('main', { name: 'c.mp3', text: 'x' })
+  ok('[F] IPC 存檔回 id', savedIpc.ok === true && /^tx-\d{13}$/.test(savedIpc.data))
   console.log(`test-stt-archive: ${passed} passed`)
 })().catch((e) => {
   console.error(e)

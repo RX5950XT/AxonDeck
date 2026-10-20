@@ -91,8 +91,16 @@ function sanitizeAll(raw) {
       id,
       name: normalizeName(item.name, path.basename(full)),
       path: full,
+      folderId: typeof item.folderId === 'string' ? item.folderId : '',
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now()
     }
+    const setupScript = normalizeSetupScript(item.setupScript)
+    if (setupScript) entry.setupScript = setupScript
+    if (typeof item.worktreeSourceDir === 'string' && path.isAbsolute(item.worktreeSourceDir) && !/[\0\r\n]/.test(item.worktreeSourceDir)) {
+      entry.worktreeSourceDir = normalizePath(item.worktreeSourceDir)
+    }
+    if (typeof item.worktreeBase === 'string' && /^[A-Za-z0-9._/-]{1,200}$/.test(item.worktreeBase)
+      && !item.worktreeBase.startsWith('-')) entry.worktreeBase = item.worktreeBase
     if (item.tabsState && typeof item.tabsState === 'object') {
       const sanitized = sanitizeTabsState(item.tabsState)
       if (sanitized) entry.tabsState = sanitized
@@ -100,6 +108,13 @@ function sanitizeAll(raw) {
     out.push(entry)
   }
   return out
+}
+
+function normalizeSetupScript(value) {
+  if (typeof value !== 'string' || !value || /[\0\r\n]/.test(value)
+    || path.isAbsolute(value) || path.win32.parse(value).root || !/\.(ps1|cmd|bat)$/i.test(value)) return ''
+  const rel = value.replace(/\\/g, '/')
+  return rel.split('/').includes('..') ? '' : rel
 }
 
 const ALLOWED_TAB_KINDS = new Set(['terminal', 'editor', 'diff', 'browser', 'ai-session', 'cc-tools'])
@@ -176,7 +191,75 @@ async function getStore() {
 
 async function readAll() {
   const s = await getStore()
-  return sanitizeAll(s.get('projects', []))
+  const folders = new Set(sanitizeFolders(s.get('folders', [])).map((f) => f.id))
+  return sanitizeAll(s.get('projects', [])).map((item) => (
+    folders.has(item.folderId) ? item : { ...item, folderId: '' }
+  ))
+}
+
+function sanitizeFolders(raw) {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  return raw.filter((f) => {
+    if (!f || typeof f.id !== 'string' || !f.id || seen.has(f.id)) return false
+    seen.add(f.id)
+    return true
+  }).slice(0, 100).map((f) => ({
+    id: f.id, name: normalizeName(f.name, '新資料夾'), collapsed: f.collapsed === true
+  }))
+}
+
+function listFolders() {
+  return withStore(async () => sanitizeFolders((await getStore()).get('folders', [])))
+}
+
+function mutateFolders(change) {
+  return withStore(async () => {
+    const s = await getStore()
+    const next = change(sanitizeFolders(s.get('folders', [])))
+    s.set('folders', next)
+    return next
+  })
+}
+
+async function createFolder(name) {
+  const folder = { id: newId(), name: normalizeName(name, '新資料夾'), collapsed: false }
+  await mutateFolders((folders) => {
+    if (folders.length >= 100) {
+      throw Object.assign(new Error('FOLDER_LIMIT'), { code: 'FOLDER_LIMIT', userMessage: '資料夾數量已達上限' })
+    }
+    return [...folders, folder]
+  })
+  return folder
+}
+
+function updateFolder(id, patch) {
+  return mutateFolders((folders) => folders.map((f) => f.id === id ? {
+    ...f,
+    ...(typeof patch?.name === 'string' ? { name: normalizeName(patch.name, f.name) } : {}),
+    ...(typeof patch?.collapsed === 'boolean' ? { collapsed: patch.collapsed } : {})
+  } : f))
+}
+
+function removeFolder(id) {
+  return withStore(async () => {
+    const s = await getStore()
+    const projects = await readAll()
+    // 一次寫回分類及歸屬，專案和草稿都保留。
+    s.set({
+      folders: sanitizeFolders(s.get('folders', [])).filter((f) => f.id !== id),
+      projects: projects.map((p) => p.folderId === id ? { ...p, folderId: '' } : p)
+    })
+    return true
+  })
+}
+
+function reorderFolders(ids) {
+  return mutateFolders((folders) => {
+    const byId = new Map(folders.map((f) => [f.id, f]))
+    const picked = Array.isArray(ids) ? [...new Set(ids.filter((id) => byId.has(id)))] : []
+    return [...picked.map((id) => byId.get(id)), ...folders.filter((f) => !picked.includes(f.id))]
+  })
 }
 
 /**
@@ -237,6 +320,9 @@ function create(req) {
       path: full,
       createdAt: Date.now()
     }
+    if (req.setupScript) project.setupScript = normalizeSetupScript(req.setupScript)
+    if (req.worktreeSourceDir) project.worktreeSourceDir = normalizePath(req.worktreeSourceDir)
+    if (req.worktreeBase) project.worktreeBase = req.worktreeBase
     await writeAll([...items, project])
     return toView(project)
   })
@@ -293,6 +379,15 @@ function rename(id, name) {
   })
 }
 
+function setSetupScript(id, setupScript) {
+  return withStore(async () => {
+    const items = await readAll()
+    const next = items.map((item) => item.id === id ? { ...item, setupScript } : item)
+    await writeAll(next)
+    return next.find((item) => item.id === id) || null
+  })
+}
+
 /**
  * 只從清單移除，**不碰磁碟上的資料夾**。
  * @param {string} id
@@ -307,19 +402,24 @@ function remove(id) {
 
 /**
  * 側欄拖曳後的完整順序；只接受既有 id，漏掉的接在後面（不讓 renderer 有機會刪東西）。
- * @param {string[]} ids
+ * @param {Array<string | { id: string, folderId: string }>} ids
  */
 function reorder(ids) {
   return withStore(async () => {
     const items = await readAll()
     if (!Array.isArray(ids)) return Promise.all(items.map(toView))
     const byId = new Map(items.map((item) => [item.id, item]))
+    const s = await getStore()
+    const folders = new Set(sanitizeFolders(s.get('folders', [])).map((f) => f.id))
     const next = []
-    for (const id of ids) {
+    for (const entry of ids) {
+      const id = typeof entry === 'string' ? entry : entry?.id
       const item = byId.get(id)
       if (!item) continue
       byId.delete(id)
-      next.push(item)
+      const folderId = entry?.folderId
+      next.push(typeof folderId === 'string' && (!folderId || folders.has(folderId))
+        ? { ...item, folderId } : item)
     }
     next.push(...byId.values())
     await writeAll(next)
@@ -359,10 +459,10 @@ function getTabsState(id) {
 module.exports = {
   MAX_NAME,
   MAX_DRAFT_CHARS,
-  normalizePath,
-  normalizeName,
   pathExists,
   sanitizeAll,
+  normalizeSetupScript,
+  setSetupScript,
   list,
   get,
   create,
@@ -370,6 +470,11 @@ module.exports = {
   rename,
   remove,
   reorder,
+  listFolders,
+  createFolder,
+  updateFolder,
+  removeFolder,
+  reorderFolders,
   sanitizeTabsState,
   saveTabsState,
   getTabsState

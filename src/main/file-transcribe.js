@@ -21,7 +21,6 @@ const { resolveFfmpegPath } = require('./ffmpeg-path')
 const MAX_FILE_BYTES = 200 * 1024 * 1024
 /** 時長上限：保證 2 小時；硬上限 4 小時避免無盡等待 */
 const MAX_DURATION_SEC = 4 * 60 * 60
-const MIN_GUARANTEED_DURATION_SEC = 2 * 60 * 60
 const CHUNK_SECONDS = 28
 /** 雲端 STT 片段秒數（避開上游 ~60s timeout） */
 const CLOUD_CHUNK_SECONDS = 50
@@ -665,11 +664,8 @@ module.exports = {
   cancel,
   MAX_FILE_BYTES,
   MAX_DURATION_SEC,
-  MIN_GUARANTEED_DURATION_SEC,
-  CHUNK_SECONDS,
   CLOUD_CHUNK_SECONDS,
   CLOUD_CHUNK_TIMEOUT_MS,
-  SUPPORTED_EXT,
   resolveFfmpegPath,
   validateFilePath,
   parseDurationSec

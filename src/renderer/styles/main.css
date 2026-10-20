@@ -3798,6 +3798,12 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   overflow: hidden;
 }
 
+/* webview 是透明的：網頁沒自己塗底色的地方（例如 Google 網路論壇）會透出 App 深色底、變成黑底黑字。
+   墊白底＝一般瀏覽器的預設畫布色；深色網站自己會蓋過去 */
+webview {
+  background: #fff;
+}
+
 .ws-browser-frame webview {
   flex: 1;
   min-width: 0;

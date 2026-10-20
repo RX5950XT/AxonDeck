@@ -51,6 +51,7 @@ console.log('\n[A] 模型正規化與單價')
   ok('Gemini 思考檔位合併', pricing.normalizeModel('gemini-3.7-flash-high') === 'gemini-3.7-flash')
   ok('Gemini extra-low 也合併', pricing.normalizeModel('gemini-3.7-flash-extra-low') === 'gemini-3.7-flash')
   ok('非 Gemini 不套檔位規則', pricing.normalizeModel('some-model-high') === 'some-model-high')
+  ok('AGY 的 Claude 5.5 檔位合併回本體', pricing.normalizeModel('claude-opus-5-5-high') === 'claude-opus-5.5')
   // Flash-Lite 是另一顆模型（價格只有 Flash 的三分之一），剝掉 lite 會算成貴的那顆
   ok('Flash-Lite 不可以被當成檔位剝掉',
     pricing.normalizeModel('gemini-3.1-flash-lite') === 'gemini-3.1-flash-lite')

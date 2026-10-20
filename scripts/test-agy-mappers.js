@@ -58,10 +58,13 @@ function frame(parts, extra = {}) {
 console.log('\n模型映射')
 
 test('精確表命中（Claude Code CLI 送的死模型名）', () => {
-  // 不是 -thinking：那個上游回 404（實測 sandbox／daily 皆然）
-  assert.strictEqual(modelMap.resolveModel('claude-sonnet-4-5-20250929').mapped, 'claude-sonnet-4-6')
-  assert.strictEqual(modelMap.resolveModel('claude-3-5-sonnet-20241022').mapped, 'claude-sonnet-4-6')
-  assert.strictEqual(modelMap.resolveModel('gemini-3-pro-high').mapped, 'gemini-pro-agent')
+  assert.strictEqual(modelMap.resolveModel('claude-sonnet-4-5-20250929').mapped, 'claude-sonnet-5-5-medium')
+  assert.strictEqual(modelMap.resolveModel('claude-3-5-sonnet-20241022').mapped, 'claude-sonnet-5-5-medium')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-6-thinking').mapped, 'claude-opus-5-5-high')
+  assert.strictEqual(modelMap.resolveModel('gemini-3-pro-high').mapped, 'gemini-3.8-flash-high')
+  // 型錄還列著但已 404 的
+  assert.strictEqual(modelMap.resolveModel('gemini-3.7-flash-medium').mapped, 'gemini-3.8-flash-medium')
+  assert.strictEqual(modelMap.resolveModel('gemini-pro-agent').mapped, 'gemini-3.8-flash-high')
 })
 
 // 映射表只翻譯「上游沒有的名字」；真實存在的 id 一律透傳，不可覆蓋使用者的明確選擇
@@ -72,9 +75,9 @@ test('上游真實 ID 原樣保留', () => {
 })
 
 test('前綴規則涵蓋 gpt-* 與舊 gemini', () => {
-  assert.strictEqual(modelMap.resolveModel('gpt-4o-mini').mapped, 'gemini-pro-agent')
-  assert.strictEqual(modelMap.resolveModel('gemini-2.5-flash-002').mapped, 'gemini-3.7-flash-medium')
-  assert.strictEqual(modelMap.resolveModel('claude-opus-4-1-20250805').mapped, 'claude-opus-4-6-thinking')
+  assert.strictEqual(modelMap.resolveModel('gpt-4o-mini').mapped, 'gemini-3.8-flash-high')
+  assert.strictEqual(modelMap.resolveModel('gemini-2.5-flash-002').mapped, 'gemini-3.8-flash-medium')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-1-20250805').mapped, 'claude-opus-5-5-medium')
 })
 
 test('表外名稱透傳，且標記 known=false', () => {
@@ -96,17 +99,19 @@ test('不安全字元退回預設模型（擋路徑穿越與 header 注入）', 
  * 對應的客戶端就是直接 404／500。清單依實測（scripts/probe-agy-upstream.js）維護。
  */
 test('映射目標都在實測可用的模型清單內', () => {
+  // 2026-10-19 daily／sandbox 實測 200
   const VERIFIED_OK = new Set([
-    'gemini-3.7-flash-high', 'gemini-3.7-flash-medium', 'gemini-3.7-flash-low',
-    'gemini-3-flash', 'gemini-pro-agent', 'gemini-3.1-pro-low',
-    'gemini-2.5-flash', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking'
+    'gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gemini-3.8-flash-tiered',
+    'gemini-3-flash', 'gemini-2.5-flash',
+    'claude-sonnet-5-5-high', 'claude-sonnet-5-5-medium', 'claude-opus-5-5-high', 'claude-opus-5-5-medium'
   ])
   const names = [
     'gpt-4o', 'gpt-5', 'o1-preview', 'o3-mini', 'gpt-3.5-turbo',
     'claude-sonnet-4-5-20250929', 'claude-sonnet-4-6-thinking', 'claude-opus-4-6',
     'claude-3-5-sonnet-20241022', 'claude-haiku-4-5-20251001',
-    'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-pro', 'gemini-3.1-pro',
-    'gemini-3-pro-high', 'gemini-3.1-pro-high'
+    'gemini-2.5-flash', 'gemini-3-pro', 'gemini-3.1-pro',
+    'gemini-3-pro-high', 'gemini-3.1-pro-high', 'gemini-pro-agent', 'gemini-3.1-pro-low',
+    ...Object.keys(modelMap.RETIRED_MODELS)
   ]
   for (const name of names) {
     const { mapped } = modelMap.resolveModel(name)
@@ -120,19 +125,21 @@ test('拒絕 budget 0 的模型不得收到 thinkingBudget: 0', () => {
   assert.strictEqual(modelMap.allowsZeroThinkingBudget('gemini-3.1-pro-low'), false)
   // 3.6 系列回的是 "Request contains an invalid argument"，跟別人不同訊息，實測才抓得到
   assert.strictEqual(modelMap.allowsZeroThinkingBudget('gemini-3.6-flash-medium'), false)
-  assert.strictEqual(modelMap.allowsZeroThinkingBudget('gpt-oss-120b-medium'), false)
+  assert.strictEqual(modelMap.allowsZeroThinkingBudget('gemini-3-flash'), false)
+  // 2026-10-19 起 gpt-oss 接受 budget 0
+  assert.strictEqual(modelMap.allowsZeroThinkingBudget('gpt-oss-120b-medium'), true)
   // 名字有 thinking 但實測接受 budget 0，不能只看名字
   assert.strictEqual(modelMap.allowsZeroThinkingBudget('claude-opus-4-6-thinking'), true)
-  assert.strictEqual(modelMap.allowsZeroThinkingBudget('gemini-3.7-flash-medium'), true)
+  assert.strictEqual(modelMap.allowsZeroThinkingBudget('gemini-3.8-flash-medium'), true)
 
   const off = openai.toGeminiRequest(
-    { model: 'gemini-3.7-flash-medium', messages: [{ role: 'user', content: 'hi' }] },
-    'gemini-3.7-flash-medium'
+    { model: 'gemini-3.8-flash-medium', messages: [{ role: 'user', content: 'hi' }] },
+    'gemini-3.8-flash-medium'
   )
   assert.strictEqual(off.generationConfig.thinkingConfig.thinkingBudget, 0)
 
   const forced = openai.toGeminiRequest(
-    { model: 'gemini-pro-agent', messages: [{ role: 'user', content: 'hi' }] }, 'gemini-pro-agent'
+    { model: 'gemini-3-flash', messages: [{ role: 'user', content: 'hi' }] }, 'gemini-3-flash'
   )
   assert.ok(!('thinkingBudget' in forced.generationConfig.thinkingConfig))
 })
@@ -170,8 +177,33 @@ test('型錄標記淘汰的模型跟著 replacedBy 走', () => {
 })
 
 test('拿不到型錄時維持靜態表行為', () => {
-  assert.strictEqual(modelMap.resolveModel('claude-opus-4-1-20250805', null).mapped, 'claude-opus-4-6-thinking')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-1-20250805', null).mapped, 'claude-opus-5-5-medium')
   assert.strictEqual(modelMap.resolveModel('gemini-3-flash', null).mapped, 'gemini-3-flash')
+})
+
+test('Claude 5.5 三檔：沒指定給 medium，thinking 給 high', () => {
+  const live = ['high', 'medium', 'low'].map((e) => liveRow(`claude-opus-5-5-${e}`))
+    .concat(['high', 'medium', 'low'].map((e) => liveRow(`claude-sonnet-5-5-${e}`)))
+  assert.strictEqual(modelMap.resolveModel('claude-opus-5-5', live).mapped, 'claude-opus-5-5-medium')
+  assert.strictEqual(modelMap.resolveModel('claude-opus-4-6-thinking', live).mapped, 'claude-opus-5-5-high')
+  assert.strictEqual(modelMap.resolveModel('claude-haiku-4-5-20251001', live).mapped, 'claude-sonnet-5-5-medium')
+  assert.strictEqual(modelMap.resolveModel('claude-sonnet-5-5-low', live).mapped, 'claude-sonnet-5-5-low')
+})
+
+test('型錄列著但已 404 的模型標成淘汰並導到 3.8', () => {
+  const { models } = catalog.parseCatalog({
+    models: {
+      'gemini-3.7-flash-medium': { maxTokens: 1048576, maxOutputTokens: 65536 },
+      'gemini-3.1-pro-high': { maxTokens: 1048576, maxOutputTokens: 65535 },
+      'gemini-3.8-flash-medium': { maxTokens: 1048576, maxOutputTokens: 65536 }
+    },
+    deprecatedModelIds: { 'gemini-3.1-pro-high': { newModelId: 'gemini-pro-agent' } }
+  })
+  const row = (id) => models.find((m) => m.id === id)
+  assert.strictEqual(row('gemini-3.7-flash-medium').replacedBy, 'gemini-3.8-flash-medium')
+  assert.strictEqual(row('gemini-3.1-pro-high').replacedBy, 'gemini-3.8-flash-high')
+  assert.strictEqual(row('gemini-3.8-flash-medium').deprecated, false)
+  assert.strictEqual(modelMap.resolveModel('gemini-3.7-flash-medium', models).mapped, 'gemini-3.8-flash-medium')
 })
 
 test('listModels 回 OpenAI 形狀', () => {
@@ -432,7 +464,7 @@ test('圖片只收 data: URI，遠端 URL 一律丟掉（防 SSRF）', () => {
 })
 
 test('非 thinking 模型明確關閉思考預算', () => {
-  const inner = openai.toGeminiRequest({ messages: [], max_tokens: 100 }, 'gemini-3-flash')
+  const inner = openai.toGeminiRequest({ messages: [], max_tokens: 100 }, 'gemini-3.8-flash-medium')
   assert.strictEqual(inner.generationConfig.thinkingConfig.thinkingBudget, 0)
   assert.strictEqual(inner.generationConfig.maxOutputTokens, 100)
 })

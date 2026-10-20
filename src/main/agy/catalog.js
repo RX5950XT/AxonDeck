@@ -1,6 +1,7 @@
 'use strict'
 
 const upstream = require('./upstream')
+const { RETIRED_MODELS } = require('./model-map')
 
 /**
  * 上游模型型錄：解析、過濾、快取。
@@ -55,7 +56,9 @@ function parseCatalog(payload) {
     const entry = raw[id] || {}
     const quota = entry.quotaInfo && typeof entry.quotaInfo === 'object' ? entry.quotaInfo : {}
     const remaining = Number(quota.remainingFraction)
-    const replacement = deprecated[id]
+    // 型錄列著但實際 404 的，當作淘汰；我們的替代優先（上游的替代目標本身也可能已 404）
+    const retired = RETIRED_MODELS[id]
+    const replacement = retired ? { newModelId: retired } : deprecated[id]
     return {
       id,
       maxTokens: num(entry.maxTokens),

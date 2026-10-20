@@ -255,8 +255,6 @@ function cancelAll() {
 
 module.exports = {
   synthesize,
-  synthesizeChunk,
-  splitChunks,
   resolveVoice,
   resolveTtsRate,
   formatTtsRate,
@@ -265,6 +263,4 @@ module.exports = {
   listVoices,
   sanitizeTtsVoices,
   DEFAULT_TTS_VOICES,
-  MAX_TOTAL_CHARS,
-  MAX_CHUNK_CHARS
 }

@@ -17,6 +17,11 @@ function registerUsageIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('usage:redeemCodexReset', (event, creditId) => (
     invoke(event, () => service.redeemCodexReset(creditId))
   ))
+  ipcMain.handle('usage:claudeAccounts', (event) => invoke(event, () => service.listClaudeAccounts()))
+  ipcMain.handle('usage:claudeSwitch', (event, id) => invoke(event, () => service.switchClaudeAccount(id)))
+  ipcMain.handle('usage:claudeRemove', (event, id) => invoke(event, () => service.removeClaudeAccount(id)))
+  ipcMain.handle('usage:claudeLogin', (event) => invoke(event, () => service.loginClaudeAccount()))
+  ipcMain.handle('usage:claudeLoginCancel', (event) => invoke(event, () => service.cancelClaudeLogin()))
 }
 
 module.exports = { registerUsageIpc }

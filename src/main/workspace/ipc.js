@@ -45,6 +45,11 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:reorderProjects', (event, ids) => (
     invoke(event, () => service.reorderProjects(ids))
   ))
+  ipcMain.handle('workspace:listFolders', (event) => invoke(event, () => service.listFolders()))
+  ipcMain.handle('workspace:createFolder', (event, name) => invoke(event, () => service.createFolder(name)))
+  ipcMain.handle('workspace:updateFolder', (event, id, patch) => invoke(event, () => service.updateFolder(id, patch)))
+  ipcMain.handle('workspace:removeFolder', (event, id) => invoke(event, () => service.removeFolder(id)))
+  ipcMain.handle('workspace:reorderFolders', (event, ids) => invoke(event, () => service.reorderFolders(ids)))
 
   // ── 檔案 ──
   ipcMain.handle('workspace:listDir', (event, id, relPath) => (
@@ -52,6 +57,9 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ))
   ipcMain.handle('workspace:readFile', (event, id, relPath) => (
     invoke(event, () => service.readFile(id, relPath))
+  ))
+  ipcMain.handle('workspace:convertOffice', (event, id, relPath, target) => (
+    invoke(event, () => service.convertOffice(id, relPath, target))
   ))
   ipcMain.handle('workspace:writeFile', (event, id, relPath, content, expectedMtimeMs) => (
     invoke(event, () => service.writeFile(id, relPath, content, expectedMtimeMs))
@@ -86,6 +94,9 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
 
   ipcMain.handle('workspace:openEntry', (event, id, relPath) => (
     invoke(event, () => service.openEntry(id, relPath))
+  ))
+  ipcMain.handle('workspace:scriptCommand', (event, id, relPath, terminalId) => (
+    invoke(event, () => service.scriptCommand(id, relPath, terminalId))
   ))
 
   ipcMain.handle('workspace:openExternal', (event, url) => (
@@ -142,6 +153,12 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ))
   ipcMain.handle('workspace:worktreeRemove', (event, id, treePath) => (
     invoke(event, () => service.worktreeRemove(id, treePath))
+  ))
+  ipcMain.handle('workspace:setSetupScript', (event, id, relPath) => (
+    invoke(event, () => service.setSetupScript(id, relPath))
+  ))
+  ipcMain.handle('workspace:worktreeSetupCommand', (event, id, terminalId) => (
+    invoke(event, () => service.worktreeSetupCommand(id, terminalId))
   ))
   ipcMain.handle('workspace:gitBranches', (event, id) => (
     invoke(event, () => service.gitBranches(id))

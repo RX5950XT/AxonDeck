@@ -156,7 +156,8 @@ function readConfig(store, scope) {
       ? picked.modelId
       : (cur.models[0] || DEFAULT_ASR_MODEL)
     return {
-      apiUrl: cur.apiUrl || DEFAULT_ASR_API_URL,
+      // 網址壞掉被清空時不可退回預設網址：金鑰是給別家的，會被送去 OpenRouter
+      apiUrl: cur.apiUrl,
       apiKey: cur.apiKey,
       modelId
     }
@@ -361,6 +362,7 @@ async function transcribeAudio(opts) {
 
   const cfg = readConfig(store, scope)
   if (!cfg.apiKey) throw new Error('尚未設定雲端 ASR 的 API Key')
+  if (!cfg.apiUrl) throw new Error('雲端 ASR 的網址無效，請到設定修正')
 
   const base = cfg.apiUrl.replace(/\/+$/, '')
   const url = `${base}/audio/transcriptions`
@@ -484,5 +486,4 @@ module.exports = {
   transcribeEncoded,
   transcribeAudio,
   readConfig,
-  toWhisperLang
 }

@@ -7,7 +7,7 @@ const CATALOG = [
   { key: 'chatgpt', site: 'chatgpt.com', name: 'ChatGPT', group: '通訊與 AI', id: '9PLM9XGG6VKS', source: 'msstore', match: '^ChatGPT$' },
   { key: 'claude', site: 'claude.ai', name: 'Claude', group: '通訊與 AI', id: 'Anthropic.Claude' },
   { key: 'grok-bot', site: 'grok.com', name: 'Grok Bot', group: '通訊與 AI', id: 'xAI.GrokBot', match: '^Grok Bot(?: |$)' },
-  { key: 'google-app', site: 'google.com', name: 'Google App', group: '通訊與 AI', match: '^Google App(?: |$)', direct: 'google-app', note: '桌機 AI 搜尋（Alt+Space）；裝完由 Google 自己更新。' },
+  { key: 'google-app', site: 'google.com', name: 'Google App', group: '通訊與 AI', match: '^Google(?: App)?$', direct: 'google-app', note: '桌機 AI 搜尋（Alt+Space）；裝完由 Google 自己更新。' },
   { key: 'epic', site: 'epicgames.com', name: 'Epic Games Launcher', group: '遊戲', id: 'EpicGames.EpicGamesLauncher' },
   { key: 'ubisoft', site: 'ubisoft.com', name: 'Ubisoft Connect', group: '遊戲', id: 'Ubisoft.Connect' },
   { key: 'gog', site: 'gog.com', name: 'GOG GALAXY', group: '遊戲', id: 'GOG.Galaxy' },

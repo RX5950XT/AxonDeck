@@ -3080,7 +3080,8 @@ function openPreview(entry) {
     item: entry,
     list,
     mediaUrl: (filePath) => electronAPI.explorer.mediaUrl(filePath),
-    readMarkdown: (filePath) => electronAPI.explorer.readMarkdown(filePath)
+    readMarkdown: (filePath) => electronAPI.explorer.readMarkdown(filePath),
+    openPath: (full, dir) => void openExplorerPath(full, dir ? 'dir' : 'file')
   })
 }
 
@@ -3259,7 +3260,7 @@ async function pasteHere() {
     const landed = (done && done.paths) || []
     if (landed.length && lastClip.paths.length) {
       pushUndo(lastClip.mode === 'cut' ? '搬移' : '複製',
-        lastClip.mode === 'cut' ? undoMove(landed, lastClip.paths) : undoCopy(landed))
+        lastClip.mode === 'cut' ? undoMove(landed, done.sources || lastClip.paths) : undoCopy(landed))
     }
     await refreshAfterMutate()
   } catch {
@@ -4169,7 +4170,7 @@ async function handleDrop(e, toDir) {
       const landed = (done && done.paths) || []
       if (landed.length) {
         pushUndo(mode === 'copy' ? '複製' : '搬移',
-          mode === 'copy' ? undoCopy(landed) : undoMove(landed, paths))
+          mode === 'copy' ? undoCopy(landed) : undoMove(landed, done.sources || paths))
       }
     }
     await refreshAfterMutate()
@@ -4286,6 +4287,7 @@ function paintUffs() {
   const dot = $('exUffsDot')
   const enableBtn = $('exUffsEnableBtn')
   if (!text || !dot) return
+  text.title = ''
   const brokerOn = Boolean(uffs && uffs.broker && uffs.broker.installed)
   const daemonOn = Boolean(uffs && uffs.daemon && uffs.daemon.running)
   const warming = Boolean(uffs && uffs.daemon && uffs.daemon.warming)
@@ -4336,7 +4338,10 @@ function paintUffs() {
     dot.classList.remove('is-on')
     return
   }
-  text.textContent = uffs.version ? `UFFS ${uffs.version}` : 'UFFS 已安裝'
+  // `uffs --version` 會吐「UFFS uffs.exe 0.6.40 (a14d399)」，畫面只留版本號，全文放 title
+  const ver = /\d+(\.\d+)+/.exec(uffs.version || '')?.[0]
+  text.textContent = ver ? `UFFS v${ver}` : 'UFFS 已安裝'
+  text.title = uffs.version || ''
   dot.classList.remove('is-on')
 }
 

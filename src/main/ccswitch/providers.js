@@ -820,12 +820,9 @@ function activate(id, options = {}) {
 
 module.exports = {
   MAX_PROVIDERS,
-  MODEL_KEYS,
   MODEL_FIELDS,
   AUTH_FIELDS,
   API_FORMATS,
-  apiFormatFor,
-  wireForFormat,
   wireUrlFor,
   routeFor,
   routeKeyFor,

@@ -93,13 +93,31 @@ function videoMime(full) {
   return VIDEO_MIME[ext] || ''
 }
 
+/** Office 文件：分頁裡由 renderer 自己解 zip 畫成唯讀預覽（`ws-office.js`） */
+const OFFICE_MIME = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  docm: 'application/vnd.ms-word.document.macroEnabled.12',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  pptm: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+  doc: 'application/msword',
+  xls: 'application/vnd.ms-excel',
+  ppt: 'application/vnd.ms-powerpoint',
+  odt: 'application/vnd.oasis.opendocument.text',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odp: 'application/vnd.oasis.opendocument.presentation'
+}
+
 /**
  * 預覽走 `vi-media://` 的那幾種（見 `media.js`）。
  * @param {string} full
- * @returns {'pdf' | 'audio' | 'video' | 'image' | ''}
+ * @returns {'pdf' | 'office' | 'audio' | 'video' | 'image' | ''}
  */
 function mediaKind(full) {
-  if (path.extname(full).slice(1).toLowerCase() === 'pdf') return 'pdf'
+  const ext = path.extname(full).slice(1).toLowerCase()
+  if (ext === 'pdf') return 'pdf'
+  if (OFFICE_MIME[ext]) return 'office'
   return audioMime(full) ? 'audio' : videoMime(full) ? 'video' : imageMime(full) ? 'image' : ''
 }
 
@@ -109,7 +127,9 @@ function mediaKind(full) {
  */
 function mediaMime(full) {
   const kind = mediaKind(full)
-  return kind === 'pdf' ? 'application/pdf' : kind ? (audioMime(full) || videoMime(full) || imageMime(full)) : ''
+  return kind === 'pdf' ? 'application/pdf'
+    : kind === 'office' ? OFFICE_MIME[path.extname(full).slice(1).toLowerCase()]
+    : kind ? (audioMime(full) || videoMime(full) || imageMime(full)) : ''
 }
 
 /** 列目錄時直接跳過的名字（點進去只有雜訊，而且動輒上萬筆） */
@@ -664,10 +684,6 @@ module.exports = {
   MAX_ENTRIES,
   MAX_TEXT_BYTES,
   MAX_WRITE_CHARS,
-  MAX_IMPORT_ITEMS,
-  MAX_IMPORT_FILES,
-  MAX_IMPORT_FILE_BYTES,
-  MAX_IMPORT_TOTAL_BYTES,
   SKIP_DIRS,
   resolveIn,
   resolveExisting,

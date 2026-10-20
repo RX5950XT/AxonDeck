@@ -131,6 +131,9 @@ async function main() {
   // 常用：iCUE 走 WinGet 識別、Google App 走官方 stub（純靜態，不碰網路）
   assert.equal(catalogFor({ id: 'Corsair.iCUE.5', name: 'Corsair iCUE5 Software' }).key, 'icue')
   assert.equal(catalogFor({ id: 'ARP\\Machine\\X64\\x', name: 'Google App' }).key, 'google-app')
+  // Google App 的安裝紀錄只叫「Google」；不能吃到 Google Chrome
+  assert.equal(catalogFor({ id: 'ARP\\User\\X64\\x', name: 'Google' }).key, 'google-app')
+  assert.equal(catalogFor({ id: 'Google.Chrome', name: 'Google Chrome' }), undefined)
   const google = await resolveSource('google-app')
   assert.ok(google.url.startsWith('https://dl.google.com/'))
   assert.equal(google.publisher, 'Google LLC')

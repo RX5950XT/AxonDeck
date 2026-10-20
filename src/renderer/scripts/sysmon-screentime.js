@@ -350,7 +350,7 @@ function bind() {
   })
 }
 
-export function initScreentimePanel() {
+function initScreentimePanel() {
   if (state.inited) return
   state.inited = true
   bind()

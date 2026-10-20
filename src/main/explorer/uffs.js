@@ -5,7 +5,7 @@
  *
  * 不把 Rust 引擎 vendoring 進來：找本機 `uffs.exe`、代跑 CLI。進檔案頁自動
  * 從 GitHub Releases 下載 zip、一次 UAC 裝 Access Broker、拉起 daemon。
- * 搜尋後閒置及關 App 會休眠用過的索引，保留 daemon 與磁碟快取。
+ * 搜尋索引保留到關 App 才休眠，避免下一次搜尋重新載入。
  */
 
 const fs = require('../raw-fs')
@@ -30,7 +30,6 @@ const SEARCH_LIMIT = 200
 const SEARCH_SCAN_LIMIT = 2000
 const SEARCH_TIMEOUT_MS = 90_000
 const STATUS_TIMEOUT_MS = 8_000
-const SEARCH_IDLE_MS = 60_000
 const MAX_STDOUT = 8 * 1024 * 1024
 const MAX_ZIP_BYTES = 64 * 1024 * 1024
 const ZIP_NAME = 'uffs-windows-x64.zip'
@@ -46,7 +45,6 @@ let downloadCtl = null
 /** @type {Promise<object> | null} */
 let ensureInflight = null
 let hasUsedDaemon = false
-let idleTimer = null
 let releasing = null
 const activeSearches = new Set()
 let searchVersion = 0
@@ -55,22 +53,8 @@ function linuxUnsupported(code = 'UFFS_MISSING') {
   throw fail(code, '整機快速搜尋（UFFS）目前僅支援 Windows；Linux 請用資料夾內篩選。')
 }
 
-
-function scheduleRelease() {
-  clearTimeout(idleTimer)
-  idleTimer = null
-  if (!hasUsedDaemon || activeSearches.size) return
-  idleTimer = setTimeout(() => {
-    idleTimer = null
-    void releaseMemory().catch(() => console.warn('[explorer] 索引記憶體釋放失敗'))
-  }, SEARCH_IDLE_MS)
-  idleTimer.unref?.()
-}
-
 /** 保留索引快取，下次搜尋由 UFFS 自動載回。從未使用過的外部 daemon 不碰。 */
 async function releaseMemory() {
-  clearTimeout(idleTimer)
-  idleTimer = null
   if (!hasUsedDaemon || activeSearches.size) return false
   if (releasing) return releasing
   const exe = findUffs()
@@ -87,7 +71,6 @@ async function shutdown() {
     cancelSearch()
     return linuxMachine().stop()
   }
-  clearTimeout(idleTimer)
   cancelSearch()
   await Promise.all([...activeSearches].map(child => new Promise(resolve => child.once('close', resolve))))
   return releaseMemory()
@@ -494,7 +477,6 @@ async function searchOnce(raw, rawFilters, version, deadline) {
   const filters = sanitizeSearchFilters(rawFilters)
   const exe = findUffs()
   if (!exe) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
-  clearTimeout(idleTimer)
   if (releasing) await releasing.catch(() => {}) // 休眠失敗不阻止正常搜尋。
   if (version !== searchVersion) return { hits: [], truncated: false, warming: false, cancelled: true }
   cancelSearch(true)
@@ -548,14 +530,12 @@ async function searchOnce(raw, rawFilters, version, deadline) {
       clearTimeout(timer)
       if (searchChild === child) searchChild = null
       activeSearches.delete(child)
-      scheduleRelease()
       reject(fail('UFFS_FAILED', '搜尋失敗'))
     })
     child.on('close', (code) => {
       clearTimeout(timer)
       if (searchChild === child) searchChild = null
       activeSearches.delete(child)
-      scheduleRelease()
       if (timed) {
         reject(fail('UFFS_TIMEOUT', '搜尋逾時'))
         return
@@ -587,7 +567,7 @@ async function searchOnce(raw, rawFilters, version, deadline) {
 }
 
 function psQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`
+  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**
@@ -736,18 +716,14 @@ async function runEnsure(opts) {
     st = await installBroker()
   }
   if (st.installed && !st.daemon.running && !st.broker.installed) {
-    await startDaemon({ elevate: !st.broker.installed })
+    await startDaemon({ elevate: true })
     hasUsedDaemon = true
-    scheduleRelease()
     st = await status()
   }
   return st
 }
 
 module.exports = {
-  MAX_PATTERN,
-  SEARCH_LIMIT,
-  SEARCH_SCAN_LIMIT,
   MAX_ZIP_BYTES,
   sanitizePattern,
   configure,
@@ -759,8 +735,6 @@ module.exports = {
   cancelSearch,
   download,
   cancelDownload,
-  installBroker,
-  startDaemon,
   ensureReady,
   releaseMemory,
   shutdown,

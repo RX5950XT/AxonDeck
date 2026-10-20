@@ -1,7 +1,7 @@
 /**
  * 瀏覽器工具列的擴充功能圖示列（跟 Chrome 一樣：圖示＋右下角徽章）。
  * 圖示、標題、徽章由 main 依目前分頁算好（browser-extensions.js 的 `actions`）；
- * 左鍵開 popup（或送 action.onClicked），右鍵叫整組「擴充功能」選單。
+ * 左鍵開浮動 popup（或送 action.onClicked），右鍵叫整組「擴充功能」選單。
  * 專案瀏覽器、Browser 模式、彈出的獨立視窗各一組（createBrowserActions）。
  * 不 import app.js：彈出視窗只有工具列，載整份 App 會把功能頁全部初始化一遍。
  */

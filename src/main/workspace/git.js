@@ -655,9 +655,13 @@ async function diff(projectId, relPath, staged = false) {
   }
   let additions = 0
   let deletions = 0
+  // 只數 hunk 內的行：內容本身是 `-- x`／`++i` 時開頭也是 `---`／`+++`
+  let inHunk = false
   for (const line of diffText.split('\n')) {
-    if (line.startsWith('+') && !line.startsWith('+++')) additions += 1
-    else if (line.startsWith('-') && !line.startsWith('---')) deletions += 1
+    if (line.startsWith('@@')) inHunk = true
+    else if (!inHunk) continue
+    else if (line.startsWith('+')) additions += 1
+    else if (line.startsWith('-')) deletions += 1
   }
   return { path, diff: diffText, staged: Boolean(staged), additions, deletions }
 }
@@ -883,7 +887,6 @@ module.exports = {
   githubUrl,
   MAX_FILES,
   MAX_LOG_FILES,
-  MAX_BRANCHES,
   TIMEOUT_MS,
   LOG_LIMIT,
   unpushedCount,

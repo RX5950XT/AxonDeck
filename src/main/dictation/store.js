@@ -202,6 +202,12 @@ async function upsertDictionary(entry) {
       found.manual = true
       found.at = Date.now()
     } else {
+      // 滿了直接 push 會被下面的 slice 截掉、卻回報成功：先讓出最弱的一條自動學到的
+      if (list.length >= text.MAX_DICT_ENTRIES) {
+        const weakest = list.reduce((w, e, i) => (!e.manual && (w < 0 || e.count < list[w].count) ? i : w), -1)
+        if (weakest < 0) return { ok: false, error: 'FULL' }
+        list.splice(weakest, 1)
+      }
       list.push({ from, to, count: text.PROMOTE_COUNT, active: true, manual: true, at: Date.now() })
     }
     s.set('dictionary', list.slice(0, text.MAX_DICT_ENTRIES))
@@ -231,7 +237,4 @@ module.exports = {
   learn,
   upsertDictionary,
   removeDictionary,
-  sanitizeRecords,
-  sanitizeDictionary,
-  MAX_RECORDS
 }

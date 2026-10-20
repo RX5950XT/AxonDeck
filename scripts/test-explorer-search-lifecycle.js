@@ -56,17 +56,12 @@ async function main() {
   const [oldResult, newResult] = await Promise.all([oldQuery, newQuery])
   assert.equal(oldResult.cancelled, true, '新版查詢須停止前一輪的索引等待')
   assert.equal(newResult.cancelled, undefined)
-  const realTimeout = global.setTimeout
-  global.setTimeout = (callback, ms, ...args) => realTimeout(callback, ms === 60000 ? 10 : ms, ...args)
-  try {
-    await uffs.search('*.txt')
-    await new Promise(resolve => realTimeout(resolve, 30))
-    assert(calls.some(argv => argv[1] === 'hibernate'), '閒置計時器需真的觸發休眠')
-  } finally { global.setTimeout = realTimeout }
-  assert.equal(await uffs.releaseMemory(), true)
-  assert(calls.some(argv => argv[0] === '--daemon' && argv[1] === 'hibernate'), '搜尋閒置後需釋放索引 RAM')
+  await uffs.search('*.txt')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert(!calls.some(argv => argv[1] === 'hibernate'), '搜尋完不可自動休眠，下次搜尋才不用重載索引')
   await uffs.search('*.js')
   await uffs.shutdown()
-  console.log('PASS: 進頁不載索引、只休眠 App 用過的索引、關閉應用等待釋放')
+  assert(calls.some(argv => argv[0] === '--daemon' && argv[1] === 'hibernate'), '關閉應用需釋放索引 RAM')
+  console.log('PASS: 進頁不載索引、搜尋後保留索引、關閉應用才休眠')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

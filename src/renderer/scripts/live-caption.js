@@ -19,7 +19,7 @@ import {
 } from './app.js'
 import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions, hasLlamaRuntime } from './model-picker.js'
 import { syncCustomSelects } from './custom-select.js'
-import { newTranscriptId, logTranscript, refreshLiveHistory } from './live-history.js'
+import { newTranscriptId, logTranscript, refreshLiveHistory, markSttRecording } from './live-history.js'
 import { openRecordingAudio } from './recording-audio.js'
 
 // ===== DOM 元素 =====
@@ -734,6 +734,7 @@ function updateUI() {
   if (liveAudioSource) liveAudioSource.disabled = isStarting || isCapturing || isStopping
   updateMeterTitle()
   liveStatus.classList.toggle('active', isCapturing)
+  markSttRecording('live', isCapturing)
   statusText.textContent = isCapturing ? '擷取中' : isStarting ? '準備中…' : '未啟動'
 
   if (isCapturing) {

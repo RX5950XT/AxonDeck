@@ -133,7 +133,6 @@ function start(projectId, root, send) {
 module.exports = {
   DEBOUNCE_MS,
   MAX_WAIT_MS,
-  MAX_PATHS,
   classify,
   start,
   stop

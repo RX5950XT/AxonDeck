@@ -7,12 +7,12 @@
  */
 
 export const BROWSE_PAGE_SIZE = 500
-export const VIRTUAL_OVERSCAN_ROWS = 12
-export const BROWSE_VIEW_MODES = new Set(['list', 'grid'])
+const VIRTUAL_OVERSCAN_ROWS = 12
+const BROWSE_VIEW_MODES = new Set(['list', 'grid'])
 export const BROWSE_SORT_KEYS = new Set(['name', 'date', 'size', 'type'])
 export const BROWSE_SEARCH_SORTS = new Set(['rank', 'name', 'date', 'size', 'type'])
-export const BROWSE_TILE_SIZES = [48, 64, 96, 128, 180, 256]
-export const BROWSE_DEFAULT_TILE = 96
+const BROWSE_TILE_SIZES = [48, 64, 96, 128, 180, 256]
+const BROWSE_DEFAULT_TILE = 96
 
 const MAX_TAB_SEARCH = 200
 const MAX_TAB_SELECTION = 10000

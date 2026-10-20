@@ -120,10 +120,10 @@ async function main() {
     ok('風扇控制子分頁存在',
       await cdp.eval(`Boolean(document.querySelector('#sysmonTabs .sysmon-tab[data-subtab="fans"]')` +
         `&& document.getElementById('sysmon-fans'))`))
-    ok('風扇分頁排在壓力測試旁邊',
+    ok('風扇分頁排在效能與壓力測試旁邊',
       await cdp.eval(`(() => {
         const tabs = [...document.querySelectorAll('#sysmonTabs .sysmon-tab')].map((t) => t.dataset.subtab)
-        return Math.abs(tabs.indexOf('stress') - tabs.indexOf('fans')) === 1
+        return Math.abs(tabs.indexOf('oc') - tabs.indexOf('fans')) === 1
       })()`))
 
     // 切到風扇分頁：顯示由 .active 控制。

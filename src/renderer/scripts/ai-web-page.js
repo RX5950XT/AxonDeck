@@ -7,32 +7,28 @@ import { electronAPI, setChatPaneMode } from './app.js'
  * - 同一家共用 `persist:ai-<site>` 登入分區：登入一次，該家每一則都是登入狀態。
  * - webview 換頁就回報 main 存成這則的網址（main 擋登入頁與別的網域），下次點、App 重開都回到原本那頁；
  *   分頁標題也回報，使用者沒改過名就拿來當側欄標題。
- * - 第一次打開才建；沒在看的過 RELEASE_MS 或超過 MAX_LIVE 則就整個收掉（一則約 200–400MB），再點照存的網址載回來。
+ * - 第一次打開才建；切換時保留頁面，關閉對話或當機時才收掉。
  */
 
 const HOMES = /** @type {Record<string, string>} */ ({
   chatgpt: 'https://chatgpt.com/',
   gemini: 'https://gemini.google.com/app',
   claude: 'https://claude.ai/new',
-  grok: 'https://grok.com/'
+  grok: 'https://grok.com/',
+  arena: 'https://llm-arena-opal.vercel.app/'
 })
-// ponytail: 固定 5 分鐘、每 30 秒掃一次、最多同時留 3 則；要可調再進設定
-const RELEASE_MS = 5 * 60 * 1000
-const SWEEP_EVERY_MS = 30 * 1000
-// 連點好幾則時不用等 5 分鐘：超過這個數量，最久沒看的那則先收
-const MAX_LIVE = 3
-
+// Arena 只有一個（不像四家網頁版每按一次多一則）、不進對話清單，網址與標題不存
+const ARENA_ID = '__arena'
 // ponytail: 靠 Gemini 頁面的 class／屬性抓對話標題，改版就抓不到（退回不取標題，不會出錯）
 const GEMINI_TITLE = `(document.querySelector('[data-test-id="conversation-title"], .conversation-title-container, .conversation.selected .conversation-title')?.textContent
   || document.querySelector('user-query .query-text, user-query')?.textContent || '').trim().slice(0, 60)`
 
 /** 目前顯示的那一則 @type {{ id: string, site: string, url: string } | null} */
 let current = null
-/** @type {Map<string, { pane: HTMLElement, hiddenSince: number }>} */
+/** @type {Map<string, { pane: HTMLElement }>} */
 const live = new Map()
 /** @type {Map<string, number>} */
 const crashedAt = new Map()
-let sweepTimer = 0
 /** 標題變了要叫側欄重讀（chat-page 給） */
 let onTitle = () => {}
 
@@ -50,6 +46,7 @@ function build({ id, site, url }) {
   view.setAttribute('partition', `persist:ai-${site}`)
   view.setAttribute('allowpopups', '')
   const remember = (event) => {
+    if (id === ARENA_ID) return
     if (!event.url.startsWith(new URL(HOMES[site]).origin)) return // 登入、OAuth 在別的網域
     if (current?.id === id) current = { ...current, url: event.url } // 當掉重建時接著這頁
     electronAPI.chat.setWebUrl(id, event.url).catch((error) => console.error('[ai-web] 存不了網址:', error))
@@ -60,6 +57,7 @@ function build({ id, site, url }) {
   })
   // 分頁標題回報給 main（只有在真正的對話頁才會被拿來當側欄標題）
   const reportTitle = async (title) => {
+    if (id === ARENA_ID) return
     try {
       const text = site === 'gemini' ? (await view.executeJavaScript(GEMINI_TITLE)) || title : title
       if (await electronAPI.chat.setWebTitle(id, text, view.getURL())) onTitle()
@@ -85,7 +83,7 @@ function build({ id, site, url }) {
   view.setAttribute('src', url || HOMES[site])
   pane.appendChild(view)
   host().appendChild(pane)
-  const entry = { pane, hiddenSince: 0 }
+  const entry = { pane }
   live.set(id, entry)
   return entry
 }
@@ -102,43 +100,13 @@ function release(id) {
   entry.pane.remove()
 }
 
-function isAudible(pane) {
-  try {
-    return !!pane.querySelector('webview')?.isCurrentlyAudible()
-  } catch {
-    return false // 還沒載入完的 webview 呼叫會丟錯
-  }
-}
-
-function sweep() {
-  const now = Date.now()
-  for (const [id, entry] of live) {
-    // 看得到或正在出聲（語音朗讀）的都不收
-    if (entry.pane.offsetParent !== null || isAudible(entry.pane)) entry.hiddenSince = 0
-    else if (!entry.hiddenSince) entry.hiddenSince = now
-    else if (now - entry.hiddenSince >= RELEASE_MS) release(id)
-  }
-  if (!live.size) {
-    clearInterval(sweepTimer)
-    sweepTimer = 0
-  }
-}
-
 /** 主區切到網頁模式時（app.js 的 setChatPaneMode）叫：顯示目前那一則，被收掉了就照網址重建 */
 export async function showAiWeb() {
   if (!current || !host() || host().classList.contains('hidden')) return
   for (const [id, entry] of live) entry.pane.hidden = id !== current.id
+  document.getElementById('chatPanel')?.classList.toggle('is-arena', current.id === ARENA_ID)
   const entry = live.get(current.id) || build(current)
   entry.pane.hidden = false
-  entry.hiddenSince = 0
-  // Map 的順序當成「最近看過」：目前這則移到最後，超量就從最前面（最久沒看）收
-  live.delete(current.id)
-  live.set(current.id, entry)
-  for (const id of live.keys()) {
-    if (live.size <= MAX_LIVE) break
-    if (id !== current.id && !isAudible(live.get(id).pane)) release(id)
-  }
-  if (!sweepTimer) sweepTimer = window.setInterval(sweep, SWEEP_EVERY_MS)
 }
 
 /**
@@ -151,4 +119,10 @@ export function openAiWeb(conv, titleChanged) {
   current = { id: conv.id, site: conv.web.site, url: conv.web.url }
   onTitle = titleChanged
   setChatPaneMode('web') // 會回頭叫 showAiWeb
+}
+
+/** 側欄 Arena 鈕：切到唯一那個 Arena（第一次才建，之後切走切回都是同一頁） */
+export function openArena() {
+  current = { id: ARENA_ID, site: 'arena', url: '' }
+  setChatPaneMode('web')
 }

@@ -2386,31 +2386,26 @@ registerBreezeIpc({
 
 /** Miroxen 引擎只發行 Windows 版（miroxen-win-x64＋cuBLAS DLL）；其他平台回固定中文說明，不碰引擎檔案。 */
 const MIROXEN_UNSUPPORTED = 'Linux 版暫不支援「生成圖片影像」：Miroxen 引擎目前只發行 Windows 版（miroxen-win-x64）。聊天裡的雲端生圖模型不受影響。'
-function miroxenService() {
-  if (process.platform === 'win32') {
-    return {
-      status: (options) => loadMiroxen().status(options),
-      start: () => loadMiroxen().start(),
-      stop: () => loadMiroxen().stop(),
-      openOutput: () => loadMiroxen().openOutput(),
-      api: () => loadMiroxen().api(),
-      setLan: (enabled) => loadMiroxen().setLan(enabled)
-    }
-  }
-  const failNow = async () => { throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: MIROXEN_UNSUPPORTED }) }
-  return {
-    status: async () => ({ supported: false, message: MIROXEN_UNSUPPORTED, gpuReady: false, hasNvidia: false, installed: false,
-      version: '', latest: '', update: false, models: [], running: false, starting: false, url: '' }),
-    start: failNow,
-    stop: async () => true,
-    openOutput: failNow,
-    api: failNow,
-    setLan: failNow
-  }
+const MIROXEN_SUPPORTED = process.platform === 'win32'
+const miroxenUnsupported = () => Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: MIROXEN_UNSUPPORTED })
+/** 非 Windows：status 照實回「不支援」，其他動作直接回中文錯誤，不載入引擎 */
+async function loadMiroxenChecked() {
+  if (!MIROXEN_SUPPORTED) throw miroxenUnsupported()
+  return loadMiroxen()
 }
 registerMiroxenIpc({
   ipcMain,
-  service: miroxenService(),
+  service: {
+    status: async (options) => MIROXEN_SUPPORTED
+      ? loadMiroxen().status(options)
+      : { supported: false, message: MIROXEN_UNSUPPORTED, gpuReady: false, hasNvidia: false, installed: false,
+          version: '', latest: '', update: false, models: [], running: false, starting: false, url: '' },
+    start: async () => (await loadMiroxenChecked()).start(),
+    stop: async () => MIROXEN_SUPPORTED ? loadMiroxen().stop() : true,
+    openOutput: async () => (await loadMiroxenChecked()).openOutput(),
+    api: async () => (await loadMiroxenChecked()).api(),
+    setLan: async (enabled) => (await loadMiroxenChecked()).setLan(enabled)
+  },
   isMainSender: assertMainWindowSender
 })
 

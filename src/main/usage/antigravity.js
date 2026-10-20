@@ -12,12 +12,18 @@ const {
 } = require('./shared')
 
 const execFileAsync = promisify(execFile)
-const USER_AGENT = 'vscode/1.X.X (Antigravity/4.2.1)'
+// 上游看 User-Agent 決定給哪些模型：報 agy CLI 才拿得到 Gemini 4 Argon（舊的 vscode UA 型錄沒有、generate 回 404，2026-10-20 實測）
+const USER_AGENT = 'antigravity/cli/1.4.2'
 const EXPECTED_WINDOWS = Object.freeze([
-  ['antigravity-claude-5h', 'Claude', 'rolling-5h'],
-  ['antigravity-claude-weekly', 'Claude', 'weekly'],
+  // 上游把 Claude 與 GPT-OSS 放同一池（「Claude and GPT models」）
+  ['antigravity-claude-5h', 'Claude／GPT', 'rolling-5h'],
+  ['antigravity-claude-weekly', 'Claude／GPT', 'weekly'],
   ['antigravity-gemini-5h', 'Gemini', 'rolling-5h'],
   ['antigravity-gemini-weekly', 'Gemini', 'weekly']
+])
+// Pro 方案的 Argon 獨立一池、只有每週上限；Ultra 併在 Gemini 池裡、上游不回這組，所以不補空槽
+const OPTIONAL_WINDOWS = Object.freeze([
+  ['antigravity-argon-weekly', 'Gemini 4 Argon', 'weekly']
 ])
 
 function parseCredential(text) {
@@ -159,11 +165,13 @@ function tokenIsStale(expiry, nowMs) {
 
 function familyFor(groupName, bucketId) {
   const group = String(groupName || '').toLowerCase()
+  const bucketName = String(bucketId || '').toLowerCase()
+  // 「Gemini 4 Argon」名字也含 gemini，要先挑出來，不然會跟 Gemini 池取最小值混在一起
+  if (group.includes('argon') || bucketName.includes('argon')) return 'argon'
   if (group.includes('gemini')) return 'gemini'
   if (group.includes('claude') || group.includes('gpt') || group.includes('third')) return 'claude'
-  const bucket = String(bucketId || '').toLowerCase()
-  if (bucket.includes('gemini')) return 'gemini'
-  if (bucket.includes('claude') || bucket.includes('3p')) return 'claude'
+  if (bucketName.includes('gemini')) return 'gemini'
+  if (bucketName.includes('claude') || bucketName.includes('3p')) return 'claude'
   return ''
 }
 
@@ -206,9 +214,10 @@ function parseModelsFallback(modelsResponse, slots = new Map()) {
   if (!models || typeof models !== 'object' || Array.isArray(models)) return slots
   const fallback = new Map()
   for (const [name, model] of Object.entries(models)) {
+    // Argon 的 quotaInfo 是它自己的每週池，不能當 Gemini 5 小時的備援
     const family = name.startsWith('claude')
       ? 'claude'
-      : name.startsWith('gemini')
+      : name.startsWith('gemini') && !name.includes('argon')
         ? 'gemini'
         : ''
     if (!family) continue
@@ -228,8 +237,8 @@ function parseModelsFallback(modelsResponse, slots = new Map()) {
 }
 
 function windowsFromSlots(slots) {
-  return EXPECTED_WINDOWS.flatMap(([id, label, kind]) => {
-    const family = id.includes('-claude-') ? 'claude' : 'gemini'
+  return [...EXPECTED_WINDOWS, ...OPTIONAL_WINDOWS].flatMap(([id, label, kind]) => {
+    const family = id.split('-')[1]
     const slot = id.endsWith('-5h') ? '5h' : 'weekly'
     const value = slots.get(`${family}:${slot}`)
     if (!value) return []
@@ -245,7 +254,8 @@ function applyAntigravityQuota({ summary, models, tier, nowMs }) {
   account.status = 'available'
   account.accuracy = 'official'
   account.planName = tier ? `Antigravity ${String(tier).slice(0, 120)}` : 'Antigravity'
-  account.notes = '已從 Google cloudcode-pa API（Antigravity）讀取真實額度。'
+  // 上游口徑：同池模型共用 5 小時與每週兩道上限，依 token 成本比例扣（貴的模型扣得快）
+  account.notes = '已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini 與 Claude／GPT 各一池，依 token 成本比例扣 5 小時與每週額度；Pro 方案的 Gemini 4 Argon 另有獨立每週額度。'
   account.windows = windowsFromSlots(slots)
   if (!account.windows.length) {
     account.status = 'connected'
@@ -255,13 +265,15 @@ function applyAntigravityQuota({ summary, models, tier, nowMs }) {
 }
 
 function mergeExpectedWindows(current, previous) {
-  return EXPECTED_WINDOWS.map(([id, label, kind]) => {
+  const expected = EXPECTED_WINDOWS.map(([id, label, kind]) => {
     const fresh = current.find((window) => window.id === id)
     if (fresh) return { ...fresh }
     const cached = previous?.windows?.find((window) => window.id === id)
     if (cached) return { ...cached, id, label, kind }
     return createWindow(id, label, kind, 100, 100, '')
   })
+  const optional = current.filter((window) => OPTIONAL_WINDOWS.some(([id]) => id === window.id))
+  return [...expected, ...optional.map((window) => ({ ...window }))]
 }
 
 function antigravityHeaders(token) {

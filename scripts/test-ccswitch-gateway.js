@@ -305,5 +305,32 @@ console.log('\n[G] OpenCode Go 客戶端與對話識別')
     .every((value) => !clientHeaders.sessionId({ 'x-opencode-session': value }, {})))
 }
 
-console.log(`\n${passed} passed, ${failed} failed`)
-process.exit(failed === 0 ? 0 : 1)
+;(async () => {
+  console.log('\n[H] Codex 續期寫回 auth.json（refresh token 用一次就換新）')
+  const fs = require('fs')
+  const { tempDir } = require('./lib/test-temp')
+  const jwt = (exp) => `x.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.y`
+  const home = tempDir('codex-writeback-')
+  const file = path.join(home, '.codex', 'auth.json')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const write = (refresh) => fs.writeFileSync(file, JSON.stringify({ OPENAI_API_KEY: null,
+    tokens: { access_token: jwt(1), refresh_token: refresh, id_token: 'i1', account_id: 'acc' } }))
+  credential.configure({ homeDir: home })
+  const reply = { ok: true, json: async () => ({ access_token: jwt(4102444800), refresh_token: 'r2', id_token: 'i2' }) }
+
+  write('r1')
+  credential.invalidate('codex')
+  const got = await credential.acquire('codex', { fetchImpl: async () => reply })
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+  ok('換到的 token 交給閘道', got.token === jwt(4102444800) && got.accountId === 'acc')
+  ok('新的 refresh token 寫回 CLI 的檔', saved.tokens.refresh_token === 'r2' && saved.tokens.id_token === 'i2')
+  ok('其他欄位原樣保留', saved.OPENAI_API_KEY === null && saved.tokens.account_id === 'acc' && Boolean(saved.last_refresh))
+
+  write('r1')
+  credential.invalidate('codex')
+  await credential.acquire('codex', { fetchImpl: async () => { write('r9'); return reply } })
+  ok('CLI 搶先續期過就不蓋它的', JSON.parse(fs.readFileSync(file, 'utf8')).tokens.refresh_token === 'r9')
+
+  console.log(`\n${passed} passed, ${failed} failed`)
+  process.exit(failed === 0 ? 0 : 1)
+})()

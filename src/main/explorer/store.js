@@ -345,23 +345,13 @@ function writeState(patch) {
 }
 
 module.exports = {
-  VIEW_MODES,
   SORT_KEYS,
-  sanitizePath,
-  sanitizeView,
   sanitizeTile,
   TILE_SIZES,
   DEFAULT_TILE,
-  sanitizeSortKey,
   sanitizeAuto,
-  MAX_TABS,
   MAX_HISTORY,
-  MAX_SELECTED,
-  sanitizeRightPane,
   sanitizeTab,
-  sanitizeTabs,
-  sanitizeActiveTab,
-  sanitizeFolderViews,
   mergeFolderViews,
   MAX_FOLDER_VIEWS,
   readState,

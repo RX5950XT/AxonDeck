@@ -55,6 +55,9 @@ function registerCcSwitchIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('ccswitch:mcpHomes', (event) => invoke(event, () => service.mcpHomesList()))
 
   ipcMain.handle('ccswitch:listMcp', (event, home) => invoke(event, () => service.listMcp(home)))
+  ipcMain.handle('ccswitch:testMcp', (event, req) => (
+    invoke(event, () => require('./mcp-check').check(req, home => service.listMcp(home)))
+  ))
   ipcMain.handle('ccswitch:saveMcp', (event, home, id, spec, enabled) => (
     invoke(event, () => service.saveMcp(home, id, spec, enabled))
   ))

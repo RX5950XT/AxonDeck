@@ -133,6 +133,16 @@ async function main() {
     const hits = scan.scanLine('see src/文件/foo.js here')
     ok('相對路徑中間的中文檔名留著', hits[0]?.text === 'src/文件/foo.js', JSON.stringify(hits))
   }
+  {
+    const hits = scan.scanLine('"C:\\Program Files\\nodejs\\node.exe" --version')
+    ok('引號裡有空白的路徑整段取', hits.length === 1 && hits[0].text === 'C:\\Program Files\\nodejs\\node.exe', JSON.stringify(hits))
+    const plain = scan.scanLine('"see src/main/terminal/links.js now"')
+    ok('引號裡不像路徑開頭的句子照舊拆', plain[0]?.text === 'src/main/terminal/links.js', JSON.stringify(plain))
+  }
+  {
+    const hits = scan.scanLine('src/main/main.js(12,5): error TS2304')
+    ok('tsc 的 (行,欄) 取行號', hits[0]?.text === 'src/main/main.js' && hits[0]?.line === 12, JSON.stringify(hits))
+  }
 
   // ===== 掃描：折行 =====
   console.log('\n[掃描：折行]')
@@ -283,6 +293,10 @@ async function main() {
     ok('含控制字元回 null', (await links.resolveCandidate(base, `sub dir${String.fromCharCode(0)}/note.txt`)) === null)
     ok('超長字串回 null', (await links.resolveCandidate(base, 'a'.repeat(600))) === null)
     ok('非字串回 null', (await links.resolveCandidate(base, { full: file })) === null)
+    if (process.platform === 'win32') {
+      const msys = `/${file[0].toLowerCase()}/${file.slice(3).replace(/\\/g, '/')}`
+      ok('Git Bash 的 /d/... 對到磁碟機', (await links.resolveCandidate('', msys))?.full === file, msys)
+    }
 
     const projects = [
       { id: 'w_parent', path: base },

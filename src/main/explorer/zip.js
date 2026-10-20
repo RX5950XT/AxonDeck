@@ -465,7 +465,6 @@ async function extractTemp(archive, inner) {
 }
 
 module.exports = {
-  MAX_EXTRACT_BYTES,
   looksZip,
   locate,
   readIndex,
@@ -476,5 +475,4 @@ module.exports = {
   sweepTemp,
   tempRoot,
   safeName,
-  parseDirectory
 }

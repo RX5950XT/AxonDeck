@@ -114,5 +114,4 @@ module.exports = {
   currentKey,
   pick,
   DEFAULT_ASR_MODEL_KEY,
-  GPU_ASR_MODEL_KEY
 }

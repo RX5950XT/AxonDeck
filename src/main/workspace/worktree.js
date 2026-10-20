@@ -153,7 +153,7 @@ async function list(projectId) {
   const res = await run(cwd, ['worktree', 'list', '--porcelain'])
   if (res.code !== 0) return { supported: false, trees: [] }
   const trees = parseList(res.stdout)
-  const here = path.resolve(cwd)
+  const here = keyOf(cwd)
   // 側欄裡已經有哪幾棵：沒有的那幾棵 UI 要給一顆「加入」，不然只看得到卻切不過去
   const known = new Map()
   try {
@@ -166,7 +166,7 @@ async function list(projectId) {
     trees: trees.map((tree, index) => ({
       ...tree,
       main: index === 0,
-      current: path.resolve(tree.path) === here,
+      current: keyOf(tree.path) === here,
       projectId: known.get(keyOf(tree.path)) || ''
     }))
   }
@@ -206,7 +206,9 @@ async function locate(projectId, treePath) {
  */
 async function adopt(projectId, treePath) {
   const { tree } = await locate(projectId, treePath)
-  const project = await store.create({ path: tree.path })
+  const source = await store.get(projectId)
+  const project = await store.create({ path: tree.path, setupScript: source?.setupScript || '',
+    worktreeSourceDir: source?.path || '' })
   return { projectId: project.id, path: tree.path, branch: tree.branch }
 }
 
@@ -246,7 +248,10 @@ function parseDirty(stdout) {
 async function check(projectId, treePath) {
   const { tree, index } = await locate(projectId, treePath)
   const res = await run(tree.path, ['status', '--porcelain', '-z'])
-  const { dirty, samples } = parseDirty(res.code === 0 ? res.stdout : '')
+  if (res.code !== 0) throw fail('CHECK_FAILED', '讀不到工作樹狀態，暫時無法移除')
+  const { dirty, samples } = parseDirty(res.stdout)
+  const runningTerminals = await require('../terminal/service').listRunningUnder({ path: tree.path })
+  const unpushed = await unpushedCount(tree)
   const main = index === 0
   const reason = main
     ? '這是主工作樹，不能從這裡移除'
@@ -254,7 +259,9 @@ async function check(projectId, treePath) {
       ? '這棵樹被 git 鎖住了（先 git worktree unlock）'
       : dirty
         ? `裡面有 ${dirty} 個還沒提交的變更，移掉就沒了`
-        : ''
+        : runningTerminals.length
+          ? '這個工作樹還有終端機在使用，請先關閉這些終端機'
+          : ''
   return {
     path: tree.path,
     branch: tree.branch,
@@ -262,8 +269,80 @@ async function check(projectId, treePath) {
     locked: Boolean(tree.locked),
     dirty,
     samples,
-    removable: !main && !tree.locked && dirty === 0,
+    runningTerminals,
+    unpushed,
+    removable: !main && !tree.locked && dirty === 0 && runningTerminals.length === 0,
     reason
+  }
+}
+
+async function unpushedCount(tree) {
+  try {
+    const upstream = await run(tree.path, ['rev-parse', '--verify', '@{u}'])
+    let base = '@{u}'
+    if (upstream.code !== 0) {
+      const project = (await store.list()).find((item) => keyOf(item.path) === keyOf(tree.path))
+      base = project?.worktreeBase || ''
+      if (!base) {
+        const remote = await run(tree.path, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
+        base = remote.code === 0 ? remote.stdout.trim() : ''
+      }
+      if (!base) {
+        for (const branch of ['main', 'master']) {
+          if ((await run(tree.path, ['rev-parse', '--verify', `refs/heads/${branch}`])).code === 0) {
+            base = `refs/heads/${branch}`
+            break
+          }
+        }
+      }
+      if (!base) return null
+      const merge = await run(tree.path, ['merge-base', base, 'HEAD'])
+      if (merge.code !== 0 || !/^[0-9a-f]{40,64}$/i.test(merge.stdout.trim())) return null
+      base = merge.stdout.trim()
+    }
+    const result = await run(tree.path, ['rev-list', '--count', `${base}..HEAD`])
+    return result.code === 0 && /^\d+$/.test(result.stdout.trim()) ? Number(result.stdout.trim()) : null
+  } catch {
+    return null
+  }
+}
+
+async function setSetupScript(projectId, raw) {
+  const root = await rootOf(projectId)
+  const rel = raw === '' ? '' : store.normalizeSetupScript(raw)
+  if (raw !== '' && !rel) throw fail('BAD_SCRIPT', '初始化腳本只接受專案內的 .ps1、.cmd 或 .bat 檔案')
+  if (rel) {
+    const full = files.resolveIn(root, rel)
+    const stat = await require('../raw-fs').promises.stat(full).catch(() => null)
+    if (!stat?.isFile()) throw fail('BAD_SCRIPT', '找不到初始化腳本')
+  }
+  return store.setSetupScript(projectId, rel)
+}
+
+async function setupCommand(projectId, terminalId) {
+  const project = await store.get(projectId)
+  if (!project) throw fail('NOT_FOUND', '找不到這個專案')
+  const rel = store.normalizeSetupScript(project.setupScript)
+  if (!rel) throw fail('NO_SCRIPT', '這個專案尚未設定初始化腳本')
+  const full = files.resolveIn(project.path, rel)
+  const stat = await require('../raw-fs').promises.stat(full).catch(() => null)
+  if (!stat?.isFile()) throw fail('BAD_SCRIPT', '在新工作樹找不到初始化腳本')
+  const terminal = await require('../terminal/store').get(terminalId)
+  if (!terminal || terminal.projectId !== projectId || keyOf(terminal.cwd) !== keyOf(project.path)) {
+    throw fail('FORBIDDEN', '終端機不屬於這個工作樹')
+  }
+  const branch = await run(project.path, ['branch', '--show-current'])
+  if (branch.code !== 0) throw fail('SETUP_FAILED', '讀取工作樹分支失敗')
+  try {
+    const { terminalCommand, shellAssign } = require('../script-launch')
+    const command = await terminalCommand(full, projectId, terminalId)
+    const env = { AXONDECK_SOURCE_DIR: project.worktreeSourceDir || project.path,
+      AXONDECK_WORKTREE_DIR: project.path, AXONDECK_BRANCH: branch.stdout.trim() }
+    // Windows：PowerShell 的 $env:K='v'；Linux：bash 的 export K='v'
+    const assignments = Object.entries(env).map(([key, value]) => shellAssign(key, value))
+    return `${assignments.join('; ')}; ${command}`
+  } catch {
+    throw fail('SETUP_FAILED', '準備初始化腳本失敗，已建立的工作樹會保留')
   }
 }
 
@@ -308,6 +387,8 @@ async function add(projectId, rawName, base = '') {
 
   const args = ['worktree', 'add', '-b', branch, target]
   if (base) args.push(checkBranch(base))
+  const source = await store.get(projectId)
+  const resolvedBase = await run(cwd, ['rev-parse', '--verify', base || 'HEAD'])
   const res = await run(cwd, args)
   if (res.code !== 0) {
     throw fail('ADD_FAILED', '建不出工作樹（名字重複，或這個資料夾已經有東西了）')
@@ -316,11 +397,13 @@ async function add(projectId, rawName, base = '') {
   // **id 要回給 renderer**：建完馬上切過去，不必再重載一次清單去猜是哪一個。
   let addedId = ''
   try {
-    addedId = (await store.create({ path: target })).id
+    addedId = (await store.create({ path: target, setupScript: source?.setupScript || '',
+      worktreeSourceDir: cwd, worktreeBase: resolvedBase.code === 0 ? resolvedBase.stdout.trim() : base })).id
   } catch {
     // 超過上限：工作樹本身建好了就算成功，只是側欄裡沒有
   }
-  return { path: target, branch, projectId: addedId }
+  return { path: target, branch, projectId: addedId,
+    ...(addedId ? {} : { warning: '工作樹已建立，但加入專案清單失敗；工作樹已保留' }) }
 }
 
 /**
@@ -355,11 +438,12 @@ async function remove(projectId, treePath) {
 
 module.exports = {
   TIMEOUT_MS,
-  MAX_TREES,
   parseList,
   parseDirty,
   checkBranch,
   keyOf,
+  setSetupScript,
+  setupCommand,
   list,
   adopt,
   check,

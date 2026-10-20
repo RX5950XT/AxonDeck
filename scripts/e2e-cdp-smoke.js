@@ -533,13 +533,15 @@ async function main() {
       const reset = input.getBoundingClientRect().height
 
       const think = document.getElementById('chatThinkBtn')
-      const wasPressed = think.getAttribute('aria-pressed')
+      const prevThinking = await window.electronAPI.store.get('chatThinking', 'default')
       think.click()
+      await new Promise((r) => setTimeout(r, 150))
+      const items = [...document.querySelectorAll('.chat-menu .chat-menu-item')]
+      items.find((b) => b.firstChild?.textContent === '高')?.click()
       await new Promise((r) => setTimeout(r, 250))
-      const toggled = think.getAttribute('aria-pressed')
-      const stored = await window.electronAPI.store.get('chatThinking', false)
-      await window.electronAPI.store.set('chatThinking', false)
-      think.setAttribute('aria-pressed', 'false')
+      const stored = await window.electronAPI.store.get('chatThinking', 'default')
+      const label = think.querySelector('span')?.textContent
+      await window.electronAPI.store.set('chatThinking', prevThinking)
 
       const dialog = document.getElementById('chatPromptDialog')
       document.getElementById('chatPromptManageBtn')?.click()
@@ -552,7 +554,7 @@ async function main() {
         grew: after > before + 20,
         reset: Math.abs(reset - before) < 4,
         noResizeHandle: getComputedStyle(input).resize === 'none',
-        thinkToggled: wasPressed === 'false' && toggled === 'true' && stored === true,
+        thinkToggled: items.length === 8 && stored === 'high' && label === '思考 · 高',
         hasAttach: !!document.getElementById('chatAttachBtn'),
         hasFileInput: !!document.getElementById('chatFileInput'),
         promptOptions: document.getElementById('chatPromptSelect')?.options.length || 0,

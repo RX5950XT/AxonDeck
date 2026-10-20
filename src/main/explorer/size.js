@@ -357,5 +357,4 @@ module.exports = {
   MAX_FILES,
   MAX_DEPTH,
   MAX_MS,
-  PROGRESS_MS
 }

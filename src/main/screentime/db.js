@@ -217,12 +217,7 @@ function readAppConfig(dest) {
 }
 
 module.exports = {
-  CREATE_SQL,
   destDir,
-  destDbPath,
-  findTaiDataDir,
-  dataDirOf,
-  copyTaiFiles,
   ensureImported,
   openDb,
   closeDb,

@@ -264,8 +264,6 @@ module.exports = {
   snapshot,
   parseCatalog,
   compareModelIds,
-  isChatCapable,
   reset,
   CACHE_TTL_MS,
-  CHAT_MIN_CONTEXT
 }

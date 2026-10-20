@@ -135,10 +135,10 @@ async function snapshot(cdp, label) {
       fileInfo: g('fileInfo'),
       options: g('transcribeOptions'),
       progress: g('transcribeProgress'),
-      result: g('transcribeResult'),
+      result: !!document.querySelector('#txHistoryList .live-history-body'),
       toast: g('toast'),
       progressText: document.querySelector('#transcribeProgress .progress-text')?.textContent || null,
-      resultText: (document.getElementById('resultText')?.textContent || '').slice(0, 200),
+      resultText: (document.querySelector('#txHistoryList .live-history-body')?.textContent || '').slice(0, 200),
       selectedHint: document.querySelector('#fileInfo .file-name')?.textContent || null
     }
   })()`)

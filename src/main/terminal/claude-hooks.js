@@ -472,7 +472,6 @@ module.exports = {
   parseEvent,
   reduceAgent,
   applyInput,
-  statusClears,
   applyStatus,
   agentOf,
   noteInput,

@@ -65,7 +65,7 @@ export function openChatBrowser(url) {
   for (const el of document.querySelectorAll('.chat-browser-part')) /** @type {HTMLElement} */ (el).hidden = false
 }
 
-export function closeChatBrowser() {
+function closeChatBrowser() {
   frame()?.remove()
   for (const el of document.querySelectorAll('.chat-browser-part')) /** @type {HTMLElement} */ (el).hidden = true
 }

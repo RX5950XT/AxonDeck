@@ -27,23 +27,22 @@ let cancelled = false
 
 /**
  * 候選組合。第一組一定是「目前的決定」，這樣結果才看得出來「調校有沒有比較快」。
- * @param {{ cacheTypeK: string, cacheTypeV: string, specType: string }} base
+ * llama-bench 量不到投機解碼，所以不列「關掉投機解碼」：那組跑的跟目前設定一模一樣，
+ * 只會靠雜訊贏，然後把使用者的投機解碼關掉。
+ * @param {{ cacheTypeK: string, cacheTypeV: string }} base
  * @returns {Array<{ label: string, requested: Record<string, any> }>}
  */
 function buildCandidates(base) {
   const list = [
     { label: '目前設定', requested: {} },
     { label: 'KV f16（品質優先）', requested: { cacheTypeK: 'f16', cacheTypeV: 'f16' } },
-    { label: 'KV q8_0（省顯存）', requested: { cacheTypeK: 'q8_0', cacheTypeV: 'q8_0' } },
-    { label: '關掉投機解碼', requested: { specType: '' } }
+    { label: 'KV q8_0（省顯存）', requested: { cacheTypeK: 'q8_0', cacheTypeV: 'q8_0' } }
   ]
   // 目前已經是那一組的話就不必再量一次
   return list.filter((item, index) => {
     if (index === 0) return true
     const r = item.requested
-    if (r.cacheTypeK && r.cacheTypeK === base.cacheTypeK && r.cacheTypeV === base.cacheTypeV) return false
-    if ('specType' in r && r.specType === base.specType) return false
-    return true
+    return !(r.cacheTypeK === base.cacheTypeK && r.cacheTypeV === base.cacheTypeV)
   })
 }
 
@@ -148,8 +147,7 @@ async function tune(options) {
   cancelled = false
   const candidates = buildCandidates({
     cacheTypeK: options.plan.cacheTypeK,
-    cacheTypeV: options.plan.cacheTypeV,
-    specType: options.plan.specType
+    cacheTypeV: options.plan.cacheTypeV
   })
   const results = []
   for (let i = 0; i < candidates.length; i += 1) {

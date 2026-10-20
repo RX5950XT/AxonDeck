@@ -142,26 +142,30 @@ function matchRest(entries, text) {
 // ===== 內建學術名詞庫（國家教育研究院，scripts/build-glossary-data.js 產生） =====
 // 整段排序好的文字＋行首位移做二分搜尋：建成 Map 要多吃約 60 MB，這樣約 30 MB。
 let builtin = null
-let builtinUsedAt = 0
-// 解開後常駐約 30 MB；翻譯停了就放掉，下次用再解（gunzip 約一百毫秒）
-const BUILTIN_IDLE_MS = 10 * 60 * 1000
+/** @type {Promise<void> | null} */
+let warming = null
+const BUILTIN_FILE = () => require('path').join(__dirname, 'glossary-data', 'naer-terms.tsv.gz')
 
-function loadBuiltin() {
-  builtinUsedAt = Date.now()
-  if (builtin) return builtin
-  const zlib = require('zlib')
-  const file = require('path').join(__dirname, 'glossary-data', 'naer-terms.tsv.gz')
-  const text = zlib.gunzipSync(require('fs').readFileSync(file)).toString('utf8')
+// 解開後常駐約 30 MB，載一次就留著：閒置卸載會讓下次翻譯多卡一次 gunzip
+function indexBuiltin(text) {
   // 檔案以換行結尾、依 JS 字串順序排好（建檔腳本保證）
   const starts = [0]
   for (let at = text.indexOf('\n'); at >= 0 && at + 1 < text.length; at = text.indexOf('\n', at + 1)) starts.push(at + 1)
   builtin = { text, starts: Int32Array.from(starts) }
-  const timer = setInterval(() => {
-    if (Date.now() - builtinUsedAt < BUILTIN_IDLE_MS) return
-    builtin = null
-    clearInterval(timer)
-  }, 60 * 1000)
-  timer.unref?.()
+}
+
+/** 翻譯開始前先在背景解壓，避免第一次查詞時同步 gunzip 卡住主程序 */
+function warm(glossary) {
+  if (!glossary?.builtin || builtin) return Promise.resolve()
+  warming ||= require('fs').promises.readFile(BUILTIN_FILE())
+    .then((buf) => require('util').promisify(require('zlib').gunzip)(buf))
+    .then((raw) => { if (!builtin) indexBuiltin(raw.toString('utf8')) })
+    .finally(() => { warming = null })
+  return warming
+}
+
+function loadBuiltin() {
+  if (!builtin) indexBuiltin(require('zlib').gunzipSync(require('fs').readFileSync(BUILTIN_FILE())).toString('utf8'))
   return builtin
 }
 
@@ -237,4 +241,4 @@ function find(glossary, text) {
   return terms.concat(matchBuiltin(rest, MAX_MATCHES - terms.length))
 }
 
-module.exports = { KEY, BUILTIN_KEY, DEFAULT_GLOSSARY, read, sanitize, parse, match, load, find }
+module.exports = { KEY, BUILTIN_KEY, DEFAULT_GLOSSARY, read, sanitize, parse, match, load, warm, find }

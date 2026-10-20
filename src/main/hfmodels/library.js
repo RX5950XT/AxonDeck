@@ -198,5 +198,5 @@ async function importFile(sourcePath, id = '') {
 }
 
 module.exports = {
-  setRoot, root, isValidId, dirFor, list, has, remove, readMeta, writeMeta, importFile, META_FILE
+  setRoot, root, isValidId, dirFor, list, has, remove, readMeta, writeMeta, importFile
 }

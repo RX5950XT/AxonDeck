@@ -96,8 +96,6 @@ function listVoices() {
 module.exports = {
   VOICES_BY_LANG,
   DEFAULT_TTS_VOICES,
-  VOICE_ALLOWLIST,
-  LANGS,
   isAllowedVoice,
   sanitizeTtsVoices,
   langToEdgeLocale,

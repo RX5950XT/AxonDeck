@@ -112,7 +112,7 @@ page.document = {
 }
 // 被剝掉的 import 全部給一個什麼都不做的替身；這一段只驗鍵盤導覽，
 // 真的碰到別的模組就代表測試寫錯了（會當場 TypeError，不會靜靜通過）。
-const stubs = ['electronAPI', 'showToast', 'setChatPaneMode', 'createListReorder', 'initWsTabs',
+const stubs = ['electronAPI', 'showToast', 'setChatPaneMode', 'createListReorder', 'createProjectFolders', 'initWsTabs',
   'openEditorTab', 'openDiffTab', 'openBrowserTab', 'openAiSessionTab', 'setActiveProject',
   'newTerminalWithCommand', 'closeActiveTab', 'cycleTab', 'showMenu', 'openQuickOpen',
   'isQuickOpenOpen'].map((name) => `const ${name} = () => ({})`).join('\n')

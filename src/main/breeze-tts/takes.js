@@ -61,6 +61,9 @@ function createTakes({ root }) {
     } catch (error) {
       if (error.code === 'ENOENT') return []
       console.error('[breeze-tts] 版本清單讀取失敗:', error.message)
+      // 檔案被鎖（防毒掃描）時回空清單，下一次存檔就會把所有版本從清單蓋掉；只有壞檔才另存備份重來
+      if (!(error instanceof SyntaxError)) throw error
+      await fs.rename(path.join(dir(), 'index.json'), path.join(dir(), 'index.json.bad')).catch(() => {})
       return []
     }
   }

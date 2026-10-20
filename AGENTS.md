@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
-nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第五顆）、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
+nav 十頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第五顆）、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
 
@@ -57,6 +57,7 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 模組 IPC 外殼 `src/main/ipc-invoke.js`（主視窗守衛＋`{ ok, data|error }`），**handler 各模組逐一列舉**。
 - 兩窗 `sandbox: true`；CSP 的 `font-src data:`、`worker-src blob:`（Monaco）與 `img/media/connect-src vi-media:` 不可拿掉。
 - 不准用 `window.confirm/prompt/alert`，一律 `app-dialog.js` 的 `askConfirm`／`askInput`／`showAlert`。
+- 從別頁開檔案頁／網址／其他功能頁一律走 app.js 的 `openInFilesPage`／`openUrlInApp`／`switchPage`：每個功能頁是獨立 renderer，直接 import 別頁模組（如 `explorer-page.js`）只改到自己這份，切過去時路徑就丟了。
 
 ## 地雷
 
@@ -64,7 +65,7 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 遞迴刪除一律 `safe-rm.js` 的 `removeTreeSync`（腳本用 `test-temp.js`）：Node 24 的 `rmSync({recursive})` 會穿過 junction 刪掉對面真資料。守門 `test-temp-hygiene.js`。
 - 碰使用者任意路徑用 `raw-fs.js`（＝`original-fs`）：Electron `fs` 碰過 `.asar` 就鎖到關 App。App 自己的資源不要用它讀。
 - 雲端錯誤只記狀態摘要；上游 body／token／`error.message` 不進 console／IPC／UI。代理只透傳 429，其餘 502。回歸 `test-error-hygiene.js`。
-- 不收 renderer 給的網址（上游位址由 main 從 store 取）；圖片只收 `data:` URI（防 SSRF）。外部 CLI 憑證只讀不寫，唯一例外是 Claude 的 `~/.claude/.credentials.json`。
+- 不收 renderer 給的網址（上游位址由 main 從 store 取）；圖片只收 `data:` URI（防 SSRF）。外部 CLI 憑證只讀不寫，例外只有：Claude 的 `~/.claude/.credentials.json`（續期、切帳號）與 `~/.claude.json` 的 `oauthAccount`（只在切帳號時換這一欄）；Codex 的 `~/.codex/auth.json` 在閘道續期後寫回 tokens（refresh token 用一次就作廢，不寫回 CLI 會被登出；寫前重讀，CLI 已換過就不蓋）。
 - 工作區檔案只走 `workspace/files.js` 的 `resolveIn`（`{ projectId, relPath }`＋分隔符比對＋兩邊 `realpathSync.native`）；整機檔案走 `explorer/paths.js` 的 `resolveAbs`。
 - git 一律 `spawn(..., { shell: false })`＋陣列參數＋`GIT_TERMINAL_PROMPT=0`；stderr 不透傳（含遠端 URL／token）。
 - 主程序不准對可能是網路路徑的東西做同步 I/O（NAS 睡著 → AppHang）；一律 `fs.promises`＋逾時（`drives.js` 的 `withTimeout`）。
@@ -87,12 +88,17 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 - 不可關 `setBackgroundThrottling`（`document.hidden` 會恆 false）。
 - `before-quit`：`workspace:flushDrafts` 排在終端機 `disconnect()` 前；`agy.shutdown()` 不是 `stop()`；風扇交還排在 `sensors.stop()` 前。
 
+### 生成圖片影像（Miroxen）
+- 引擎不 pin 版本：`miroxen/runtime.js` 跟 `RX5950XT/Miroxen` 的 latest release，資產名固定 `miroxen-win-x64.zip`／`miroxen-deps-win-x64.zip`，以 API 的 `digest` 驗；deps digest 沒變不重下。Miroxen 改版要在那邊跑 `release.bat <版本>`，App 才看得到。
+- 模型共用 `models/miroxen/`（registry 的 `dir`）：刪一顆只刪沒被其他已下載模型用到的檔案，**不准對它 `removeTreeSync`**（開發機那個資料夾是接到 Miroxen repo 的 junction）。
+- 服務只聽 127.0.0.1 隨機埠＋隨機 API key（iframe 網址 hash 帶進去）；更新引擎、刪引擎或模型前先 `stop()`（執行中的 exe 蓋不掉）。引擎只在啟動時盤點模型，模型組合變了且佇列是空的才重開。
+
 ### AI 頁：聊天與網頁版 AI
 - model 與訊息歷史所有權在 main；模型要對「目前這組供應商」驗證。
 - `chat.send` 的 inflight 佔位（每對話一格的 Map）要跟守衛同一同步區塊；`chat:abort` 一定帶 reqId。renderer 串流照 conversationId 分開。
-- 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；thinking 關閉時完全不帶 `reasoning_effort`；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
+- 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；思考強度 `chatThinking` 是檔位字串（舊布林 true→medium），「自動」完全不帶欄位、「關閉」送 `none`（本機改 `chat_template_kwargs.enable_thinking=false`），生圖模型不帶；生圖模型先走 chat/completions，回 400／404／405／422 才退 `/images/generations`（OpenRouter 只吐圖的模型只收這條，`chat-imagegen.js`）；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
 - 重新生成在上游成功前不得 `dropTrailingAssistant`；`chats.json` 讀改寫走 `withStore`；側欄順序＝陣列順序；`chatProviders` sanitize 遇壞網址保留該筆只清 `apiUrl`；`__local` 要過濾掉。`markdown.js` 零 innerHTML，`INLINE_SRC` 每次 `new RegExp`。
-- 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。
+- 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。其他分區被 Cloudflare 擋的分頁由 `installChallengeFallback` 改回 Electron 識別（換 Chrome 版號、標頭順序、拿掉 shim 都實測無效）；同一個 session 的 `onHeadersReceived` 只能掛一個，Grok 分區不要再掛它。
 
 ### 專案工作區
 - 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload。`npm run lint` 的 `scripts/lint-ipc.js` 擋這三條（全模組，不只工作區）；`module.exports` 列未定義名字由 ESLint `no-undef` 擋（＝載入期 ReferenceError，單元測試抓不到）。
@@ -158,9 +164,10 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 
 ### 用量統計與額度
 - 游標 key 跟著檔案走（session 會搬進 `archived_sessions`）。Codex fork 的開頭重播一筆都不收（到第一個 `turn_context`）。
-- 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重；Grok ticks 一律 1 USD = 1e10。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
+- 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重（resume／fork 會把舊訊息複製進新檔，要跨檔去重）；Grok ticks 一律 1 USD = 1e10；Grok 母 session 的 usage 已含子代理，子代理自己的檔不能再算（例外見 CONTEXT）；Codex 舊 session 會被壓成 `.jsonl.zst`。parsers.js 與 `usage.rs` 規則必須一致（跑 `probe-usage-native-parity.js`；它的真實資料段在有 session 正在寫時可能偶發位元組數不同，重跑即可）。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
 - `mergeExpectedWindows` 只能由 `usage/index.js` 呼叫，空窗不 merge（會生出假的 100%）。
 - Claude token 自己續（`usage/claude-auth.js`）：兩把鎖、鎖內重讀、CAS 寫回、原子替換；額度 API 要報 `claude-code/<版本>` UA，429 不重試並冷卻。Grok／Antigravity 靠代跑 CLI 續期並確認 token 真的換了。
+- Claude 多帳號（`usage/claude-accounts.js`）：使用中的帳號以 CLI 檔案為準、每次同步／切換前抄回快照，**快照絕不拿去續期**；只有沒在用的帳號由我們續、寫回自己的 store。續期、抄快照、切換排同一條隊，切換另拿 claude-auth 的兩把鎖。新增帳號在暫存 `CLAUDE_CONFIG_DIR` 跑 `claude auth login --claudeai`。回歸 `test-claude-accounts.js`。
 - Codex 重置兌換只走官方 `codex app-server`，測試絕不真的兌換。Grok `tier: 1`＝SuperGrok，其他不猜。
 
 ### 系統監控／風扇／效能調整

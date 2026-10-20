@@ -82,7 +82,8 @@ console.log('\n[C] 宿主行協定（假 spawn，不碰真 COM）')
         const payload = responses.get(msg.op) || { ok: true, data: { token: 1, items: [] } }
         queueMicrotask(() => stdout.emit('data', `${JSON.stringify({ id: msg.id, ...payload })}\n`))
       },
-      end: () => {}
+      end: () => {},
+      on: () => {}
     }
     proc.kill = () => proc.emit('exit', 0)
     queueMicrotask(() => stdout.emit('data', 'READY\n'))

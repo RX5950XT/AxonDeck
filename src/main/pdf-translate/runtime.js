@@ -144,7 +144,7 @@ async function install({ dir, signal, onProgress = () => {}, variant = 'cpu' }) 
     sha256: '088962f9e7b7bd9ea740c04c650b2a21c8928c345bd99ac24350dc924dba656c', signal,
     onProgress: ({ received, total }) => onProgress({ receivedBytes: received, totalBytes: total,
       stage: '下載 PDF 安裝工具…', cancellable: true }) })
-  const quote = value => value.replace(/'/g, "''")
+  const quote = value => value.replace(/['\u2018-\u201b]/g, '$&$&')
   await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     ['-NoProfile', '-NonInteractive', '-Command',
       `Expand-Archive -LiteralPath '${quote(zip)}' -DestinationPath '${quote(dir)}' -Force`],

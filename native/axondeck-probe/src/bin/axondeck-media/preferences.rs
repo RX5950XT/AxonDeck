@@ -23,6 +23,8 @@ use windows::{
 const MAX_JSON_BYTES: usize = 512 * 1024;
 const MAX_HISTORY: usize = 100;
 const FLUSH_DELAY: Duration = Duration::from_millis(180);
+/// 寫不進去時重試間隔的上限（每 180ms 重試會一直跳錯誤，壞檔時還會每次多存一份備份）
+const MAX_FLUSH_DELAY: Duration = Duration::from_secs(30);
 const CLOSE_WAIT: Duration = Duration::from_millis(350);
 const MUTEX_WAIT_MS: u32 = 250;
 static FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -168,15 +170,16 @@ fn run(dir: PathBuf, commands: Receiver<Command>, events: Sender<Event>) {
     };
     let _ = events.send(Event::Ready(preferences.clone()));
     let mut patch = Patch::default();
+    let mut delay = FLUSH_DELAY;
 
     loop {
         let command = if patch.is_empty() {
             match commands.recv() { Ok(command) => command, Err(_) => break }
         } else {
-            match commands.recv_timeout(FLUSH_DELAY) {
+            match commands.recv_timeout(delay) {
                 Ok(command) => command,
                 Err(RecvTimeoutError::Timeout) => {
-                    flush(&path, &lock_name, &mut patch, &events);
+                    delay = if flush(&path, &lock_name, &mut patch, &events) { FLUSH_DELAY } else { (delay * 2).min(MAX_FLUSH_DELAY) };
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -344,8 +347,8 @@ fn read_dimension(values: Option<&Value>, field: &str, fallback: i32, min: i32, 
         .round().clamp(min as f64, max as f64) as i32
 }
 
-fn flush(path: &Path, lock_name: &[u16], patch: &mut Patch, events: &Sender<Event>) {
-    if patch.is_empty() { return; }
+fn flush(path: &Path, lock_name: &[u16], patch: &mut Patch, events: &Sender<Event>) -> bool {
+    if patch.is_empty() { return true; }
     let result = with_mutex(lock_name, || {
         let mut loaded = read_document(path)?;
         let issue = loaded.issue;
@@ -370,8 +373,9 @@ fn flush(path: &Path, lock_name: &[u16], patch: &mut Patch, events: &Sender<Even
         Ok(issue) => {
             if issue.is_some() { send_error(events, "設定檔已損毀，原檔已保留副本並重新建立"); }
             *patch = Patch::default();
+            true
         }
-        Err(error) => send_error(events, error),
+        Err(error) => { send_error(events, error); false }
     }
 }
 

@@ -7,6 +7,7 @@
 
 import { showToast, getSettings, electronAPI, cleanIpcError, ASR_MODEL_KEY, resolveTranslateModelKey } from './app.js'
 import { readScope, parseAsrValue, parseLlmValue, resolveScopedCloud, asrOptions, hasLlamaRuntime } from './model-picker.js'
+import { refreshFileHistory } from './live-history.js'
 
 // ===== DOM 元素 =====
 let dropZone
@@ -21,11 +22,6 @@ let progressBar
 let progressFill
 let progressText
 let progressPercent
-let transcribeResult
-let resultWarning
-let resultText
-let copyResultBtn
-let saveResultBtn
 
 // ===== 狀態 =====
 let selectedFile = null
@@ -80,16 +76,11 @@ export function initTranscribe() {
   progressFill = transcribeProgress.querySelector('.progress-fill')
   progressText = transcribeProgress.querySelector('.progress-text')
   progressPercent = transcribeProgress.querySelector('.progress-percent')
-  transcribeResult = document.getElementById('transcribeResult')
-  resultWarning = document.getElementById('resultWarning')
-  resultText = document.getElementById('resultText')
-  copyResultBtn = document.getElementById('copyResultBtn')
-  saveResultBtn = document.getElementById('saveResultBtn')
 
   setupDragAndDrop()
   setupFileSelection()
   setupTranscription()
-  setupResultActions()
+  refreshFileHistory()
 }
 
 /**
@@ -234,8 +225,6 @@ function handleFileSelect(file) {
   dropZone.classList.add('hidden')
   fileInfo.classList.remove('hidden')
   transcribeOptions.classList.remove('hidden')
-  transcribeResult.classList.add('hidden')
-  showTxEmpty(true)
 }
 
 /**
@@ -252,12 +241,6 @@ function clearFile() {
   fileInfo.classList.add('hidden')
   transcribeOptions.classList.add('hidden')
   transcribeProgress.classList.add('hidden')
-  transcribeResult.classList.add('hidden')
-  showTxEmpty(true)
-  if (resultWarning) {
-    resultWarning.textContent = ''
-    resultWarning.classList.add('hidden')
-  }
 }
 
 /**
@@ -347,9 +330,7 @@ async function startTranscription() {
 
   // 立刻切到進度 UI 並等一幀，避免 await 載模型時畫面還停在空白深色區
   transcribeOptions.classList.add('hidden')
-  transcribeResult.classList.add('hidden')
   transcribeProgress.classList.remove('hidden')
-  showTxEmpty(false)
   updateProgress(1, '準備中…')
   await waitForPaint()
 
@@ -454,7 +435,7 @@ async function startTranscription() {
     updateProgress(100, warning ? '已保留完成的部分' : '轉錄完成！')
     await new Promise((r) => setTimeout(r, 350))
     if (epoch !== transcribeEpoch) return
-    showTranscript(result, warning)
+    await saveTranscript(result)
     if (warning) showToast(warning, 'error')
   } catch (error) {
     console.error('轉錄失敗:', error)
@@ -466,7 +447,6 @@ async function startTranscription() {
       }
       transcribeProgress.classList.add('hidden')
       transcribeOptions.classList.remove('hidden')
-      showTxEmpty(true)
     }
   } finally {
     unsubscribeFileProgress()
@@ -519,30 +499,31 @@ async function translateLong(text, targetLang) {
   return results.join('\n')
 }
 
-/**
- * 顯示逐字稿。warning 留在結果上面，不寫進可複製的正文。
- * @param {string} text
- * @param {string} [warning]
- */
-function showTxEmpty(on) {
-  const empty = document.getElementById('sttTxEmpty')
-  if (empty) empty.classList.toggle('hidden', !on)
-}
-
 /** 轉錄和即時字幕共用右邊那顆目標語言 */
 function sharedLanguage() {
   const sel = /** @type {HTMLSelectElement|null} */ (document.getElementById('liveLanguage'))
   return sel?.value || 'zh-TW'
 }
 
-function showTranscript(text, warning) {
+/**
+ * 轉完存進轉錄紀錄並展開。存檔失敗就先放剪貼簿，轉了半天的結果不能丟。
+ * @param {string} text
+ */
+async function saveTranscript(text) {
   transcribeProgress.classList.add('hidden')
-  showTxEmpty(false)
-  transcribeResult.classList.remove('hidden')
-  resultText.textContent = text || '（未辨識到語音內容）'
-  if (!resultWarning) return
-  resultWarning.textContent = warning || ''
-  resultWarning.classList.toggle('hidden', !warning)
+  transcribeOptions.classList.remove('hidden')
+  if (!text.trim()) {
+    showToast('未辨識到語音內容', 'error')
+    return
+  }
+  try {
+    const res = await electronAPI.sttArchive.saveFileTranscript({ name: selectedFile?.name || '', text })
+    if (!res?.ok) throw new Error(res?.error?.message || '存檔失敗')
+    await refreshFileHistory(res.data)
+  } catch (error) {
+    await navigator.clipboard.writeText(text).catch(() => {})
+    showToast(`轉錄紀錄沒存成功，結果已複製到剪貼簿：${cleanIpcError(error)}`, 'error')
+  }
 }
 
 /**
@@ -556,41 +537,4 @@ function updateProgress(percent, text) {
   if (progressBar) progressBar.setAttribute('aria-valuenow', String(p))
   if (progressText) progressText.textContent = text
   if (progressPercent) progressPercent.textContent = p + '%'
-}
-
-/**
- * 設定結果操作
- */
-function setupResultActions() {
-  copyResultBtn.addEventListener('click', copyResult)
-  saveResultBtn.addEventListener('click', saveResult)
-}
-
-/**
- * 複製結果
- */
-async function copyResult() {
-  try {
-    await navigator.clipboard.writeText(resultText.textContent)
-    showToast('已複製轉錄結果')
-  } catch {
-    showToast('複製失敗', 'error')
-  }
-}
-
-/**
- * 儲存結果
- */
-function saveResult() {
-  const text = resultText.textContent
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${selectedFile?.name || 'transcription'}_逐字稿.txt`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }

@@ -112,7 +112,7 @@ function isProtectedInstall(exePath) {
 
 /** PowerShell 單引號字串的跳脫：只有單引號要處理 */
 function psQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`
+  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**

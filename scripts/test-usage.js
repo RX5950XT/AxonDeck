@@ -1121,7 +1121,12 @@ test('usage IPC 僅允許主視窗且錯誤不洩漏', async () => {
     'usage:load',
     'usage:sync',
     'usage:saveSettings',
-    'usage:redeemCodexReset'
+    'usage:redeemCodexReset',
+    'usage:claudeAccounts',
+    'usage:claudeSwitch',
+    'usage:claudeRemove',
+    'usage:claudeLogin',
+    'usage:claudeLoginCancel'
   ])
   assert.deepEqual(await handlers.get('usage:load')({ allowed: false }), {
     ok: false,

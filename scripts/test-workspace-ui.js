@@ -63,7 +63,7 @@ check('不支援檔案有檔案總管按鈕', hasId('wsEditorUnsupportedRevealBt
 check('變更檔編輯器有未提交變更按鈕', hasId('wsEditorDiffBtn'))
 check('未提交變更按鈕會開既有 Diff', /editorDiffBtn[\s\S]*openDiffTab/.test(tabs))
 check('IDE 狀態列有接到 renderer', /el\.ideStatusbar\s*=\s*document\.getElementById\('wsIdeStatusbar'\)/.test(tabs))
-check('空白瀏覽器分頁會回到 about:blank', /if \(!href\)[\s\S]*guest\.setAttribute\('src', 'about:blank'\)/.test(browserPainter))
+check('空白瀏覽器分頁會回到新分頁頁面', /if \(!href\)[\s\S]*guest\.setAttribute\('src', NEWTAB_URL\)/.test(browserPainter))
 check('檔案樹有 Git 狀態標記', /ws-tree-status/.test(workspacePage))
 check('檔案樹會讀 Git 狀態', /loadTreeGitStatus/.test(workspacePage))
 check('點 Git 狀態標記會開 Diff', /openDiffTab\(project, entry\.rel/.test(workspacePage))
@@ -453,8 +453,10 @@ async function runFileChecks() {
     && /const DIRECT_EXTS = \['exe', 'com', 'msi', 'lnk'\]/.test(tabs))
   const runFn = tabs.slice(tabs.indexOf('export async function runInTerminal'), tabs.indexOf('export async function openEditorTab'))
   const commands = []
-  const run = new Function('newTerminalWithCommand', 'extOf', `${runFn.replace('export ', '')}; return runInTerminal`)(
-    async (_title, command) => commands.push(command), (rel) => rel.split('.').pop().toLowerCase())
+  const launches = []
+  const run = new Function('newTerminalWithCommand', 'extOf', 'isLaunchScript', `${runFn.replace('export ', '')}; return runInTerminal`)(
+    async (_title, command, _resume, rel) => { commands.push(command); launches.push(rel) },
+    (rel) => rel.split('.').pop().toLowerCase(), (rel) => /\.(bat|cmd|ps1|sh)$/i.test(rel))
   for (const [file, expected] of [
     ['hello.js', "node './hello.js'"], ['hello.mjs', "node './hello.mjs'"],
     ['hello.py', "python './hello.py'"], ['hello.jar', "java -jar './hello.jar'"],
@@ -462,9 +464,10 @@ async function runFileChecks() {
   ]) {
     await run(file)
     check(`執行 ${file} 使用對應程式`, commands.pop() === expected)
+    check(`${file} 只有啟動腳本才經過網址改道`, launches.pop() === (/\.(bat|cmd|ps1|sh)$/.test(file) ? file : ''))
   }
   check('終端機指令用 PowerShell 的 & 與單引號（路徑有空白也跑得動）',
-    /\|\| '&'/.test(runFn) && /rel\.replace\(\/'\/g, "''"\)/.test(runFn))
+    /\|\| '&'/.test(runFn) && runFn.includes(String.raw`rel.replace(/['\u2018-\u201b]/g, '$&$&')`))
   check('路徑有換行就不送（送進終端機的是按鍵）', /\/\[\\r\\n\]\/\.test\(rel\)/.test(runFn))
   check('開不了的檔案畫面上有「執行」鈕', hasId('wsEditorUnsupportedOpenBtn'))
   check('只有執行檔才顯示那顆鈕', /el\.unsupportedOpen\.hidden = !isRunnable\(/.test(tabs))

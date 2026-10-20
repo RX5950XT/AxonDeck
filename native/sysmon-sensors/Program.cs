@@ -550,7 +550,8 @@ namespace AxonDeckSensors
             foreach (ISensor sensor in hardware.Sensors)
             {
                 // Value 是 float?，還沒讀到值時是 null——送 0 會在畫面上變成「溫度 0 度」
-                if (!sensor.Value.HasValue || float.IsNaN(sensor.Value.Value))
+                // 無限大也要擋：Infinity 不是合法 JSON，整框都會解析失敗
+                if (!sensor.Value.HasValue || !float.IsFinite(sensor.Value.Value))
                 {
                     continue;
                 }

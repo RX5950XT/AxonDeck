@@ -22,10 +22,13 @@ function resolveFfmpegPath() {
     const { app } = require('electron')
     const ffmpegName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
     const dest = path.join(app.getPath('userData'), 'native', ffmpegName)
-    if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
+    // 大小對不上＝上次複製到一半被砍，或 App 升級換了 ffmpeg 版本
+    if (!fs.existsSync(dest) || fs.statSync(dest).size !== fs.statSync(bin).size) {
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       // 不用 copyFileSync：從 asar 複製會先在 %TEMP% 解壓一份 80MB 的中繼檔，程序被強制結束就留著
-      fs.writeFileSync(dest, fs.readFileSync(bin))
+      const tmp = `${dest}.tmp`
+      fs.writeFileSync(tmp, fs.readFileSync(bin))
+      fs.renameSync(tmp, dest)
     }
     return dest
   }

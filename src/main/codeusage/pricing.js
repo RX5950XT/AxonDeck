@@ -60,7 +60,8 @@ const PER_TOKENS = 1_000_000
 // v13：Grok 的 `-build` 端點別名一律收回本體（4.7 起不必逐顆加別名），舊桶重新歸到本體。
 // v14：Codex 讀得到 `.jsonl.zst`；以前讀過、後來被壓縮的 session 游標已被清掉，不重掃會算兩次。
 //      同一版跳過 Grok 子代理自己的 session（母 session 已含），舊桶子裡算兩次的要重算。
-const RULES_VERSION = 14
+// v15：AGY 的 Claude 5.5 帶檔位後綴（`claude-opus-5-5-high`），剝掉才對得到單價。
+const RULES_VERSION = 15
 
 /**
  * @typedef {object} Price
@@ -212,6 +213,7 @@ function normalizeModel(raw) {
   // Grok CLI 記的是端點別名（`grok-4.7-build`），價錢跟本體一樣
   if (id.startsWith('grok')) id = id.replace(/-build$/, '')
   if (id.startsWith('gemini')) id = id.replace(/-(extra-low|low|medium|high|tiered)$/, '')
+  if (id.startsWith('claude')) id = id.replace(/-(low|medium|high)$/, '')
   // 「大版本-小版本」寫法收斂成小數點：Claude Code 實際寫的是 `claude-haiku-4-5`、`claude-3-7-sonnet`，
   // 但公開報價與別的來源都寫 `claude-haiku-4.5`、`claude-3.7-sonnet`，不轉的話這顆永遠對不到單價
   id = id.replace(/-(\d+)-(\d+)-/g, '-$1.$2-')

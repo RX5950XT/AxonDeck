@@ -37,7 +37,7 @@ function isRecyclePath(raw) {
  * @returns {string}
  */
 function psQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`
+  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 function powershellPath() {
@@ -399,10 +399,11 @@ async function restore(recycleKey) {
   paths.resolveAbs(dest)
   try {
     await fsp.rename(loc.rPath, dest)
-    await fsp.rm(loc.iPath, { force: true })
   } catch {
     throw paths.fail('RESTORE_FAILED', '還原失敗')
   }
+  // 檔案已經回去了；$I 被鎖住刪不掉不算還原失敗
+  await fsp.rm(loc.iPath, { force: true }).catch((error) => console.error('[explorer] 刪除回收筒中繼檔失敗:', error?.code || error))
   return { path: dest }
 }
 

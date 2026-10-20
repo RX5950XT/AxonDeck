@@ -443,7 +443,6 @@ async function syncAntigravity({
 
 module.exports = {
   applyAntigravityQuota,
-  antigravityHeaders,
   fetchLoadCodeAssist,
   mergeExpectedWindows,
   parseCredential,

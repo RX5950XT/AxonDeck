@@ -23,6 +23,8 @@ let loading = null
 
 /** @type {Map<string, any>} 分頁 id → ITextModel（每個檔案各自留著捲動位置與復原歷程） */
 const models = new Map()
+const MODEL_CACHE_MAX_COUNT = 24
+const MODEL_CACHE_MAX_BYTES = 32 * 1024 * 1024
 
 /**
  * model → 它現在裝的內容。
@@ -247,6 +249,8 @@ export function showTab(monaco, tab) {
     dropPending()
     editor.setModel(model)
   }
+  models.delete(tab.id)
+  models.set(tab.id, model)
   editor.updateOptions({ readOnly: Boolean(tab.readonly) })
 }
 
@@ -302,16 +306,21 @@ export function disposeModel(tabId) {
 }
 
 /**
- * 只留下這些分頁的 model，其餘全收掉。
- *
- * 切專案時 `tabs` 整個換掉，但這裡的 model 是照分頁 id 存的，沒人來收——
- * 每切一次專案就多留一整份檔案內容在記憶體裡，開一整天只增不減。
+ * 切專案保留最近的文字 model（最多 24 份／32 MiB 文字）；清空工作區時全收。
  *
  * @param {Iterable<string>} keepIds
+ * @param {boolean} [cacheInactive]
  */
-export function disposeModelsExcept(keepIds) {
+export function disposeModelsExcept(keepIds, cacheInactive = false) {
   const keep = new Set(keepIds)
-  for (const id of [...models.keys(), ...diffModels.keys()]) {
+  let bytes = [...models.values()].reduce((sum, model) => sum + model.getValueLength() * 2, 0)
+  for (const [id, model] of models) {
+    if (keep.has(id)) continue
+    if (cacheInactive && models.size <= MODEL_CACHE_MAX_COUNT && bytes <= MODEL_CACHE_MAX_BYTES) continue
+    bytes -= model.getValueLength() * 2
+    disposeModel(id)
+  }
+  for (const id of diffModels.keys()) {
     if (!keep.has(id)) disposeModel(id)
   }
   // 顯示中的那份被收掉的話，兩顆編輯器都要放手（不然它們抓著 disposed model）
@@ -329,17 +338,21 @@ export function disposeModelsExcept(keepIds) {
  *
  * Monaco 的**程式碼本身**（那 16MB 的 AMD 包）不在這裡面，它載了就一直在。
  */
-export function releaseEditors() {
+export function releaseEditors(keep = false) {
   dropPending()
   if (editor) {
     editor.setModel(null)
-    editor.dispose()
-    editor = null
+    if (!keep) {
+      editor.dispose()
+      editor = null
+    }
   }
   if (diffEditor) {
     diffEditor.setModel(null)
-    diffEditor.dispose()
-    diffEditor = null
+    if (!keep) {
+      diffEditor.dispose()
+      diffEditor = null
+    }
   }
 }
 

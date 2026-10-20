@@ -1,4 +1,4 @@
-import { electronAPI, showToast, switchPage, setChatPaneMode, openUrlInApp } from './app.js'
+import { electronAPI, showToast, switchPage, setChatPaneMode, openUrlInApp, openInFilesPage } from './app.js'
 import { openEditorTab, setActiveProject, currentProjectId } from './ws-tabs.js'
 import { scanLine, logicalLine } from './term-link-scan.js'
 
@@ -66,10 +66,8 @@ async function openTarget(data) {
     }
     return
   }
-  if (data.action === 'explorer' && data.path) {
-    const mod = await import('./explorer-page.js')
-    await mod.openExplorerPath(data.path, data.kind)
-  }
+  // 檔案頁是另一個功能頁視窗：要走 openInFilesPage 轉過去，直接呼叫這一頁的 explorer-page 只會切頁、路徑丟掉
+  if (data.action === 'explorer' && data.path) await openInFilesPage(data.path, data.kind)
 }
 
 /**
@@ -109,7 +107,10 @@ export function oscLinkHandler(id) {
       if (parsed.protocol !== 'file:') { unsupported(); return }
       // file:///C:/foo → C:\foo；UNC（file://server/share）先不收
       if (parsed.host) { unsupported(); return }
-      const local = decodeURIComponent(parsed.pathname).replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\')
+      // `%` 沒編好的連結會讓 decodeURIComponent 丟 URIError
+      let decoded
+      try { decoded = decodeURIComponent(parsed.pathname) } catch { unsupported(); return }
+      const local = decoded.replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\')
       if (local) activateHit(id, { text: local, url: '' })
     }
   }

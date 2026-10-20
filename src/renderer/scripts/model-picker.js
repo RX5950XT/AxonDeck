@@ -37,7 +37,7 @@ const ASR_KEYS = ['qwen3asr', 'qwen3asrgpu']
 const LLM_KEYS = ['linguaforge08q4', 'indextranslate2b']
 
 /** 三個子分頁各自的 store key（與 main model-scope.js 一致） */
-export const SCOPE_KEYS = Object.freeze({
+const SCOPE_KEYS = Object.freeze({
   file: { asr: 'fileAsr', llm: 'fileLlm' },
   live: { asr: 'liveAsr', llm: 'liveLlm' },
   dictation: { asr: 'dictationAsr', llm: 'dictationLlm' }

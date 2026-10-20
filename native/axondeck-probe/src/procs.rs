@@ -36,7 +36,8 @@ impl Proc {
             return "System".to_string();
         }
         match self.image.len().checked_sub(4) {
-            Some(cut) if self.image[cut..].eq_ignore_ascii_case(".exe") => self.image[..cut].to_string(),
+            // 名稱含多位元組字元時 cut 可能落在字元中間，直接切會 panic
+            Some(cut) if self.image.is_char_boundary(cut) && self.image[cut..].eq_ignore_ascii_case(".exe") => self.image[..cut].to_string(),
             _ => self.image.clone(),
         }
     }

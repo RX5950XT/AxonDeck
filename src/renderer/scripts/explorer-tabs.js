@@ -55,6 +55,8 @@ export function paintTabStrip(spec) {
     open.title = tab.cwd
     open.addEventListener('click', () => onSelect(tab.id))
     open.addEventListener('keydown', (e) => {
+      // Alt+方向鍵是搬分頁（交給 reorder），不是切分頁
+      if (e.altKey) return
       const i = tabs.indexOf(tab)
       const target = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
         : e.key === 'ArrowRight' ? (i + 1) % tabs.length

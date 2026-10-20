@@ -192,5 +192,4 @@ module.exports = {
   hookCommand,
   startHook,
   READY_TIMEOUT_MS,
-  MAX_RESTARTS
 }

@@ -48,27 +48,31 @@ function detectDisplayServer(env = process.env) {
   const session = String(env.XDG_SESSION_TYPE || '').toLowerCase()
   const wayland = Boolean(env.WAYLAND_DISPLAY) || session === 'wayland'
   const x11 = Boolean(env.DISPLAY) && !wayland
-  const dual =
-    'Wayland：全域右 Alt 可能無效或需額外權限（非完整對等 Windows 原生 hook）。'
-    + ' X11：uiohook 監聽通常較穩，但仍無法像 Windows 一樣吞鍵，前景程式可能仍收到右 Alt。'
+  // libuiohook 在 Linux 走 X11 的 XRecord 擴充：只能旁聽按鍵、不能攔下來
+  const x11Note =
+    'uiohook 透過 X11 的 XRecord 擴充旁聽按鍵，只能監聽、無法攔截，'
+    + '所以前景程式也會收到右 Alt（部分鍵盤配置下是 AltGr）。'
+  const waylandNote =
+    'Wayland 不允許程式監聽全域按鍵；uiohook 只看得到透過 XWayland 執行的視窗，'
+    + '原生 Wayland 視窗在前景時右 Alt 不會觸發。需要全域熱鍵時請改用 X11 工作階段。'
   if (wayland) {
     return {
       platform: process.platform,
       display: 'wayland',
-      note: '目前工作階段：Wayland。' + dual
+      note: '目前工作階段：Wayland。' + waylandNote
     }
   }
   if (x11 || session === 'x11') {
     return {
       platform: process.platform,
       display: 'x11',
-      note: '目前工作階段：X11。' + dual
+      note: '目前工作階段：X11。' + x11Note
     }
   }
   return {
     platform: process.platform,
     display: 'unknown',
-    note: '目前無法判斷顯示伺服器（無 WAYLAND_DISPLAY／DISPLAY）。' + dual
+    note: '目前無法判斷顯示伺服器（無 WAYLAND_DISPLAY／DISPLAY）。' + x11Note + waylandNote
   }
 }
 
@@ -331,7 +335,5 @@ module.exports = {
   detectDisplayServer,
   hotkeyLimitations,
   RIGHT_ALT,
-  ESCAPE,
   NEUTRALIZER,
-  LONG_PRESS_MS
 }

@@ -97,7 +97,7 @@ function runPowerShell(args, timeoutMs, spawnFn) {
  * @returns {Promise<boolean>}
  */
 async function verifySignature(file, spawnFn) {
-  const literal = file.replace(/'/g, "''")
+  const literal = file.replace(/['\u2018-\u201b]/g, '$&$&')
   const script = [
     // git-bash 之類的環境會污染 PSModulePath，害 Security 模組載不起來（實測過）
     "$env:PSModulePath = Join-Path $env:SystemRoot 'system32\\WindowsPowerShell\\v1.0\\Modules';",
@@ -152,7 +152,7 @@ async function install(deps = {}) {
     }
 
     // -install -silent：單破折號，而且 -install 不能省（其餘寫法會靜靜開一扇要人按的視窗）
-    const literal = file.replace(/'/g, "''")
+    const literal = file.replace(/['\u2018-\u201b]/g, '$&$&')
     const { code } = await runPowerShell([
       '-ExecutionPolicy', 'Bypass', '-Command',
       `$p = Start-Process -FilePath '${literal}' -ArgumentList '-install','-silent' -Verb RunAs -Wait -PassThru; exit $p.ExitCode`

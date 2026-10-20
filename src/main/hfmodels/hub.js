@@ -156,6 +156,12 @@ async function listFiles(repoId) {
  * @param {string} filePath
  * @returns {string}
  */
+/** repo 檔案頁的網址前綴：README 裡的相對連結接在後面（`docs/x.md` → 網頁上的那個檔案） */
+function pageBase(repoId) {
+  assertRepo(repoId)
+  return `${HOST}/${repoId}/blob/main/`
+}
+
 function fileUrl(repoId, filePath) {
   assertRepo(repoId)
   if (!isRepoPath(filePath)) throw new UsageError('INVALID_PATH', '檔案路徑格式不正確')
@@ -340,6 +346,6 @@ function stripFrontMatter(text) {
 }
 
 module.exports = {
-  isRepoId, isRepoPath, searchModels, listFiles, fileUrl, peekFile, modelCard, readme,
-  stripFrontMatter, stripHtml, htmlTablesToMarkdown, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
+  isRepoId, isRepoPath, searchModels, listFiles, pageBase, fileUrl, peekFile, modelCard, readme,
+  htmlTablesToMarkdown, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
 }

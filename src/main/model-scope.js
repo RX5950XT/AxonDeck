@@ -260,12 +260,9 @@ function alignSharedStt(store) {
 }
 
 module.exports = {
-  SCOPES,
   ASR_STORE_KEYS,
   LLM_STORE_KEYS,
   LLM_OPTIONAL,
-  DEFAULT_ASR_VALUE,
-  DEFAULT_LLM_VALUE,
   isScope,
   cloudsOf,
   sanitizeAsr,

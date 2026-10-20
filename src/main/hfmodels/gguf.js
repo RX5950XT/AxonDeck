@@ -416,7 +416,7 @@ function kvCacheBytes(info, ctx, typeK = 'f16', typeV = 'f16') {
  * @returns {number | null}
  */
 function activeParams(info, totalParams) {
-  const total = Number(totalParams ?? info?.parameterCount) || 0
+  const total = Number(info?.parameterCount || totalParams) || 0
   if (!info?.isMoe) return total || null
   if (!total || !info.blockCount || !info.embeddingLength || !info.expertFfnLength) return null
   if (!info.expertCount || !info.expertUsedCount) return null

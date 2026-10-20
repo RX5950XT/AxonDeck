@@ -324,7 +324,7 @@ async function testDraftConfirmApplyReset() {
 
 async function testSafeApplyAndFailures() {
   const fx = buildFakeSys()
-  const { engine, kernel } = makeEngine(fx)
+  const { engine } = makeEngine(fx)
   await assert.rejects(engine.apply(), { code: 'SYSMON_OC_NOTHING' })
   // 只往下調：不用確認
   await engine.setDraft({ linux: { target: 'cpu', key: 'turbo', value: 'off' } })

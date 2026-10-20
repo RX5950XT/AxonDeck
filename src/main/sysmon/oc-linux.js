@@ -19,7 +19,6 @@
 
 const fs = require('fs')
 const fsp = fs.promises
-const path = require('path')
 const { execFile } = require('child_process')
 const scan = require('./oc-linux-sysfs')
 const nv = require('./oc-linux-nvidia')

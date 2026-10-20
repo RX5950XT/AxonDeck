@@ -515,15 +515,24 @@ function initTerminalDrop(pane, term, id) {
  */
 const webglTries = new WeakMap()
 
-function attachRenderer(term) {
-  if ((webglTries.get(term) || 0) > 3) return null
-  // Linux／遠端／軟體渲染常把 WebGL2 拉進 blocklist；先探一下，失敗就留 DOM renderer
+/** WebGL 探測結果（整頁一次）；null＝還沒探 */
+let webglUsable = null
+function canUseWebgl() {
+  if (webglUsable !== null) return webglUsable
+  // Linux／遠端／軟體渲染常把 WebGL2 拉進 blocklist；先探一下，失敗就留 DOM renderer。
+  // 探一次就記住：每次重建畫布都開一個 canvas context 也是成本。沒有 canvas 可探（測試環境）就照常嘗試。
   try {
     const probe = document.createElement('canvas')
-    if (!probe.getContext('webgl2') && !probe.getContext('webgl')) return null
+    webglUsable = Boolean(probe.getContext('webgl2') || probe.getContext('webgl'))
   } catch {
-    return null
+    webglUsable = true
   }
+  return webglUsable
+}
+
+function attachRenderer(term) {
+  if ((webglTries.get(term) || 0) > 3) return null
+  if (!canUseWebgl()) return null
   try {
     const webgl = new WebglAddon()
     webgl.onContextLoss(() => {

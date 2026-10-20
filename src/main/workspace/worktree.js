@@ -334,11 +334,12 @@ async function setupCommand(projectId, terminalId) {
   const branch = await run(project.path, ['branch', '--show-current'])
   if (branch.code !== 0) throw fail('SETUP_FAILED', '讀取工作樹分支失敗')
   try {
-    const { terminalCommand, psQuote } = require('../script-launch')
+    const { terminalCommand, shellAssign } = require('../script-launch')
     const command = await terminalCommand(full, projectId, terminalId)
     const env = { AXONDECK_SOURCE_DIR: project.worktreeSourceDir || project.path,
       AXONDECK_WORKTREE_DIR: project.path, AXONDECK_BRANCH: branch.stdout.trim() }
-    const assignments = Object.entries(env).map(([key, value]) => `$env:${key}=${psQuote(value)}`)
+    // Windows：PowerShell 的 $env:K='v'；Linux：bash 的 export K='v'
+    const assignments = Object.entries(env).map(([key, value]) => shellAssign(key, value))
     return `${assignments.join('; ')}; ${command}`
   } catch {
     throw fail('SETUP_FAILED', '準備初始化腳本失敗，已建立的工作樹會保留')

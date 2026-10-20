@@ -59,7 +59,9 @@ function harness(root, overrides = {}) {
       state.commandArgs = args
       if (state.commandError) throw new Error('secret stderr must never escape')
       return '& powershell -EncodedCommand encoded'
-    }, psQuote: require('../src/main/script-launch').psQuote } }
+    }, psQuote: require('../src/main/script-launch').psQuote,
+    // 測試期望的是 Windows 的 PowerShell 指令；Linux 換成 export 由 test-script-launch-linux 驗
+    shellAssign: (key, value) => require('../src/main/script-launch').shellAssign(key, value, 'win32') } }
   const context = { module: { exports: {} }, require: name => {
     assert.ok(name in dependencies, `未預期的依賴：${name}`)
     return dependencies[name]

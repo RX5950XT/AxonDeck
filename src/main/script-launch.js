@@ -140,8 +140,35 @@ async function prepareLaunch(file, project, run = '') {
 const psQuote = (s) => `'${s.replace(/['\u2018-\u201b]/g, '$&$&')}'`
 
 /** 給既有終端機執行；不用改 PTY 宿主的協定，也不會影響其他終端機。 */
+// POSIX shell 的單引號字串：' 收成 '\''，其他字元原樣
+const shQuote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`
+
+/** 終端機裡設環境變數的那一段（Windows 是 PowerShell，Linux 是 bash／zsh） */
+function shellAssign(key, value, platform = process.platform) {
+  return platform === 'win32' ? `$env:${key}=${psQuote(value)}` : `export ${key}=${shQuote(value)}`
+}
+
+/**
+ * Linux：終端機是 bash／zsh，只跑 .sh；.bat／.cmd／.ps1 是 Windows 腳本，直接回中文錯誤。
+ * 腳本開出來的 dev server 網址一樣由 `watchServer` 從終端機輸出抓。
+ */
+async function posixTerminalCommand(file, project, run) {
+  if (!/\.sh$/i.test(file)) {
+    throw Object.assign(new Error('UNSUPPORTED_SCRIPT'), { userMessage: 'Linux 只能在終端機執行 .sh 腳本；.bat／.cmd／.ps1 是 Windows 腳本' })
+  }
+  const { target, env } = await prepareLaunch(file, project, run)
+  const source = [
+    ...Object.entries(env).map(([key, value]) => shellAssign(key, value, 'linux')),
+    'unset ELECTRON_RUN_AS_NODE',
+    `cd ${shQuote(path.dirname(file))} && bash ${shQuote(target)}`
+  ].join('; ')
+  watchServer(run, project)
+  return source
+}
+
 async function terminalCommand(file, project, run) {
   if (!/\.(bat|cmd|ps1|sh)$/i.test(file) || /[\r\n]/.test(file)) throw new Error('不支援的啟動腳本')
+  if (process.platform !== 'win32') return posixTerminalCommand(file, project, run)
   const { target, env, exeArgs } = await prepareLaunch(file, project, run)
   const open = `& ${[process.execPath, ...exeArgs, START_FLAG, ''].map(psQuote).join(' ')} $FilePath`
   const source = [
@@ -277,5 +304,5 @@ function projectIdOf(projects, file) {
 /** 第一份收到的轉交 argv：第二份已用原始命令列把關過，這裡只取第一個網址 */
 const forwardedUrl = (argv) => (argv || []).find(isUrl) || ''
 
-module.exports = { START_FLAG, PROJECT_ENV, USER_DATA_ENV, RUN_ENV, urlArg, forwardedUrl, rewriteBatch, launchScript, projectIdOf,
+module.exports = { shQuote, shellAssign, START_FLAG, PROJECT_ENV, USER_DATA_ENV, RUN_ENV, urlArg, forwardedUrl, rewriteBatch, launchScript, projectIdOf,
   terminalCommand, psQuote, setOpenUrl, openScriptUrl, noteTerminal, serverUrl }

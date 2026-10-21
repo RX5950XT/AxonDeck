@@ -8,9 +8,9 @@
 
 - [x] 盤點完整變更、版本與遠端狀態；驗證腳本啟動及記憶體精簡。
 - [x] 重建 shell、正式 NSIS、打包版驗證與安裝包／更新資訊／秘密掃描。
-- [ ] commit／tag／push、GitHub Release 與遠端三個資產對帳。
+- [x] commit／tag／push、GitHub Release 與遠端三個資產對帳。
 
-Review：`build:shell`、lint（402 IPC／32 namespace）、script-launch 真本機服務、page-windows、workspace-perf 12/12、chat 2/2 通過。正式 NSIS 已建置，387 個 src 一致；拆包 200 個檔案與預覽包一致，含 app-update.yml，latest.yml／blockmap 的版號、大小與 SHA-512 正確。包內秘密掃描五項均與 v1.63.0 安裝包一致，為三個測試假值及兩個本機模型識別字。打包版十頁／跨頁導覽／彈出與收回／草稿／真桌布預覽全過，切頁回應 1.4–13ms；scripts-only 驗真 cmd／PowerShell、中文含單引號路徑、內容腳本、原專案、無外部瀏覽器／重複分頁、跨專案拒絕通過。舊腳本驗收誤以為點檔案直接執行，已改成開編輯器後按「執行」，產品程式未因此變動。為納入修正後的驗收腳本，發布前重建最終安裝包。安裝檔 NotSigned；PDF 程式與依賴未變，沿用既有驗證，未重跑真模型 PDF。未改動使用中的安裝版；遠端發布待完成。
+Review：已於 `ef4cb24` 提交並推送 master／v1.63.1，正式發布 https://github.com/RX5950XT/AxonDeck/releases/tag/v1.63.1 （非 draft／prerelease、Latest）。shell、lint（402 IPC／32 namespace）、相關回歸、打包版十頁與真 cmd／PowerShell 腳本通過；腳本驗收已改為目前的編輯器「執行」入口。最終 NSIS 的 387 個 src 一致，拆包 200 個檔案與預覽包一致，含 app-update.yml；修正後的測試亦已納入。待提交秘密掃描 0 命中，包內五項均為上版已有的測試假值或本機模型識別字。遠端三個資產的大小／SHA-256 全與本機一致，另下載 latest.yml 核對通過；安裝檔 317,703,301 bytes、SHA-256 `cef1e113ed4bfcd92e116c356a754aeabef05a7fb79f3be20b723a8a7718752e`。安裝檔 NotSigned；PDF 程式與依賴未變，未重跑真模型 PDF；未覆蓋使用中的安裝版。
 
 ### 2026-10-21 — 功能頁記憶體精簡
 

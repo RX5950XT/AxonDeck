@@ -57,7 +57,8 @@ async function explorer() {
 }
 
 function appModes() {
-  const src = fs.readFileSync('src/renderer/scripts/app.js', 'utf8')
+  // Windows 的 checkout 是 CRLF：先統一成 \n，下面的 \n}\n 才對得上
+  const src = fs.readFileSync('src/renderer/scripts/app.js', 'utf8').replace(/\r\n/g, '\n')
   const fn = src.match(/export function paneAfterLeavingBrowser[\s\S]*?\n}\n/)
   assert.ok(fn, 'paneAfterLeavingBrowser 要存在')
   const ctx = {}
@@ -151,7 +152,7 @@ async function inlineEdit() {
   assert.equal(r3, 'b.txt')
   ok('改名：失焦仍然是確定（行為不變）')
 
-  const ws = fs.readFileSync('src/renderer/scripts/workspace-page.js', 'utf8')
+  const ws = fs.readFileSync('src/renderer/scripts/workspace-page.js', 'utf8').replace(/\r\n/g, '\n')
   const create = ws.match(/async function createEntry\(project, relDir, dir\) \{[\s\S]*?\n}\n/)[0]
   assert.match(create, /if \(pendingInput\) \{\s*pendingInput\.focus\(\)\s*return/, '已有一格在等名字時，第二下要回到那一格')
   assert.match(create, /emptyBlurGraceMs: CREATE_BLUR_GRACE_MS/)

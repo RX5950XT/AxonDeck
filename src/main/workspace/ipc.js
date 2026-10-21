@@ -58,6 +58,10 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:readFile', (event, id, relPath) => (
     invoke(event, () => service.readFile(id, relPath))
   ))
+  ipcMain.handle('workspace:bigOpen', (event, id, relPath) => invoke(event, () => service.bigOpen(id, relPath)))
+  ipcMain.handle('workspace:bigRows', (event, id, relPath, start, count) => invoke(event, () => service.bigRows(id, relPath, start, count)))
+  ipcMain.handle('workspace:bigLine', (event, id, relPath, line) => invoke(event, () => service.bigLine(id, relPath, line)))
+  ipcMain.handle('workspace:bigFind', (event, id, relPath, query, afterRow, matchCase) => invoke(event, () => service.bigFind(id, relPath, query, afterRow, matchCase)))
   ipcMain.handle('workspace:previewHtml', (event, id, relPath, content) => (
     invoke(event, () => service.previewHtml(id, relPath, content))
   ))

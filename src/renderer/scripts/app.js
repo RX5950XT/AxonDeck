@@ -1437,7 +1437,8 @@ export function cleanIpcError(error) {
  */
 let toastTimer = null
 
-export function showToast(message, type = 'success') {
+/** @param {number} [duration] 0＝不自己消失，等 `hideToast` 收 */
+export function showToast(message, type = 'success', duration = 3000) {
   const toastMessage = toast.querySelector('.toast-message')
   toastMessage.textContent = message
 
@@ -1445,8 +1446,16 @@ export function showToast(message, type = 'success') {
   toast.classList.remove('hidden')
 
   if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
+  toastTimer = duration ? setTimeout(() => {
     toast.classList.add('hidden')
     toastTimer = null
-  }, 3000)
+  }, duration) : null
+}
+
+/** 收掉還掛著的提示；給了 message 就只收同一句（中間被別的提示蓋掉就不動它） */
+export function hideToast(message) {
+  if (message !== undefined && toast.querySelector('.toast-message').textContent !== message) return
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = null
+  toast.classList.add('hidden')
 }

@@ -424,6 +424,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** @param {string} relPath 專案內的相對路徑，一律用 `/` */
     listDir: (id, relPath) => ipcRenderer.invoke('workspace:listDir', id, relPath),
     readFile: (id, relPath) => ipcRenderer.invoke('workspace:readFile', id, relPath),
+    bigOpen: (id, relPath) => ipcRenderer.invoke('workspace:bigOpen', id, relPath),
+    bigRows: (id, relPath, start, count) => ipcRenderer.invoke('workspace:bigRows', id, relPath, start, count),
+    bigLine: (id, relPath, line) => ipcRenderer.invoke('workspace:bigLine', id, relPath, line),
+    bigFind: (id, relPath, query, afterRow, matchCase) => ipcRenderer.invoke('workspace:bigFind', id, relPath, query, afterRow, matchCase),
     /** HTML 預覽網址；content 是編輯器手上（可能還沒存）的那一版 */
     previewHtml: (id, relPath, content) => ipcRenderer.invoke('workspace:previewHtml', id, relPath, content),
     /** @param {'pdf' | 'xlsx'} target Office 文件轉成原始版面的 PDF，或重算過的 xlsx */
@@ -875,6 +879,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
     stat: () => ipcRenderer.invoke('editorFile:stat'),
     openLink: (link) => ipcRenderer.invoke('editorFile:openLink', link),
+    bigOpen: () => ipcRenderer.invoke('editorFile:bigOpen'),
+    bigRows: (start, count) => ipcRenderer.invoke('editorFile:bigRows', start, count),
+    bigLine: (line) => ipcRenderer.invoke('editorFile:bigLine', line),
+    bigFind: (query, afterRow, matchCase) => ipcRenderer.invoke('editorFile:bigFind', query, afterRow, matchCase),
     setDirty: (dirty) => ipcRenderer.invoke('editorFile:setDirty', dirty),
     close: () => ipcRenderer.invoke('editorFile:close'),
     onCloseRequest: (callback) => {

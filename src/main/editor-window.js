@@ -13,14 +13,16 @@ const { BrowserWindow, ipcMain } = require('electron')
 const fsp = require('./raw-fs').promises
 const formats = require('./editor-formats.json')
 const { makeInvoke } = require('./ipc-invoke')
+const { renameRetry } = require('./workspace/files')
+const bigText = require('./big-text')
 
 const EXTENSIONS = new Set(Object.values(formats).flat())
-/** 跟工作區同一個上限：再大 Monaco 也開不動 */
-const MAX_BYTES = 50 * 1024 * 1024
+/** 跟工作區同一個上限（`workspace/files.js` 的 MAX_TEXT_BYTES）：再大 Monaco 存不回去 */
+const MAX_BYTES = 256 * 1024 * 1024
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf])
 const UTF16_BOM = Buffer.from([0xff, 0xfe])
 
-/** @type {Map<number, { win: Electron.BrowserWindow, file: string, dirty: boolean, closing: boolean, encoding: string }>} */
+/** @type {Map<number, { win: Electron.BrowserWindow, file: string, dirty: boolean, closing: boolean, encoding: string, big?: any }>} */
 const entries = new Map()
 let options = { isDev: false, preload: '', icon: '', secure: (_win) => {}, theme: () => 'dark', imageBase: (_file) => '', forceClose: () => false }
 let tmpSeq = 0
@@ -126,10 +128,22 @@ function entryOf(event) {
   return entry
 }
 
+/** 這扇窗已經建好的分段索引 */
+function bigOf(event) {
+  const big = entryOf(event).big
+  if (!big) throw fail('NOT_BIG', '還沒開始分段檢視')
+  return big
+}
+
 async function load(entry) {
   const stat = await fsp.stat(entry.file).catch(() => null)
   if (!stat?.isFile()) throw fail('NOT_FOUND', '找不到這個檔案')
-  if (stat.size > MAX_BYTES) throw fail('TOO_LARGE', '檔案超過 50MB，太大了開不動')
+  const theme = options.theme() === 'light' ? 'light' : 'dark'
+  // 超過 Monaco 的上限：不整份讀進來，頁面改用唯讀分段檢視（`big-text.js`）
+  if (stat.size > MAX_BYTES) {
+    entry.encoding = 'big'
+    return { path: entry.file, name: path.basename(entry.file), big: true, size: stat.size, content: '', encoding: 'utf8', readonly: true, mtimeMs: stat.mtimeMs, theme, markdown: false, imageBase: '' }
+  }
   const { content, encoding } = decode(await fsp.readFile(entry.file))
   entry.encoding = encoding
   const markdown = formats.markdown.includes(path.extname(entry.file).slice(1).toLowerCase())
@@ -140,7 +154,7 @@ async function load(entry) {
     encoding,
     readonly: encoding === 'big5',
     mtimeMs: stat.mtimeMs,
-    theme: options.theme() === 'light' ? 'light' : 'dark',
+    theme,
     markdown,
     imageBase: markdown ? options.imageBase(entry.file) : ''
   }
@@ -155,6 +169,7 @@ async function load(entry) {
 async function save(entry, content, expectedMtimeMs) {
   if (typeof content !== 'string') throw fail('BAD_CONTENT', '內容不合法')
   if (entry.encoding === 'big5') throw fail('READONLY', 'Big5 編碼的檔案只能檢視')
+  if (entry.encoding === 'big') throw fail('READONLY', '超大檔只能檢視')
   const bytes = encode(content, entry.encoding)
   if (bytes.length > MAX_BYTES) throw fail('TOO_LARGE', '檔案太大，存不下')
   const stat = await fsp.stat(entry.file).catch(() => null)
@@ -163,7 +178,7 @@ async function save(entry, content, expectedMtimeMs) {
   const tmp = `${entry.file}.${process.pid}-${(tmpSeq += 1)}.axondeck-tmp`
   try {
     await fsp.writeFile(tmp, bytes)
-    await fsp.rename(tmp, entry.file)
+    await renameRetry(tmp, entry.file)
   } catch {
     await fsp.unlink(tmp).catch(() => {})
     throw fail('WRITE_FAILED', '存檔失敗（檔案可能是唯讀或被別的程式鎖住）')
@@ -195,6 +210,17 @@ function registerIpc() {
     const stat = await fsp.stat(entryOf(event).file).catch(() => null)
     return { exists: Boolean(stat?.isFile()), mtimeMs: stat?.mtimeMs || 0 }
   }))
+  ipcMain.handle('editorFile:bigOpen', (event) => invoke(event, async () => {
+    const entry = entryOf(event)
+    if (entry.encoding !== 'big') throw fail('NOT_BIG', '這個檔案不是用分段檢視開的')
+    // 外面改過檔案時頁面會再叫一次：重建索引、換上新的
+    entry.big = await bigText.index(entry.file, entry.big)
+    const { rows, lines, size, mtimeMs, enc } = entry.big
+    return { rows, lines, size, mtimeMs, encoding: enc.name }
+  }))
+  ipcMain.handle('editorFile:bigRows', (event, start, count) => invoke(event, () => bigText.readRows(bigOf(event), start, count)))
+  ipcMain.handle('editorFile:bigLine', (event, line) => invoke(event, () => bigText.rowOfLine(bigOf(event), line)))
+  ipcMain.handle('editorFile:bigFind', (event, query, afterRow, matchCase) => invoke(event, () => bigText.find(bigOf(event), query, afterRow, matchCase === true)))
   ipcMain.handle('editorFile:openLink', (event, link) => invoke(event, () => openLink(entryOf(event), link)))
   ipcMain.handle('editorFile:setDirty', (event, dirty) => invoke(event, () => { entryOf(event).dirty = dirty === true }))
   ipcMain.handle('editorFile:close', (event) => invoke(event, () => {

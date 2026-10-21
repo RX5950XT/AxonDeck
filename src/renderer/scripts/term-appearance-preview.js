@@ -7,7 +7,7 @@ let revision = 0
 /** Same palette, wallpaper strength and font size as the terminal; no shell is started. */
 export async function refreshTermAppearancePreview() {
   const host = document.getElementById('termAppearancePreview')
-  if (!host) return
+  if (!host || !host.closest('#set-appearance.active')) return
   const current = ++revision
   const status = document.getElementById('termPreviewStatus')
   try {

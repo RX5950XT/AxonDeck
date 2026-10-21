@@ -2624,7 +2624,7 @@
       </div>
 
       <!-- 系統提示管理（原生 dialog：Esc 關閉、焦點鎖定由瀏覽器處理） -->
-      <dialog id="chatPromptDialog" class="app-dialog" aria-label="管理系統提示">
+      <dialog id="chatPromptDialog" data-page-content="chat" class="app-dialog" aria-label="管理系統提示">
         <div class="dialog-head">
           <h2 class="dialog-title">系統提示</h2>
           <p class="dialog-desc">可存多組，聊天頁工具列隨時切換。</p>
@@ -2668,7 +2668,7 @@
       </dialog>
 
       <!-- 新終端機：shell 與啟動指令只送 key，工作目錄走系統對話框 -->
-      <dialog id="termNewDialog" class="app-dialog" aria-label="新終端機">
+      <dialog id="termNewDialog" data-page-content="chat" class="app-dialog" aria-label="新終端機">
         <div class="dialog-head">
           <h2 class="dialog-title">新終端機</h2>
           <p class="dialog-desc">開的是獨立 shell；縮到系統匣後照常執行。</p>
@@ -2704,7 +2704,7 @@
         </div>
       </dialog>
 
-      <dialog id="usageSettingsDialog" class="app-dialog usage-dialog" aria-labelledby="usageSettingsTitle">
+      <dialog id="usageSettingsDialog" data-page-content="chat" class="app-dialog usage-dialog" aria-labelledby="usageSettingsTitle">
         <header class="dialog-head">
           <h2 id="usageSettingsTitle" class="dialog-title">額度顯示設定</h2>
           <p class="dialog-desc">勾選底部額度條要顯示的項目；順序直接在條上拖曳。</p>
@@ -2741,7 +2741,7 @@
         </footer>
       </dialog>
 
-      <dialog id="cuPricesDialog" class="app-dialog" aria-label="模型單價">
+      <dialog id="cuPricesDialog" data-page-content="chat sysmon" class="app-dialog" aria-label="模型單價">
         <div class="dialog-head">
           <h2 class="dialog-title">模型單價</h2>
           <p class="dialog-desc">每 100 萬 token 的美金價；留空＝不算花費。快取價留空會從輸入價推。</p>
@@ -2760,7 +2760,7 @@
         </div>
       </dialog>
 
-      <dialog id="ccProviderDialog" class="app-dialog" aria-label="供應商">
+      <dialog id="ccProviderDialog" data-page-content="chat settings" class="app-dialog" aria-label="供應商">
         <div class="dialog-head">
           <h2 id="ccProviderDialogTitle" class="dialog-title">新增供應商</h2>
           <p id="ccProviderDialogDesc" class="dialog-desc"></p>
@@ -2852,7 +2852,7 @@
         </div>
       </dialog>
 
-      <dialog id="ccMcpDialog" class="app-dialog" aria-label="MCP 伺服器">
+      <dialog id="ccMcpDialog" data-page-content="chat settings" class="app-dialog" aria-label="MCP 伺服器">
         <div class="dialog-head">
           <h2 id="ccMcpDialogTitle" class="dialog-title">新增 MCP 伺服器</h2>
           <p class="dialog-desc">JSON 格式同 Claude Code 的 mcpServers。</p>
@@ -2882,7 +2882,7 @@
         </div>
       </dialog>
 
-      <dialog id="chatScanDialog" class="app-dialog" aria-label="掃描到的模型">
+      <dialog id="chatScanDialog" data-page-content="settings" class="app-dialog" aria-label="掃描到的模型">
         <div class="dialog-head">
           <h2 class="dialog-title">掃描到的模型</h2>
           <p id="chatScanDesc" class="dialog-desc"></p>
@@ -2909,7 +2909,7 @@
       </dialog>
 
       <!-- 每顆本機模型的執行參數：自動決定的值可以逐項覆寫，最下面是原始參數直通 -->
-      <dialog id="hfParamsDialog" class="app-dialog hf-dialog" aria-label="模型執行參數">
+      <dialog id="hfParamsDialog" data-page-content="hfmodels" class="app-dialog hf-dialog" aria-label="模型執行參數">
         <div class="dialog-head">
           <h2 class="dialog-title" id="hfParamsTitle">執行參數</h2>
           <p id="hfParamsDesc" class="dialog-desc"></p>

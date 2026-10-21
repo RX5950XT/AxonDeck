@@ -2,6 +2,7 @@
  * AxonDeck - 主應用程式邏輯
  */
 
+import './page-content.js'
 import {
   initChatPage,
   refreshChatPage,

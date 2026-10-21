@@ -4,6 +4,22 @@
 
 ## 待辦／未解
 
+### 2026-10-21 — v1.63.1 發行
+
+- [x] 盤點完整變更、版本與遠端狀態；驗證腳本啟動及記憶體精簡。
+- [x] 重建 shell、正式 NSIS、打包版驗證與安裝包／更新資訊／秘密掃描。
+- [ ] commit／tag／push、GitHub Release 與遠端三個資產對帳。
+
+Review：`build:shell`、lint（402 IPC／32 namespace）、script-launch 真本機服務、page-windows、workspace-perf 12/12、chat 2/2 通過。正式 NSIS 已建置，387 個 src 一致；拆包 200 個檔案與預覽包一致，含 app-update.yml，latest.yml／blockmap 的版號、大小與 SHA-512 正確。包內秘密掃描五項均與 v1.63.0 安裝包一致，為三個測試假值及兩個本機模型識別字。打包版十頁／跨頁導覽／彈出與收回／草稿／真桌布預覽全過，切頁回應 1.4–13ms；scripts-only 驗真 cmd／PowerShell、中文含單引號路徑、內容腳本、原專案、無外部瀏覽器／重複分頁、跨專案拒絕通過。舊腳本驗收誤以為點檔案直接執行，已改成開編輯器後按「執行」，產品程式未因此變動。為納入修正後的驗收腳本，發布前重建最終安裝包。安裝檔 NotSigned；PDF 程式與依賴未變，沿用既有驗證，未重跑真模型 PDF。未改動使用中的安裝版；遠端發布待完成。
+
+### 2026-10-21 — 功能頁記憶體精簡
+
+- [x] 以隔離實例量修改前十頁的 DOM、記憶體與切換時間。
+- [x] 初始化前移除其他頁面的內容，拆開聊天／設定初始化，限制桌布預覽載入；保留常駐與快取。
+- [x] lint、功能頁／聊天設定回歸、打包後量測與切換／草稿保留驗證。
+
+Review：`npm run lint` 通過（402 IPC／32 namespace）；`test-page-windows.js`、`test-workspace-perf.js` 12/12、chat 2/2 通過。舊包先以新增的每頁內容斷言確認失敗；`electron:pack` 最終 387 個 src 一致，打包版 `e2e-page-windows-cdp.js` 十頁、彈出／收回、草稿、跨頁導覽及真桌布預覽通過；`e2e-cloud-models-cdp.js` 供應商新增、掃描、自動儲存、模型分流、淺深色／兩種寬度、MP3 解碼通過並目視外觀截圖；`probe-workspace-latency.js --paint` 通過三格並排、2000 行歷史與八畫布上限，反覆切專案 41–71ms。受控 A/B：隔離複製同份 src，before 僅將四個改動檔換成 HEAD、兩邊使用相同 Electron／resources 並以 file:// 跑相同流程及 3.08MiB 桌布；十頁 DOM 24,200→5,049，Electron 程序 private working set 1519.1→1402.8MiB（單次約少 116MiB；process count 20→23，背景程序／GC 有波動，不推估正式使用情境的固定降幅）。最終打包版另量 1358.4MiB、切頁回應 2.4–16.2ms。早期量測遇視窗節流，加入測試用 occlusion 旗標後排除；最終打包版曾一次 translate 導覽逾時，補記導航錯誤後重跑全過，原因未確認。設計 detector 的既有 CSS／標題階層警告未擴大修改。保留既有 script-launch 兩個未提交檔案；未做長時間登入帳號壓力測試，未覆蓋正式安裝版、commit 或發版。
+
 ### 2026-10-20 — Telegram 切回保留每格位置
 
 - [x] 追查切頁與自動重載：舊版背景等待連線超過 60 秒會卸載所有格子，背景導覽也會覆蓋每格網址。

@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.61.0**（2026-10-18）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.63.1**（2026-10-21）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -21,7 +21,7 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
 
 滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡（功能頁模式下每個 renderer 只記自己那頁，跨頁的足跡在 main `pages.history`）；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
-功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
+功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。`app.js` 第一個 import 的 `page-content.js` 在其他模組抓 DOM 前移除非本頁 `.page`，外置對話框用 `data-page-content` 指定所屬頁；無分頁參數的相容模式保留完整介面。設定頁只初始化供應商表單，桌布預覽只在外觀區啟用時載入；切頁仍保留同一個 renderer 與草稿。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
 設定頁雲端分區是整份 `providerDraft` 寫回 `cloudProviders`：功能頁切走（`visibilitychange` hidden）時有沒存的修改就當下存，不能等被節流的計時器，否則會用舊草稿蓋掉別頁或 main 期間寫進來的供應商。
 
 ## 模組地圖

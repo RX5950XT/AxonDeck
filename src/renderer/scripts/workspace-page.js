@@ -1556,7 +1556,18 @@ async function folderHost(project, relDir, seq) {
  * @param {string} relDir 建在哪個資料夾（空字串＝專案根目錄）
  * @param {boolean} dir
  */
+/** 新增檔案／資料夾時，還沒打字就點到別處要等多久才取消（連按兩下「新增」不會吃掉第一格） */
+const CREATE_BLUR_GRACE_MS = 1500
+/** 正在等使用者打名字的「新增」那一列（同時只會有一列） @type {HTMLElement | null} */
+let pendingCreateRow = null
+
 async function createEntry(project, relDir, dir) {
+  // 已經有一列新增在等名字：連按第二下就回到那一格，不取消它、也不再開一格
+  const pendingInput = /** @type {HTMLInputElement | null} */ (pendingCreateRow?.isConnected ? pendingCreateRow.querySelector('input') : null)
+  if (pendingInput) {
+    pendingInput.focus()
+    return
+  }
   const seq = projectSeq
   const host = await folderHost(project, relDir, seq)
   if (!host) return
@@ -1575,7 +1586,13 @@ async function createEntry(project, relDir, dir) {
   row.scrollIntoView({ block: 'nearest' })
   // 已經在跑的重畫（監看每秒一次）醒來會把這列空白的當成多餘的刪掉：先作廢它
   treeSeq += 1
-  const name = await editInline(slot, { label: dir ? '新資料夾的名稱' : '新檔案的名稱' })
+  pendingCreateRow = row
+  let name = null
+  try {
+    name = await editInline(slot, { label: dir ? '新資料夾的名稱' : '新檔案的名稱', emptyBlurGraceMs: CREATE_BLUR_GRACE_MS })
+  } finally {
+    if (pendingCreateRow === row) pendingCreateRow = null
+  }
   row.remove()
   if (name === null) {
     await renderTree(project, seq)

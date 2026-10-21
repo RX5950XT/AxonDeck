@@ -4386,8 +4386,23 @@ webview {
   box-shadow: var(--shadow-card);
 }
 
-.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) :is(.sidebar-modes, .bt-head) {
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) .bt-head {
   visibility: hidden;
+}
+
+/* 收起時 Agent／Browser／Chat 仍然點得到：直排成一條、字縮小塞進 48px，不必先滑出側欄 */
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) .sidebar-modes {
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+.chat-layout.is-browser.sidebar-browser:not(.browser-pinned) .chat-sidebar:not(.bt-open) .sidebar-mode {
+  padding: 5px 0;
+  font-size: 9px;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
 
 /* 展開時才露出拖曳把手，移到展開後側欄的右緣；拖的時候關掉寬度動畫才跟手 */

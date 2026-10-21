@@ -769,6 +769,16 @@ function bindHoverExpand() {
     }, 250)
   }
   sidebar.addEventListener('mouseleave', closeSoon)
+  // 用鍵盤（Tab）走進收起的側欄也要展開，不然焦點落在看不到的東西上
+  sidebar.addEventListener('focusin', () => {
+    clearTimeout(timer)
+    if (collapsible()) setOpen(true)
+  })
+  sidebar.addEventListener('focusout', (event) => {
+    const next = /** @type {Node | null} */ (event.relatedTarget)
+    if (next && sidebar.contains(next)) return
+    if (!sidebar.matches(':hover')) closeSoon()
+  })
   resizer?.addEventListener('mouseenter', () => clearTimeout(timer))
   resizer?.addEventListener('mouseleave', closeSoon)
   // 點在蓋子上＝想操作網頁：直接收起

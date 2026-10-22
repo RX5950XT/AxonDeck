@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.63.1**（2026-10-21）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.64.0**（2026-10-22）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -58,7 +58,7 @@ src/renderer/scripts/
   explorer-page.js  explorer-*.js  quota-bar.js  code-usage-page.js  ccswitch-page.js  cc-model-groups.js
   sysmon-*.js  disk-treemap.js  stt-page.js  recorder.js  live-caption.js  live-history.js  dictation.js  custom-select.js  app-dialog.js
 native/
-  axondeck-probe/    Rust：sysmon／usage-scan／dir-size／disk-tree／hook／claude-hook 子指令；bin/axondeck-term、bin/axondeck-media
+  axondeck-probe/    Rust：sysmon／usage-scan／dir-size／disk-tree／search（專案全文搜尋，平行讀檔）／procs-json（終端機認 AI 對話的程序清單）／raise-window（Ctrl+G 抬視窗）／list-dir（檔案頁超過 300 項的資料夾）；沒 exe 各自退回 JS／PowerShell／hook／claude-hook 子指令；bin/axondeck-term、bin/axondeck-media
   explorer-shell/    .NET 殼層 sidecar（IContextMenu、縮圖、overlay、內容視窗、MTP、屬性）
   sysmon-sensors/    .NET LHM 提權 sidecar；dictation-hook/ 熱鍵 .NET 退路
 ```

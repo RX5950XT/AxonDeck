@@ -4,6 +4,17 @@
 
 ## 待辦／未解
 
+### 2026-10-22 — PowerShell／慢路徑改原生
+
+- [x] 專案全文搜尋改 Rust `search`（平行讀檔，結果與 JS 逐筆一致）。
+- [x] 終端機 AI 對話追蹤：每 5 秒的 PowerShell 程序快照改 Rust `procs-json`。
+- [x] Ctrl+G 抬視窗：PowerShell＋Add-Type 改 Rust `raise-window`。
+- [x] 檔案頁列目錄：超過 300 項改 Rust `list-dir`（一次拿大小／時間／隱藏）；排序改共用 `Intl.Collator`。
+- [x] 「本機」手機／相機清單：PowerShell COM 改殼層 sidecar `devices`。
+- [x] lint、單元測試、cargo test、與舊版輸出對照、打包驗證。
+
+Review：`npm run lint` 通過（402 IPC／32 namespace）；`run-tests.js` 162/162；`cargo test` 18＋30＋15 全過。對照：搜尋三個專案 15 組查詢與 JS 逐筆相同（本 repo 查不到 2.9–3.2s→0.85–0.94s）；程序清單 550 支共有程序 parent／名稱／啟動時間全同，指令列多讀到 27 支且無亂碼，真 Claude session 兩版都認對（850→67ms）；列目錄 System32／WinSxS 與 JS 逐筆相同（僅 mtime 0.5ms 捨入），WinSxS 1.6–3.5s→約 0.3s，System32 491→約 50ms；`probe-terminal-foreground.js` 新舊版皆置頂成功（Edge 在前景時兩版都搶不到前景）；sidecar `devices` 列出的磁碟名稱／路徑與 PowerShell 相同，類型改為系統語系文字。`electron:pack` 388 支 src 一致，打包版 `e2e-explorer-cdp.js` 119 項 PASS（新增 2500 檔大資料夾隱藏屬性檢查）。未接手機，未實測真 MTP 裝置；未 commit。
+
 ### 2026-10-21 — v1.63.1 發行
 
 - [x] 盤點完整變更、版本與遠端狀態；驗證腳本啟動及記憶體精簡。

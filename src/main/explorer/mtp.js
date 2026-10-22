@@ -60,8 +60,18 @@ function parse(target) {
  * 首頁要的裝置清單；順便更新名稱對應。兩台同名的第二台叫「名稱 (2)」。
  * @returns {Promise<Array<{ name: string, path: string, type: string }>>}
  */
+/** 「本機」底下的裝置：先問常駐殼層 sidecar（毫秒級），沒有或失敗才退回 PowerShell（冷啟約 0.8 秒） */
+async function foundDevices() {
+  try {
+    const session = await shellExt.ensure()
+    const res = session ? await session.send({ op: 'devices' }, 8000) : null
+    if (res?.ok && Array.isArray(res.data?.items)) return drives.parseDevices(JSON.stringify(res.data.items))
+  } catch { /* 退回 PowerShell */ }
+  return drives.listDevices()
+}
+
 async function listDevices() {
-  const found = await drives.listDevices()
+  const found = await foundDevices()
   const next = new Map()
   const out = []
   for (const dev of found) {

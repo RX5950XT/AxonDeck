@@ -352,6 +352,17 @@ async function main() {
       assert(off.ok && !off.data.entries.some(e => e.name === 'hidden-check.txt'), '關掉「顯示隱藏項目」時藏起真正隱藏檔')
       assert(on.ok && on.data.entries.some(e => e.name === 'hidden-check.txt' && e.hidden), '打包版顯示隱藏項目保留屬性')
       fs.unlinkSync(hiddenFile)
+      // 超過 300 項走原生 list-dir（list-native.js）：一趟拿隱藏屬性，超過 sidecar 2000 筆上限的也要標到
+      const bigDir = path.join(USER_DATA_DIR, 'big-folder')
+      fs.mkdirSync(bigDir)
+      for (let i = 0; i < 2500; i++) fs.writeFileSync(path.join(bigDir, `f${String(i).padStart(4, '0')}.txt`), 'x')
+      execFileSync(path.join(process.env.SystemRoot, 'System32', 'attrib.exe'), ['+h', path.join(bigDir, 'f2499.txt')], { windowsHide: true })
+      const bigOff = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(bigDir)}, { showHidden: false })`)
+      const bigOn = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(bigDir)}, { showHidden: true, offset: 2000 })`)
+      assert(bigOff.ok && bigOff.data.total === 2499 && bigOff.data.entries[0].name === 'f0000.txt' && bigOff.data.entries[0].size === 1,
+        '大資料夾（原生列目錄）藏起第 2500 筆的隱藏檔、大小正確', JSON.stringify(bigOff.data && { total: bigOff.data.total, first: bigOff.data.entries[0] }))
+      assert(bigOn.ok && bigOn.data.total === 2500 && bigOn.data.entries.some(e => e.name === 'f2499.txt' && e.hidden),
+        '大資料夾顯示隱藏項目時保留屬性', JSON.stringify(bigOn.data && bigOn.data.total))
       // 等畫面把那一列收掉再往下：不然後面量好座標的拖放，會被監看重畫把列擠位
       await waitFor(() => cdp.eval(`!document.querySelector('#exList [data-id="hidden-check.txt"]')`), 10_000, '隱藏檔從清單收掉')
       await sleep(1_200)

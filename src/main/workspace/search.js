@@ -3,10 +3,9 @@
 /**
  * 專案內全文搜尋（Main Process）。
  *
- * ponytail: 自己遞迴走目錄逐檔比對，**不依賴 ripgrep**——這台機器就沒裝 `rg`，
- * 而「多裝一個外部執行檔」跟「多寫一份找不到就退回自己走」都比現在這樣貴。
- * 個人專案的規模（跳掉 `.git`／`node_modules` 之後）實測就是幾百到幾千個檔案，
- * 夠用。真的大到會等，再換成 `rg`（在這裡加一條路徑就好，介面不用動）。
+ * 有 axondeck-probe.exe 就走原生版 `search`（native/axondeck-probe/src/search.rs：平行讀檔，
+ * 本 repo 查不到的字從 3.7～8.5 秒降到約 0.6 秒）；沒建或起不來才退回下面自己走目錄逐檔比對。
+ * 兩邊上限、跳過規則與命中格式相同；回歸 `test-search-memory.js`（有 exe 時跑的是原生版）。
  *
  * 邊界一律在這裡收：`resolveIn` 決定走得到哪裡，其餘四個上限決定會不會把 UI 弄死。
  */
@@ -14,6 +13,8 @@
 const fsp = require('../raw-fs').promises
 const path = require('path')
 const { StringDecoder } = require('string_decoder')
+const { spawn } = require('child_process')
+const { resolveProbeExe } = require('../native-probe')
 const files = require('./files')
 
 /** 最多回幾筆命中（UI 一次也讀不完更多） */
@@ -28,6 +29,8 @@ const TIMEOUT_MS = 15000
 const MAX_LINE_CHARS = 200
 let searchVersion = 0
 let searchInflight = Promise.resolve()
+/** 正在跑的原生搜尋：新查詢進來就砍掉 */
+let nativeChild = null
 
 function isStopped(state) {
   return Date.now() > state.deadline || (state.version !== undefined && state.version !== searchVersion)
@@ -100,6 +103,7 @@ async function search(root, rawQuery, rawCaseSensitive) {
   if (query.length < 2) throw fail('BAD_QUERY', '至少要輸入兩個字')
   if (query.length > 200) throw fail('BAD_QUERY', '搜尋字串太長')
   const version = ++searchVersion
+  if (nativeChild) nativeChild.kill()
   const previous = searchInflight
   const pending = (async () => {
     await previous.catch(() => {}) // 前一輪的錯誤由它自己的 caller 處理。
@@ -116,6 +120,12 @@ async function searchOnce(root, query, rawCaseSensitive, version) {
   const needle = caseSensitive ? query : query.toLowerCase()
 
   const base = files.resolveIn(root, '')
+  if (version !== searchVersion) return { query, hits: [], truncated: false, scanned: 0, cancelled: true }
+  const exe = resolveProbeExe()
+  const native = exe ? await searchNative(exe, base, query, caseSensitive) : null
+  if (version !== searchVersion) return { query, hits: [], truncated: false, scanned: 0, cancelled: true }
+  if (native) return { query, ...native }
+
   const state = { scanned: 0, deadline: Date.now() + TIMEOUT_MS, version }
   /** @type {string[]} */
   const candidates = []
@@ -152,6 +162,48 @@ async function searchOnce(root, query, rawCaseSensitive, version) {
   }
   if (version !== searchVersion) return { query, hits: [], truncated: false, scanned: state.scanned, cancelled: true }
   return { query, hits, truncated: truncated || Date.now() > state.deadline, scanned: state.scanned }
+}
+
+/**
+ * 原生版：搜尋字串走 stdin，stdout 一列 JSON。起不來、被砍或輸出壞掉都回 null（交回 JS 版或由 caller 判斷已取消）。
+ * @returns {Promise<{ hits: Array<{ rel: string, line: number, text: string }>, truncated: boolean, scanned: number } | null>}
+ */
+function searchNative(exe, base, query, caseSensitive) {
+  return new Promise((resolve) => {
+    let child
+    try {
+      child = spawn(exe, ['search', base, caseSensitive ? '1' : '0', String(MAX_HITS), String(MAX_SCAN_FILES),
+        String(MAX_FILE_BYTES), String(TIMEOUT_MS), String(MAX_LINE_CHARS), [...files.SKIP_DIRS].join(',')], {
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'ignore']
+      })
+    } catch {
+      resolve(null)
+      return
+    }
+    nativeChild = child
+    // 原生版自己會在 TIMEOUT_MS 收手；多給一點餘裕仍沒結束就砍
+    const timer = setTimeout(() => child.kill(), TIMEOUT_MS + 5000)
+    const chunks = []
+    child.stdout.on('data', (chunk) => chunks.push(chunk))
+    child.stdin.on('error', () => {})
+    child.stdin.end(query)
+    const done = (value) => {
+      clearTimeout(timer)
+      if (nativeChild === child) nativeChild = null
+      resolve(value)
+    }
+    child.on('error', () => done(null))
+    child.on('close', (code) => {
+      if (code !== 0) return done(null)
+      try {
+        const out = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        done(Array.isArray(out.hits) ? { hits: out.hits, truncated: out.truncated === true, scanned: Number(out.scanned) || 0 } : null)
+      } catch {
+        done(null)
+      }
+    })
+  })
 }
 
 /** 只保留正在比對的一行，避免把幾十萬行複製成兩大份陣列。 */

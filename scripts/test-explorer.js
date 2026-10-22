@@ -888,7 +888,7 @@ console.log('\n[S5] 拖著停住會進資料夾、搬錯了可以 Ctrl+Z')
   ok('沒東西可復原時講一聲', /沒有可以復原的動作/.test(pageSrc5))
 }
 
-console.log('\n[S6] 隱藏／系統項目有開關')
+console.log('\n[S6] 隱藏／系統項目一律顯示')
 {
   const vm = require('vm')
   const dndSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-dnd.js'), 'utf8')
@@ -899,24 +899,16 @@ console.log('\n[S6] 隱藏／系統項目有開關')
   vm.createContext(ctx6)
   vm.runInContext(dndSrc6, ctx6)
   const labels6 = () => shown6.map((r) => r.label)
-  let toggled = 0
   const acts = {
     open: () => {}, paste: () => {}, cut: () => {}, copy: () => {}, rename: () => {}, remove: () => {},
-    newFolder: () => {}, newFile: () => {}, toggleHidden: () => { toggled += 1 }
+    newFolder: () => {}, newFile: () => {}
   }
-  ctx6.showExplorerMenu({ x: 0, y: 0 }, { recycle: false, items: [], showHidden: false, actions: acts })
-  ok('空白處右鍵有「顯示隱藏項目」', labels6().includes('顯示隱藏項目'), labels6().join('｜'))
-  shown6.find((r) => r.label === '顯示隱藏項目')?.onSelect()
-  ok('點下去有叫到動作', toggled === 1, String(toggled))
-  ctx6.showExplorerMenu({ x: 0, y: 0 }, { recycle: false, items: [], showHidden: true, actions: acts })
-  ok('已經在顯示時換成「不顯示隱藏項目」', labels6().includes('不顯示隱藏項目'), labels6().join('｜'))
-  ctx6.showExplorerMenu({ x: 0, y: 0 }, { recycle: false, items: [{ name: 'a.txt', path: 'D:\\a.txt', dir: false }], showHidden: false, actions: acts })
-  ok('選到東西時不出現（那是資料夾層級的設定）', !labels6().includes('顯示隱藏項目'), labels6().join('｜'))
+  ctx6.showExplorerMenu({ x: 0, y: 0 }, { recycle: false, items: [], actions: acts })
+  ok('空白處右鍵不再有隱藏項目開關', !labels6().some((l) => l.includes('隱藏項目')), labels6().join('｜'))
 
   const pageSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  ok('列目錄有把開關送給 main', /listDir\(dirPath, \{ sort: sortBy, desc: sortDesc, showHidden \}\)/.test(pageSrc6))
-  ok('開關記得住', /saveState\(\{ showHidden \}\)/.test(pageSrc6) && /showHidden = boot\.showHidden !== false/.test(pageSrc6))
-  ok('預設顯示隱藏項目', /let showHidden = true/.test(pageSrc6))
+  ok('列目錄有把 showHidden 送給 main', /listDir\(dirPath, \{ sort: sortBy, desc: sortDesc, showHidden \}\)/.test(pageSrc6))
+  ok('一律顯示隱藏項目，沒有開關', /const showHidden = true/.test(pageSrc6) && !/toggleHidden/.test(pageSrc6))
   ok('隱藏的項目畫淡一點', /if \(entry\.hidden\) row\.classList\.add\('is-dim'\)/.test(pageSrc6))
   const storeSrc6 = fs.readFileSync(path.join(ROOT, 'src/main/explorer/store.js'), 'utf8')
   ok('explorer.json 存得下這個欄位',

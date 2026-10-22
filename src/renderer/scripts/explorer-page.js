@@ -248,8 +248,8 @@ let sortDesc = false
  */
 let folderViews = {}
 let folderDefaults = { view: 'list', tile: DEFAULT_TILE, sort: 'name', sortDesc: false }
-/** 要不要把隱藏／系統項目也列出來（跟檔案總管的「顯示隱藏的項目」同一件事）*/
-let showHidden = true
+/** 隱藏／系統項目一律列出來（淡色顯示），不再提供開關 */
+const showHidden = true
 /** 清單裡的資料夾也算大小（背景算，算好就顯示並參與大小排序） */
 let folderSizes = false
 /** @type {Record<string, ReturnType<typeof setTimeout> | null>} 進度來時節流重讀 */
@@ -2368,7 +2368,6 @@ function persistTabs() {
     })),
     activeTabId: activeId,
     lastPath: cwd,
-    showHidden,
     dualPane
   })
 }
@@ -2380,7 +2379,6 @@ function applyTabState(tab) {
   tile = state.tile
   sortBy = state.sort
   sortDesc = state.sortDesc
-  showHidden = state.showHidden
   searchSort = state.searchSort
   searchMode = state.searchMode === 'filter' ? 'filter' : 'global'
   selected = new Set(state.selected)
@@ -3615,7 +3613,6 @@ function openContextMenu(e, items, dir) {
       zip: zipView,
       phone: phoneView,
       items,
-      showHidden,
       shell: shellItems,
       invokeShell: (cmd) => {
         if (!token) return Promise.resolve()
@@ -3648,7 +3645,6 @@ function openContextMenu(e, items, dir) {
         remove: () => void deleteItems(items),
         newFolder: () => void newFolder(),
         newFile: () => void newFile(),
-        toggleHidden: () => void toggleHidden(),
         refresh: () => void refreshAfterMutate(),
         extractTo: () => void extractTo(items),
         extractAll: zipView
@@ -4007,13 +4003,6 @@ async function toggleFolderSizes() {
   showToast(folderSizes ? '開始計算資料夾大小' : '已關閉資料夾大小')
 }
 
-async function toggleHidden() {
-  showHidden = !showHidden
-  void electronAPI.explorer.saveState({ showHidden })
-  await refreshAfterMutate()
-  showToast(showHidden ? '已顯示隱藏項目' : '已隱藏系統項目')
-}
-
 /**
  * 鍵盤叫出來的選單開在選到的第一列底下（看得到的話），不然就照事件給的位置。
  * @param {MouseEvent} e
@@ -4361,7 +4350,6 @@ export async function refreshExplorerPage() {
     sortDesc = boot.sortDesc === true
     folderDefaults = { view, tile, sort: sortBy, sortDesc }
     folderViews = boot.folderViews && typeof boot.folderViews === 'object' ? boot.folderViews : {}
-    showHidden = boot.showHidden !== false
     folderSizes = boot.folderSizes === true
     $('exFolderSizesBtn')?.setAttribute('aria-pressed', folderSizes ? 'true' : 'false')
     dualPane = boot.dualPane === true

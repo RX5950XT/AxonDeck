@@ -651,8 +651,8 @@ async function main() {
       await waitFor(() => cdp.eval(`!!document.querySelector('#exList [data-id="hello.txt"]')`), 10_000, '回到種子資料夾')
     }
 
-    // 1757312（10/08）起預設顯示隱藏項目、畫淡；開關是拿來藏起來的
-    console.log('\n[C10] 系統項目預設看得到（畫淡），開關藏得起來')
+    // 隱藏項目一律顯示、畫淡，沒有開關
+    console.log('\n[C10] 系統項目一律看得到（畫淡），右鍵沒有開關')
     {
       fs.writeFileSync(path.join(SEED_DIR, 'desktop.ini'), '[.ShellClassInfo]')
       fs.writeFileSync(path.join(SEED_DIR, '.gitignore'), 'node_modules')
@@ -686,22 +686,7 @@ async function main() {
         })()`)
         return got.open ? got : null
       }, 15_000, '空白處右鍵選單').catch(() => ({ open: false, labels: [] }))
-      // 選單字樣跟著狀態換：現在是顯示中，所以寫「不顯示隱藏項目」
-      assert(menu10.labels.includes('不顯示隱藏項目'), '空白處右鍵有「不顯示隱藏項目」', JSON.stringify(menu10.labels))
-      await cdp.eval(`(() => {
-        [...document.querySelectorAll('.ws-menu .ws-menu-item')].find((n) => n.textContent === '不顯示隱藏項目')?.click()
-      })()`)
-      const withoutHidden = await waitFor(() => cdp.eval(`(() => {
-        const ids = [...document.querySelectorAll('#exList .ex-row')].map((r) => r.dataset.id)
-        return ids.includes('hello.txt') && !ids.includes('desktop.ini') ? ids : null
-      })()`), 15_000, '關掉之後藏起系統項目').catch(() => null)
-      assert(!!withoutHidden, '關掉「顯示隱藏項目」之後 desktop.ini 藏起來', JSON.stringify(withoutHidden))
-      assert(withoutHidden.includes('.gitignore'), '關掉之後 .gitignore 仍在（點開頭不算隱藏）', JSON.stringify(withoutHidden))
-
-      await cdp.eval(`window.electronAPI.explorer.saveState({ showHidden: false })`)
-      const saved = await cdp.eval(`window.electronAPI.explorer.bootstrap()`)
-      assert(saved.ok && saved.data.showHidden === false, '開關存得進 explorer.json',
-        JSON.stringify(saved.data && saved.data.showHidden))
+      assert(menu10.open && !menu10.labels.some((l) => l.includes('隱藏項目')), '空白處右鍵沒有隱藏項目開關', JSON.stringify(menu10.labels))
       await cdp.eval(`(() => {
         [...document.querySelectorAll('.ws-menu .ws-menu-item')].forEach((n) => n.remove())
         document.querySelector('.ws-menu')?.remove()

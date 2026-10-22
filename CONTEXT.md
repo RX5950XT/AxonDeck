@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.64.0**（2026-10-22）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.64.1**（2026-10-22）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |

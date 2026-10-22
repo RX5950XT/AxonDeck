@@ -1050,7 +1050,9 @@ export function switchPage(pageName, subtab = '') {
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => {
     m.start()
-    if (subtab === 'recommend' || subtab === 'runtime') document.querySelector(`#hfSubtabs [data-subtab="${subtab}"]`)?.click()
+    // 推薦模型已併進執行環境，舊的 'recommend' 也導過去並捲到那一段
+    if (subtab === 'recommend' || subtab === 'runtime') document.querySelector('#hfSubtabs [data-subtab="runtime"]')?.click()
+    if (subtab === 'recommend') document.getElementById('hf-recommend')?.scrollIntoView({ block: 'start' })
   })
   if (pageName === 'speech') {
     import('./speech-page.js').then((m) => m.refreshSpeechPage())

@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.64.1**（2026-10-22）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.65.0**（2026-10-23）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -15,7 +15,7 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
 | 翻譯 | `translate` | local（LinguaForge）／cloud 翻譯；EdgeTTS 與模型按鈕同一排、按鈕寬度貼文字，展開浮在內容上。語音是繁中、簡中、英文、日文 |
 | 文字轉語音 | `speech` | Breeze-TTS-2 Q8：聲音設計、語音克隆、語氣指導、保存聲音、實驗性變聲；整段／逐句／字幕配音、讀音字典、錄音與裁切參考音、版本保留與單句重做、串流試聽與 WAV 匯出 |
-| 生成圖片影像 | `imagegen` | 內嵌 Miroxen 工作台（Qwen-Image-2.1 圖片、MiniMax-H3 影音）；引擎在 Local SI 執行環境、模型在推薦 |
+| 生成圖片影像 | `imagegen` | 內嵌 Miroxen 工作台（Qwen-Image-2.1 圖片、MiniMax-H3 影音）；引擎與模型都在 Local SI 執行環境 |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／風扇／效能與壓力測試／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
 | 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
@@ -69,7 +69,7 @@ native/
 
 ### 本地推論（Local SI）
 - 本機預覽使用既有 `%APPDATA%/axondeck-dev`（`dev-sandbox.js --packed --with-chats`），複製正式設定／專案／聊天，models／hf-models 連到 `%APPDATA%/voiceink`；Breeze 實體也在正式 models，舊 D 槽 Breeze QA profile 已清除。預覽設定與正式設定分開，模型共用。
-- 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
+- 子分頁：執行環境／探索。本機模型、推薦模型跟啟動、硬體、引擎、設定在同一頁「執行環境」（舊的 `switchPage('hfmodels','recommend')` 導到執行環境並捲到 `#hf-recommend`）。推薦模型標「運行中」靠儀表板輪詢的 router 模型狀態（id＝推薦 key）＋ `breeze:status` 的 ready；卸載走 `hfmodels.unloadModel(key)`／`breeze:unload`（只停程序不刪檔）。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
 - Index-Translate 譯文修補：行首「A. 」「1. 」先剝掉再貼回（共用 LinguaForge 的 `packLinguaforge`）；譯文殘留原文小寫英文單字或日文假名時，改用官方 instTrans 約束格式重翻（先寬鬆版，不行再加「只能用繁中」，後者對正常片段會冒粵語「係」）；出口用 `jpKanjiToTw` 把日文新字體逐字換回繁體（排除臺灣本來在用的字）。`translate-clean` 原文本來就是「A. 」開頭時不當答題標籤剝掉。
 - 翻譯術語表（`glossary.js`）：翻譯頁頁首「術語表」卡片。自訂詞條 `translateGlossary`（每行 英文=繁中，沒設定過＝內建數理清單，存 null 恢復）優先，再補內建學術名詞庫 `translateGlossaryBuiltin`（預設開）：`glossary-data/naer-terms.tsv.gz` 由 `scripts/build-glossary-data.js` 下載國家教育研究院理工 45 科整併，只收至少兩個學科都有的詞（只出自一科的常是該科特有用法：電子計算機的 order information＝訂單資訊；實測雲端模型拿到就照抄，標成「參考」或附學科名也一樣，不給反而依上下文翻對；54.6 萬→20.8 萬條），只收 2–5 字片語（單字在一般文章常是別的意思）、頭尾功能詞不收、每條最多 3 個候選；執行時整段文字＋行首位移二分搜尋（Map 多吃約 60MB）；翻譯開始前 `warm()` 背景解壓，載入後常駐約 17MB 不閒置釋放。只在目標繁中套用；雲端進 system prompt（多候選依上下文挑），Index 只給唯一譯名、用 instTrans 術語約束，LinguaForge 不套。資料授權：政府資料開放授權條款第 1 版，README 技術棧有標示出處。
 - 文字轉語音：`breeze-tts/{index,protocol,takes,ipc}.js` → `speech-page.js`（流程）＋`speech-{script,takes,audio-input,wave}.js`／`speech.css`；`breezetts2q8`（3,568,844,480 bytes）搭配固定 v0.1.0 `breezeruntime`，SHA-256 驗證後才安裝。不寫 llama preset；NVIDIA ≥8GB + Vulkan 自動用 GPU，其餘 CPU。首次生成或保存聲音才載模型；列表直接讀保存檔，不因切頁載模型。
@@ -241,6 +241,7 @@ native/
 - 網頁版 AI：Grok 登入、Claude 的 Google 登入只驗到登入頁出現，沒輸入真密碼走完；Edge cookie 是 app-bound 加密，不做匯入。
 - 原生媒體：格式清單是白名單不代表每種變種都驗過；DRM、MIDI 不支援；CUE 不分軌；全機安裝不改其他帳戶預設。
 - Codex npm launcher 的 `--no-daemon` 本機修正會被 npm 更新覆蓋（App 端旗標仍在）。
+- 探索只列文字生成模型：`hfmodels/archs.js` 是 llama.cpp `LLM_ARCH_NAMES`（版本＝LLAMA_BUILD，升級要重抄，`test-hf-archs.js` 會擋）扣掉 clip／草稿頭／向量／TTS；另看 HF 用途標籤、repo 名稱（embed／rerank／tts／asr）與檔頭 `pooling_type`。搜尋（HF 回報 clip 的先留）、詳情（讀最大變體的檔頭）、下載前（讀該變體檔頭）三處把關。`imatrix*.gguf` 不算變體。
 - `probe-dictation-live.js` 需要前景焦點，只能在使用者沒在用電腦時跑。
 
 ## 最近版本

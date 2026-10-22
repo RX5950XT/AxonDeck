@@ -1089,9 +1089,6 @@
                 <button type="button" class="subtab active" data-subtab="runtime" role="tab" aria-selected="true">
                   執行環境
                 </button>
-                <button type="button" class="subtab" data-subtab="recommend" role="tab" aria-selected="false">
-                  推薦
-                </button>
                 <button type="button" class="subtab" data-subtab="discover" role="tab" aria-selected="false">
                   探索
                 </button>
@@ -1120,19 +1117,7 @@
                 </section>
               </div>
 
-              <!-- 推薦：語音辨識與翻譯用的固定模型（給語音轉文字／翻譯頁用，不進 router） -->
-              <div class="subtab-panel" id="hf-recommend" data-subtab="recommend" role="tabpanel">
-                <section class="hf-panel">
-                  <div class="models-path">
-                    <span id="modelsPathText" class="models-path-text" title="點擊開啟模型資料夾">…</span>
-                    <button type="button" id="openModelsFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
-                  </div>
-                  <p class="setting-hint">語音轉文字與翻譯頁用的模型；要用哪一顆在各功能頁上方選。</p>
-                  <div id="modelList" class="model-list" aria-live="polite"></div>
-                </section>
-              </div>
-
-              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推論（含占用）、log -->
+              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推薦模型、推論（含占用）、log -->
               <div class="subtab-panel active" id="hf-runtime" data-subtab="runtime" role="tabpanel">
                 <div class="hf-runtime-layout">
                   <section class="hf-panel hf-run" aria-label="啟動與載入">
@@ -1180,6 +1165,19 @@
                       </div>
                     </div>
                     <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
+                  </section>
+
+                  <!-- 推薦模型：語音、翻譯與文件辨識的固定模型，跟本機模型放一起看得到誰在跑 -->
+                  <section class="hf-panel" id="hf-recommend" aria-label="推薦模型">
+                    <div class="hf-section-head">
+                      <h2>推薦模型</h2>
+                    </div>
+                    <div class="models-path">
+                      <span id="modelsPathText" class="models-path-text" title="點擊開啟模型資料夾">…</span>
+                      <button type="button" id="openModelsFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+                    </div>
+                    <p class="setting-hint">語音轉文字與翻譯頁用的模型；要用哪一顆在各功能頁上方選。</p>
+                    <div id="modelList" class="model-list" aria-live="polite"></div>
                   </section>
 
                   <section class="hf-panel" aria-label="推論">

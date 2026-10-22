@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status: () => ipcRenderer.invoke('breeze:status'),
     generate: (options) => ipcRenderer.invoke('breeze:generate', options),
     cancel: (options) => ipcRenderer.invoke('breeze:cancel', options),
+    unload: () => ipcRenderer.invoke('breeze:unload'),
     pickAudio: (options) => ipcRenderer.invoke('breeze:pickAudio', options),
     voices: () => ipcRenderer.invoke('breeze:voices'),
     saveVoice: (options) => ipcRenderer.invoke('breeze:saveVoice', options),

@@ -22,6 +22,7 @@ const { detectGpuCapability, eligibleDevices } = require('../gpu-capability')
 const hub = require('./hub')
 const catalog = require('./catalog')
 const gguf = require('./gguf')
+const { isTextModel } = require('./archs')
 const hardware = require('./hardware')
 const plan = require('./plan')
 const fit = require('./fit')
@@ -434,7 +435,8 @@ async function detail(repoId) {
   ])
 
   let info = null
-  const probe = variants.find((v) => v.files?.[0]?.name)
+  // 挑最大的那個讀：repo 裡常混著小小的草稿模型（dflash 等），讀到它會把整個 repo 判成不支援
+  const probe = variants.filter((v) => v.files?.[0]?.name).sort((a, b) => b.bytes - a.bytes)[0]
   if (probe) {
     try {
       const peek = await hub.peekFile(repoId, probe.files[0].name)
@@ -452,6 +454,8 @@ async function detail(repoId) {
     readme,
     readmeBase: hub.pageBase(repoId),
     info,
+    // 檔頭讀得到就以檔頭為準（HF 的架構欄可能是 mmproj 的 clip）
+    supported: isTextModel(info || { arch: card?.gguf?.architecture }, { id: repoId, ...card }),
     // GGUF 常常沒寫 `general.parameter_count`（unsloth 那批就是），HF 自己解出來的
     // `gguf.total` 才有值——不帶進去的話 MoE 的激活參數永遠算不出來
     activeParams: info ? gguf.activeParams(info, card?.gguf?.parameterCount) : null,
@@ -529,6 +533,10 @@ async function install(repoId, variantId) {
   emit({ type: 'install-start', id: variant.id, repoId, total: variant.bytes })
 
   try {
+    // 動輒好幾 GB，先讀 1MB 檔頭確認執行環境載得起來再下載
+    const peek = await hub.peekFile(repoId, variant.files[0].name)
+    const head = gguf.readInfoFromBuffer(peek.buffer, peek.totalBytes)
+    if (!isTextModel(head, { id: repoId })) throw new Error(`這不是執行環境能用的文字生成模型（${head.arch || '未知架構'}）`)
     // 留下完整清單，取消於 mmproj 或分片之間時，模型庫仍能辨識尚未完成。
     library.writeMeta(variant.id, { files: localFiles })
     const result = await download.downloadVariant({

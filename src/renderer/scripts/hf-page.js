@@ -1,5 +1,5 @@
 /**
- * AxonDeck — 「Local SI」分頁（執行環境／推薦／探索；本機模型在執行環境裡。推薦與推論方式在 hf-recommend.js）
+ * AxonDeck — 「Local SI」分頁（執行環境／探索；本機模型與推薦模型都在執行環境裡。推薦與推論方式在 hf-recommend.js）
  *
  * 這一頁只做三件事：把 main 回來的資料畫出來、把使用者的動作送回去、顯示進度。
  * **所有判斷都在 main**（網址怎麼組、參數怎麼決定、路徑在哪、金鑰是什麼），
@@ -306,6 +306,11 @@ function renderDownloadOptions(detail) {
   section.appendChild(body)
   if (!variants.length) {
     body.appendChild(el('p', 'setting-hint', '這個 repo 裡沒有找到 GGUF 檔。'))
+    return section
+  }
+  if (detail.supported === false) {
+    const arch = detail.info?.arch || detail.card?.gguf?.architecture || '未知'
+    body.appendChild(el('p', 'hf-warn', `這不是執行環境能用的文字生成模型（${arch}；向量、語音或其他用途），無法下載。`))
     return section
   }
   if (!detail.info) {
@@ -1107,8 +1112,7 @@ function bindSubtabs() {
       for (const panel of document.querySelectorAll('#page-hfmodels .subtab-panel')) {
         panel.classList.toggle('active', /** @type {HTMLElement} */ (panel).dataset.subtab === key)
       }
-      if (key === 'recommend') refreshRecommend()
-      if (key === 'runtime') { refreshLibrary(); refreshHardware(); refreshInference(); startDash() }
+      if (key === 'runtime') { refreshLibrary(); refreshRecommend(); refreshHardware(); refreshInference(); startDash() }
     })
   }
 }
@@ -1165,6 +1169,7 @@ export function start() {
   }
   refreshRuntimeChip()
   refreshLibrary()
+  refreshRecommend()
   startDash()
   autoConfigure()
 }

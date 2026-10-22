@@ -2355,6 +2355,7 @@ registerBreezeIpc({
     status: () => loadBreeze().status(),
     generate: (options) => loadBreeze().generate(options),
     cancel: (options) => loadBreeze().cancel(options),
+    unload: () => loadBreeze().unload(),
     pickAudio: (options) => loadBreeze().pickAudio(options),
     voices: () => loadBreeze().voices(),
     saveVoice: (options) => loadBreeze().saveVoice(options),

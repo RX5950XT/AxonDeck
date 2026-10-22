@@ -4,7 +4,7 @@
  *
  * **這支不下載任何模型、也不打 Hugging Face**（搜尋要網路、下載動輒好幾 GB）：
  * 網路那一段由 `probe-hf-hub.js` 打真流量驗，router 生命週期由 `e2e-hfmodels.js` 驗。
- * 這裡只驗打包版的 UI 有沒有接對——三個子分頁（本機模型在執行環境裡）、參數彈窗、
+ * 這裡只驗打包版的 UI 有沒有接對——兩個子分頁（本機模型與推薦模型都在執行環境裡）、參數彈窗、
  * 執行環境資訊，以及幾條 UI 地雷（彈窗會不會捲、沒開的彈窗會不會浮出來、
  * 空的 `<dd>` 會不會讓整列塌掉）。
  *
@@ -224,8 +224,8 @@ async function main() {
     })()`), 15_000, 'HF模型頁')
     assert(structure.order.includes('hfmodels'), 'nav 有 HF模型分頁', JSON.stringify(structure.order))
     assert(
-      JSON.stringify(structure.subtabs) === JSON.stringify(['runtime', 'recommend', 'discover']),
-      '三個子分頁：執行環境／推薦／探索',
+      JSON.stringify(structure.subtabs) === JSON.stringify(['runtime', 'discover']),
+      '兩個子分頁：執行環境（含推薦模型）／探索',
       JSON.stringify(structure.subtabs)
     )
     assert(
@@ -257,19 +257,21 @@ async function main() {
       const missing = (r.data?.installable || []).filter((item) => !item.downloaded).length
       return missing > 0 && document.querySelectorAll('#hfRuntimeList [data-runtime]').length === missing
     })`), 20_000, 'Local SI 模組初始化')
-    await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
+    await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=runtime]').click()")
     const recommend = await waitFor(() => cdp.eval(`(() => {
       const rows = [...document.querySelectorAll('#hf-recommend .model-item')]
-      if (rows.length !== 7 || !rows.every((r) => r.offsetHeight > 0)) return null
+      if (rows.length !== 11 || !rows.every((r) => r.offsetHeight > 0)) return null
       return { keys: rows.map((r) => r.dataset.key), groups: [...document.querySelectorAll('#hf-recommend .model-group-title')].map((r) => r.textContent),
         labels: rows.map((r) => r.querySelector('.model-name')?.textContent),
         actions: rows.every((r) => r.querySelector('.model-actions button')?.offsetHeight > 0),
-        legacySettings: !!document.getElementById('set-local') }
-    })()`), 15_000, '七顆推薦模型')
-    assert(JSON.stringify(recommend.keys) === JSON.stringify(['breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b', 'paddleocrvl16', 'ppdoclayoutv3']), '推薦列出語音生成、ASR、翻譯與兩顆 PDF 辨識模型', JSON.stringify(recommend))
+        legacySettings: !!document.getElementById('set-local'),
+        inRuntime: !!document.querySelector('#hf-runtime #hf-recommend'), running: document.querySelectorAll('#hf-recommend .hf-status.is-on').length }
+    })()`), 15_000, '十一顆推薦模型')
+    assert(JSON.stringify(recommend.keys) === JSON.stringify(['miroxenqwenturbo', 'miroxenqwen', 'miroxenh3', 'miroxenh3turbo', 'breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b', 'paddleocrvl16', 'ppdoclayoutv3']), '推薦列出圖片影像、語音生成、ASR、翻譯與兩顆 PDF 辨識模型', JSON.stringify(recommend))
     assert(recommend.labels.every((label) => label && !/[（(](?:CPU|GPU)[）)]/.test(label)), '推薦模型名稱沒有 CPU／GPU 標籤')
     assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
-    assert(JSON.stringify(recommend.groups) === JSON.stringify(['語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']), '執行環境不混進推薦模型')
+    assert(JSON.stringify(recommend.groups) === JSON.stringify(['圖片影像生成（Miroxen，需 NVIDIA）', '語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']), '推薦分組不混進執行環境')
+    assert(recommend.inRuntime && recommend.running === 0, '推薦模型併在執行環境裡，隔離環境沒有模型標成運行中', JSON.stringify(recommend))
     const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')
     assert(hardware.data?.autoRuntime === false, '隔離測試不會自動下載大型執行環境')
 

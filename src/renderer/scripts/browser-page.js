@@ -10,6 +10,7 @@
 
 import { electronAPI, showToast, setChatPaneMode, getChatPaneMode } from './app.js'
 import { createBrowserActions } from './browser-actions.js'
+import { showGuest } from './webview-warm.js'
 import { openChatMenu } from './chat-menu.js'
 import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
 
@@ -621,9 +622,7 @@ function activate(id) {
   const tab = tabOf(id)
   if (tab?.group && groupOf(tab.group)?.collapsed) patchGroup(tab.group, { collapsed: false })
   const guest = tab ? ensureGuest(tab) : null
-  for (const node of $('browserFrame')?.querySelectorAll('webview') || []) {
-    /** @type {HTMLElement} */ (node).hidden = node !== guest
-  }
+  showGuest($('browserFrame'), guest)
   const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
   if (input) {
     input.value = isNewTab(tab?.url) ? '' : tab?.url || ''

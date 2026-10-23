@@ -390,7 +390,12 @@ function diffToggleChecks() {
 function browserChecks() {
   console.log('\n[I] 內建瀏覽器')
   check('webview 照分頁 id 找', /webview\[data-tab-id="\$\{CSS\.escape\(tab\.id\)\}"\]/.test(tabs))
-  check('切分頁只藏不搬（不重新 attach）', /\(node\)\.hidden = node !== guest/.test(tabs))
+  const warm = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/webview-warm.js'), 'utf8')
+  const showBody = warm.slice(warm.indexOf('export function showGuest'), warm.indexOf('function audible'))
+  check('切分頁只藏不搬（不重新 attach）',
+    /showGuest\(el\.browserFrame, guest\)/.test(tabs) && /node\.hidden = /.test(showBody) && !/remove\(|appendChild|insertBefore/.test(showBody))
+  check('剛切走的分頁透明疊放、不丟圖塊（切回不重畫）',
+    /\.ws-browser-frame webview\.webview-warm\s*\{[^}]*opacity:\s*0/.test(css))
   check('webview 的 [hidden] 要自己寫 display:none（UA 是 display:flex）',
     /\.ws-browser-frame webview\[hidden\]\s*\{\s*display:\s*none/.test(css))
   check('導航事件從 guest 自己的 data-tab-id 找分頁，不是 activeId',

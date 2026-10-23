@@ -989,6 +989,36 @@ function initSidebarModes() {
   ))
 }
 
+/**
+ * 離開 Browser 模式不用 display:none：webview 會丟掉畫好的圖塊，切回來整頁重畫（毛玻璃多的網站最長一幀 50–110ms）。
+ * 改成凍結在原位置、原尺寸（含 is-browser 才有的 padding）透明疊到底下，切回來尺寸不變、直接接著畫。
+ * @param {HTMLElement} main
+ * @param {boolean} show
+ */
+function parkBrowserMain(main, show) {
+  if (show) {
+    main.classList.remove('hidden', 'is-parked')
+    main.style.cssText = ''
+    main.inert = false
+    return
+  }
+  if (main.classList.contains('hidden') || main.classList.contains('is-parked')) return
+  const box = main.getBoundingClientRect()
+  const holder = /** @type {HTMLElement | null} */ (main.offsetParent)
+  const origin = holder?.getBoundingClientRect()
+  const { padding, gap } = getComputedStyle(main)
+  Object.assign(main.style, {
+    left: `${box.left - (origin?.left || 0) - (holder?.clientLeft || 0)}px`,
+    top: `${box.top - (origin?.top || 0) - (holder?.clientTop || 0)}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    padding,
+    gap
+  })
+  main.classList.add('is-parked')
+  main.inert = true
+}
+
 export function setChatPaneMode(mode) {
   if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser') return
   if (chatPaneMode !== mode) chatPaneEpoch += 1
@@ -996,7 +1026,9 @@ export function setChatPaneMode(mode) {
   if (mode !== 'browser') lastNonBrowserPane = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
   if (mode !== 'web') document.getElementById('chatPanel')?.classList.remove('is-arena')
-  document.getElementById('browserMain')?.classList.toggle('hidden', mode !== 'browser')
+  // 先在 is-browser 還在時量好尺寸再停放
+  const browserMain = document.getElementById('browserMain')
+  if (browserMain) parkBrowserMain(browserMain, mode === 'browser')
   document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
   const chatMain = document.getElementById('chatMain')

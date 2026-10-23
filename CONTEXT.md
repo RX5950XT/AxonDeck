@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.65.0**（2026-10-23）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.66.0**（2026-10-24）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -112,7 +112,8 @@ native/
 - 專案腳本開瀏覽器（`script-launch.js`）：檔案頁／專案檔案樹執行專案裡的 `.bat`／`.cmd` 改由 App 啟動——`BROWSER`＝AxonDeck.exe（Python `webbrowser`、Vite `--open`）；暫存副本把有網址／變數的 `start …` 改成 `(%AXONDECK_START% … || start …)`（不能用 `call :標籤`，參數有 `/?` 會變成顯示說明）。第二份 AxonDeck 用**原始順序**的 `process.argv` 判斷（轉給第一份的 argv 會被 Chromium 重排、丟空字串、加開關），帶 `AXONDECK_PROJECT` 給第一份開在那個專案；不是網址回 3、App 沒在跑回 4，腳本改照原樣 start。
 - 右側檔案樹的一鍵啟動仍在專案終端機：`ws-tabs.runInTerminal` → `workspace:scriptCommand`（專案相對路徑＋同專案終端機守衛）→ `script-launch.terminalCommand`。用獨立 PowerShell 執行，批次副本以環境變數保留中文原路徑，PowerShell 的 `Start-Process`／`Invoke-Item` 網址也改道；不改原腳本或 PTY 宿主協定。main 只追蹤這次腳本的輸出 5 分鐘，看到 loopback URL 後等 TCP 就緒（最多 30 秒）開原專案分頁；主動開網址與日誌共用 run ID 去重。指定專案不存在／開頁失敗不退回系統瀏覽器。驗收 `scripts/e2e-browser-scripts-cdp.js`：隔離打包版、真本機服務／套件 content script、真 Google CRX。
 - 網頁版 AI 順暢度：webview 本身（含 UA／標頭／滑鼠掛勾）實測跟 Edge 同速，長對話與大量公式卡在網頁自己重排／重畫舊訊息（Layout＋Paint 約 7 成）。`ai-web.js` 的 `installRenderBoost` 在 `dom-ready` 對 ChatGPT `[data-message-author-role]`、Gemini `.conversation-container`、Grok `div[id^="response-"]` 插 `content-visibility:auto`（Claude 官方已自帶）；300 則公式訊息捲動 98→136fps、串流每幀 229→49ms。選擇器改版就失效（退回原樣）。
-- 記憶體：網頁版 AI 與工作區瀏覽器分頁切換時保留 webview（v1.54.3 起取消閒置／數量回收，避免切回重載），關閉對話／分頁或當機才收。聊天圖片快取 LRU 約 16MB。
+- 記憶體：網頁版 AI 分頁切換時保留 webview，關閉對話或當機才收。Browser 模式與專案瀏覽器的背景分頁 1 小時沒看就休眠（`webview-warm.js` `sleepIdle`，每 5 分鐘掃；正在看的、正在出聲的不收），點回去由 `ensureGuest`／`ensureBrowserGuest` 照分頁網址重建重載（v1.54.3 取消回收是為了短時間切回不重載，1 小時門檻不影響這點）。實測反覆切換＋捲動 10 分鐘各程序記憶體持平，長時間上漲來自開過的分頁累積。聊天圖片快取 LRU 約 16MB。
+- 瀏覽器切分頁（Browser 模式、專案瀏覽器共用 `webview-warm.js` `showGuest`）：目前那顆以外，最近 2 顆用 `.webview-warm` 原尺寸透明疊在底下，更舊的才 `[hidden]`。display:none 會讓 Chromium 丟圖塊，毛玻璃多的網站（rx5950xt.github.io）切回最長一幀 150–230ms；疊放後 7ms（Edge 14–56ms），疊著的 webview 收不到 rAF、CPU 0%，GPU 記憶體差異在誤差內。webview 的 visibilityState 兩種藏法都維持 visible。離開 Browser 模式同理：`app.js` `parkBrowserMain` 把 `#browserMain` 凍結在原位置與尺寸（含 is-browser 的 padding）`.is-parked` 透明疊放，Chat→Browser 最長一幀 49–111→28–49ms；剩下的部分有一半來自側欄 0.16s 寬度動畫，未拿掉。
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
 ### 專案工作區與終端機

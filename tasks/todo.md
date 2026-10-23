@@ -4,6 +4,15 @@
 
 ## 待辦／未解
 
+### 2026-10-24 — 瀏覽器切換頓挫與記憶體
+
+- [x] 量測：乾淨隔離打包版 vs Edge（合成重頁、apple／three.js／awwwards、rx5950xt.github.io 捲動）同速；擴充功能、背景終端機刷新、主程序延遲皆非主因。
+- [x] 重現：切回 rx5950xt.github.io 分頁最長一幀 146–236ms（Edge 14–42ms），Chat→Browser 49–111ms；根因 display:none 丟圖塊。
+- [x] `webview-warm.js`：最近 2 顆透明疊放、1 小時沒看休眠（不收正在看／出聲的）；`parkBrowserMain` 離開 Browser 模式凍結原尺寸疊放。
+- [x] 測試、lint、打包版驗收。
+
+Review：打包版切分頁最長一幀 7–14ms、背景分頁 rAF 停／CPU 0%、GPU 記憶體差異在誤差內；Chat→Browser 28–49ms，尺寸前後一致、Chat 可點；休眠收掉背景分頁並在點回時重建載入。10 分鐘反覆切換＋捲動各程序記憶體持平（無洩漏）。`test-webview-warm` 7/7、`test-workspace-ui` 199/199、`test-workspace` 289/289、`test-browser-mode-recycle-fix` 10/10、terminal-reopen／workspace-nav／workspace-state 通過，相關檔 eslint 通過。全套 `run-tests.js` 164/164；未 commit、未更新正式安裝版；側欄 0.16s 寬度動畫未動。
+
 ### 2026-10-22 — PowerShell／慢路徑改原生
 
 - [x] 專案全文搜尋改 Rust `search`（平行讀檔，結果與 JS 逐筆一致）。

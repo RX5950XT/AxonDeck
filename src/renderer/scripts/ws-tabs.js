@@ -1,5 +1,6 @@
 import { electronAPI, showToast, hideToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
+import { showGuest } from './webview-warm.js'
 import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
 import { renderMarkdown, resolveLinkPath, previewSlice, PREVIEW_MAX_CHARS } from './markdown.js'
 import { showMenu } from './ws-menu.js'
@@ -2959,9 +2960,7 @@ function paintBrowser(tab) {
   const guest = ensureBrowserGuest(tab)
   if (input) input.value = tab.url || ''
   // 每個分頁一顆，所以切分頁＝只留自己那顆看得見
-  for (const node of [...(el.browserFrame?.querySelectorAll('webview') || [])]) {
-    /** @type {HTMLElement} */ (node).hidden = node !== guest
-  }
+  showGuest(el.browserFrame, guest)
   paintBrowserChrome(tab)
   if (!guest) return
   const href = safeUrl(tab.url || '')

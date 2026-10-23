@@ -3805,6 +3805,15 @@ webview {
   display: none;
 }
 
+/* 剛切走的分頁：原尺寸疊在底下、透明、點不到，圖塊留著切回來不必重畫（見 webview-warm.js） */
+.ws-browser-frame webview.webview-warm {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 載入中的那條細線。不知道進度（webview 不給百分比），所以是來回跑的一段 */
 .ws-browser-progress {
   position: absolute;
@@ -4149,6 +4158,14 @@ webview {
 
 .browser-main {
   min-width: 0;
+}
+
+/* 離開 Browser 模式：凍結原位置與尺寸、透明疊到底下，圖塊留著（見 app.js parkBrowserMain） */
+.browser-main.is-parked {
+  position: absolute;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ── Browser 模式（比照 Edge 垂直分頁）：分頁直排、群組、＋新分頁在最下面 ── */

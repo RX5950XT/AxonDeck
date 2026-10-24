@@ -11,6 +11,7 @@ async function main() {
   const context = {
     electronAPI: { hfmodels: { dashboard: () => new Promise(resolve => pending.push(resolve)) } },
     document: { getElementById: id => id === 'hfServerHint' ? hint : null },
+    paintRunning() {},
     setTimeout(fn) { const timer = { fn }; timers.add(timer); return timer },
     clearTimeout(fn) { timers.delete(fn) }
   }

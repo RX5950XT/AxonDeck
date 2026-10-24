@@ -112,7 +112,7 @@ const sandbox = {
   mountEmoji: (span, name) => handoff.emoji.push(name)
 }
 vm.createContext(sandbox)
-vm.runInContext(`${src}\n;globalThis.__render = renderMarkdown; globalThis.__resolve = resolveLinkPath;`, sandbox)
+vm.runInContext(`${src}\n;globalThis.__render = renderMarkdown; globalThis.__resolve = resolveLinkPath; globalThis.__slice = previewSlice; globalThis.__max = PREVIEW_MAX_CHARS;`, sandbox)
 const resolveLinkPath = sandbox.__resolve
 /** @type {(text: string) => any} */
 const renderMarkdown = sandbox.__render
@@ -496,6 +496,19 @@ check('resolveLinkPath：以檔案所在資料夾為準、/ 是最上層、跑�
 })
 check('沒收尾的 $$ 不卡死', () => {
   assert.ok(textOf(doc('$$\n沒有結尾')).includes('沒有結尾'))
+})
+
+console.log('\n[Z] 大檔預覽只畫開頭')
+check('沒超過上限原樣回傳、超過就切在最後一個換行', () => {
+  const slice = sandbox.__slice
+  const max = sandbox.__max
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(slice('# 小檔'))), { text: '# 小檔', cut: false })
+  const line = 'x'.repeat(99) + '\n'
+  const big = line.repeat(Math.ceil(max / line.length) + 5)
+  const out = slice(big)
+  assert.ok(out.cut && out.text.length <= max && big.startsWith(out.text + '\n'))
+  // 呼叫端只給開頭一段＋整份長度（編輯視窗不複製整份）
+  assert.ok(slice(big.slice(0, max), big.length).cut)
 })
 
 console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILED'}  ${passed} passed, ${failed} failed\n`)

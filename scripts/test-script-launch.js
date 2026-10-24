@@ -64,7 +64,10 @@ async function checkTerminal() {
   }
   let command
   try { command = await terminalCommand(file, 'w_parent', 't_selfcheck') } finally { Module._load = load }
-  const source = Buffer.from(command.split('-EncodedCommand ')[1], 'base64').toString('utf16le')
+  assert.ok(!/EncodedCommand/.test(command), '終端機不顯示 base64')
+  const wrapper = /-File '([^']+\.ps1)'$/.exec(command)?.[1]
+  const source = fs.readFileSync(wrapper, 'utf8').replace(/^﻿/, '').trimEnd()
+  fs.rmSync(wrapper)
   assert.ok(source.includes("$env:AXONDECK_PROJECT='w_parent'"))
   assert.ok(source.includes("$env:AXONDECK_SCRIPT_RUN='t_selfcheck'"))
   assert.ok(source.includes(file.replace(/'/g, "''")), '中文與單引號完整保留')

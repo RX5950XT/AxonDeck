@@ -143,6 +143,7 @@ namespace AxonDeckShell
                         case "mtpList": return Ok(id, w => Portable.List(root, w));
                         case "mtpCopy": return Ok(id, w => Portable.Copy(root, w));
                         case "mtpDelete": return Ok(id, w => Portable.Delete(root, w));
+                        case "devices": return Ok(id, w => Portable.Devices(w));
                         default: return Fail(id, "BAD_OP");
                     }
                 }

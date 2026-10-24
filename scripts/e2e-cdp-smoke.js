@@ -406,7 +406,7 @@ async function main() {
     // 結構壞掉會讓下載按鈕與進度條整排失效——CSS 與 onModelProgress 都靠這些 class 定位
     await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
     for (let i = 0; i < 50; i++) {
-      await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
+      await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=runtime]').click()")
       if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length === 5')) break
       await sleep(200)
     }

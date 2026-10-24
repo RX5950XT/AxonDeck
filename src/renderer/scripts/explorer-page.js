@@ -265,8 +265,8 @@ let sortDesc = false
  */
 let folderViews = {}
 let folderDefaults = { view: 'list', tile: DEFAULT_TILE, sort: 'name', sortDesc: false }
-/** 要不要把隱藏／系統項目也列出來（跟檔案總管的「顯示隱藏的項目」同一件事）*/
-let showHidden = true
+/** 隱藏／系統項目一律列出來（淡色顯示），不再提供開關 */
+const showHidden = true
 /** 清單裡的資料夾也算大小（背景算，算好就顯示並參與大小排序） */
 let folderSizes = false
 /** @type {Record<string, ReturnType<typeof setTimeout> | null>} 進度來時節流重讀 */
@@ -682,8 +682,9 @@ function bindOnce() {
   $('exNewFolderBtn')?.addEventListener('click', newFolder)
   $('exNewFileBtn')?.addEventListener('click', newFile)
   $('exEmptyBinBtn')?.addEventListener('click', () => void emptyBin())
-  $('exViewListBtn')?.addEventListener('click', () => setView('list'))
-  $('exViewGridBtn')?.addEventListener('click', () => setView('grid'))
+  // 換檢視要重畫：清單用類型圖示、方格要縮圖，只換 class 的話方格一直停在類型圖示
+  $('exViewListBtn')?.addEventListener('click', () => { setView('list'); paintList() })
+  $('exViewGridBtn')?.addEventListener('click', () => { setView('grid'); paintList() })
   $('exDualBtn')?.addEventListener('click', () => void toggleDualPane())
   $('exFolderSizesBtn')?.addEventListener('click', () => void toggleFolderSizes())
   $('exDetailToggleBtn')?.addEventListener('click', toggleDetailPane)
@@ -1195,7 +1196,8 @@ function paintList() {
     host.appendChild(after)
     host.scrollTop = scrollTop
   } else {
-    for (const entry of rows) host.appendChild(rowEl(entry))
+    // 超過一頁的資料夾，還沒載到的那幾頁是空位；碰到就丟例外，整個 paintList 停在要縮圖之前
+    for (const entry of rows) if (entry) host.appendChild(rowEl(entry))
   }
   paintFileIcons(host, (target) => electronAPI.explorer.fileIcon(target))
   paintStatus()
@@ -2399,7 +2401,6 @@ function persistTabs() {
     })),
     activeTabId: activeId,
     lastPath: cwd,
-    showHidden,
     dualPane
   })
 }
@@ -2411,7 +2412,6 @@ function applyTabState(tab) {
   tile = state.tile
   sortBy = state.sort
   sortDesc = state.sortDesc
-  showHidden = state.showHidden
   searchSort = state.searchSort
   searchMode = state.searchMode === 'filter' ? 'filter' : 'global'
   selected = new Set(state.selected)
@@ -3078,7 +3078,9 @@ async function openEntry(entry) {
   if (!entry) return
   // 指令列、右鍵、Enter 都會走這裡：要開在作用中的那一欄，回收筒也只看那一欄
   const right = rightActive()
-  if (activeInRecycle()) {
+  // 只有回收筒自己的項目（有 recycleKey）才是「還原」；在回收筒裡打字搜尋出來的是整機搜尋結果，
+  // 照一般檔案開（資料夾就進去），不能丟給 restoreItems 假裝還原成功
+  if (activeInRecycle() && entry.recycleKey) {
     await restoreItems([entry])
     return
   }
@@ -3591,14 +3593,19 @@ async function deleteItems(items, opts = {}) {
 }
 
 async function restoreItems(items) {
+  const restorable = items.filter((item) => item?.recycleKey)
+  // 沒有一筆是回收筒項目（例如整機搜尋結果）：什麼都沒做，就不能說「已還原」
+  if (!restorable.length) {
+    showToast('選取的項目不在資源回收筒裡，無法還原', 'error')
+    return
+  }
   try {
-    for (const item of items) {
-      if (!item.recycleKey) continue
+    for (const item of restorable) {
       await call(electronAPI.explorer.restoreEntry(item.recycleKey), '還原失敗')
     }
     selected = new Set()
     await refreshAfterMutate()
-    showToast('已還原')
+    showToast(restorable.length < items.length ? `已還原 ${restorable.length} 個項目（其餘不在資源回收筒裡）` : '已還原')
   } catch {
     // toast 已顯示
   }
@@ -3661,7 +3668,6 @@ function openContextMenu(e, items, dir) {
       zip: zipView,
       phone: phoneView,
       items,
-      showHidden,
       shell: shellItems,
       invokeShell: (cmd) => {
         if (!token) return Promise.resolve()
@@ -3698,7 +3704,6 @@ function openContextMenu(e, items, dir) {
         remove: () => void deleteItems(items),
         newFolder: () => void newFolder(),
         newFile: () => void newFile(),
-        toggleHidden: () => void toggleHidden(),
         refresh: () => void refreshAfterMutate(),
         extractTo: () => void extractTo(items),
         extractAll: zipView
@@ -4055,13 +4060,6 @@ async function toggleFolderSizes() {
   // 重讀時 loadDir／loadSecond 會順手開始算
   await refreshAfterMutate()
   showToast(folderSizes ? '開始計算資料夾大小' : '已關閉資料夾大小')
-}
-
-async function toggleHidden() {
-  showHidden = !showHidden
-  void electronAPI.explorer.saveState({ showHidden })
-  await refreshAfterMutate()
-  showToast(showHidden ? '已顯示隱藏項目' : '已隱藏系統項目')
 }
 
 /**
@@ -4423,7 +4421,6 @@ export async function refreshExplorerPage() {
     sortDesc = boot.sortDesc === true
     folderDefaults = { view, tile, sort: sortBy, sortDesc }
     folderViews = boot.folderViews && typeof boot.folderViews === 'object' ? boot.folderViews : {}
-    showHidden = boot.showHidden !== false
     folderSizes = boot.folderSizes === true
     $('exFolderSizesBtn')?.setAttribute('aria-pressed', folderSizes ? 'true' : 'false')
     dualPane = boot.dualPane === true

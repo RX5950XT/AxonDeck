@@ -4,6 +4,50 @@
 
 ## 待辦／未解
 
+### 2026-10-24 — 瀏覽器切換頓挫與記憶體
+
+- [x] 量測：乾淨隔離打包版 vs Edge（合成重頁、apple／three.js／awwwards、rx5950xt.github.io 捲動）同速；擴充功能、背景終端機刷新、主程序延遲皆非主因。
+- [x] 重現：切回 rx5950xt.github.io 分頁最長一幀 146–236ms（Edge 14–42ms），Chat→Browser 49–111ms；根因 display:none 丟圖塊。
+- [x] `webview-warm.js`：最近 2 顆透明疊放、1 小時沒看休眠（不收正在看／出聲的）；`parkBrowserMain` 離開 Browser 模式凍結原尺寸疊放。
+- [x] 測試、lint、打包版驗收。
+
+Review：打包版切分頁最長一幀 7–14ms、背景分頁 rAF 停／CPU 0%、GPU 記憶體差異在誤差內；Chat→Browser 28–49ms，尺寸前後一致、Chat 可點；休眠收掉背景分頁並在點回時重建載入。10 分鐘反覆切換＋捲動各程序記憶體持平（無洩漏）。`test-webview-warm` 7/7、`test-workspace-ui` 199/199、`test-workspace` 289/289、`test-browser-mode-recycle-fix` 10/10、terminal-reopen／workspace-nav／workspace-state 通過，相關檔 eslint 通過。全套 `run-tests.js` 164/164；未 commit、未更新正式安裝版；側欄 0.16s 寬度動畫未動。
+
+### 2026-10-22 — PowerShell／慢路徑改原生
+
+- [x] 專案全文搜尋改 Rust `search`（平行讀檔，結果與 JS 逐筆一致）。
+- [x] 終端機 AI 對話追蹤：每 5 秒的 PowerShell 程序快照改 Rust `procs-json`。
+- [x] Ctrl+G 抬視窗：PowerShell＋Add-Type 改 Rust `raise-window`。
+- [x] 檔案頁列目錄：超過 300 項改 Rust `list-dir`（一次拿大小／時間／隱藏）；排序改共用 `Intl.Collator`。
+- [x] 「本機」手機／相機清單：PowerShell COM 改殼層 sidecar `devices`。
+- [x] lint、單元測試、cargo test、與舊版輸出對照、打包驗證。
+
+Review：`npm run lint` 通過（402 IPC／32 namespace）；`run-tests.js` 162/162；`cargo test` 18＋30＋15 全過。對照：搜尋三個專案 15 組查詢與 JS 逐筆相同（本 repo 查不到 2.9–3.2s→0.85–0.94s）；程序清單 550 支共有程序 parent／名稱／啟動時間全同，指令列多讀到 27 支且無亂碼，真 Claude session 兩版都認對（850→67ms）；列目錄 System32／WinSxS 與 JS 逐筆相同（僅 mtime 0.5ms 捨入），WinSxS 1.6–3.5s→約 0.3s，System32 491→約 50ms；`probe-terminal-foreground.js` 新舊版皆置頂成功（Edge 在前景時兩版都搶不到前景）；sidecar `devices` 列出的磁碟名稱／路徑與 PowerShell 相同，類型改為系統語系文字。`electron:pack` 388 支 src 一致，打包版 `e2e-explorer-cdp.js` 119 項 PASS（新增 2500 檔大資料夾隱藏屬性檢查）。未接手機，未實測真 MTP 裝置；未 commit。
+
+### 2026-10-21 — v1.63.1 發行
+
+- [x] 盤點完整變更、版本與遠端狀態；驗證腳本啟動及記憶體精簡。
+- [x] 重建 shell、正式 NSIS、打包版驗證與安裝包／更新資訊／秘密掃描。
+- [x] commit／tag／push、GitHub Release 與遠端三個資產對帳。
+
+Review：已於 `ef4cb24` 提交並推送 master／v1.63.1，正式發布 https://github.com/RX5950XT/AxonDeck/releases/tag/v1.63.1 （非 draft／prerelease、Latest）。shell、lint（402 IPC／32 namespace）、相關回歸、打包版十頁與真 cmd／PowerShell 腳本通過；腳本驗收已改為目前的編輯器「執行」入口。最終 NSIS 的 387 個 src 一致，拆包 200 個檔案與預覽包一致，含 app-update.yml；修正後的測試亦已納入。待提交秘密掃描 0 命中，包內五項均為上版已有的測試假值或本機模型識別字。遠端三個資產的大小／SHA-256 全與本機一致，另下載 latest.yml 核對通過；安裝檔 317,703,301 bytes、SHA-256 `cef1e113ed4bfcd92e116c356a754aeabef05a7fb79f3be20b723a8a7718752e`。安裝檔 NotSigned；PDF 程式與依賴未變，未重跑真模型 PDF；未覆蓋使用中的安裝版。
+
+### 2026-10-21 — 功能頁記憶體精簡
+
+- [x] 以隔離實例量修改前十頁的 DOM、記憶體與切換時間。
+- [x] 初始化前移除其他頁面的內容，拆開聊天／設定初始化，限制桌布預覽載入；保留常駐與快取。
+- [x] lint、功能頁／聊天設定回歸、打包後量測與切換／草稿保留驗證。
+
+Review：`npm run lint` 通過（402 IPC／32 namespace）；`test-page-windows.js`、`test-workspace-perf.js` 12/12、chat 2/2 通過。舊包先以新增的每頁內容斷言確認失敗；`electron:pack` 最終 387 個 src 一致，打包版 `e2e-page-windows-cdp.js` 十頁、彈出／收回、草稿、跨頁導覽及真桌布預覽通過；`e2e-cloud-models-cdp.js` 供應商新增、掃描、自動儲存、模型分流、淺深色／兩種寬度、MP3 解碼通過並目視外觀截圖；`probe-workspace-latency.js --paint` 通過三格並排、2000 行歷史與八畫布上限，反覆切專案 41–71ms。受控 A/B：隔離複製同份 src，before 僅將四個改動檔換成 HEAD、兩邊使用相同 Electron／resources 並以 file:// 跑相同流程及 3.08MiB 桌布；十頁 DOM 24,200→5,049，Electron 程序 private working set 1519.1→1402.8MiB（單次約少 116MiB；process count 20→23，背景程序／GC 有波動，不推估正式使用情境的固定降幅）。最終打包版另量 1358.4MiB、切頁回應 2.4–16.2ms。早期量測遇視窗節流，加入測試用 occlusion 旗標後排除；最終打包版曾一次 translate 導覽逾時，補記導航錯誤後重跑全過，原因未確認。設計 detector 的既有 CSS／標題階層警告未擴大修改。保留既有 script-launch 兩個未提交檔案；未做長時間登入帳號壓力測試，未覆蓋正式安裝版、commit 或發版。
+
+### 2026-10-20 — Telegram 切回保留每格位置
+
+- [x] 追查切頁與自動重載：舊版背景等待連線超過 60 秒會卸載所有格子，背景導覽也會覆蓋每格網址。
+- [x] 切走暫停連線檢查、保留每格最後前景網址，切回各自還原；子 frame 導覽不寫入。
+- [x] lint、針對性回歸與打包驗收，記錄結果。
+
+Review：`TELEGRAM_BASELINE=1 npx electron scripts/test-telegram-page.js` 在背景重載斷言失敗；修正後 1～4 格的一般切頁、背景 61 秒（測試時鐘）、背景改址還原、子 frame 與前景斷線復原全部通過。`npm run lint` 通過（394 IPC／32 namespace），`node scripts/test-page-windows.js` 通過。`npm run electron:pack` 成功，384 個 src 一致；設 `AXONDECK_ASAR=dist/win-unpacked/resources/app.asar` 重跑同一真實 Electron/webview 測試亦全過。使用隔離本機網頁模擬 Telegram 狀態，未以登入帳號直接重現上游改址；未發版，未更動執行中的正式安裝版。
+
 ### 2026-10-18 — v1.60.0 推送與發行
 
 - [x] 盤點完整變更、同步版號與說明，檢查待提交內容。

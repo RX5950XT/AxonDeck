@@ -42,8 +42,6 @@ function check(name, fn) {
   }
 }
 
-const TAI_DATA = 'D:\\Workspace\\PG\\Tai1.5.0.6\\Data'
-
 function tmpDir() {
   return tempDir('vi-screentime-')
 }
@@ -303,28 +301,6 @@ async function main() {
   })
 
   dbMod.closeDb(db)
-
-  await check('讀得了本機 Tai 舊資料：應用含 msedge、網站含 Youtube', () => {
-    assert.ok(fs.existsSync(path.join(TAI_DATA, 'data.db')), '找不到 Tai data.db')
-    const user = tmpDir()
-    const dest = path.join(user, 'screentime')
-    fs.mkdirSync(dest)
-    fs.copyFileSync(path.join(TAI_DATA, 'data.db'), path.join(dest, 'data.db'))
-    for (const extra of ['data.db-wal', 'data.db-shm']) {
-      const src = path.join(TAI_DATA, extra)
-      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dest, extra))
-    }
-    const imported = dbMod.openDb(user)
-    const apps = stats.queryStats(imported, { kind: 'app', range: 'year', date: '2026-09-04' })
-    const edge = apps.list.find((r) => r.name === 'msedge')
-    assert.ok(edge, JSON.stringify(apps.list.slice(0, 3)))
-    assert.strictEqual(edge.display, 'Microsoft Edge')
-    assert.ok(apps.cards.totalTime > 1000)
-    const webs = stats.queryStats(imported, { kind: 'web', range: 'year', date: '2026-09-04' })
-    assert.ok(webs.list.some((r) => /youtube/i.test(r.domain) || /youtube/i.test(r.name)),
-      JSON.stringify(webs.list.slice(0, 3)))
-    dbMod.closeDb(imported)
-  })
 
   await check('服務 recordApp／recordWeb 寫進自己的資料夾', () => {
     const user = tmpDir()

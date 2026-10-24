@@ -64,7 +64,7 @@ try {
   console.log('\n[A] 家目錄與共用標記')
   {
     const all = skills.homes()
-    ok('五家', all.length === 5)
+    ok('六家（含 Antigravity）', all.length === 6 && all.some((row) => row.id === 'agy'))
     const listed = skills.list('claude')
     ok('連結解得開', listed.dir === agentsSkills)
     ok('標成跟 agents 共用', listed.sharedWith.some((label) => label.includes('.agents')))
@@ -120,7 +120,7 @@ try {
   console.log('\n[D] 記憶檔')
   {
     const files = skills.memoryFiles('codex')
-    ok('codex 有 AGENTS.md＋CLAUDE.md', files.length === 2)
+    ok('codex 有 AGENTS.md＋CLAUDE.md＋config.toml', files.length === 3 && files[2].file === 'config.toml')
     ok('還沒建回 exists false', files.every((row) => row.exists === false))
     const wrote = skills.writeMemory('codex', 'AGENTS.md', '# rules\n')
     ok('寫得進去', wrote.path.endsWith('AGENTS.md') && fs.readFileSync(wrote.path, 'utf8') === '# rules\n')
@@ -130,9 +130,9 @@ try {
     const backups = fs.readdirSync(path.join(tmp, 'backup')).filter((n) => n.startsWith('memory-codex-AGENTS.md-'))
     ok('覆寫前有備份', backups.length === 1)
     const claudeFiles = skills.memoryFiles('claude')
-    ok('claude 只有 CLAUDE.md', claudeFiles.length === 1 && claudeFiles[0].file === 'CLAUDE.md')
+    ok('claude 是 CLAUDE.md＋settings.json', claudeFiles.map((row) => row.file).join() === 'CLAUDE.md,settings.json')
     const grokFiles = skills.memoryFiles('grok')
-    ok('grok 是 MEMORY.md', grokFiles.length === 1 && grokFiles[0].file === 'MEMORY.md')
+    ok('grok 是 MEMORY.md＋config.toml', grokFiles.map((row) => row.file).join() === 'MEMORY.md,config.toml')
     let threw = ''
     try {
       skills.readMemory('codex', '../../evil.md')
@@ -143,6 +143,24 @@ try {
       skills.writeMemory('codex', 'AGENTS.md', 'x'.repeat(300 * 1024))
     } catch (error) { threw = error.code }
     ok('太大拒絕', threw === 'MEMORY_TOO_LARGE', threw)
+    threw = ''
+    try {
+      skills.writeMemory('claude', 'settings.json', '{ "a": ')
+    } catch (error) { threw = error.code }
+    ok('壞掉的 JSON 不寫', threw === 'CONFIG_PARSE_FAILED' && !skills.readMemory('claude', 'settings.json').exists, threw)
+    threw = ''
+    try {
+      skills.writeMemory('codex', 'config.toml', 'model = ')
+    } catch (error) { threw = error.code }
+    ok('壞掉的 TOML 不寫', threw === 'CONFIG_PARSE_FAILED', threw)
+    skills.writeMemory('claude', 'settings.json', '{ "a": 1 }')
+    skills.writeMemory('claude', 'settings.json', '{ "a": 2 }')
+    ok('設定檔備份留原副檔名', fs.readdirSync(path.join(tmp, 'backup')).some((n) => n.startsWith('memory-claude-settings.json-') && n.endsWith('.json')))
+    const agy = skills.writeMemory('agy', 'antigravity-cli/settings.json', '{}')
+    ok('agy 設定檔寫進子資料夾', agy.path === path.join(tmp, '.gemini', 'antigravity-cli', 'settings.json'))
+    skills.writeMemory('agy', 'antigravity-cli/settings.json', '{ "x": 1 }')
+    ok('agy 備份檔名攤平', fs.readdirSync(path.join(tmp, 'backup')).some((n) => n.startsWith('memory-agy-antigravity-cli_settings.json-')))
+    ok('agy 記憶在 ~/.gemini', skills.memoryFiles('agy')[0].path === path.join(tmp, '.gemini', 'GEMINI.md'))
     const missing = skills.readMemory('grok', 'MEMORY.md')
     ok('沒建過回空', missing.exists === false && missing.content === '')
   }

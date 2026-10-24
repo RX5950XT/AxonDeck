@@ -960,6 +960,7 @@ async function openSession(id, isActive = () => true) {
   if (fresh) fitPane(entry)
   else {
     fitAndSync(id, entry)
+    try { entry.webgl?.clearTextureAtlas() } catch { /* DOM renderer 沒有 atlas */ }
     void entry.conversation.refresh()
   }
   const isCurrent = () => currentId === id && currentProjectId() === projectId
@@ -1043,6 +1044,23 @@ function fitVisible() {
     const entry = panes.get(id)
     if (!entry) continue
     fitAndSync(id, entry)
+  }
+}
+
+/**
+ * 重建字形貼圖再整片重畫。WebGL 的字形貼圖偶爾會壞掉（GPU 閒置、視窗縮小再還原，
+ * context 卻沒掉所以 `onContextLoss` 不會響），畫面就變成一堆碎字；以前只有拖側欄
+ * 改了欄數才會順便清掉。視窗回到前景時主動清一次。
+ */
+function repaintVisible() {
+  if (!hostEl || hostEl.classList.contains('hidden')) return
+  for (const id of visibleIds) {
+    const entry = panes.get(id)
+    if (!entry) continue
+    try {
+      entry.webgl?.clearTextureAtlas()
+      entry.term.refresh(0, entry.term.rows - 1)
+    } catch { /* 還沒 open */ }
   }
 }
 
@@ -1431,6 +1449,10 @@ function initTerminalPage() {
   // 視窗或側欄寬度變了就重新量欄列數；xterm 不會自己跟著容器縮放
   resizeObserver = new ResizeObserver(() => scheduleFit())
   if (hostEl) resizeObserver.observe(hostEl)
+  window.addEventListener('focus', repaintVisible)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') repaintVisible()
+  })
 
   void (async () => {
     try {

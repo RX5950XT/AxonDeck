@@ -18,11 +18,16 @@
  * | codex | `AGENTS.md`、`CLAUDE.md`（兩個都認得，有才列） |
  * | grok | `MEMORY.md` |
  * | opencode | `AGENTS.md` |
+ * | agy | `~/.gemini/GEMINI.md` |
+ *
+ * 同一個切換列也放各家的設定檔（claude `settings.json`、codex／grok `config.toml`、
+ * opencode `opencode.json`）。存檔前先解析，格式壞了就不寫，免得 CLI 整個起不來。
  */
 
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const toml = require('smol-toml')
 const claudeSettings = require('./claude-settings')
 
 /** SKILL.md 只讀開頭這麼多（frontmatter 一定在最前面） */
@@ -63,10 +68,12 @@ function envHome(value, fallback) {
 function homes() {
   const claude = envHome(process.env.CLAUDE_CONFIG_DIR ? String(process.env.CLAUDE_CONFIG_DIR).split(',')[0] : '', '.claude')
   return [
-    { id: 'claude', label: 'Claude Code', dir: path.join(claude, 'skills'), memory: ['CLAUDE.md'] },
-    { id: 'codex', label: 'Codex', dir: path.join(envHome(process.env.CODEX_HOME, '.codex'), 'skills'), memory: ['AGENTS.md', 'CLAUDE.md'] },
-    { id: 'grok', label: 'Grok', dir: path.join(envHome(process.env.GROK_HOME, '.grok'), 'skills'), memory: ['MEMORY.md'] },
-    { id: 'opencode', label: 'OpenCode', dir: path.join(baseHome(), '.config', 'opencode', 'skills'), memory: ['AGENTS.md'] },
+    { id: 'claude', label: 'Claude Code', dir: path.join(claude, 'skills'), memory: ['CLAUDE.md', 'settings.json'] },
+    { id: 'codex', label: 'Codex', dir: path.join(envHome(process.env.CODEX_HOME, '.codex'), 'skills'), memory: ['AGENTS.md', 'CLAUDE.md', 'config.toml'] },
+    { id: 'grok', label: 'Grok', dir: path.join(envHome(process.env.GROK_HOME, '.grok'), 'skills'), memory: ['MEMORY.md', 'config.toml'] },
+    { id: 'opencode', label: 'OpenCode', dir: path.join(baseHome(), '.config', 'opencode', 'skills'), memory: ['AGENTS.md', 'opencode.json'] },
+    // 記憶檔從 `~/.gemini` 算起（GEMINI.md 在根目錄，CLI 設定在 antigravity-cli/ 底下）
+    { id: 'agy', label: 'Antigravity', dir: path.join(baseHome(), '.gemini', 'config', 'skills'), memory: ['GEMINI.md', 'antigravity-cli/settings.json', 'config/mcp_config.json'] },
     { id: 'agents', label: '.agents（共用）', dir: path.join(baseHome(), '.agents', 'skills'), memory: [] }
   ]
 }
@@ -106,6 +113,7 @@ function fail(code, userMessage) {
 function memoryDir(home) {
   if (home.id === 'opencode') return path.dirname(home.dir)
   if (home.id === 'agents') return home.dir
+  if (home.id === 'agy') return path.dirname(path.dirname(home.dir))
   return path.dirname(home.dir)
 }
 
@@ -291,6 +299,20 @@ function readMemory(rawHome, rawFile) {
 }
 
 /**
+ * 設定檔存之前先解析一次；記憶檔（.md）不檢查。
+ * @param {string} file
+ * @param {string} content
+ */
+function assertParses(file, content) {
+  try {
+    if (file.endsWith('.json')) JSON.parse(content)
+    else if (file.endsWith('.toml')) toml.parse(content)
+  } catch (error) {
+    throw fail('CONFIG_PARSE_FAILED', `${file} 格式有誤，沒有存檔：${String(error?.message || error).split('\n')[0]}`)
+  }
+}
+
+/**
  * @param {string} rawHome
  * @param {string} rawFile
  * @param {unknown} rawContent
@@ -303,16 +325,19 @@ function writeMemory(rawHome, rawFile, rawContent) {
   if (Buffer.byteLength(rawContent, 'utf8') > MAX_MEMORY_BYTES) {
     throw fail('MEMORY_TOO_LARGE', `${rawFile} 太大，請用編輯器存`)
   }
+  assertParses(rawFile, rawContent)
   const dir = memoryDir(home)
   const full = path.join(dir, rawFile)
   if (fs.existsSync(full)) {
     const backupRoot = claudeSettings.backupDir()
     fs.mkdirSync(backupRoot, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    fs.copyFileSync(full, path.join(backupRoot, `memory-${home.id}-${rawFile}-${stamp}.md`))
+    // agy 的檔名帶子資料夾，備份檔名要攤平
+    const tag = `memory-${home.id}-${rawFile.replace(/\//g, '_')}-`
+    fs.copyFileSync(full, path.join(backupRoot, `${tag}${stamp}${path.extname(rawFile)}`))
     try {
       const names = fs.readdirSync(backupRoot)
-        .filter((name) => name.startsWith(`memory-${home.id}-${rawFile}-`) && name.endsWith('.md')).sort()
+        .filter((name) => name.startsWith(tag)).sort()
       for (const name of names.slice(0, Math.max(0, names.length - MAX_BACKUPS))) {
         try {
           fs.unlinkSync(path.join(backupRoot, name))
@@ -324,7 +349,7 @@ function writeMemory(rawHome, rawFile, rawContent) {
       // 備份目錄讀不到不擋寫入
     }
   }
-  fs.mkdirSync(dir, { recursive: true })
+  fs.mkdirSync(path.dirname(full), { recursive: true })
   const tmp = `${full}.axondeck-tmp.${process.pid}.${Date.now()}`
   fs.writeFileSync(tmp, rawContent, 'utf8')
   try {

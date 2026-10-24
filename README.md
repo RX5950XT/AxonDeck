@@ -4,7 +4,9 @@
 
 Windows 桌面 AI 工作台。**聊天**、**終端機**、**本機大型語言模型**（Local SI）、**訂閱額度**、**AGY 反向代理**、**語音轉文字**（檔案轉錄／錄音機／即時字幕／全域語音輸入）、**翻譯**、**文字轉語音**、**生成圖片影像** 放在同一個 App；語音相關功能可完全離線（本地模型、CPU 即時），也能改走雲端 API。
 
-**v1.66.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)
+**v1.67.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)
+
+v1.67.0 新增 Antigravity 支援：MCP 與 Skills 分頁可管它的 MCP 伺服器、skills、GEMINI.md 與設定檔；各家 AI 的設定檔（settings.json／config.toml／opencode.json）也能直接看和改，存檔前先檢查格式。終端機視窗回到前景時自動修好糊掉的字；Telegram 送出訊息後自動跳到最下面。
 
 v1.66.0 內建瀏覽器切分頁、切進 Browser 模式不再頓一下（特效多的網頁切回從最長 0.2 秒降到一幀內）；1 小時沒看的背景分頁自動休眠釋放記憶體，點回去重新載入（正在播聲音的不收）。
 

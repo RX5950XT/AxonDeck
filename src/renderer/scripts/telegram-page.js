@@ -38,6 +38,24 @@ const DIRECT_LINKS = `window.__axDirectLinks || (window.__axDirectLinks = true, 
   window.open(u.href, '_blank', 'noopener')
 }, true))`
 
+// 在格子裡跑：自己送出訊息後跳到聊天室最下面（往上翻舊訊息時送出，Web A 不會自己捲回來）。
+// 優先按 Web A 的「到最下面」鈕（舊訊息沒載完時它會去載最新的），沒有就直接捲
+const SEND_SCROLL = `window.__axSendScroll || (window.__axSendScroll = true, (() => {
+  const toBottom = () => setTimeout(() => {
+    const icon = document.querySelector('#MiddleColumn button .icon-arrow-down')
+    const btn = icon && icon.closest('button')
+    if (btn && !btn.closest('[inert]')) { btn.click(); return }
+    const list = document.querySelector('.MessageList')
+    if (list) list.scrollTop = list.scrollHeight
+  }, 250)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.closest && e.target.closest('#editable-message-text')) toBottom()
+  }, true)
+  window.addEventListener('click', (e) => {
+    if (e.button === 0 && e.target.closest && e.target.closest('.main-button.send')) toBottom()
+  }, true)
+})())`
+
 let initialized = false
 let pageVisible = true
 let stuckSince = 0
@@ -201,6 +219,7 @@ function mountView(pane, url) {
   view.addEventListener('did-navigate-in-page', remember)
   view.addEventListener('dom-ready', () => {
     view.executeJavaScript(DIRECT_LINKS).catch((error) => console.error('[telegram] 連結直開掛不上:', error))
+    view.executeJavaScript(SEND_SCROLL).catch((error) => console.error('[telegram] 送出後捲到底掛不上:', error))
   })
   // 當掉的若是主分頁，其他格收不到交棒通知，只重載這一格也會被它們帶回死掉的主分頁
   view.addEventListener('render-process-gone', (event) => {

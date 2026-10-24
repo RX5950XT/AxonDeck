@@ -1,7 +1,7 @@
 /**
  * Claude Code 相關畫面（renderer）。原本是 CC Proxy 頁，現在拆在三個地方、邏輯都留這裡：
  * - 供應商切換：工作區額度條上方的抽屜（`refreshProviders`，quota-bar.js 開關）
- * - MCP 與 Skills／記憶：專案右側欄第五顆按鈕開的分頁（`refreshCcTools`，五家共用一個切換）
+ * - MCP 與 Skills／記憶：專案右側欄第五顆按鈕開的分頁（`refreshCcTools`，六家共用一個切換）
  * - CLI 版本：設定頁（`refreshVersionsSection`）；AGY 反代在設定頁、用量統計在額度條，都各自有模組。
  * 端點、檔案路徑與 npm 套件名都在 main 的固定表；上游格式由使用者在供應商彈窗選擇，
  * 這裡只送受限的格式值。
@@ -31,7 +31,7 @@ let currentId = ''
 let activeId = ''
 /** @type {Array<object>} */
 let mcpServers = []
-/** @type {string} MCP 與 Skills 分頁目前在看哪一家（五家共用一個切換） */
+/** @type {string} MCP 與 Skills 分頁目前在看哪一家（六家共用一個切換） */
 let home = 'claude'
 /** @type {Array<object>} 有 MCP 設定檔的那幾家（.agents 共用資料夾沒有） */
 let mcpHomeList = []
@@ -1073,7 +1073,7 @@ async function loadModels() {
   }
 }
 
-// ===== MCP（四家） =====
+// ===== MCP（五家） =====
 
 async function reloadMcp() {
   try {

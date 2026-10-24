@@ -390,7 +390,12 @@ function diffToggleChecks() {
 function browserChecks() {
   console.log('\n[I] 內建瀏覽器')
   check('webview 照分頁 id 找', /webview\[data-tab-id="\$\{CSS\.escape\(tab\.id\)\}"\]/.test(tabs))
-  check('切分頁只藏不搬（不重新 attach）', /\(node\)\.hidden = node !== guest/.test(tabs))
+  const warm = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/webview-warm.js'), 'utf8')
+  const showBody = warm.slice(warm.indexOf('export function showGuest'), warm.indexOf('function audible'))
+  check('切分頁只藏不搬（不重新 attach）',
+    /showGuest\(el\.browserFrame, guest\)/.test(tabs) && /node\.hidden = /.test(showBody) && !/remove\(|appendChild|insertBefore/.test(showBody))
+  check('剛切走的分頁透明疊放、不丟圖塊（切回不重畫）',
+    /\.ws-browser-frame webview\.webview-warm\s*\{[^}]*opacity:\s*0/.test(css))
   check('webview 的 [hidden] 要自己寫 display:none（UA 是 display:flex）',
     /\.ws-browser-frame webview\[hidden\]\s*\{\s*display:\s*none/.test(css))
   check('導航事件從 guest 自己的 data-tab-id 找分頁，不是 activeId',
@@ -443,11 +448,9 @@ async function runFileChecks() {
   check('點執行檔直接用系統開啟（不開「無法預覽」分頁）',
     /isDirectRunnable\(entry\.rel\)/.test(workspacePage)
     && /openWithSystem\(project\.id, entry\.rel\)/.test(workspacePage))
-  check('點啟動腳本開終端機跑',
-    /isLaunchScript\(entry\.rel\)/.test(workspacePage)
-    && /runInTerminal\(entry\.rel\)/.test(workspacePage))
-  check('啟動腳本的右鍵有「開啟」（點下去是跑，編輯走右鍵）',
-    /isLaunchScript\(entry\.rel\)[\s\S]{0,180}label: '開啟'/.test(workspacePage))
+  check('點腳本不直接跑（先開編輯器）', !/isLaunchScript\(entry\.rel\)/.test(workspacePage))
+  check('編輯器右上角有「執行」鈕，只給腳本類', hasId('wsEditorRunBtn')
+    && /editorRunBtn\.hidden = !tab\.projectId \|\| !isTerminalRunnable/.test(tabs))
   check('`.js`／`.py` 不在點擊就跑的清單裡',
     /const LAUNCH_EXTS = \['bat', 'cmd', 'ps1', 'sh'\]/.test(tabs)
     && /const DIRECT_EXTS = \['exe', 'com', 'msi', 'lnk'\]/.test(tabs))

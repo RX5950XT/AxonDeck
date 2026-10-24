@@ -1,7 +1,7 @@
 /**
- * AxonDeck — Local SI 的「推薦」子分頁＋「執行環境」的推論方式
+ * AxonDeck — Local SI「執行環境」裡的推薦模型＋推論方式
  *
- * 推薦：語音、翻譯與文件辨識的固定模型（`models.js` 的 registry；執行環境另在「執行環境」分頁裝）。
+ * 推薦：語音、翻譯與文件辨識的固定模型（`models.js` 的 registry），標出正在跑的並可卸載。
  * 推論方式：不給選，main 自動偵測（NVIDIA 且 VRAM ≥ 8GB 走 GPU，其餘 CPU），這裡只顯示結果
  * 與 CUDA 環境的安裝按鈕。原本都在設定頁的「本地模型」。
  */
@@ -22,6 +22,9 @@ let bound = false
 /** 最近一次模型狀態 @type {Record<string, any>} */
 let latestModels = {}
 let cudaInstallInProgress = false
+/** router 裡載著的模型 id（跟推薦模型的 key 同名） */
+let routerLoaded = new Set()
+let breezeReady = false
 
 /** @param {string} id @returns {HTMLElement | null} */
 const $ = (id) => document.getElementById(id)
@@ -44,9 +47,45 @@ function bindOnce() {
   $('installCudaEnvBtn')?.addEventListener('click', () => void onInstallCudaEnv())
   $('refreshGpuEnvBtn')?.addEventListener('click', () => void refreshInference(true))
   electronAPI.models.onProgress(onModelProgress)
+  electronAPI.breeze.onStatus((state) => {
+    if (!!state?.ready === breezeReady) return
+    breezeReady = !!state?.ready
+    repaintList()
+  })
 }
 
-/** 進「推薦」子分頁 */
+/** @param {string} key */
+const isRunning = (key) => key === 'breezetts2q8' ? breezeReady : routerLoaded.has(key)
+
+/**
+ * 儀表板每次輪詢都把 router 的模型狀態丟過來；有變才重畫清單
+ * @param {Array<{ id: string, status: string }>} [rows]
+ */
+export function paintRunning(rows) {
+  const next = new Set((rows || []).filter((row) => row.status === 'loaded').map((row) => row.id))
+  if (next.size === routerLoaded.size && [...next].every((id) => routerLoaded.has(id))) return
+  routerLoaded = next
+  repaintList()
+}
+
+async function unloadRecommend(model, button) {
+  button.disabled = true
+  button.textContent = '卸載中…'
+  try {
+    const result = model.key === 'breezetts2q8'
+      ? await electronAPI.breeze.unload()
+      : await electronAPI.hfmodels.unloadModel(model.key)
+    if (!result?.ok) throw new Error(result?.error?.message || '卸載失敗')
+    if (model.key === 'breezetts2q8') breezeReady = false
+    else routerLoaded.delete(model.key)
+    showToast(`已卸載 ${model.label}`, 'success')
+  } catch (error) {
+    showToast(`卸載失敗: ${cleanIpcError(error)}`, 'error')
+  }
+  repaintList()
+}
+
+/** 進「執行環境」時重抓推薦模型 */
 export async function refreshRecommend() {
   bindOnce()
   const list = $('modelList')
@@ -56,7 +95,15 @@ export async function refreshRecommend() {
   latestModels = status.models || {}
   pathText.textContent = status.root
   pathText.title = status.root
+  const breeze = await electronAPI.breeze.status().catch(() => null)
+  breezeReady = !!breeze?.data?.ready
+  repaintList()
+}
 
+function repaintList() {
+  const list = $('modelList')
+  // 下載中的進度條會被重畫洗掉，下一個進度事件再補回來
+  if (!list) return
   list.replaceChildren()
   for (const [kind, title] of MODEL_GROUPS) {
     const group = Object.values(latestModels).filter((m) => m.kind === kind)
@@ -89,6 +136,13 @@ function renderModelItem(model) {
   const name = document.createElement('p')
   name.className = 'model-name'
   name.textContent = model.label
+  const running = model.downloaded && isRunning(model.key)
+  if (running) {
+    const chip = document.createElement('span')
+    chip.className = 'hf-status is-on'
+    chip.textContent = '運行中'
+    name.append(' ', chip)
+  }
 
   const size = document.createElement('p')
   size.className = model.downloaded ? 'model-size downloaded' : 'model-size'
@@ -117,6 +171,10 @@ function renderModelItem(model) {
     actions.appendChild(actionBtn('取消', 'btn-secondary', () => electronAPI.models.cancel(model.key)))
     progress.classList.remove('hidden')
   } else if (model.downloaded) {
+    if (running) {
+      const unload = actionBtn('卸載', 'btn-primary', () => void unloadRecommend(model, unload))
+      actions.appendChild(unload)
+    }
     actions.appendChild(actionBtn('📂', 'btn-secondary', () => void openModelsFolder(model.key)))
     actions.appendChild(deleteButton(model))
   } else {

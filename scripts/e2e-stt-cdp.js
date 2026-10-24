@@ -369,7 +369,7 @@ async function main() {
     // 先載入推薦清單，再驗模型管理已搬離設定頁。
     await cdp.eval("document.querySelector('[data-page=hfmodels]').click()")
     for (let i = 0; i < 50; i++) {
-      await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=recommend]').click()")
+      await cdp.eval("document.querySelector('#hfSubtabs [data-subtab=runtime]').click()")
       if (await cdp.eval('document.querySelectorAll("#modelList .model-item").length >= 4')) break
       await sleep(200)
     }

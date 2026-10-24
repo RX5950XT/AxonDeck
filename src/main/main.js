@@ -2155,6 +2155,11 @@ registerWorkspaceIpc({
     getFileMtime: (...args) => loadWorkspace().getFileMtime(...args),
     listDir: (...args) => loadWorkspace().listDir(...args),
     readFile: (...args) => loadWorkspace().readFile(...args),
+    bigOpen: (...args) => loadWorkspace().bigOpen(...args),
+    bigRows: (...args) => loadWorkspace().bigRows(...args),
+    bigLine: (...args) => loadWorkspace().bigLine(...args),
+    bigFind: (...args) => loadWorkspace().bigFind(...args),
+    previewHtml: (...args) => loadWorkspace().previewHtml(...args),
     convertOffice: (...args) => loadWorkspace().convertOffice(...args),
     writeFile: (...args) => loadWorkspace().writeFile(...args),
     createEntry: (...args) => loadWorkspace().createEntry(...args),
@@ -2367,6 +2372,7 @@ registerBreezeIpc({
     status: () => loadBreeze().status(),
     generate: (options) => loadBreeze().generate(options),
     cancel: (options) => loadBreeze().cancel(options),
+    unload: () => loadBreeze().unload(),
     pickAudio: (options) => loadBreeze().pickAudio(options),
     voices: () => loadBreeze().voices(),
     saveVoice: (options) => loadBreeze().saveVoice(options),
@@ -2726,6 +2732,7 @@ app.on('web-contents-created', (_event, contents) => {
       })
     }
     attachWebMenu(contents, hostWindow, isBrowser)
+    if (!isBrowser) require('./ai-web').installRenderBoost(contents, aiWebPartitions.get(contents.session).slice('persist:ai-'.length))
   }
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁

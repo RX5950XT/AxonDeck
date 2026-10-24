@@ -42,7 +42,7 @@ const PROVIDERS = Object.freeze([
     label: 'Antigravity',
     kind: 'sqlite',
     // 這條一定要顯示在 UI 上，否則使用者會以為數字是完整的
-    note: 'Antigravity 本機沒有 session 記錄，只統計得到經過本 App 的 AGY 反代那部分。'
+    note: '統計 Antigravity CLI 本機對話與經過本 App 的 AGY 反代；Antigravity IDE 的用量算不到。'
   }
 ])
 
@@ -382,6 +382,18 @@ async function runSync(options) {
     }
     report.providers[source.provider] = result
   }
+  // Antigravity CLI：一份對話檔一個游標。CLI 會自己刪對話檔，刪掉時靠 contrib 封存，整份重讀才不會少算
+  const agyModels = { ...dbCursors.agyModels }
+  const agyFiles = dbSources.readAntigravityCli(
+    (id) => cursors[`antigravity:${id}`]?.idx, agyModels, path.join(homeDir(), '.gemini', 'antigravity-cli'))
+  let agyCliEvents = 0
+  for (const file of agyFiles) {
+    const key = `antigravity:${file.id}`
+    for (const event of file.events) fold('antigravity')(event, key)
+    agyCliEvents += file.events.length
+    if (Number.isInteger(file.idx)) cursors[key] = { ...cursors[key], path: file.path, idx: file.idx }
+  }
+  dbCursors.agyModels = agyModels
   for (const [key, map] of contribs) {
     if (cursors[key]) cursors[key] = { ...cursors[key], contrib: [...map.values()] }
   }
@@ -396,7 +408,7 @@ async function runSync(options) {
   }
   report.providers.opencode = { files: 1, events: opencodeEvents.length }
 
-  // Antigravity：只有 AGY 反代日誌
+  // Antigravity：AGY 反代日誌（CLI 本機對話在上面跟 JSONL 一起逐檔記帳），兩邊不重疊
   options.onProgress?.({ provider: 'antigravity', state: 'scanning' })
   const agyDb = paths.userDataPath ? path.join(paths.userDataPath, 'agy-logs.db') : ''
   // 游標是結束時間（antigravityEnd）；舊版只存開始時間，沿用一次當起點
@@ -406,7 +418,7 @@ async function runSync(options) {
   if (agyEvents.length) {
     dbCursors.antigravityEnd = agyEvents[agyEvents.length - 1].endTs
   }
-  report.providers.antigravity = { files: 1, events: agyEvents.length }
+  report.providers.antigravity = { files: agyFiles.length + 1, events: agyEvents.length + agyCliEvents }
 
   if (previous) {
     // 有記帳的已刪檔整份加回去；記帳之前就被刪掉的（舊版沒記）才退回用舊桶子推

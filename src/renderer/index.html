@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; img-src 'self' data: blob: vi-media: https: http:; connect-src 'self' https: http: vi-media:; media-src 'self' blob: vi-media:; frame-src http: https:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; img-src 'self' data: blob: vi-media: https: http:; connect-src 'self' https: http: vi-media:; media-src 'self' blob: vi-media:; frame-src http: https: vi-media:"
     />
     <link rel="icon" type="image/png" href="../../assets/icon.png" />
     <!-- xterm 的樣式直接吃 node_modules（renderer 無 bundler，vendoring 只會多一份要同步的複本） -->
@@ -420,6 +420,9 @@
                       <button type="button" id="wsEditorSaveBtn" class="btn btn-primary btn-sm" title="儲存 (Ctrl+S)">
                         儲存
                       </button>
+                      <button type="button" id="wsEditorRunBtn" class="btn btn-primary btn-sm" title="存檔後開一個終端機執行" hidden>
+                        執行
+                      </button>
                     </div>
                     <div id="wsEditorExtBanner" class="ws-ext-banner" hidden>
                       <span class="ws-ext-banner-msg">檔案已在外部修改</span>
@@ -457,6 +460,8 @@
                       <div class="ws-monaco" id="wsMonacoHost" hidden></div>
                     </div>
                     <div id="wsEditorPreview" class="ws-editor-preview" hidden></div>
+                    <!-- 超過 256MB 的文字檔：唯讀分段檢視（big-text-view.js） -->
+                    <div id="wsBigText" class="ws-big-text" hidden></div>
                     <div id="wsEditorUnsupported" class="ws-editor-unsupported" hidden>
                       <div class="ws-unsupported-icon" aria-hidden="true">▧</div>
                       <div id="wsEditorUnsupportedName" class="ws-unsupported-name"></div>
@@ -1088,9 +1093,6 @@
                 <button type="button" class="subtab active" data-subtab="runtime" role="tab" aria-selected="true">
                   執行環境
                 </button>
-                <button type="button" class="subtab" data-subtab="recommend" role="tab" aria-selected="false">
-                  推薦
-                </button>
                 <button type="button" class="subtab" data-subtab="discover" role="tab" aria-selected="false">
                   探索
                 </button>
@@ -1119,19 +1121,7 @@
                 </section>
               </div>
 
-              <!-- 推薦：語音辨識與翻譯用的固定模型（給語音轉文字／翻譯頁用，不進 router） -->
-              <div class="subtab-panel" id="hf-recommend" data-subtab="recommend" role="tabpanel">
-                <section class="hf-panel">
-                  <div class="models-path">
-                    <span id="modelsPathText" class="models-path-text" title="點擊開啟模型資料夾">…</span>
-                    <button type="button" id="openModelsFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
-                  </div>
-                  <p class="setting-hint">語音轉文字與翻譯頁用的模型；要用哪一顆在各功能頁上方選。</p>
-                  <div id="modelList" class="model-list" aria-live="polite"></div>
-                </section>
-              </div>
-
-              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推論（含占用）、log -->
+              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推薦模型、推論（含占用）、log -->
               <div class="subtab-panel active" id="hf-runtime" data-subtab="runtime" role="tabpanel">
                 <div class="hf-runtime-layout">
                   <section class="hf-panel hf-run" aria-label="啟動與載入">
@@ -1179,6 +1169,19 @@
                       </div>
                     </div>
                     <div id="hfLibraryList" class="hf-models" aria-live="polite"></div>
+                  </section>
+
+                  <!-- 推薦模型：語音、翻譯與文件辨識的固定模型，跟本機模型放一起看得到誰在跑 -->
+                  <section class="hf-panel" id="hf-recommend" aria-label="推薦模型">
+                    <div class="hf-section-head">
+                      <h2>推薦模型</h2>
+                    </div>
+                    <div class="models-path">
+                      <span id="modelsPathText" class="models-path-text" title="點擊開啟模型資料夾">…</span>
+                      <button type="button" id="openModelsFolderBtn" class="btn btn-secondary btn-sm">開啟資料夾</button>
+                    </div>
+                    <p class="setting-hint">語音轉文字與翻譯頁用的模型；要用哪一顆在各功能頁上方選。</p>
+                    <div id="modelList" class="model-list" aria-live="polite"></div>
                   </section>
 
                   <section class="hf-panel" aria-label="推論">
@@ -2628,7 +2631,7 @@
       </div>
 
       <!-- 系統提示管理（原生 dialog：Esc 關閉、焦點鎖定由瀏覽器處理） -->
-      <dialog id="chatPromptDialog" class="app-dialog" aria-label="管理系統提示">
+      <dialog id="chatPromptDialog" data-page-content="chat" class="app-dialog" aria-label="管理系統提示">
         <div class="dialog-head">
           <h2 class="dialog-title">系統提示</h2>
           <p class="dialog-desc">可存多組，聊天頁工具列隨時切換。</p>
@@ -2672,7 +2675,7 @@
       </dialog>
 
       <!-- 新終端機：shell 與啟動指令只送 key，工作目錄走系統對話框 -->
-      <dialog id="termNewDialog" class="app-dialog" aria-label="新終端機">
+      <dialog id="termNewDialog" data-page-content="chat" class="app-dialog" aria-label="新終端機">
         <div class="dialog-head">
           <h2 class="dialog-title">新終端機</h2>
           <p class="dialog-desc">開的是獨立 shell；縮到系統匣後照常執行。</p>
@@ -2708,7 +2711,7 @@
         </div>
       </dialog>
 
-      <dialog id="usageSettingsDialog" class="app-dialog usage-dialog" aria-labelledby="usageSettingsTitle">
+      <dialog id="usageSettingsDialog" data-page-content="chat" class="app-dialog usage-dialog" aria-labelledby="usageSettingsTitle">
         <header class="dialog-head">
           <h2 id="usageSettingsTitle" class="dialog-title">額度顯示設定</h2>
           <p class="dialog-desc">勾選底部額度條要顯示的項目；順序直接在條上拖曳。</p>
@@ -2745,7 +2748,7 @@
         </footer>
       </dialog>
 
-      <dialog id="cuPricesDialog" class="app-dialog" aria-label="模型單價">
+      <dialog id="cuPricesDialog" data-page-content="chat sysmon" class="app-dialog" aria-label="模型單價">
         <div class="dialog-head">
           <h2 class="dialog-title">模型單價</h2>
           <p class="dialog-desc">每 100 萬 token 的美金價；留空＝不算花費。快取價留空會從輸入價推。</p>
@@ -2764,7 +2767,7 @@
         </div>
       </dialog>
 
-      <dialog id="ccProviderDialog" class="app-dialog" aria-label="供應商">
+      <dialog id="ccProviderDialog" data-page-content="chat settings" class="app-dialog" aria-label="供應商">
         <div class="dialog-head">
           <h2 id="ccProviderDialogTitle" class="dialog-title">新增供應商</h2>
           <p id="ccProviderDialogDesc" class="dialog-desc"></p>
@@ -2856,7 +2859,7 @@
         </div>
       </dialog>
 
-      <dialog id="ccMcpDialog" class="app-dialog" aria-label="MCP 伺服器">
+      <dialog id="ccMcpDialog" data-page-content="chat settings" class="app-dialog" aria-label="MCP 伺服器">
         <div class="dialog-head">
           <h2 id="ccMcpDialogTitle" class="dialog-title">新增 MCP 伺服器</h2>
           <p class="dialog-desc">JSON 格式同 Claude Code 的 mcpServers。</p>
@@ -2886,7 +2889,7 @@
         </div>
       </dialog>
 
-      <dialog id="chatScanDialog" class="app-dialog" aria-label="掃描到的模型">
+      <dialog id="chatScanDialog" data-page-content="settings" class="app-dialog" aria-label="掃描到的模型">
         <div class="dialog-head">
           <h2 class="dialog-title">掃描到的模型</h2>
           <p id="chatScanDesc" class="dialog-desc"></p>
@@ -2913,7 +2916,7 @@
       </dialog>
 
       <!-- 每顆本機模型的執行參數：自動決定的值可以逐項覆寫，最下面是原始參數直通 -->
-      <dialog id="hfParamsDialog" class="app-dialog hf-dialog" aria-label="模型執行參數">
+      <dialog id="hfParamsDialog" data-page-content="hfmodels" class="app-dialog hf-dialog" aria-label="模型執行參數">
         <div class="dialog-head">
           <h2 class="dialog-title" id="hfParamsTitle">執行參數</h2>
           <p id="hfParamsDesc" class="dialog-desc"></p>

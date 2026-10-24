@@ -302,13 +302,13 @@ function isDevicePath(raw) {
 
 /**
  * 「本機」底下不是檔案系統的裝置（插著的手機、相機）。
- * Linux：走 gvfs 掛載最小清單（mtp-linux）；未掛載 → 空清單＋UI 文案。
+ * Linux：交給 mtp.js 的 Linux 實作（gio mount -li／jmtpfs）。
  * @returns {Promise<Array<{ name: string, path: string, type: string }>>}
  */
 function listDevices() {
   if (!platform.isWindows) {
-    // Linux：gvfs MTP 最小清單（見 mtp-linux.js）；沒掛載回空
-    return require('./mtp-linux').listDevices()
+    // Linux：手機清單由 mtp.js 的 Linux 實作（gio／jmtpfs）提供，這裡不重複列舉
+    return require('./mtp').listDevices()
   }
   const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new();'

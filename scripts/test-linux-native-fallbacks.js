@@ -69,9 +69,10 @@ function ctrlG() {
 }
 
 function devices() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'explorer', 'index.js'), 'utf8')
-  assert.match(src, /platform\.isWindows \? mtp\.listDevices\(\) : require\('\.\/mtp-linux'\)\.listDevices\(\)/,
-    'Linux 裝置清單走 mtp-linux，不問殼層 sidecar')
+  // mtp 分支：Linux 分派搬進 mtp.js（非 Windows 時改用 mtp-linux 的 createLinuxMtp），不再問殼層 sidecar
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'explorer', 'mtp.js'), 'utf8')
+  assert.match(src, /require\('\.\/mtp-linux'\)\.createLinuxMtp\(/, 'Linux 裝置清單走 mtp-linux')
+  assert.match(src, /isLinux \? linuxMtp\(\) : windowsMtp/, 'Linux 用 mtp-linux，其餘照舊殼層版')
 }
 
 async function main() {

@@ -293,7 +293,8 @@ function sanitizeAll(raw) {
       shell,
       preset,
       cwd,
-      admin: platform.isWindows && item.admin === true,
+      // Linux：root 終端機（sudo／run0／pkexec，見 root-linux.js）
+      admin: (platform.isWindows || platform.isLinux) && item.admin === true,
       projectId: normalizeProjectId(item.projectId),
       createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now()
     }
@@ -375,7 +376,9 @@ function create(req) {
       throw error
     }
     const shell = normalizeShell(req?.shell)
-    const preset = normalizePreset(req?.preset)
+    const rootLinux = platform.isLinux && req?.admin === true
+    // Linux root 分頁只開純 shell：預設指令會被打進密碼提示裡
+    const preset = rootLinux ? DEFAULT_PRESET : normalizePreset(req?.preset)
     const cwd = normalizeCwd(req?.cwd)
     const session = {
       id: newId(),
@@ -384,8 +387,8 @@ function create(req) {
       shell,
       preset,
       cwd,
-      // 提權要走另一顆 host 程序（見 admin.js）；Linux 沒有 ConPTY／UAC 這條路
-      admin: platform.isWindows && req?.admin === true,
+      // 提權：Windows 走另一顆 host 程序（見 admin.js）；Linux 走 sudo／run0／pkexec（見 root-linux.js）
+      admin: (platform.isWindows || platform.isLinux) && req?.admin === true,
       projectId: normalizeProjectId(req?.projectId),
       createdAt: Date.now()
     }

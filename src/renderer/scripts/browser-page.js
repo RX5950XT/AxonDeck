@@ -10,6 +10,7 @@
 
 import { electronAPI, showToast, setChatPaneMode, getChatPaneMode } from './app.js'
 import { createBrowserActions } from './browser-actions.js'
+import { showGuest } from './webview-warm.js'
 import { openChatMenu } from './chat-menu.js'
 import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
 
@@ -621,9 +622,7 @@ function activate(id) {
   const tab = tabOf(id)
   if (tab?.group && groupOf(tab.group)?.collapsed) patchGroup(tab.group, { collapsed: false })
   const guest = tab ? ensureGuest(tab) : null
-  for (const node of $('browserFrame')?.querySelectorAll('webview') || []) {
-    /** @type {HTMLElement} */ (node).hidden = node !== guest
-  }
+  showGuest($('browserFrame'), guest)
   const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
   if (input) {
     input.value = isNewTab(tab?.url) ? '' : tab?.url || ''
@@ -769,6 +768,16 @@ function bindHoverExpand() {
     }, 250)
   }
   sidebar.addEventListener('mouseleave', closeSoon)
+  // 用鍵盤（Tab）走進收起的側欄也要展開，不然焦點落在看不到的東西上
+  sidebar.addEventListener('focusin', () => {
+    clearTimeout(timer)
+    if (collapsible()) setOpen(true)
+  })
+  sidebar.addEventListener('focusout', (event) => {
+    const next = /** @type {Node | null} */ (event.relatedTarget)
+    if (next && sidebar.contains(next)) return
+    if (!sidebar.matches(':hover')) closeSoon()
+  })
   resizer?.addEventListener('mouseenter', () => clearTimeout(timer))
   resizer?.addEventListener('mouseleave', closeSoon)
   // 點在蓋子上＝想操作網頁：直接收起

@@ -767,6 +767,22 @@ export function renderMarkdown(text, depth = 0, imageBase = '', options) {
   }
 }
 
+/** 文件預覽只畫前這麼多字：幾十 MB 的 Markdown 一次轉成 DOM 會把畫面卡死好幾秒 */
+export const PREVIEW_MAX_CHARS = 512 * 1024
+
+/**
+ * 預覽要畫的那一段。超過上限就切在上限前最後一個換行（不切斷一行）。
+ * @param {string} text 整份，或呼叫端已經先截好的開頭一段
+ * @param {number} [total] 整份的長度（`text` 只是開頭時給）
+ * @returns {{ text: string, cut: boolean }}
+ */
+export function previewSlice(text, total = text.length) {
+  if (total <= PREVIEW_MAX_CHARS) return { text, cut: false }
+  const head = text.slice(0, PREVIEW_MAX_CHARS)
+  const end = head.lastIndexOf('\n')
+  return { text: end > 0 ? head.slice(0, end) : head, cut: true }
+}
+
 const BLOCKS = [tryFrontMatter, tryIndentedCode, tryFence, tryMath, tryHtml, tryHeading, tryHr, tryQuote, tryList, tryTable, tryDefinition]
 
 function renderBlocks(text, depth, imageBase) {

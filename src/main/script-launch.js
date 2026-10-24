@@ -180,8 +180,12 @@ async function terminalCommand(file, project, run) {
     `${/\.sh$/i.test(file) ? 'bash' : '&'} ${psQuote(target.replace(/\\/g, '/'))}`
   ].join('; ')
   const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  // 包裝寫成暫存 .ps1：-EncodedCommand 會把一整片 base64 打進使用者的終端機；BOM 讓 Windows PowerShell 認得中文路徑
+  await fs.promises.mkdir(TEMP_DIR, { recursive: true })
+  const wrapper = path.join(TEMP_DIR, `${require('crypto').randomUUID()}.ps1`)
+  await fs.promises.writeFile(wrapper, `\ufeff${source}\r\n`, 'utf8')
   watchServer(run, project)
-  return `& ${psQuote(powershell)} -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(source, 'utf16le').toString('base64')}`
+  return `& ${psQuote(powershell)} -NoProfile -ExecutionPolicy Bypass -File ${psQuote(wrapper)}`
 }
 
 const servers = new Map()

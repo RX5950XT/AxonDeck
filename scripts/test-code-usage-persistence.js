@@ -72,7 +72,8 @@ function makeRequire() {
   }
   const dbSources = {
     readOpencode: () => [],
-    readAntigravity: () => []
+    readAntigravity: () => [],
+    readAntigravityCli: () => []
   }
 
   return (request) => {

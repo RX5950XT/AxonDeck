@@ -19,6 +19,7 @@ const search = require('./search')
 const ports = require('./ports')
 const watch = require('./watch')
 const mediaPlayer = require('../media-player')
+const bigText = require('../big-text')
 const fsp = require('../raw-fs').promises
 
 /**
@@ -87,6 +88,18 @@ async function readFile(projectId, relPath) {
   // 圖片／PDF／影音不讀內容，給一個串流網址（`image`／`pdf`／`audio`／`video` 其中一個欄位）
   if (file.media) return { ...file, [file.media]: media.urlFor(projectId, file.rel) }
   return /\.md$/i.test(full) ? { ...file, imageBase: media.urlFor(projectId, file.rel) } : file
+}
+
+/**
+ * HTML 預覽網址（`vi-media://` 的網站主機，相對路徑的 CSS／JS／圖片都載得到）。
+ * `content` 是編輯器手上這一版，還沒存也照它畫。
+ * @returns {Promise<{ url: string }>}
+ */
+async function previewHtml(projectId, relPath, content) {
+  files.resolveExisting(await rootOf(projectId), relPath)
+  if (!/\.html?$/i.test(String(relPath))) throw fail('BAD_PATH', '只能預覽 HTML 檔')
+  if (typeof content !== 'string' || content.length > files.MAX_WRITE_CHARS) throw fail('TOO_LARGE', '內容太大，無法預覽')
+  return { url: media.siteUrlFor(projectId, relPath, content) }
 }
 
 /**
@@ -286,6 +299,44 @@ async function agentSessionDetail(projectId, agent, sessionId, cursor) {
   return agents.sessionDetail(await rootOf(projectId), agent, sessionId, cursor)
 }
 
+/**
+ * 超大文字檔的分段索引：專案＋相對路徑 → 索引。每份只有幾 MB，留最近幾份，
+ * 切分頁回來不必重掃（重掃 1GB 要好幾秒）。檔案改過（大小或時間不同）就重建。
+ * 存的是 Promise：重建到一半又有人要（畫面同時要好幾段），共用同一趟，不會同時掃兩遍。
+ * @type {Map<string, { idx: Promise<any>, mtimeMs: number, size: number }>}
+ */
+const bigIndexes = new Map()
+const MAX_BIG_INDEXES = 8
+
+async function bigIndexOf(projectId, relPath) {
+  const full = files.resolveExisting(await rootOf(projectId), relPath)
+  const stat = await fsp.stat(full)
+  const key = `${projectId}\0${full}`
+  const cached = bigIndexes.get(key)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    bigIndexes.delete(key)
+    bigIndexes.set(key, cached)
+    return cached.idx
+  }
+  // 舊索引交給 index：檔案只是往後長就接著掃
+  const idx = (cached ? cached.idx.catch(() => null) : Promise.resolve(null)).then((prev) => bigText.index(full, prev))
+  const entry = { idx, mtimeMs: stat.mtimeMs, size: stat.size }
+  bigIndexes.delete(key)
+  bigIndexes.set(key, entry)
+  while (bigIndexes.size > MAX_BIG_INDEXES) bigIndexes.delete(bigIndexes.keys().next().value)
+  // 失敗的不留著，下次重來
+  idx.catch(() => { if (bigIndexes.get(key) === entry) bigIndexes.delete(key) })
+  return idx
+}
+
+async function bigOpen(projectId, relPath) {
+  const { rows, lines, size, mtimeMs, enc } = await bigIndexOf(projectId, relPath)
+  return { rows, lines, size, mtimeMs, encoding: enc.name }
+}
+const bigRows = async (projectId, relPath, start, count) => bigText.readRows(await bigIndexOf(projectId, relPath), start, count)
+const bigLine = async (projectId, relPath, line) => bigText.rowOfLine(await bigIndexOf(projectId, relPath), line)
+const bigFind = async (projectId, relPath, query, afterRow, matchCase) => bigText.find(await bigIndexOf(projectId, relPath), query, afterRow, matchCase === true)
+
 module.exports = {
   // 不進 IPC：給 main.js 註冊 `vi-media://` 時換專案根目錄用
   rootOf,
@@ -304,6 +355,11 @@ module.exports = {
   getTabsState,
   listDir,
   readFile,
+  bigOpen,
+  bigRows,
+  bigLine,
+  bigFind,
+  previewHtml,
   convertOffice,
   writeFile,
   getFileMtime,

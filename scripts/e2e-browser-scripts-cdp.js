@@ -1,6 +1,7 @@
 'use strict'
 // 打包版：本機擴充功能真的作用於網頁、商店真安裝、點腳本開本機服務；資料與程序全部隔離。
 // --tts-only：共用隔離啟動，單獨驗證四語試聽與翻譯朗讀，不重跑腳本／商店下載。
+// --scripts-only：驗證本機套件與 cmd／PowerShell 腳本，不下載商店套件。
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -133,6 +134,8 @@ async function runScript(kind) {
   await ui.eval(`(()=>{const r=[...document.querySelectorAll('.ws-tree-row')].find(r=>r.dataset.rel===${quote(directory)});if(r.getAttribute('aria-expanded')!=='true')r.click()})()`)
   await waitFor(() => ui.eval(`Array.from(document.querySelectorAll('.ws-tree-row')).some(r=>r.dataset.rel===${quote(`${directory}/${file}`)})`), 'script row')
   await ui.eval(`Array.from(document.querySelectorAll('.ws-tree-row')).find(r=>r.dataset.rel===${quote(`${directory}/${file}`)}).click()`)
+  await waitFor(() => ui.eval(`!!document.querySelector('#wsEditorRunBtn:not([hidden])')?.offsetHeight`), 'editor run button')
+  await ui.eval(`document.getElementById('wsEditorRunBtn').click()`)
   const terminal = await waitFor(() => ui.eval(`window.electronAPI.terminal.list().then(r=>r.data.find(t=>t.title===${quote(`執行 ${file}`)}))`), 'terminal')
   const guestId = await waitFor(() => ui.eval(`(()=>{const w=Array.from(document.querySelectorAll('#wsBrowserFrame webview')).find(w=>w.getURL?.()===${quote(url)});return w?.getWebContentsId()})()`), 'project browser')
   const contents = `testElectron.webContents.fromId(${guestId})`
@@ -267,6 +270,7 @@ async function main() {
     assert.equal(await installLocal(), localId, '重裝本機套件保留 ID')
     assert.equal((await loaded()).filter((row) => row.id === localId).length, 1)
     await runScript('cmd'); await runScript('ps1')
+    if(process.argv.includes('--scripts-only')) return
     await stop(); await start()
     await waitFor(async () => (await loaded()).some((row) => row.id === localId), 'restore extension after restart')
     await waitFor(async () => {

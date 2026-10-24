@@ -14,7 +14,7 @@ async function main() {
     .replace(/^import [\s\S]*?from '[^']*'$/gm, '')
     .replace(/^export /gm, '').replaceAll('import.meta.url', "'file:///test.js'")
   let finishWrite
-  const editor = { value: 'saving' }
+  const editor = { value: 'saving', dataset: {} }
   /** 切分頁時發給檔案樹的通知（workspace-page 用它標出「現在開的是哪一個檔案」） */
   const activeFileEvents = []
   const noop = () => {}

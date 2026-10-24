@@ -138,14 +138,25 @@ function isPresetProcess(row, preset, platform = process.platform) {
   return name === `${preset}.exe` || (platform !== 'win32' && name === preset)
 }
 
+/** 有 axondeck-probe.exe 就用原生版（同欄位，約 0.1 秒；PowerShell 冷啟約 0.8 秒、每 5 秒一次）。 */
 async function processSnapshot() {
   if (process.platform === 'linux') return linuxProcessSnapshot()
   if (process.platform !== 'win32') return []
+  const probe = require('../native-probe').resolveProbeExe()
+  if (probe) {
+    try {
+      const { stdout } = await run(probe, ['procs-json'], { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 })
+      return validRows(JSON.parse(stdout || '[]'))
+    } catch { /* 起不來或輸出壞掉：退回 PowerShell */ }
+  }
   const exe = path.join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
   const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{Name='StartedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress"
   const { stdout } = await run(exe, ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 5000, maxBuffer: 4 * 1024 * 1024 })
-  const rows = JSON.parse(stdout || '[]')
-  return (Array.isArray(rows) ? rows : [rows]).filter(row => Number.isSafeInteger(row.ProcessId) && Number.isSafeInteger(row.ParentProcessId))
+  return validRows(JSON.parse(stdout || '[]'))
+}
+
+function validRows(rows) {
+  return (Array.isArray(rows) ? rows : [rows]).filter(row => Number.isSafeInteger(row?.ProcessId) && Number.isSafeInteger(row?.ParentProcessId))
 }
 
 async function identifySessions(states, terminals, homes, snapshot = processSnapshot) {

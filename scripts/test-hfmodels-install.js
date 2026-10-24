@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
 const catalog = require('../src/main/hfmodels/catalog')
+const { isTextModel } = require('../src/main/hfmodels/archs')
 const source = fs.readFileSync(path.join(__dirname, '../src/main/hfmodels/index.js'), 'utf8')
 const bodies = ['inspect', 'install'].map(name => {
   const start = source.indexOf(`async function ${name}(`)
@@ -12,8 +13,10 @@ const bodies = ['inspect', 'install'].map(name => {
 async function main() {
   let files = [{ name: 'model-Q4_K_M-00001-of-00002.gguf', size: 1 }]
   const pending = []
-  const context = { catalog, path, AbortController, installs: new Map(), emit() {},
-    hub: { listFiles: async () => files, fileUrl: () => 'unused', authHeaders: () => ({}) },
+  let arch = 'llama'
+  const context = { catalog, path, AbortController, installs: new Map(), emit() {}, isTextModel,
+    gguf: { readInfoFromBuffer: () => ({ arch }) },
+    hub: { listFiles: async () => files, fileUrl: () => 'unused', authHeaders: () => ({}), peekFile: async () => ({ buffer: null, totalBytes: 0 }) },
     library: { has: () => false, dirFor: () => 'unused', writeMeta() {} },
     download: { downloadVariant: () => new Promise((resolve, reject) => pending.push(reject)) } }
   vm.createContext(context)
@@ -34,6 +37,11 @@ async function main() {
   assert.match(settled[1].reason.message, /正在下載/)
   assert.equal(context.installs.size, 0)
   console.log('PASS 缺片拒絕與重複下載互斥')
+  arch = 'qwen_image21'
+  await assert.rejects(context.install('owner/model', variant.id), /不是執行環境能用的文字生成模型（qwen_image21）/)
+  assert.equal(context.installs.size, 0, '架構不支援時不留下載中狀態')
+  arch = 'llama'
+  console.log('PASS 不支援的架構在下載前擋下')
   const tuning = []
   const release = []
   Object.assign(context, { autoTuneQueue: Promise.resolve(), autoTunePending: 0,

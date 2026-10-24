@@ -24,8 +24,10 @@ export function cancelInlineEdit() {
 /**
  * 把 `slot` 的內容換成輸入框，等使用者打完。結束後還原原本的內容。
  * @param {HTMLElement} slot 要被輸入框取代的元素（檔名那一格）
- * @param {{ value?: string, selectBase?: boolean, label?: string }} [opts]
+ * @param {{ value?: string, selectBase?: boolean, label?: string, emptyBlurGraceMs?: number }} [opts]
  *   selectBase：檔案改名時只選主檔名（不含副檔名），跟檔案總管一樣
+ *   emptyBlurGraceMs：還沒打字就失焦時，先留著這麼久再取消（期間回到輸入框就繼續打）。
+ *     新增檔案／資料夾用：連按兩下「新增」時，第一下的輸入框不會被第二下的點擊無聲吃掉
  * @returns {Promise<string | null>} 新名稱；取消回 null
  */
 export function editInline(slot, opts = {}) {
@@ -67,7 +69,17 @@ export function editInline(slot, opts = {}) {
       if (event.key === 'Enter') { event.preventDefault(); finish(input.value) }
       else if (event.key === 'Escape') { event.preventDefault(); finish(null) }
     })
-    input.addEventListener('blur', () => finish(input.value))
+    let graceTimer = 0
+    input.addEventListener('focus', () => { clearTimeout(graceTimer); graceTimer = 0 })
+    input.addEventListener('blur', () => {
+      const grace = Number(opts.emptyBlurGraceMs) || 0
+      if (grace > 0 && !input.value.trim()) {
+        clearTimeout(graceTimer)
+        graceTimer = window.setTimeout(() => { if (document.activeElement !== input) finish(null) }, grace)
+        return
+      }
+      finish(input.value)
+    })
     input.focus()
     const dot = value.lastIndexOf('.')
     if (opts.selectBase && dot > 0) input.setSelectionRange(0, dot)

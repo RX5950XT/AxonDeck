@@ -95,7 +95,8 @@ function groupVariants(files, opts = {}) {
     .map((f) => ({ name: f.name, size: sizeOf(f) }))
 
   const mmprojs = ggufs.filter((f) => isMmproj(f.name))
-  const models = ggufs.filter((f) => !isMmproj(f.name))
+  // imatrix 是量化用的重要度矩陣，不是模型（unsloth 會放 imatrix_unsloth.gguf）
+  const models = ggufs.filter((f) => !isMmproj(f.name) && !/^imatrix/i.test(baseName(f.name)))
 
   /** @type {Map<string, { quant: string, files: Array<{name: string, size: number}>, total: number }>} */
   const groups = new Map()

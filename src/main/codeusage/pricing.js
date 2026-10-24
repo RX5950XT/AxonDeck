@@ -61,7 +61,8 @@ const PER_TOKENS = 1_000_000
 // v14：Codex 讀得到 `.jsonl.zst`；以前讀過、後來被壓縮的 session 游標已被清掉，不重掃會算兩次。
 //      同一版跳過 Grok 子代理自己的 session（母 session 已含），舊桶子裡算兩次的要重算。
 // v15：AGY 的 Claude 5.5 帶檔位後綴（`claude-opus-5-5-high`），剝掉才對得到單價。
-const RULES_VERSION = 15
+// v16：讀 Antigravity CLI 本機對話，它的實驗分流模型名收回本體。
+const RULES_VERSION = 16
 
 /**
  * @typedef {object} Price
@@ -143,6 +144,9 @@ const BUILTIN_PRICES = {
   'gemini-3.5-flash': { input: 1.5, output: 9, cacheRead: 0.15, cacheWrite: 0, cacheWrite1h: 0 },
   'gemini-3.1-flash-lite': { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0, cacheWrite1h: 0 },
   'gemini-3.1-pro': { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 0, cacheWrite1h: 0 },
+  // ai.google.dev 官方價目表的限時價（到 2026-11-30）。
+  // shortcut: 單價表不分日期，2026-12-01 起漲成 4／20／0.2，到時改這列（之前的用量也會照新價算）
+  'gemini-4-argon': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0, cacheWrite1h: 0 },
   // Z.ai（docs.z.ai/guides/overview/pricing，2026-09 查證）。快取只收讀取（cached input），
   // 寫入不另外計費 → 0 不是「沒填」。經 Claude Code 打的話 id 是 `z-ai/glm-5.3`，前綴會被剝掉
   'glm-5.3': { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0, cacheWrite1h: 0 },
@@ -180,6 +184,13 @@ const ALIASES = {
   // Codex 反代的模型名
   'gpt-5.6-sol-high': 'gpt-5.6-sol',
   'gpt-5.6-sol-low': 'gpt-5.6-sol',
+  // Antigravity CLI 的實驗分流名：跟本體共用同一個模型編號（實測），價錢一樣
+  'gemini-3-flash-a': 'gemini-3-flash',
+  'gemini-3-flash-d': 'gemini-3-flash',
+  'gemini-3.6-flash-exp-a': 'gemini-3.6-flash',
+  'gemini-3.7-flash-exp-b': 'gemini-3.7-flash',
+  'gemini-3.8-flash-n': 'gemini-3.8-flash',
+  'gemini-4-argon-trial': 'gemini-4-argon',
   // DeepSeek 別名
   'deepseek-v3': 'deepseek-chat',
   'deepseek-v3.2': 'deepseek-chat'

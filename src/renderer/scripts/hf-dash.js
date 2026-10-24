@@ -4,6 +4,7 @@
  */
 
 import { electronAPI } from './app.js'
+import { paintRunning } from './hf-recommend.js'
 
 const POLL_MS = 2000
 const $ = (id) => document.getElementById(id)
@@ -222,6 +223,7 @@ async function refresh(seq) {
   renderOccupancy(data.occupancy)
   renderGpus(data.devices, data.occupancy?.gpus)
   renderLog(data.logTail)
+  paintRunning(data.models)
 }
 
 function tick() {

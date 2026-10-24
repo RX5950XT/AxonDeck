@@ -346,6 +346,12 @@ async function cancel(options = {}) {
   return { canceled: true }
 }
 
+/** Local SI 的「卸載」：停掉常駐的語音 server，下次生成會自己再載 */
+async function unload() {
+  active?.controller.abort(fail('CANCELED', '已停止語音生成'))
+  await stopRuntime()
+}
+
 async function pickAudio(options = {}) {
   if (!['reference', 'source'].includes(options.kind)) throw fail('INVALID_INPUT', '錄音用途不符')
   const selected = await dialog.showOpenDialog(parentWindow(), { title: options.kind === 'source' ? '選擇要轉換的錄音' : '選擇參考錄音',
@@ -525,5 +531,5 @@ async function shutdown() {
   inputs.clear(); results.clear()
 }
 
-module.exports = { init, status, generate, cancel, pickAudio, importRecording, trimAudio, voices, saveVoice, removeVoice, saveAudio,
+module.exports = { init, status, generate, cancel, unload, pickAudio, importRecording, trimAudio, voices, saveVoice, removeVoice, saveAudio,
   saveTake, loadTake, listTakes, removeTake, shutdown }

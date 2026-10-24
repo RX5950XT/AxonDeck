@@ -39,6 +39,7 @@ const DIRECT_LINKS = `window.__axDirectLinks || (window.__axDirectLinks = true, 
 }, true))`
 
 let initialized = false
+let pageVisible = true
 let stuckSince = 0
 let lastReloadAllAt = 0
 
@@ -61,7 +62,7 @@ function frame() {
   return document.getElementById('telegramFrame')
 }
 
-/** 收掉的格子沒有 webview，網址留在 pane 上 */
+/** 每格保留使用者最後停留的網址，背景導覽不覆蓋它 */
 function paneUrl(pane) {
   return pane.querySelector('webview')?.dataset.src || HOME_URL
 }
@@ -106,18 +107,35 @@ async function reloadAll(why) {
 }
 
 async function watchStuck() {
+  if (!pageVisible) { stuckSince = 0; return }
   let stuck = false
   for (const view of frame().querySelectorAll('webview')) {
     try {
       if (await view.executeJavaScript(STUCK_PROBE)) stuck = true
     } catch { /* 還沒載好或正在重載 */ }
   }
+  if (!pageVisible) return
   if (!stuck) {
     stuckSince = 0
   } else if (!stuckSince) {
     stuckSince = Date.now()
   } else if (Date.now() - stuckSince >= STUCK_MS) {
     reloadAll('卡在等待網路連線')
+  }
+}
+
+function onPageVisibility(visible) {
+  pageVisible = visible
+  stuckSince = 0
+  if (!visible) return
+  for (const view of frame().querySelectorAll('webview')) {
+    try {
+      const url = view.dataset.src
+      const currentUrl = view.getURL()
+      if (currentUrl && currentUrl !== 'about:blank' && currentUrl !== url) {
+        view.loadURL(url).catch((error) => console.error('[telegram] 還原聊天室失敗:', error))
+      }
+    } catch { /* 還沒載好的格子會沿用建立時的網址 */ }
   }
 }
 
@@ -173,6 +191,7 @@ function mountView(pane, url) {
   view.setAttribute('allowpopups', '')
   view.dataset.src = url
   const remember = (event) => {
+    if (!pageVisible || /** @type {any} */ (event).isMainFrame === false) return
     const url = /** @type {any} */ (event).url
     if (url === 'about:blank') return // 關格子、全部重載時的過渡頁，不是使用者停的聊天室
     view.dataset.src = safeUrl(url)
@@ -196,6 +215,7 @@ function mountView(pane, url) {
 export async function refreshTelegramPage() {
   if (initialized || !frame()) return
   initialized = true
+  electronAPI.pages.onVisibility(onPageVisibility)
   ;(await loadSaved()).forEach(addPane)
   setInterval(watchStuck, WATCH_EVERY_MS)
 }

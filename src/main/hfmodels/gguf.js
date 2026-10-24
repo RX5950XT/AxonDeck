@@ -286,7 +286,7 @@ function num(value) {
  *   headCount: number | null, headCountKv: number | null,
  *   keyLength: number | null, valueLength: number | null,
  *   expertCount: number, expertUsedCount: number, expertFfnLength: number, ffnLength: number,
- *   isMoe: boolean, hasMtp: boolean, thinkingCapable: boolean, isProjector: boolean,
+ *   isMoe: boolean, hasMtp: boolean, thinkingCapable: boolean, isProjector: boolean, pooling: boolean,
  *   parameterCount: number | null,
  *   vocabSize: number | null, hasChatTemplate: boolean | null,
  *   splitNo: number | null, splitCount: number | null,
@@ -331,6 +331,8 @@ function mapInfo(header, fileBytes) {
     // mmproj-*.gguf 自己也是 GGUF，但沒有 block_count。掃資料夾時要靠它分開，
     // 否則清單上會多一顆「一載入就失敗」的模型
     isProjector: arch === 'clip' || arch === 'mtmd',
+    // 有 pooling_type 的是向量／重排序模型，只吐向量不生成文字
+    pooling: kv[`${arch}.pooling_type`] !== undefined,
     parameterCount: num(kv['general.parameter_count']),
     vocabSize: tokens && typeof tokens.arrayType === 'number' ? tokens.length : null,
     // 詞表排在 chat_template 之前，Range 預覽多半走不到那裡：

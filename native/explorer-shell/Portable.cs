@@ -24,6 +24,7 @@ namespace AxonDeckShell
         private const uint SIGDN_DESKTOPABSOLUTEPARSING = 0x80028000;
         private const uint SFGAO_FOLDER = 0x20000000;
         private const uint SFGAO_STREAM = 0x00400000;
+        private const uint SFGAO_FILESYSTEM = 0x40000000;
 
         private const uint FOF_SILENT = 0x0004;
         private const uint FOF_NOCONFIRMATION = 0x0010;
@@ -34,6 +35,8 @@ namespace AxonDeckShell
         private static PROPERTYKEY PKEY_FileName = new PROPERTYKEY(new Guid("41CF5AE0-F75A-4806-BD87-59C7D9248EB9"), 100);
         private static PROPERTYKEY PKEY_Size = new PROPERTYKEY(new Guid("B725F130-47EF-101A-A5F1-02608C9EEBAC"), 12);
         private static PROPERTYKEY PKEY_DateModified = new PROPERTYKEY(new Guid("B725F130-47EF-101A-A5F1-02608C9EEBAC"), 14);
+        // System.ItemTypeText（「可攜式裝置」那種類型文字）
+        private static PROPERTYKEY PKEY_ItemTypeText = new PROPERTYKEY(new Guid("B725F130-47EF-101A-A5F1-02608C9EEBAC"), 4);
 
         /// <summary>一個資料夾最多列幾筆：相機資料夾幾千張很正常，再多就是異常</summary>
         private const int MaxItems = 50000;
@@ -62,6 +65,44 @@ namespace AxonDeckShell
                 }
                 w.WriteEndObject();
                 Marshal.ReleaseComObject(child);
+            }
+            w.WriteEndArray();
+        }
+
+        /// <summary>
+        /// 「本機」底下每一項（磁碟也一起列，`fs` 標出來；App 那邊只留裝置）。
+        /// 取代每次冷啟一支 PowerShell 走 Shell.Application 的 NameSpace(17)，欄位意思一樣：
+        /// name＝顯示名稱、path＝解析名稱、type＝類型文字。
+        /// </summary>
+        public static void Devices(Utf8JsonWriter w)
+        {
+            IShellItem2 computer = FromParsing("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}");
+            w.WriteStartArray("items");
+            try
+            {
+                foreach (IShellItem2 child in Children(computer))
+                {
+                    uint attrs;
+                    child.GetAttributes(SFGAO_FILESYSTEM, out attrs);
+                    w.WriteStartObject();
+                    w.WriteString("name", Display(child, SIGDN_NORMALDISPLAY) ?? "");
+                    w.WriteString("path", Display(child, SIGDN_DESKTOPABSOLUTEPARSING) ?? "");
+                    IntPtr text;
+                    string type = "";
+                    if (child.GetString(ref PKEY_ItemTypeText, out text) == 0 && text != IntPtr.Zero)
+                    {
+                        type = Marshal.PtrToStringUni(text) ?? "";
+                        Marshal.FreeCoTaskMem(text);
+                    }
+                    w.WriteString("type", type);
+                    w.WriteBoolean("fs", (attrs & SFGAO_FILESYSTEM) != 0);
+                    w.WriteEndObject();
+                    Marshal.ReleaseComObject(child);
+                }
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(computer);
             }
             w.WriteEndArray();
         }

@@ -344,7 +344,7 @@ async function main() {
     check('真正 IPC 拒絕不合法的版本代碼', takeMissing?.ok === false && takeMissing.error.code === 'INVALID_INPUT')
     await cdp.click('#speechModelsBtn')
     await waitFor(() => cdp.eval(`!!document.querySelector('#modelList [data-key="breezetts2q8"]')`), 'Q8 推薦')
-    check('前往 Local SI 推薦真的開推薦子分頁', await cdp.eval(`document.querySelector('#hfSubtabs [data-subtab="recommend"]').getAttribute('aria-selected')==='true'`))
+    check('前往 Local SI 推薦真的開執行環境裡的推薦模型', await cdp.eval(`document.querySelector('#hfSubtabs [data-subtab="runtime"]').getAttribute('aria-selected')==='true' && !!document.querySelector('#hf-runtime #hf-recommend #modelList')`))
     await cdp.click('.nav-tab[data-page="speech"]')
     const streamVisibility = []
     for (const mode of ['design', 'clone', 'direction', 'convert']) {

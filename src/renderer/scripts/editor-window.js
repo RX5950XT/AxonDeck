@@ -4,12 +4,13 @@
  */
 
 import { loadMonaco, languageFor } from './ws-monaco.js'
-import { renderMarkdown } from './markdown.js'
+import { renderMarkdown, previewSlice, PREVIEW_MAX_CHARS } from './markdown.js'
 import { askConfirm } from './app-dialog.js'
+import { mountBigText } from './big-text-view.js'
 
 const api = /** @type {any} */ (window).electronAPI.editorFile
 const $ = (/** @type {string} */ id) => /** @type {HTMLElement} */ (document.getElementById(id))
-const ENCODING_LABELS = { utf8: 'UTF-8', utf8bom: 'UTF-8 BOM', utf16le: 'UTF-16 LE', big5: 'Big5（唯讀）' }
+const ENCODING_LABELS = { utf8: 'UTF-8', utf8bom: 'UTF-8 BOM', utf16le: 'UTF-16 LE', utf16be: 'UTF-16 BE', big5: 'Big5（唯讀）' }
 const MODE_KEY = 'axondeck.editor.markdownMode'
 const WRAP_KEY = 'axondeck.editor.wrap'
 
@@ -74,8 +75,24 @@ function paintPreview() {
   if (!state.file.markdown || $('edMain').dataset.mode === 'edit') return
   const box = $('edPreview')
   const top = box.scrollTop
-  box.replaceChildren(renderMarkdown(state.editor.getValue(), 0, state.file.imageBase, { html: true, openLink }))
+  const model = state.editor.getModel()
+  const total = model.getValueLength()
+  // 大檔只取開頭那段：`getValue()` 是整份複製，分割模式每停手一次就是一份
+  const head = total > PREVIEW_MAX_CHARS ? model.getValueInRange(monacoRangeTo(model.getPositionAt(PREVIEW_MAX_CHARS))) : model.getValue()
+  const shown = previewSlice(head, total)
+  box.replaceChildren(renderMarkdown(shown.text, 0, state.file.imageBase, { html: true, openLink }))
+  if (shown.cut) {
+    const note = document.createElement('p')
+    note.className = 'ed-preview-cut'
+    note.textContent = '檔案太大，預覽只畫開頭一部分；完整內容請切到編輯。'
+    box.appendChild(note)
+  }
   box.scrollTop = top
+}
+
+/** @param {{ lineNumber: number, column: number }} end 從檔頭到 end 的範圍 */
+function monacoRangeTo(end) {
+  return { startLineNumber: 1, startColumn: 1, endLineNumber: end.lineNumber, endColumn: end.column }
 }
 
 /** 預覽裡的相對路徑連結：交給 main 照這個檔案的位置解，另開一扇編輯視窗 */
@@ -89,14 +106,17 @@ function schedulePreview() {
   state.previewTimer = window.setTimeout(paintPreview, 150)
 }
 
-/** @param {string} mode */
-function setMode(mode) {
+/**
+ * @param {string} mode
+ * @param {boolean} [remember] 大檔自動改成編輯時不記：不可以蓋掉使用者平常的選擇
+ */
+function setMode(mode, remember = true) {
   $('edMain').dataset.mode = mode
   for (const button of $('edModes').querySelectorAll('button')) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode))
   }
   // 只記 Markdown 的選擇：程式碼檔永遠是編輯，不能把它蓋掉
-  if (state.file.markdown) writePref(MODE_KEY, mode)
+  if (state.file.markdown && remember) writePref(MODE_KEY, mode)
   paintPreview()
   if (mode !== 'preview') state.editor.focus()
 }
@@ -195,10 +215,54 @@ function paintHeader(file) {
   $('edPath').title = file.path
   $('edEncoding').textContent = ENCODING_LABELS[file.encoding] || file.encoding
   $('edModes').hidden = !file.markdown
-  if (file.readonly) notice('這個檔案不是 UTF-8 編碼，用 Big5 顯示，只能檢視不能儲存。')
+  if (file.readonly && !file.big) notice('這個檔案不是 UTF-8 編碼，用 Big5 顯示，只能檢視不能儲存。')
+}
+
+/** IPC 回 `{ ok, data, error }`：拆成資料或例外，給分段檢視用 */
+async function unwrap(pending) {
+  const result = await pending
+  if (!result.ok) throw new Error(result.error.message)
+  return result.data
+}
+
+/** 超過 Monaco 上限的檔：唯讀分段檢視（main 只讀畫面要的那幾列） */
+async function bootBig(file) {
+  for (const id of ['edWrap', 'edSave']) $(id).hidden = true
+  $('edLang').textContent = '純文字'
+  $('edEol').textContent = ''
+  notice('檔案超過 256MB，用唯讀分段檢視開啟：可以捲動、跳行、搜尋，不能編輯。')
+  const loading = document.createElement('p')
+  loading.className = 'ed-loading'
+  loading.textContent = '正在建立索引（檔案越大越久）…'
+  $('edSource').replaceChildren(loading)
+  let opened
+  try {
+    opened = await unwrap(api.bigOpen())
+  } catch (error) {
+    return fatal(error.message)
+  }
+  const paintMeta = (meta) => {
+    $('edEncoding').textContent = ENCODING_LABELS[meta.encoding] || meta.encoding
+    $('edCursor').textContent = `${meta.lines.toLocaleString()} 行`
+  }
+  mountBigText($('edSource'), {
+    ...opened,
+    read: (start, count) => unwrap(api.bigRows(start, count)),
+    line: (line) => unwrap(api.bigLine(line)),
+    find: (query, afterRow, matchCase) => unwrap(api.bigFind(query, afterRow, matchCase)),
+    mtime: async () => (await unwrap(api.stat())).mtimeMs,
+    reopen: async () => {
+      const meta = await unwrap(api.bigOpen())
+      paintMeta(meta)
+      return meta
+    }
+  }, { onError: (message) => flash(message, 'error') }).focus()
+  paintMeta(opened)
 }
 
 async function boot() {
+  // 讀檔與載 Monaco 同時跑：大檔光讀進來就要一兩秒，排隊等等於白等
+  const monacoReady = loadMonaco()
   const result = await api.load()
   if (!result.ok) return fatal(result.error.message)
   const file = result.data
@@ -206,7 +270,8 @@ async function boot() {
   state.mtimeMs = file.mtimeMs
   document.documentElement.dataset.theme = file.theme
   paintHeader(file)
-  const monaco = await loadMonaco()
+  if (file.big) return bootBig(file)
+  const monaco = await monacoReady
   if (!monaco) return fatal('編輯器元件載入失敗，請重新安裝 AxonDeck。')
   state.monaco = monaco
   state.editor = monaco.editor.create($('edSource'), {
@@ -225,6 +290,8 @@ async function boot() {
     padding: { top: 10 },
     tabSize: 2
   })
+  // 內容已經在 model 裡；留著這份字串，大檔就是白佔一整份記憶體
+  file.content = ''
   const model = state.editor.getModel()
   state.savedVersion = model.getAlternativeVersionId()
   const languageId = model.getLanguageId()
@@ -237,7 +304,9 @@ async function boot() {
   bindUi()
   setWrap(readPref(wrapKey(), file.markdown ? 'on' : 'off') === 'on')
   // Markdown 一打開就是預覽（像看文件）；要改再切編輯／分割
-  setMode(file.markdown ? readPref(MODE_KEY, 'preview') : 'edit')
+  // 大檔一律先開編輯：預設預覽等於一打開就把整份轉成 DOM
+  const big = model.getValueLength() > PREVIEW_MAX_CHARS
+  setMode(file.markdown && !big ? readPref(MODE_KEY, 'preview') : 'edit', !big)
 }
 
 void boot()

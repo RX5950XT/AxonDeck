@@ -352,6 +352,17 @@ async function main() {
       assert(off.ok && !off.data.entries.some(e => e.name === 'hidden-check.txt'), '關掉「顯示隱藏項目」時藏起真正隱藏檔')
       assert(on.ok && on.data.entries.some(e => e.name === 'hidden-check.txt' && e.hidden), '打包版顯示隱藏項目保留屬性')
       fs.unlinkSync(hiddenFile)
+      // 超過 300 項走原生 list-dir（list-native.js）：一趟拿隱藏屬性，超過 sidecar 2000 筆上限的也要標到
+      const bigDir = path.join(USER_DATA_DIR, 'big-folder')
+      fs.mkdirSync(bigDir)
+      for (let i = 0; i < 2500; i++) fs.writeFileSync(path.join(bigDir, `f${String(i).padStart(4, '0')}.txt`), 'x')
+      execFileSync(path.join(process.env.SystemRoot, 'System32', 'attrib.exe'), ['+h', path.join(bigDir, 'f2499.txt')], { windowsHide: true })
+      const bigOff = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(bigDir)}, { showHidden: false })`)
+      const bigOn = await cdp.eval(`window.electronAPI.explorer.listDir(${JSON.stringify(bigDir)}, { showHidden: true, offset: 2000 })`)
+      assert(bigOff.ok && bigOff.data.total === 2499 && bigOff.data.entries[0].name === 'f0000.txt' && bigOff.data.entries[0].size === 1,
+        '大資料夾（原生列目錄）藏起第 2500 筆的隱藏檔、大小正確', JSON.stringify(bigOff.data && { total: bigOff.data.total, first: bigOff.data.entries[0] }))
+      assert(bigOn.ok && bigOn.data.total === 2500 && bigOn.data.entries.some(e => e.name === 'f2499.txt' && e.hidden),
+        '大資料夾顯示隱藏項目時保留屬性', JSON.stringify(bigOn.data && bigOn.data.total))
       // 等畫面把那一列收掉再往下：不然後面量好座標的拖放，會被監看重畫把列擠位
       await waitFor(() => cdp.eval(`!document.querySelector('#exList [data-id="hidden-check.txt"]')`), 10_000, '隱藏檔從清單收掉')
       await sleep(1_200)
@@ -640,8 +651,8 @@ async function main() {
       await waitFor(() => cdp.eval(`!!document.querySelector('#exList [data-id="hello.txt"]')`), 10_000, '回到種子資料夾')
     }
 
-    // 1757312（10/08）起預設顯示隱藏項目、畫淡；開關是拿來藏起來的
-    console.log('\n[C10] 系統項目預設看得到（畫淡），開關藏得起來')
+    // 隱藏項目一律顯示、畫淡，沒有開關
+    console.log('\n[C10] 系統項目一律看得到（畫淡），右鍵沒有開關')
     {
       fs.writeFileSync(path.join(SEED_DIR, 'desktop.ini'), '[.ShellClassInfo]')
       fs.writeFileSync(path.join(SEED_DIR, '.gitignore'), 'node_modules')
@@ -675,22 +686,7 @@ async function main() {
         })()`)
         return got.open ? got : null
       }, 15_000, '空白處右鍵選單').catch(() => ({ open: false, labels: [] }))
-      // 選單字樣跟著狀態換：現在是顯示中，所以寫「不顯示隱藏項目」
-      assert(menu10.labels.includes('不顯示隱藏項目'), '空白處右鍵有「不顯示隱藏項目」', JSON.stringify(menu10.labels))
-      await cdp.eval(`(() => {
-        [...document.querySelectorAll('.ws-menu .ws-menu-item')].find((n) => n.textContent === '不顯示隱藏項目')?.click()
-      })()`)
-      const withoutHidden = await waitFor(() => cdp.eval(`(() => {
-        const ids = [...document.querySelectorAll('#exList .ex-row')].map((r) => r.dataset.id)
-        return ids.includes('hello.txt') && !ids.includes('desktop.ini') ? ids : null
-      })()`), 15_000, '關掉之後藏起系統項目').catch(() => null)
-      assert(!!withoutHidden, '關掉「顯示隱藏項目」之後 desktop.ini 藏起來', JSON.stringify(withoutHidden))
-      assert(withoutHidden.includes('.gitignore'), '關掉之後 .gitignore 仍在（點開頭不算隱藏）', JSON.stringify(withoutHidden))
-
-      await cdp.eval(`window.electronAPI.explorer.saveState({ showHidden: false })`)
-      const saved = await cdp.eval(`window.electronAPI.explorer.bootstrap()`)
-      assert(saved.ok && saved.data.showHidden === false, '開關存得進 explorer.json',
-        JSON.stringify(saved.data && saved.data.showHidden))
+      assert(menu10.open && !menu10.labels.some((l) => l.includes('隱藏項目')), '空白處右鍵沒有隱藏項目開關', JSON.stringify(menu10.labels))
       await cdp.eval(`(() => {
         [...document.querySelectorAll('.ws-menu .ws-menu-item')].forEach((n) => n.remove())
         document.querySelector('.ws-menu')?.remove()

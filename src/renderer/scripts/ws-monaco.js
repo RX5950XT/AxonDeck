@@ -378,7 +378,7 @@ export function cursorInfo() {
   return {
     line: pos?.lineNumber || 1,
     column: pos?.column || 1,
-    selected: sel && !sel.isEmpty() ? model.getValueInRange(sel).length : 0,
+    selected: sel && !sel.isEmpty() ? model.getValueLengthInRange(sel) : 0,
     lines: model.getLineCount()
   }
 }

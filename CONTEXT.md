@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.61.0**（2026-10-18）。
+AxonDeck（v1.40 前叫 VoiceInk，留舊名的相容點見 AGENTS.md「打包／建置」）：Windows Electron AI 工作台。Vanilla JS + Vite，Electron 43.7.5。目前版本 **v1.66.0**（2026-10-24）。
 nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws-tool-icons.js` 的 `toolIcon`）：
 
 | 頁 | `data-page` | 一句話 |
@@ -15,13 +15,13 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 語音轉文字 | `stt` | 轉錄、錄音、即時字幕、語音輸入同一頁（辨識／翻譯／目標語言共用；語音輸入的模型與輸出語言獨立） |
 | 翻譯 | `translate` | local（LinguaForge）／cloud 翻譯；EdgeTTS 與模型按鈕同一排、按鈕寬度貼文字，展開浮在內容上。語音是繁中、簡中、英文、日文 |
 | 文字轉語音 | `speech` | Breeze-TTS-2 Q8：聲音設計、語音克隆、語氣指導、保存聲音、實驗性變聲；整段／逐句／字幕配音、讀音字典、錄音與裁切參考音、版本保留與單句重做、串流試聽與 WAV 匯出 |
-| 生成圖片影像 | `imagegen` | 內嵌 Miroxen 工作台（Qwen-Image-2.1 圖片、MiniMax-H3 影音）；引擎在 Local SI 執行環境、模型在推薦 |
+| 生成圖片影像 | `imagegen` | 內嵌 Miroxen 工作台（Qwen-Image-2.1 圖片、MiniMax-H3 影音）；引擎與模型都在 Local SI 執行環境 |
 | 系統監控 | `sysmon` | 總覽／使用時長／處理程序／風扇／效能與壓力測試／磁碟空間 |
 | Local SI（原 HF模型） | `hfmodels` | 搜 GGUF → 下載 → llama-server router 一顆程序管全部模型 |
 | 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
 
 滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡（功能頁模式下每個 renderer 只記自己那頁，跨頁的足跡在 main `pages.history`）；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
-功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
+功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。`app.js` 第一個 import 的 `page-content.js` 在其他模組抓 DOM 前移除非本頁 `.page`，外置對話框用 `data-page-content` 指定所屬頁；無分頁參數的相容模式保留完整介面。設定頁只初始化供應商表單，桌布預覽只在外觀區啟用時載入；切頁仍保留同一個 renderer 與草稿。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
 設定頁雲端分區是整份 `providerDraft` 寫回 `cloudProviders`：功能頁切走（`visibilitychange` hidden）時有沒存的修改就當下存，不能等被節流的計時器，否則會用舊草稿蓋掉別頁或 main 期間寫進來的供應商。
 
 ## 模組地圖
@@ -58,7 +58,7 @@ src/renderer/scripts/
   explorer-page.js  explorer-*.js  quota-bar.js  code-usage-page.js  ccswitch-page.js  cc-model-groups.js
   sysmon-*.js  disk-treemap.js  stt-page.js  recorder.js  live-caption.js  live-history.js  dictation.js  custom-select.js  app-dialog.js
 native/
-  axondeck-probe/    Rust：sysmon／usage-scan／dir-size／disk-tree／hook／claude-hook 子指令；bin/axondeck-term、bin/axondeck-media
+  axondeck-probe/    Rust：sysmon／usage-scan／dir-size／disk-tree／search（專案全文搜尋，平行讀檔）／procs-json（終端機認 AI 對話的程序清單）／raise-window（Ctrl+G 抬視窗）／list-dir（檔案頁超過 300 項的資料夾）；沒 exe 各自退回 JS／PowerShell／hook／claude-hook 子指令；bin/axondeck-term、bin/axondeck-media
   explorer-shell/    .NET 殼層 sidecar（IContextMenu、縮圖、overlay、內容視窗、MTP、屬性）
   sysmon-sensors/    .NET LHM 提權 sidecar；dictation-hook/ 熱鍵 .NET 退路
 ```
@@ -69,7 +69,7 @@ native/
 
 ### 本地推論（Local SI）
 - 本機預覽使用既有 `%APPDATA%/axondeck-dev`（`dev-sandbox.js --packed --with-chats`），複製正式設定／專案／聊天，models／hf-models 連到 `%APPDATA%/voiceink`；Breeze 實體也在正式 models，舊 D 槽 Breeze QA profile 已清除。預覽設定與正式設定分開，模型共用。
-- 子分頁：探索／推薦／執行環境。本機模型跟啟動、硬體、引擎、設定在同一頁「執行環境」。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
+- 子分頁：執行環境／探索。本機模型、推薦模型跟啟動、硬體、引擎、設定在同一頁「執行環境」（舊的 `switchPage('hfmodels','recommend')` 導到執行環境並捲到 `#hf-recommend`）。推薦模型標「運行中」靠儀表板輪詢的 router 模型狀態（id＝推薦 key）＋ `breeze:status` 的 ready；卸載走 `hfmodels.unloadModel(key)`／`breeze:unload`（只停程序不刪檔）。推薦有 Breeze-TTS-2 Q8_0、ASR 兩顆、翻譯 LinguaForge 0.8B／Index-Translate 2B Q4_K_M；舊 Qwen3.5 key 遷移到 Index。
 - Index-Translate 譯文修補：行首「A. 」「1. 」先剝掉再貼回（共用 LinguaForge 的 `packLinguaforge`）；譯文殘留原文小寫英文單字或日文假名時，改用官方 instTrans 約束格式重翻（先寬鬆版，不行再加「只能用繁中」，後者對正常片段會冒粵語「係」）；出口用 `jpKanjiToTw` 把日文新字體逐字換回繁體（排除臺灣本來在用的字）。`translate-clean` 原文本來就是「A. 」開頭時不當答題標籤剝掉。
 - 翻譯術語表（`glossary.js`）：翻譯頁頁首「術語表」卡片。自訂詞條 `translateGlossary`（每行 英文=繁中，沒設定過＝內建數理清單，存 null 恢復）優先，再補內建學術名詞庫 `translateGlossaryBuiltin`（預設開）：`glossary-data/naer-terms.tsv.gz` 由 `scripts/build-glossary-data.js` 下載國家教育研究院理工 45 科整併，只收至少兩個學科都有的詞（只出自一科的常是該科特有用法：電子計算機的 order information＝訂單資訊；實測雲端模型拿到就照抄，標成「參考」或附學科名也一樣，不給反而依上下文翻對；54.6 萬→20.8 萬條），只收 2–5 字片語（單字在一般文章常是別的意思）、頭尾功能詞不收、每條最多 3 個候選；執行時整段文字＋行首位移二分搜尋（Map 多吃約 60MB）；翻譯開始前 `warm()` 背景解壓，載入後常駐約 17MB 不閒置釋放。只在目標繁中套用；雲端進 system prompt（多候選依上下文挑），Index 只給唯一譯名、用 instTrans 術語約束，LinguaForge 不套。資料授權：政府資料開放授權條款第 1 版，README 技術棧有標示出處。
 - 文字轉語音：`breeze-tts/{index,protocol,takes,ipc}.js` → `speech-page.js`（流程）＋`speech-{script,takes,audio-input,wave}.js`／`speech.css`；`breezetts2q8`（3,568,844,480 bytes）搭配固定 v0.1.0 `breezeruntime`，SHA-256 驗證後才安裝。不寫 llama preset；NVIDIA ≥8GB + Vulkan 自動用 GPU，其餘 CPU。首次生成或保存聲音才載模型；列表直接讀保存檔，不因切頁載模型。
@@ -111,7 +111,9 @@ native/
 - 翻譯 Edge TTS：`node-edge-tts` 固定 1.2.11，服務從舊 speech.platform.bing.com 改為 api.msedgeservices.com；舊版真請求 403、新版成功。維持 voice allowlist、語速與切塊／取消流程，`e2e-browser-scripts-cdp.js --tts-only` 共用隔離打包版啟動，獨立驗四語試聽＋朗讀的真 MP3 播放（靜音測試，不碰正式設定）。真上游可能偶發逾時。
 - 專案腳本開瀏覽器（`script-launch.js`）：檔案頁／專案檔案樹執行專案裡的 `.bat`／`.cmd` 改由 App 啟動——`BROWSER`＝AxonDeck.exe（Python `webbrowser`、Vite `--open`）；暫存副本把有網址／變數的 `start …` 改成 `(%AXONDECK_START% … || start …)`（不能用 `call :標籤`，參數有 `/?` 會變成顯示說明）。第二份 AxonDeck 用**原始順序**的 `process.argv` 判斷（轉給第一份的 argv 會被 Chromium 重排、丟空字串、加開關），帶 `AXONDECK_PROJECT` 給第一份開在那個專案；不是網址回 3、App 沒在跑回 4，腳本改照原樣 start。
 - 右側檔案樹的一鍵啟動仍在專案終端機：`ws-tabs.runInTerminal` → `workspace:scriptCommand`（專案相對路徑＋同專案終端機守衛）→ `script-launch.terminalCommand`。用獨立 PowerShell 執行，批次副本以環境變數保留中文原路徑，PowerShell 的 `Start-Process`／`Invoke-Item` 網址也改道；不改原腳本或 PTY 宿主協定。main 只追蹤這次腳本的輸出 5 分鐘，看到 loopback URL 後等 TCP 就緒（最多 30 秒）開原專案分頁；主動開網址與日誌共用 run ID 去重。指定專案不存在／開頁失敗不退回系統瀏覽器。驗收 `scripts/e2e-browser-scripts-cdp.js`：隔離打包版、真本機服務／套件 content script、真 Google CRX。
-- 記憶體：網頁版 AI 與工作區瀏覽器分頁切換時保留 webview（v1.54.3 起取消閒置／數量回收，避免切回重載），關閉對話／分頁或當機才收。聊天圖片快取 LRU 約 16MB。
+- 網頁版 AI 順暢度：webview 本身（含 UA／標頭／滑鼠掛勾）實測跟 Edge 同速，長對話與大量公式卡在網頁自己重排／重畫舊訊息（Layout＋Paint 約 7 成）。`ai-web.js` 的 `installRenderBoost` 在 `dom-ready` 對 ChatGPT `[data-message-author-role]`、Gemini `.conversation-container`、Grok `div[id^="response-"]` 插 `content-visibility:auto`（Claude 官方已自帶）；300 則公式訊息捲動 98→136fps、串流每幀 229→49ms。選擇器改版就失效（退回原樣）。
+- 記憶體：網頁版 AI 分頁切換時保留 webview，關閉對話或當機才收。Browser 模式與專案瀏覽器的背景分頁 1 小時沒看就休眠（`webview-warm.js` `sleepIdle`，每 5 分鐘掃；正在看的、正在出聲的不收），點回去由 `ensureGuest`／`ensureBrowserGuest` 照分頁網址重建重載（v1.54.3 取消回收是為了短時間切回不重載，1 小時門檻不影響這點）。實測反覆切換＋捲動 10 分鐘各程序記憶體持平，長時間上漲來自開過的分頁累積。聊天圖片快取 LRU 約 16MB。
+- 瀏覽器切分頁（Browser 模式、專案瀏覽器共用 `webview-warm.js` `showGuest`）：目前那顆以外，最近 2 顆用 `.webview-warm` 原尺寸透明疊在底下，更舊的才 `[hidden]`。display:none 會讓 Chromium 丟圖塊，毛玻璃多的網站（rx5950xt.github.io）切回最長一幀 150–230ms；疊放後 7ms（Edge 14–56ms），疊著的 webview 收不到 rAF、CPU 0%，GPU 記憶體差異在誤差內。webview 的 visibilityState 兩種藏法都維持 visible。離開 Browser 模式同理：`app.js` `parkBrowserMain` 把 `#browserMain` 凍結在原位置與尺寸（含 is-browser 的 padding）`.is-parked` 透明疊放，Chat→Browser 最長一幀 49–111→28–49ms；剩下的部分有一半來自側欄 0.16s 寬度動畫，未拿掉。
 - 聊天：不同對話可同時回應；每對話取樣參數；第一輪後 AI 自動取標題；編輯／分叉／重新生成。
 
 ### 專案工作區與終端機
@@ -146,8 +148,9 @@ native/
 - `npm run build:media` 固定 runtime 版本與 SHA-256；GPL 授權見 `resources/media-NOTICE.txt`。
 
 ### 獨立編輯器（取代 VS Code 的開檔）
-- `src/main/editor-window.js`＋`pages/editor.html`／`scripts/editor-window.js`／`styles/editor.css`：一檔一窗（同檔再開只叫到前面），Monaco 編輯＋Markdown 編輯／分割／預覽（預設預覽、相對圖片走 `vi-media` 的 `localBaseFor`）。路徑只由 main 決定，renderer 只能讀寫自己那個檔；存檔帶 mtime（STALE 問覆寫）、暫存檔再 rename；UTF-8／BOM／UTF-16 LE 原樣存回，其他當 Big5 唯讀；有沒存的修改關窗會問。
+- `src/main/editor-window.js`＋`pages/editor.html`／`scripts/editor-window.js`／`styles/editor.css`：一檔一窗（同檔再開只叫到前面），Monaco 編輯＋Markdown 編輯／分割／預覽（預設預覽、相對圖片走 `vi-media` 的 `localBaseFor`）。路徑只由 main 決定，renderer 只能讀寫自己那個檔；存檔帶 mtime（STALE 問覆寫）、暫存檔再 rename；UTF-8／BOM／UTF-16 LE 原樣存回，其他當 Big5 唯讀；有沒存的修改關窗會問。Monaco 上限 256MB（跟工作區同一條；超過 2.56 億字元 `getValue()` 會丟例外），20MB／30 萬行以上 Monaco 自動關上色與換行；超過 256MB 的文字檔（UTF-8，或有 BOM 的 UTF-16 LE／BE；編輯視窗與工作區都一樣）改用唯讀分段檢視：main `big-text.js` 掃一遍每 1024 列記一個書籤、只讀畫面要的列（長行每 4KB 切一列；搜尋是位元組 indexOf，預設不分大小寫但只折 A–Z，Aa 鈕切成區分），renderer `big-text-view.js` 自己畫捲軸（元素高度有上限），每 2 秒問一次修改時間、變了就重建索引（檔頭檔尾各 4KB 沒變、只是變長就從最後一個書籤接著掃，330MB 的 log 幾毫秒；停在檔尾就跟到新檔尾，視窗縮著不問）；工作區索引快取最近 8 份、同時要共用同一趟。Git diff（`git.js` 的 `run` 帶 `maxChars`）只收前 2MB 就結束 git，工作區那一邊超過 2MB 只看大小不讀，幾百 MB 的檔點「檢視變更」不會撐爆（330MB 約 4.5 秒，時間花在 git 比對；等超過 0.4 秒掛「讀取變更中…」提示，`showToast` 的 duration 0＋`hideToast`）。Markdown 超過 512K 字預設開編輯，預覽只畫開頭（`markdown.js` 的 `previewSlice`）；工作區超過 1M 字的檔不倒進影子 textarea。兩邊存檔的 rename 遇 EPERM／EACCES／EBUSY 每 100ms 重試最多 20 次（`files.renameRetry`；防毒剛寫完會掃，大檔約一半機率撞到）。
 - 格式清單 `src/main/editor-formats.json`（不可與 `media-formats.json` 重疊，Rust 測試擋；`.ts` 已從媒體移給編輯器（媒體 `retired`，舊備份略過，`adopt_from_media` 只改還指著媒體 ProgID 的），`.mts` 留給媒體、HTML／CSV／`.sh` 不接管）。
+- 工作區 HTML 預覽走 `workspace:previewHtml`：main 記下編輯器手上那一版（沒存也算），回 `vi-media://<十六進位專案id>.<SITE_TOKEN>/<rel>`（每專案一個來源、根路徑＝專案根，只送網頁資源副檔名、點開頭的不給、不回 CORS），iframe `allow-scripts allow-same-origin`；每份 HTML 回應在 `<head>` 後塞一小段腳本，把 Ctrl+滾輪 postMessage 給外層的預覽縮放（外層 CSS zoom 會傳進 iframe）；CSP `frame-src` 要留 `vi-media:`。檔案樹點腳本（.bat／.ps1／.py…）先開編輯器，右上「執行」先存再開終端機跑。回歸 `e2e-workspace-html-cdp.js`（打包版）。
 - 專案右側檔案樹盡量開在分頁：圖片（含 AVIF／APNG）、音訊、影片（MP4／WebM／M4V／MOV／MKV）走 `vi-media` 分頁，分頁解不了編碼才改開原生播放器；獨立編輯器／播放器主要給檔案頁與 Windows 點兩下用。
 - Office 文件（docx／docm／xlsx／xlsm／pptx／pptm／doc／xls／ppt／odt／ods／odp）唯讀預覽，標題列按鈕切「原始版面／簡易檢視」：原始版面＝`workspace:convertOffice` 請 main 用 Office COM（沒有才 LibreOffice）轉 PDF，快取 userData/office-preview（雜湊含路徑＋大小＋mtime，`vi-media://…/~office/<雜湊>` 只認快取檔名），交給 pdf.js；Word／PowerPoint 會接到使用者開著的程序，開之前沒有文件才 Quit，一次只轉一份。簡易檢視＝`ws-office*.js` 自己解 zip（DecompressionStream）＋DOMParser，文字只走 textContent；試算表預設看表格，有公式沒結果或是 xls 就請 main 轉一份 xlsx 重算。回歸 `test-workspace-office.js`（electron）。
 - 關聯共用 `axondeck-media.exe` 那套有備份的預設切換：`--editor` 換成 `EDITOR` 組（ProgID `AxonDeck.Editor.*`、指令 `AxonDeck.exe "--open-file=%1"`、備份 `editor-association-backups/`）；安裝程式與 `initializeAssociations` 各跑一次（標記 `editor-associations-initialized`），解除安裝還原。
@@ -165,11 +168,11 @@ native/
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
 - Claude 官方訂閱多帳號：併在「Claude 官方訂閱」那張供應商卡裡（第二行是目前帳號；存兩個以上時卡片拉成整列、列出各帳號可切換／移除），終端機登入過的帳號自動記下、卡上「＋ 帳號」走隔離的 `claude auth login`；切換＝換 `.credentials.json` 的 `claudeAiOauth`＋`.claude.json` 的 `oauthAccount`，正在用第三方供應商會順便切回官方。存兩個以上時 Claude 詳情卡一個帳號一段（`profiles`），條上那顆仍是使用中的帳號。
 - 額度條左邊兩顆按鈕「供應商」「用量統計」（顯示目前供應商、目前範圍花費），點開從條上方展開不透明抽屜（疊在內容上、不推擠終端機；點條外或 Esc 收起，彈窗與選單內的點擊不算）。同步診斷已整條拿掉（按鈕、彈窗、IPC）。
-- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。不限保留期（桶子永久留、檔案不看修改時間）；範圍 24 小時／7 天／30 天／全部／自訂（`resolveRange`：起訖日含迄日，兩天內小時桶，超過 96 天改週桶）。
+- 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。Antigravity 讀 CLI 的 `~/.gemini/antigravity-cli/conversations/<id>.db`（`gen_metadata` protobuf，`db-sources.js#readAntigravityCli`）＋AGY 反代日誌，兩邊不重疊；CLI 會自己刪對話檔，所以跟 JSONL 一樣一檔一游標（`antigravity:<id>`）、刪檔進封存區；IDE 的用量讀不到。不限保留期（桶子永久留、檔案不看修改時間）；範圍 24 小時／7 天／30 天／全部／自訂（`resolveRange`：起訖日含迄日，兩天內小時桶，超過 96 天改週桶）。
 - Codex 新版把舊 session 壓成 `.jsonl.zst`（Rust `zstd` crate 解壓，JS 退路用 Node 內建 zstd），游標 key 去掉 `.zst`、位移算解壓後的，壓縮前讀過的不重算。Grok 子代理自己的 session 預設跳過（母那一輪的 usage 已含）；母那一輪結束時沒跑完或那一輪沒用量的才照算（`parsers.js#resolveSubagents`；`parent_prompt_id` 跟 `turn_completed.prompt_id` 不是同一套 id，靠「開出來後的下一個 turn_completed」判斷）。Claude resume／fork 複製的訊息跨檔去重（事件帶 `id`，比對其他游標的 `seen`）。OpenCode 遇到還沒完成（無 `time.completed`）且一天內的訊息先停，游標不跳過它。
 - 重讀不丟資料：每個游標記自己貢獻的用量（`contrib`）；檔案被工具刪掉（Claude Code 只留約 30 天）時移進 `archive`（有複本在別檔的訊息 id 進 `archiveIds`），整份重讀時加回去；記帳前就刪掉的才退回 `keepOrphans`（現存最舊檔案之前、那小時沒新資料才留舊桶）。`reset()` 只標成要重讀，不清桶子。
 - 用量統計抽屜：左邊總計（花費＋四種 token，色點兼圖例）在上、趨勢填滿下方；右邊依工具／依模型，每列明細一種 token 一格。整塊固定高度、分佈在自己那欄捲；抽屜窄於 760px（container query）改成一欄往下疊。
-- Haiku 5.5 依逐請求輸入（含快取）是否超過 100K 分開價格級距，同一模型顯示時合併；`RULES_VERSION = 14`（v14：讀 Codex `.zst`、跳過已含在母 session 的 Grok 子代理）會重讀舊桶。單價順序：自訂 → 內建表 → models.dev（`codeusage/models-dev.js`：只收原廠那一家、一天抓一次、小快取 `models-dev-prices.json`，沒給寫入價的非 Anthropic 當 0）；來源自帶金額仍優先。
+- Haiku 5.5 依逐請求輸入（含快取）是否超過 100K 分開價格級距，同一模型顯示時合併；`RULES_VERSION = 16`（v16：讀 Antigravity CLI、它的實驗分流模型名收回本體）會重讀舊桶。單價順序：自訂 → 內建表 → models.dev（`codeusage/models-dev.js`：只收原廠那一家、一天抓一次、小快取 `models-dev-prices.json`，沒給寫入價的非 Anthropic 當 0）；來源自帶金額仍優先。
 - 背景看額度（`usage/quota-watch.js`，帶 `--user-data-dir` 的預覽／e2e 不跑）：每 5 分鐘 tick、30 分鐘同步一次。提醒（`quota-alerts.js`，照 magpie）：週／月窗口 6 小時內重置且用量 < 85%、Codex 重置次數 6 小時內過期 → Windows 通知；每輪窗口只講一次（記號存重置時間，差 10 分鐘內算同一輪）。預熱（`warmup.js`）：設定的 `HH:MM` 到了、5 小時窗口沒在跑（只信 `available` 的官方讀數）就用 CLI 送 hi——Claude `-p --model haiku --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence`、Codex `exec -c mcp_servers={}`；每個時間點一天一次、晚超過 1 小時放掉；只預熱 CLI 目前登入的帳號；工作目錄固定 `userData/warmup`（Claude 會替每個新目錄建空的 `projects/<dir>/memory/`）。記號存 `usage-watch.json`。設定在「額度顯示設定」對話框（usage settings 的 `alerts`／`warmup`）。
 
 ### Claude Code 供應商／MCP／Skills（原 CC Proxy 頁，邏輯都在 `ccswitch-page.js`）
@@ -234,11 +237,12 @@ native/
 ## 已知取捨與未做
 
 - 使用者決定維持：不全面拿掉毛玻璃（ClearType 彩邊）、Telegram 不共用程序（一格當掉會全白）、不改 Tauri。
-- 轉換閘道只有 Codex 的請求形狀對真上游驗過，其餘 mock。Antigravity 用量只統計經過反代的部分。
+- 轉換閘道只有 Codex 的請求形狀對真上游驗過，其餘 mock。Antigravity 用量讀 CLI 本機對話＋反代，IDE 那部分算不到；CLI 的 protobuf 欄位是實測反推，CLI 改版可能要重對。
 - HF：沒真的跑過大模型（只驗 0.8B／4B dense）；CUDA 執行環境沒實際安裝驗過。
 - 網頁版 AI：Grok 登入、Claude 的 Google 登入只驗到登入頁出現，沒輸入真密碼走完；Edge cookie 是 app-bound 加密，不做匯入。
 - 原生媒體：格式清單是白名單不代表每種變種都驗過；DRM、MIDI 不支援；CUE 不分軌；全機安裝不改其他帳戶預設。
 - Codex npm launcher 的 `--no-daemon` 本機修正會被 npm 更新覆蓋（App 端旗標仍在）。
+- 探索只列文字生成模型：`hfmodels/archs.js` 是 llama.cpp `LLM_ARCH_NAMES`（版本＝LLAMA_BUILD，升級要重抄，`test-hf-archs.js` 會擋）扣掉 clip／草稿頭／向量／TTS；另看 HF 用途標籤、repo 名稱（embed／rerank／tts／asr）與檔頭 `pooling_type`。搜尋（HF 回報 clip 的先留）、詳情（讀最大變體的檔頭）、下載前（讀該變體檔頭）三處把關。`imatrix*.gguf` 不算變體。
 - `probe-dictation-live.js` 需要前景焦點，只能在使用者沒在用電腦時跑。
 
 ## 最近版本

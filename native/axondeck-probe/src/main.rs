@@ -7,6 +7,10 @@
 //! - `axondeck-probe usage-scan <claude|codex|grok>` ＝ 用量統計的 JSONL 逐行解析（`codeusage/scan.js`）。
 //! - `axondeck-probe dir-size <path> …` ＝ 檔案頁的資料夾大小（`explorer/size.js`）。
 //! - `axondeck-probe disk-tree <path> …` ＝ 系統監控的磁碟空間（`sysmon/disktree.js`）。
+//! - `axondeck-probe search <root> …` ＝ 專案全文搜尋（`workspace/search.js`），搜尋字串走 stdin。
+//! - `axondeck-probe procs-json` ＝ 終端機認 AI 對話用的整機程序清單（`terminal/agent-processes.js`）。
+//! - `axondeck-probe raise-window <reuse,…>` ＝ Ctrl+G 開出來的編輯器抬到最前面（`terminal/foreground.js`）。
+//! - `axondeck-probe list-dir <path>` ＝ 檔案頁列一層資料夾，一趟拿大小／時間／隱藏（`explorer/fs.js`）。
 //! - `axondeck-probe hook [--key 0xA5]` ＝ 語音輸入的全域熱鍵（取代 .NET 的 AxonDeckHook.exe，見 hook.rs）。
 //! - `axondeck-probe claude-hook` ＝ Claude Code 的 hook。stdin 收事件、寫到 exe 旁邊的 events/，**stdout 保持空白**。
 //!
@@ -23,8 +27,12 @@ mod dirsize;
 mod disktree;
 mod hook;
 mod inventory;
+mod listdir;
 mod observer;
 mod procs;
+mod procs_json;
+mod raise;
+mod search;
 mod smart;
 mod tick;
 mod usage;
@@ -106,10 +114,14 @@ fn main() {
         Some("usage-scan") => std::process::exit(usage::run(args.get(2).map_or("", String::as_str))),
         Some("dir-size") => std::process::exit(dirsize::run(&args[2..])),
         Some("disk-tree") => std::process::exit(disktree::run(&args[2..])),
+        Some("search") => std::process::exit(search::run(&args[2..])),
+        Some("procs-json") => std::process::exit(procs_json::run()),
+        Some("raise-window") => std::process::exit(raise::run(&args[2..])),
+        Some("list-dir") => std::process::exit(listdir::run(&args[2..])),
         Some("hook") => std::process::exit(hook::run(&args[2..])),
         Some("claude-hook") => std::process::exit(claude_hook::run()),
         _ => {
-            eprintln!("usage: axondeck-probe sysmon|observer|usage-scan|dir-size|disk-tree|hook|claude-hook");
+            eprintln!("usage: axondeck-probe sysmon|observer|usage-scan|dir-size|disk-tree|search|procs-json|raise-window|list-dir|hook|claude-hook");
             std::process::exit(2);
         }
     }

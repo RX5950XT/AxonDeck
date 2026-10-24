@@ -46,9 +46,11 @@ function fail(code, message) {
  * @param {string} cwd
  * @param {string[]} args
  * @param {string} [input] 要寫進 stdin 的內容（給 `--stdin` 那類指令用）
- * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ * @param {number} [maxChars] stdout 收到這麼多字就收工（結束 git、`truncated: true`）：
+ *   幾百 MB 的檔案 diff／show 出來的字串會撐爆記憶體（V8 字串上限約 5 億字）
+ * @returns {Promise<{ code: number, stdout: string, stderr: string, truncated?: boolean }>}
  */
-function run(cwd, args, input) {
+function run(cwd, args, input, maxChars = Infinity) {
   return new Promise((resolve, reject) => {
     let child
     try {
@@ -92,7 +94,17 @@ function run(cwd, args, input) {
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
+      if (done) return
       stdout += chunk
+      if (stdout.length <= maxChars) return
+      done = true
+      clearTimeout(timer)
+      try {
+        child.kill()
+      } catch {
+        // 已經死了就算了
+      }
+      resolve({ code: 0, stdout: stdout.slice(0, maxChars), stderr, truncated: true })
     })
     child.stderr.on('data', (chunk) => {
       stderr += chunk
@@ -622,19 +634,24 @@ function pullFailMessage(stderr) {
   return '拉取失敗（細節請在終端機執行 git pull 查看）'
 }
 
+/** diff 單邊（以及逐行檢視的 diff 文字）最多讀多少 */
+const MAX_DIFF_BYTES = 2 * 1024 * 1024
+
 /**
- * 取得指定檔案的變更 diff。
+ * 取得指定檔案的變更 diff。太大只回前面一段，`truncated: true`。
  * @param {string} projectId
  * @param {string} relPath
  * @param {boolean} [staged]
- * @returns {Promise<{ path: string, diff: string, staged: boolean, additions: number, deletions: number }>}
+ * @returns {Promise<{ path: string, diff: string, staged: boolean, additions: number, deletions: number, truncated: boolean }>}
  */
 async function diff(projectId, relPath, staged = false) {
   const path = relPathOf(relPath)
   const cwd = await rootOf(projectId)
   const args = staged ? ['--literal-pathspecs', 'diff', '--cached', '--', path] : ['--literal-pathspecs', 'diff', '--', path]
-  const res = await run(cwd, args)
-  let diffText = res.stdout || ''
+  // 逐行檢視一列一個 DOM，太長畫不動：只收前 MAX_DIFF_BYTES，切在完整的一行
+  const res = await run(cwd, args, undefined, MAX_DIFF_BYTES)
+  let truncated = Boolean(res.truncated)
+  let diffText = truncated ? res.stdout.slice(0, res.stdout.lastIndexOf('\n') + 1) : res.stdout || ''
   if (!diffText && !staged) {
     // 檢查是否為未追蹤檔案（untracked）
     const stat = await run(cwd, ['--literal-pathspecs', 'status', '--porcelain=v2', '-z', '--', path])
@@ -644,8 +661,9 @@ async function diff(projectId, relPath, staged = false) {
       try {
         // 讀磁碟一律走 files.resolveIn（它會連資料夾連結一起解開再比）
         const full = files.resolveIn(cwd, path)
-        const content = await fsp.readFile(full, 'utf8')
-        const lines = content.split('\n')
+        const head = await readHead(full)
+        truncated = head.truncated
+        const lines = head.text.split('\n')
         diffText = `--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n` +
           lines.map((l) => `+${l}`).join('\n')
       } catch {
@@ -663,11 +681,41 @@ async function diff(projectId, relPath, staged = false) {
     else if (line.startsWith('+')) additions += 1
     else if (line.startsWith('-')) deletions += 1
   }
-  return { path, diff: diffText, staged: Boolean(staged), additions, deletions }
+  return { path, diff: diffText, staged: Boolean(staged), additions, deletions, truncated }
 }
 
-/** diff 編輯器單邊最多讀多少（跟 `files.readFile` 的上限一致） */
-const MAX_DIFF_BYTES = 2 * 1024 * 1024
+/**
+ * 只讀檔案開頭 MAX_DIFF_BYTES，切在最後一個完整的行（不會把中文字切一半）。
+ * @returns {Promise<{ text: string, truncated: boolean }>}
+ */
+async function readHead(full) {
+  const handle = await fsp.open(full, 'r')
+  try {
+    const { size } = await handle.stat()
+    if (size <= MAX_DIFF_BYTES) return { text: (await handle.readFile()).toString('utf8'), truncated: false }
+    const buf = Buffer.alloc(MAX_DIFF_BYTES)
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
+    return { text: buf.subarray(0, buf.lastIndexOf(10, bytesRead - 1) + 1).toString('utf8'), truncated: true }
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * diff 編輯器的「磁碟上那一邊」。太大就不讀（只看大小），不在了＝空的。
+ * 其他錯誤（權限、路徑被擋）不可以畫成空檔——那會看起來像「整份被刪光」，往上丟。
+ */
+async function readWorking(cwd, rel) {
+  try {
+    // 走 files.resolveIn，不自己 path.resolve（資料夾連結那條也要擋）
+    const full = files.resolveIn(cwd, rel)
+    if ((await fsp.stat(full)).size > MAX_DIFF_BYTES) return { text: '', truncated: true }
+    return { text: (await fsp.readFile(full)).toString('utf8'), truncated: false }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    return { text: '', truncated: false }
+  }
+}
 
 /**
  * 拿某個版本的檔案內容。`git show <rev>:<path>` 在檔案不存在於那個版本時
@@ -679,10 +727,10 @@ const MAX_DIFF_BYTES = 2 * 1024 * 1024
  * @returns {Promise<string>}
  */
 async function showAt(cwd, rev, relPath) {
-  const res = await run(cwd, ['show', `${rev}:${relPath.replace(/\\/g, '/')}`])
+  const res = await run(cwd, ['show', `${rev}:${relPath.replace(/\\/g, '/')}`], undefined, MAX_DIFF_BYTES)
   if (res.code !== 0) return { text: '', truncated: false }
   // 截斷過的內容不可以直接拿去並排：後面那一大段會被畫成「整段刪掉」
-  if (Buffer.byteLength(res.stdout, 'utf8') > MAX_DIFF_BYTES) {
+  if (res.truncated || Buffer.byteLength(res.stdout, 'utf8') > MAX_DIFF_BYTES) {
     return { text: '', truncated: true }
   }
   return { text: res.stdout, truncated: false }
@@ -710,19 +758,8 @@ async function fileVersions(projectId, relPath, staged = false) {
   if (staged) {
     right = await showAt(cwd, '', rel)
   } else {
-    try {
-      // 走 files.resolveIn，不自己 path.resolve（資料夾連結那條也要擋）
-      const buf = await fsp.readFile(files.resolveIn(cwd, rel))
-      right = buf.length > MAX_DIFF_BYTES
-        ? { text: '', truncated: true }
-        : { text: buf.toString('utf8'), truncated: false }
-    } catch (error) {
-      // 檔案不在了（刪除／改名）＝工作區那一邊是空的，這是正常的一種 diff。
-      // 其他錯誤（權限、路徑被擋）不可以畫成空檔——那會看起來像「整份被刪光」，
-      // 一律往上丟，讓 UI 退回逐行檢視並講出錯誤。
-      if (error?.code !== 'ENOENT') throw error
-      right = { text: '', truncated: false }
-    }
+    // 檔案不在了（刪除／改名）＝工作區那一邊是空的，這是正常的一種 diff
+    right = await readWorking(cwd, rel)
   }
   const truncated = left.truncated || right.truncated
   const binary = left.text.includes('\u0000') || right.text.includes('\u0000')
@@ -864,17 +901,8 @@ async function fileVersionsAgainst(projectId, relPath, ref) {
   const merge = await run(cwd, ['merge-base', target, 'HEAD'])
   if (merge.code !== 0) throw fail('NO_BASE', '這兩條分支沒有共同的起點（或分支不存在）')
   const left = await showAt(cwd, merge.stdout.trim(), rel)
-  let right
-  try {
-    const buf = await fsp.readFile(files.resolveIn(cwd, rel))
-    right = buf.length > MAX_DIFF_BYTES
-      ? { text: '', truncated: true }
-      : { text: buf.toString('utf8'), truncated: false }
-  } catch (error) {
-    // 檔案在這條分支上被刪掉了＝右邊是空的；其他錯誤不可以畫成空檔
-    if (error?.code !== 'ENOENT') throw error
-    right = { text: '', truncated: false }
-  }
+  // 檔案在這條分支上被刪掉了＝右邊是空的
+  const right = await readWorking(cwd, rel)
   const truncated = left.truncated || right.truncated
   const binary = left.text.includes('\u0000') || right.text.includes('\u0000')
   return (binary || truncated)

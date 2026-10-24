@@ -7,7 +7,7 @@
  *  [D] `.md` 預覽真的跑過 markdown.js（畫面上有 .md-h 節點）
  *  [D2] 圖片預覽（data: URI）、中鍵關分頁、「在檔案頁開啟」按鈕
  *  [E] Git 面板讀得到分支與未提交的變更
- *  [F] 瀏覽器分頁只吃 http(s)
+ *  [F] 瀏覽器分頁只吃 http(s)、背景分頁不回收
  *  [H] 專案內搜尋：找得到、點一下開檔並跳到那一行
  *  [I] 檔案樹右鍵：新增／改名／刪除真的落到磁碟；空白處右鍵、就地新增／改名（F2）、「在檔案頁開啟」開新分頁
  *  [J] 埠號面板列得出本機在聽的埠
@@ -283,18 +283,19 @@ async function main() {
     await cdp.eval(`document.querySelector('.nav-tab[data-page="chat"]').click()`)
     ok('聊天頁打開', await waitInPage(cdp, `document.getElementById('page-chat').classList.contains('active')`))
 
-    // ===== [A] 側欄兩顆模式鈕（側欄只列專案與對話，終端機在分頁列上） =====
-    ok('[A] 兩顆模式鈕都在', await cdp.eval(`document.querySelectorAll('.sidebar-mode').length === 2`))
+    // ===== [A] 側欄三顆模式鈕（Agent／Browser／Chat，終端機在分頁列上） =====
+    ok('[A] 三顆模式鈕都在', await cdp.eval(`document.querySelectorAll('.sidebar-mode').length === 3`))
     ok('[A] 側欄沒有終端機清單，也沒有「＋ 終端機」',
       await cdp.eval(`!document.getElementById('termList') && !document.getElementById('termNewBtn')`))
     // 量 offsetHeight：只看 hidden 屬性抓不到「作者規則的 display 壓過 [hidden]」那種壞法
     const modes = await cdp.eval(`(async () => {
       const heights = () => ({
         proj: document.getElementById('projPanel').offsetHeight,
-        chat: document.getElementById('chatPanel').offsetHeight
+        chat: document.getElementById('chatPanel').offsetHeight,
+        browser: document.getElementById('browserPanel').offsetHeight
       })
       const out = {}
-      for (const mode of ['projects', 'chats']) {
+      for (const mode of ['projects', 'browser', 'chats']) {
         document.querySelector('.sidebar-mode[data-mode="' + mode + '"]').click()
         await new Promise((r) => setTimeout(r, 300))
         out[mode] = heights()
@@ -302,11 +303,14 @@ async function main() {
       return out
     })()`)
     ok('[A] 切到「專案」時只有專案清單量得到高度',
-      modes.projects.proj > 0 && modes.projects.chat === 0,
+      modes.projects.proj > 0 && modes.projects.chat === 0 && modes.projects.browser === 0,
       JSON.stringify(modes.projects))
     ok('[A] 切到「對話」時只有對話清單量得到高度',
-      modes.chats.chat > 0 && modes.chats.proj === 0,
+      modes.chats.chat > 0 && modes.chats.proj === 0 && modes.chats.browser === 0,
       JSON.stringify(modes.chats))
+    ok('[A] 切到「Browser」時只有分頁清單量得到高度',
+      modes.browser.browser > 0 && modes.browser.proj === 0 && modes.browser.chat === 0,
+      JSON.stringify(modes.browser))
 
     // ===== [B] 專案清單與檔案總管 =====
     await cdp.eval(`document.querySelector('.sidebar-mode[data-mode="projects"]').click()`)
@@ -610,7 +614,7 @@ async function main() {
     const jsUrl = await cdp.eval(`(async () => {
       const input = document.getElementById('wsBrowserUrl')
       input.value = 'javascript:alert(1)'
-      document.getElementById('wsBrowserGoBtn').click()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await new Promise((r) => setTimeout(r, 400))
       return ${guestSrc()}
     })()`)
@@ -618,7 +622,7 @@ async function main() {
     const fileUrl = await cdp.eval(`(async () => {
       const input = document.getElementById('wsBrowserUrl')
       input.value = 'file:///C:/Windows/win.ini'
-      document.getElementById('wsBrowserGoBtn').click()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await new Promise((r) => setTimeout(r, 400))
       return ${guestSrc()}
     })()`)
@@ -630,7 +634,7 @@ async function main() {
     const httpUrl = await cdp.eval(`(async () => {
       const input = document.getElementById('wsBrowserUrl')
       input.value = 'localhost:5173'
-      document.getElementById('wsBrowserGoBtn').click()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await new Promise((r) => setTimeout(r, 400))
       return ${guestSrc()}
     })()`)
@@ -643,23 +647,22 @@ async function main() {
     const wsUa = await cdp.eval(`document.querySelector('#wsBrowserFrame webview').getUserAgent()`)
     ok('[F] 瀏覽器 UA 跟真 Chrome 一樣（沒有 Electron 字樣）', !/Electron\//.test(wsUa) && /Chrome\/\d+\.0\.0\.0 /.test(wsUa), wsUa)
 
-    // 背景分頁閒置 10 分鐘就拆 webview、分頁留著；點回去照原網址重建。
-    // 每分鐘掃一次：開第二個分頁讓第一個變背景，等一輪記下「開始藏」，再把時鐘撥快 11 分鐘等下一輪
+    // v1.54.3 起背景分頁不再閒置回收：切走、時間過了很久，切回來還是同一顆 webview（不重新載入）
     const firstTab = await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active').dataset.id`)
+    await cdp.eval(`document.querySelector('#wsBrowserFrame webview[data-tab-id="${firstTab}"]').__e2eKeep = true`)
     await cdp.eval(`document.getElementById('wsNewBtn').click()`)
     await waitInPage(cdp, `document.querySelector('.ws-new-menu')`, 5000)
     await cdp.eval(`[...document.querySelectorAll('.ws-new-menu .ws-new-item')].find((b) => b.textContent === '瀏覽器').click()`)
     ok('[F] 第二個瀏覽器分頁', await waitInPage(cdp, `document.querySelectorAll('#wsBrowserFrame webview').length === 2`, 8000))
-    await sleep(61_000)
     await cdp.eval(`(() => { const real = Date.now; window.__realNow = real; Date.now = () => real() + 11 * 60 * 1000 })()`)
-    ok('[F] 背景分頁閒置 10 分鐘就拆掉 webview，看得到的那個留著',
-      await waitInPage(cdp, `document.querySelectorAll('#wsBrowserFrame webview').length === 1
-        && !document.querySelector('#wsBrowserFrame webview[data-tab-id="${firstTab}"]')
-        && !!document.querySelector('#wsTabStrip .ws-tab[data-id="${firstTab}"]')`, 70_000))
+    await sleep(1500)
     await cdp.eval(`(() => { Date.now = window.__realNow })()`)
+    ok('[F] 背景分頁的 webview 留著（不閒置回收）',
+      await cdp.eval(`document.querySelectorAll('#wsBrowserFrame webview').length === 2`))
     await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab[data-id="${firstTab}"] .ws-tab-open').click()`)
-    ok('[F] 點回去照原網址重建',
-      await waitInPage(cdp, `String(document.querySelector('#wsBrowserFrame webview[data-tab-id="${firstTab}"]')?.dataset.src).startsWith('http://localhost:5173')`, 8000))
+    ok('[F] 切回去是同一顆 webview、網址沒變',
+      await waitInPage(cdp, `(() => { const guest = document.querySelector('#wsBrowserFrame webview[data-tab-id="${firstTab}"]')
+        return guest?.__e2eKeep === true && !guest.hidden && String(guest.dataset.src).startsWith('http://localhost:5173') })()`, 8000))
 
     // ===== [H] 專案內搜尋 =====
     await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="files"]').click()`)
@@ -1550,7 +1553,7 @@ async function main() {
       await wait(600)
       const urlBox = document.getElementById('wsBrowserUrl')
       if (urlBox) urlBox.value = 'localhost:5173'
-      document.getElementById('wsBrowserGoBtn')?.click()
+      urlBox?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await wait(500)
       const visibleGuest = () => [...document.querySelectorAll('#wsBrowserFrame webview')]
         .find((node) => node.hidden === false)

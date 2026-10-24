@@ -15,6 +15,7 @@
  */
 
 const { fetchJson, UsageError } = require('../usage/shared')
+const { isSupportedArch, isNonTextRepo } = require('./archs')
 
 const HOST = 'https://huggingface.co'
 const LABEL = 'Hugging Face'
@@ -105,13 +106,20 @@ async function searchModels(options = {}) {
   url.searchParams.set('filter', 'gguf')
   url.searchParams.set('sort', sort)
   url.searchParams.set('direction', '-1')
-  url.searchParams.set('limit', String(limit))
+  // 多抓一倍：不支援的架構會被濾掉，不然一頁常常只剩一半
+  url.searchParams.set('limit', String(limit * 2))
   if (query) url.searchParams.set('search', query)
+  // 指定 expand 後只回這幾欄，所以原本要用的欄位都要列
+  for (const field of ['gguf', 'downloads', 'likes', 'tags', 'pipeline_tag', 'createdAt', 'gated']) {
+    url.searchParams.append('expand[]', field)
+  }
 
   const rows = await fetchJson(url.toString(), { label: LABEL, headers: authHeaders(), allowArray: true })
   if (!Array.isArray(rows)) return []
   return rows
     .filter((row) => row && isRepoId(row.id))
+    // HF 只挑 repo 裡一個檔報架構；挑到 mmproj 會報 clip，真正的架構留給詳情與下載時讀檔頭再擋
+    .filter((row) => isSupportedArch(row.gguf?.architecture) || row.gguf?.architecture === 'clip')
     .map((row) => ({
       id: row.id,
       downloads: Number(row.downloads) || 0,
@@ -121,6 +129,8 @@ async function searchModels(options = {}) {
       createdAt: typeof row.createdAt === 'string' ? row.createdAt : '',
       gated: row.gated === true || typeof row.gated === 'string'
     }))
+    .filter((row) => !isNonTextRepo(row))
+    .slice(0, limit)
 }
 
 /**

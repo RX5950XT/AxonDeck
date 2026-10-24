@@ -8,6 +8,7 @@ function registerBreezeIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('breeze:status', (event) => invoke(event, () => service.status()))
   ipcMain.handle('breeze:generate', (event, options) => invoke(event, () => service.generate(options)))
   ipcMain.handle('breeze:cancel', (event, options) => invoke(event, () => service.cancel(options)))
+  ipcMain.handle('breeze:unload', (event) => invoke(event, () => service.unload()))
   ipcMain.handle('breeze:pickAudio', (event, options) => invoke(event, () => service.pickAudio(options)))
   ipcMain.handle('breeze:voices', (event) => invoke(event, () => service.voices()))
   ipcMain.handle('breeze:saveVoice', (event, options) => invoke(event, () => service.saveVoice(options)))

@@ -10,6 +10,7 @@ const path = require('path')
 const paths = require('./paths')
 const recycle = require('./recycle')
 const dirSizes = require('./dir-sizes')
+const { NATIVE_MIN_ENTRIES, listNative } = require('./list-native')
 
 const MAX_ENTRIES = 2000
 const MAX_PAGE_SIZE = 2000
@@ -91,6 +92,16 @@ function imageMime(full) {
  * @param {unknown} name
  * @returns {boolean}
  */
+/**
+ * Linux／macOS 的隱藏慣例：點開頭的名字（`.config`、`.bashrc`）。檔案頁一律列出隱藏項目，
+ * 這裡只決定要不要畫淡；Windows 照舊只看屬性與 HIDDEN_NAMES（`.git` 在 Windows 不算隱藏）。
+ * @param {string} name
+ * @param {string} [platformName]
+ */
+function isDotHidden(name, platformName = process.platform) {
+  return platformName !== 'win32' && String(name || '').startsWith('.')
+}
+
 function isHiddenName(name) {
   const s = String(name || '')
   if (!s) return false
@@ -217,6 +228,10 @@ function extOf(name) {
   return dot > 0 ? text.slice(dot + 1) : ''
 }
 
+// 共用比較器：localeCompare 帶語系參數每次都要重建一個，3 萬項排序光這個就要 1 秒多
+const NAME_ORDER = new Intl.Collator('zh-Hant', { numeric: true, sensitivity: 'base' })
+const EXT_ORDER = new Intl.Collator('en', { sensitivity: 'base' })
+
 function sortEntries(entries, opts) {
   const by = opts && SORT_KEYS.has(opts.by) ? opts.by : 'name'
   const desc = Boolean(opts && opts.desc)
@@ -226,11 +241,9 @@ function sortEntries(entries, opts) {
     let cmp = 0
     if (by === 'size') cmp = (Number(a.size) || 0) - (Number(b.size) || 0)
     else if (by === 'date') cmp = (Number(a.mtimeMs) || 0) - (Number(b.mtimeMs) || 0)
-    else if (by === 'type') cmp = extOf(a.name).localeCompare(extOf(b.name), 'en', { sensitivity: 'base' })
-    else cmp = String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant', { numeric: true, sensitivity: 'base' })
-    if (cmp === 0) {
-      cmp = String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant', { numeric: true, sensitivity: 'base' })
-    }
+    else if (by === 'type') cmp = EXT_ORDER.compare(extOf(a.name), extOf(b.name))
+    else cmp = NAME_ORDER.compare(String(a.name || ''), String(b.name || ''))
+    if (cmp === 0) cmp = NAME_ORDER.compare(String(a.name || ''), String(b.name || ''))
     return desc ? -cmp : cmp
   })
   return copy
@@ -424,10 +437,28 @@ async function readDirectoryEntries(full, opts) {
   } catch {
     throw paths.fail('READ_FAILED', '讀不到這個資料夾')
   }
+  const native = dirents.length > NATIVE_MIN_ENTRIES ? await listNative(full) : null
+  if (native) {
+    const entries = native
+      .map((row) => ({
+        name: row.name,
+        path: path.join(full, row.name),
+        dir: row.dir === true,
+        link: row.link === true,
+        size: Number(row.size) || 0,
+        mtimeMs: Number(row.mtimeMs) || 0,
+        ext: row.dir === true ? '' : path.extname(row.name).slice(1).toLowerCase(),
+        hidden: row.hidden === true || isHiddenName(row.name) || isDotHidden(row.name)
+      }))
+      .filter((entry) => opts.showHidden || !entry.hidden)
+    const next = { createdAt: Date.now(), entries, sorted: new Map() }
+    listCache.set(key, next)
+    return next
+  }
   const attrMap = await readAttrs(full)
   const flagged = dirents.map((d) => {
     const attr = attrMap ? attrMap.get(d.name.toLowerCase()) : null
-    return { dirent: d, hidden: Boolean(attr && attr.hidden) || isHiddenName(d.name) }
+    return { dirent: d, hidden: Boolean(attr && attr.hidden) || isHiddenName(d.name) || isDotHidden(d.name) }
   })
   const visible = opts.showHidden ? flagged : flagged.filter((item) => !item.hidden)
   const entries = await mapLimit(visible, STAT_CONCURRENCY, (item) => (
@@ -908,6 +939,7 @@ module.exports = {
   IMAGE_MIME,
   SORT_KEYS,
   isHiddenName,
+  isDotHidden,
   sanitizeSort,
   sortEntries,
   uniqueDest,

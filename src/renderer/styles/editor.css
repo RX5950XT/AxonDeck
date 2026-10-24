@@ -162,6 +162,21 @@
   margin-inline: auto;
 }
 
+/* 超大檔建索引時的提示 */
+.ed-loading {
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
+/* 大檔預覽只畫開頭時，結尾那行說明 */
+.ed-preview-cut {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
 .ed-main[data-mode="edit"] .ed-preview,
 .ed-main[data-mode="preview"] .ed-source,
 .ed-main[data-mode="fatal"] .ed-source,

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src axd-player: blob:; img-src 'self' data:; connect-src 'none'; object-src 'none'"
+    />
+    <title>AxonDeck 播放器</title>
+    <link rel="stylesheet" href="../styles/media-player-linux.css" />
+  </head>
+  <body class="dark">
+    <div class="mp-root">
+      <main class="mp-main">
+        <div class="mp-stage" id="mpStage">
+          <video id="mpVideo" preload="metadata" playsinline></video>
+          <div class="mp-audio-art" id="mpAudioArt" hidden>
+            <div class="mp-audio-icon" aria-hidden="true">♪</div>
+            <div class="mp-audio-name" id="mpAudioName"></div>
+          </div>
+          <div class="mp-panel" id="mpPanel" hidden>
+            <div class="mp-panel-title" id="mpPanelTitle"></div>
+            <div class="mp-panel-text" id="mpPanelText"></div>
+            <div class="mp-panel-actions" id="mpPanelActions"></div>
+          </div>
+          <div class="mp-toast" id="mpToast" hidden></div>
+          <div class="mp-help" id="mpHelp" hidden>
+            <h2>快捷鍵</h2>
+            <dl>
+              <dt>空白鍵</dt><dd>播放／暫停</dd>
+              <dt>← →</dt><dd>倒退／快轉 5 秒（Shift：30 秒）</dd>
+              <dt>↑ ↓</dt><dd>音量</dd>
+              <dt>M</dt><dd>靜音</dd>
+              <dt>PgUp／PgDn</dt><dd>上一個／下一個</dd>
+              <dt>Home／End</dt><dd>跳到開頭／結尾</dd>
+              <dt>Enter／F</dt><dd>全螢幕（Esc 離開）</dd>
+              <dt>[ ]／Backspace</dt><dd>減速／加速／恢復 1×</dd>
+              <dt>, .</dt><dd>上一格／下一格（暫停時）</dd>
+              <dt>V／C</dt><dd>字幕開關／下一個字幕</dd>
+              <dt>J／K</dt><dd>字幕提早／延後 0.1 秒（mpv）</dd>
+              <dt>A</dt><dd>下一個音軌（mpv）</dd>
+              <dt>S</dt><dd>截圖（mpv）</dd>
+              <dt>R／L</dt><dd>重複／隨機</dd>
+              <dt>Ctrl+L</dt><dd>播放清單</dd>
+              <dt>F1</dt><dd>這個說明</dd>
+            </dl>
+          </div>
+        </div>
+        <div class="mp-controls">
+          <input type="range" id="mpSeek" class="mp-seek" min="0" max="1000" value="0" step="1" aria-label="播放進度" />
+          <div class="mp-row">
+            <button id="mpPrev" title="上一個（PgUp）" aria-label="上一個">⏮</button>
+            <button id="mpPlay" title="播放／暫停（空白鍵）" aria-label="播放">▶</button>
+            <button id="mpNext" title="下一個（PgDn）" aria-label="下一個">⏭</button>
+            <span class="mp-time" id="mpTime">0:00 / 0:00</span>
+            <span class="mp-backend" id="mpBackend"></span>
+            <span class="mp-spacer"></span>
+            <button id="mpMute" title="靜音（M）" aria-label="靜音">🔊</button>
+            <input type="range" id="mpVolume" class="mp-volume" min="0" max="100" value="100" step="1" aria-label="音量" />
+            <select id="mpSpeed" title="播放速度（[ ]）" aria-label="播放速度">
+              <option value="0.5">0.5×</option>
+              <option value="0.75">0.75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+            <select id="mpSubs" title="字幕（V／C）" aria-label="字幕"></select>
+            <button id="mpRepeat" title="重複（R）" aria-label="重複">🔁</button>
+            <button id="mpShuffle" title="隨機（L）" aria-label="隨機">🔀</button>
+            <button id="mpList" title="播放清單（Ctrl+L）" aria-label="播放清單">☰</button>
+            <button id="mpFull" title="全螢幕（Enter／F）" aria-label="全螢幕">⛶</button>
+            <button id="mpHelpBtn" title="快捷鍵（F1）" aria-label="快捷鍵">?</button>
+          </div>
+        </div>
+      </main>
+      <aside class="mp-queue" id="mpQueue" hidden>
+        <div class="mp-queue-head">播放清單 <span id="mpQueueCount"></span></div>
+        <ol id="mpQueueList"></ol>
+      </aside>
+    </div>
+    <script type="module" src="../scripts/media-player-linux.js"></script>
+  </body>
+</html>

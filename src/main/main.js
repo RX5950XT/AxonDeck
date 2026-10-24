@@ -49,7 +49,9 @@ const { registerWorkspaceIpc } = require('./workspace/ipc')
 const workspaceMedia = require('./workspace/media')
 const extensionManager = require('./browser-extension-manager')
 // 自訂協定的權限只能在 app ready 之前宣告
-protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, extensionManager.PRIVILEGES])
+// Linux 播放視窗另有自己的協定（只送播放清單裡的檔案，見 media-linux/protocol.js）；Windows 不註冊
+const linuxPlayerProtocol = process.platform === 'linux' ? require('./media-linux/protocol') : null
+protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, extensionManager.PRIVILEGES, ...(linuxPlayerProtocol ? [linuxPlayerProtocol.PRIVILEGES] : [])])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
@@ -2828,6 +2830,7 @@ app.whenReady().then(() => {
     (projectId) => loadWorkspace().rootOf(projectId),
     (full) => require('./explorer/paths').resolveExisting(full)
   )
+  if (linuxPlayerProtocol) linuxPlayerProtocol.register(protocol)
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] })
       .then((sources) => {
@@ -3019,6 +3022,8 @@ app.on('before-quit', (e) => {
   if (hfService) hfService.shutdown()
   // 指示器是 alwaysOnTop 的獨立視窗：留著就會浮在桌面上關不掉
   dictationHud.close()
+  // Linux 播放視窗開的 mpv 跟著 App 結束（Windows 的原生播放器是獨立程序，這裡是 no-op）
+  mediaPlayer.shutdown()
   // 反代先關：留著監聽的 socket 會讓下次啟動撞到 EADDRINUSE
   // Claude Code 的轉換閘道同理（跟 AGY 是兩個不同的埠）
   const stopGateway = ccSwitchMod

@@ -136,6 +136,7 @@ let inited = false
  */
 export function initChatPage() {
   if (inited) return
+  initChatSettings()
   listEl = document.getElementById('chatList')
   searchInput = document.getElementById('chatSearchInput')
   messagesEl = document.getElementById('chatMessages')
@@ -153,21 +154,6 @@ export function initChatPage() {
   bannerEl = document.getElementById('chatBanner')
   bannerTextEl = document.getElementById('chatBannerText')
   errorEl = document.getElementById('chatError')
-  providerSelect = document.getElementById('chatProviderSelect')
-  providerNameInput = document.getElementById('chatProviderNameInput')
-  addProviderBtn = document.getElementById('chatAddProviderBtn')
-  deleteProviderBtn = document.getElementById('chatDeleteProviderBtn')
-  providerHintEl = document.getElementById('chatProviderHint')
-  apiUrlInput = document.getElementById('chatApiUrlInput')
-  apiKeyInput = document.getElementById('chatApiKeyInput')
-  modelListEl = document.getElementById('chatModelList')
-  addModelBtn = document.getElementById('chatAddModelBtn')
-  scanModelsBtn = document.getElementById('chatScanModelsBtn')
-  scanDialog = document.getElementById('chatScanDialog')
-  scanDescEl = document.getElementById('chatScanDesc')
-  scanSearchInput = document.getElementById('chatScanSearch')
-  scanListEl = document.getElementById('chatScanList')
-  scanCountEl = document.getElementById('chatScanCount')
   promptDialog = document.getElementById('chatPromptDialog')
   promptListEl = document.getElementById('promptList')
   promptNameInput = document.getElementById('promptNameInput')
@@ -198,19 +184,7 @@ export function initChatPage() {
   promptSelect?.addEventListener('change', handlePromptChange)
   promptManageBtn?.addEventListener('click', openPromptDialog)
   messagesEl.addEventListener('click', onMessagesClick)
-  addModelBtn?.addEventListener('click', () => appendModelRow('', { focus: true }))
-  providerSelect?.addEventListener('change', handleProviderSwitch)
-  addProviderBtn?.addEventListener('click', handleAddProvider)
-  deleteProviderBtn?.addEventListener('click', () => void handleDeleteProvider())
-  providerNameInput?.addEventListener('input', syncProviderName)
-  scanModelsBtn?.addEventListener('click', handleScanModels)
-  scanSearchInput?.addEventListener('input', renderScanList)
-  document.getElementById('chatScanAllBtn')?.addEventListener('click', () => toggleScanAll(true))
-  document.getElementById('chatScanNoneBtn')?.addEventListener('click', () => toggleScanAll(false))
-  document.getElementById('chatScanCancelBtn')?.addEventListener('click', () => scanDialog?.close())
-  document.getElementById('chatScanApplyBtn')?.addEventListener('click', applyScanSelection)
   document.getElementById('chatOpenSettingsBtn')?.addEventListener('click', () => openSettingsPage('cloud'))
-  document.getElementById('toggleChatApiKeyVisibility')?.addEventListener('click', toggleKeyVisibility)
 
   initComposer()
   initPromptDialog()
@@ -1681,11 +1655,44 @@ function syncProviderName() {
   if (option) option.textContent = provider.name || '未命名供應商'
 }
 
-/**
- * 從 store 重灌聊天設定表單（系統提示已移到聊天頁，不在這裡）
- */
+let settingsInited = false
+
+/** 設定頁只綁供應商表單，不建立聊天側欄或訂閱聊天串流。 */
+function initChatSettings() {
+  if (settingsInited || !document.getElementById('chatProviderSelect')) return
+  settingsInited = true
+  providerSelect = document.getElementById('chatProviderSelect')
+  providerNameInput = document.getElementById('chatProviderNameInput')
+  addProviderBtn = document.getElementById('chatAddProviderBtn')
+  deleteProviderBtn = document.getElementById('chatDeleteProviderBtn')
+  providerHintEl = document.getElementById('chatProviderHint')
+  apiUrlInput = document.getElementById('chatApiUrlInput')
+  apiKeyInput = document.getElementById('chatApiKeyInput')
+  modelListEl = document.getElementById('chatModelList')
+  addModelBtn = document.getElementById('chatAddModelBtn')
+  scanModelsBtn = document.getElementById('chatScanModelsBtn')
+  scanDialog = document.getElementById('chatScanDialog')
+  scanDescEl = document.getElementById('chatScanDesc')
+  scanSearchInput = document.getElementById('chatScanSearch')
+  scanListEl = document.getElementById('chatScanList')
+  scanCountEl = document.getElementById('chatScanCount')
+  addModelBtn?.addEventListener('click', () => appendModelRow('', { focus: true }))
+  providerSelect?.addEventListener('change', handleProviderSwitch)
+  addProviderBtn?.addEventListener('click', handleAddProvider)
+  deleteProviderBtn?.addEventListener('click', () => void handleDeleteProvider())
+  providerNameInput?.addEventListener('input', syncProviderName)
+  scanModelsBtn?.addEventListener('click', handleScanModels)
+  scanSearchInput?.addEventListener('input', renderScanList)
+  document.getElementById('chatScanAllBtn')?.addEventListener('click', () => toggleScanAll(true))
+  document.getElementById('chatScanNoneBtn')?.addEventListener('click', () => toggleScanAll(false))
+  document.getElementById('chatScanCancelBtn')?.addEventListener('click', () => scanDialog?.close())
+  document.getElementById('chatScanApplyBtn')?.addEventListener('click', applyScanSelection)
+  document.getElementById('toggleChatApiKeyVisibility')?.addEventListener('click', toggleKeyVisibility)
+}
+
+/** 從 store 重灌聊天設定表單（系統提示已移到聊天頁，不在這裡） */
 export async function loadChatSettings() {
-  initChatPage()
+  initChatSettings()
   if (!apiUrlInput) return
   const [providers, activeId] = await Promise.all([
     electronAPI.store.get('cloudProviders', []),

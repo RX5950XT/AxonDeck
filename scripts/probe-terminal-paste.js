@@ -219,7 +219,7 @@ async function main() {
       && (!DROP || pasteWrites[0].replace(/\x1b\[(200|201)~/g, '') === expectedDrop)
     console.log(`${pass ? 'PASS' : 'FAIL'}  ${DROP ? '圖片與多檔拖入路徑' : '右鍵貼上'}只送一次、鍵盤還在 — ${JSON.stringify(out)}`)
   } finally {
-    if (createdId && cdp) { try { await cdp.eval(`window.electronAPI.terminal.forget(${JSON.stringify(createdId)})`) } catch { /* 已收掉 */ } }
+    if (createdId && cdp) { try { await cdp.eval(`window.electronAPI.terminal.delete(${JSON.stringify(createdId)})`) } catch { /* 已收掉 */ } }
     cdp?.close()
     if (child.pid) { try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* 已結束 */ } }
     try { removeTree(USER_DATA_DIR) } catch { /* 佔用中 */ }

@@ -1,7 +1,8 @@
-import { electronAPI, showToast, setChatPaneMode, openInFilesPage } from './app.js'
+import { electronAPI, showToast, hideToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
+import { showGuest } from './webview-warm.js'
 import { isInternalBrowserUrl } from '../../shared/browser-url.mjs'
-import { renderMarkdown, resolveLinkPath } from './markdown.js'
+import { renderMarkdown, resolveLinkPath, previewSlice, PREVIEW_MAX_CHARS } from './markdown.js'
 import { showMenu } from './ws-menu.js'
 import { askInput } from './app-dialog.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
@@ -20,6 +21,7 @@ import { toolIcon } from './ws-tool-icons.js'
 import { terminalLabel, terminalTabTitle } from './term-title.js'
 import { terminalStatuses } from './ws-terminal-status.js'
 import { watchWorktreeSetup } from './ws-worktree-flow.js'
+import { mountBigText } from './big-text-view.js'
 import {
   addComment, listComments, removeComment, clearComments, countComments,
   formatComments, sendToChat
@@ -60,6 +62,7 @@ const MAX_TAB_TITLE = 28
  *   audio?: string,
  *   video?: string,
  *   unsupported?: boolean,
+ *   big?: boolean,
  *   fileSize?: number,
  *   fileExt?: string,
  *   mtimeMs?: number,
@@ -105,6 +108,8 @@ const el = {}
 let monaco = null
 /** 試載過了沒（失敗只試一次，不要每開一個檔就再等一輪逾時） */
 let monacoTried = false
+/** 試載過而且失敗了：只剩 textarea 那條路，大檔也只能倒進去（見 `fillShadow`） */
+let monacoFailed = false
 /** 還沒跳到的那一行（Monaco 掛好之前先記著） */
 let pendingGoto = 0
 
@@ -339,7 +344,6 @@ async function reloadActiveFileFromDisk(userTriggered = false) {
     tab.mtimeMs = file.mtimeMs || Date.now()
     hideExtBanner()
     if (activeId === tab.id && el.editorText) {
-      /** @type {HTMLTextAreaElement} */ (el.editorText).value = tab.content
       paintEditor(tab)
     }
     renderTabs()
@@ -773,14 +777,14 @@ async function openOutside(url) {
 function stash() {
   const tab = findTab(activeId)
   if (!tab) return
-  if (tab.kind === 'editor' && el.editorText) {
+  if (tab.kind === 'editor' && el.editorText && !tab.big) {
     // 大檔還沒交出去的那次變動要趁 activeId 還沒換之前交（不然會記到下一個分頁上）
     if (monaco) flushChange()
     // Monaco 開著的時候它才是真的內容來源；textarea 只是同步過去的一份影子
     const live = monaco ? currentValue() : null
-    tab.content = typeof live === 'string'
-      ? live
-      : /** @type {HTMLTextAreaElement} */ (el.editorText).value
+    // 扣著的大檔（`fillShadow`）textarea 是空殼，拿它當內容等於把檔案清空
+    if (typeof live === 'string') tab.content = live
+    else if (el.editorText.dataset.held !== '1') tab.content = /** @type {HTMLTextAreaElement} */ (el.editorText).value
   }
   if (tab.kind === 'browser') {
     const live = liveBrowserUrl(tab)
@@ -932,6 +936,7 @@ export async function closeTab(id) {
   if (tab.bridgeId) void electronAPI.terminal.editorCancel(tab.bridgeId)
   tabs = tabs.filter((item) => item.id !== id)
   disposeModel(id)
+  if (bigView?.id === id) releaseBig()
   // 關掉的瀏覽器分頁那顆 webview 也要收：留著的話那個網頁還在背景跑
   if (tab.kind === 'browser') {
     parkedBrowsers.delete(guestKey(browserProjectId(tab), tab.id))
@@ -1150,6 +1155,7 @@ function readonlyNote(file, isSvg) {
     : file.video ? '影片預覽，不能在這裡編輯。'
     : file.image && !isSvg ? '圖片預覽，不能在這裡編輯。'
     : file.binary ? '這是二進位檔案，不能在這裡編輯。'
+    : file.bigText ? '檔案超過 256MB，用唯讀分段檢視開啟：可以捲動、跳行、搜尋，不能編輯。'
     : file.tooLarge ? '這個檔案太大，不在這裡開啟。'
     : ''
 }
@@ -1189,7 +1195,7 @@ const RUNNABLE_EXTS = ['exe', 'com', 'msi', 'bat', 'cmd', 'ps1', 'sh', 'py', 'js
 const TERMINAL_EXTS = ['exe', 'bat', 'cmd', 'ps1', 'sh', 'py', 'js', 'mjs', 'jar']
 /** 檔案樹點下去就用系統開啟的（沒有內容可編，開編輯分頁只會看到「無法預覽」） */
 const DIRECT_EXTS = ['exe', 'com', 'msi', 'lnk']
-/** 一鍵啟動腳本：檔案樹點下去開終端機跑。`.js`／`.py` 是原始碼，點下去仍開編輯器 */
+/** 一鍵啟動腳本：在終端機跑時交給 main 包一層（腳本開的瀏覽器改開在專案） */
 const LAUNCH_EXTS = ['bat', 'cmd', 'ps1', 'sh']
 
 /**
@@ -1218,9 +1224,9 @@ export function isDirectRunnable(relPath) {
 
 /**
  * @param {string} relPath
- * @returns {boolean} 檔案樹點下去要開終端機跑嗎
+ * @returns {boolean} 是不是一鍵啟動腳本
  */
-export function isLaunchScript(relPath) {
+function isLaunchScript(relPath) {
   return LAUNCH_EXTS.includes(extOf(relPath))
 }
 
@@ -1295,7 +1301,7 @@ export async function openEditorTab(proj, relPath, line = 0) {
     return
   }
 
-  const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || file.tooLarge)
+  const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || (file.tooLarge && !file.bigText))
   const isSvg = extOf(relPath) === 'svg'
 
   /** @type {WsTab} */
@@ -1308,7 +1314,8 @@ export async function openEditorTab(proj, relPath, line = 0) {
     content: file.content || '',
     dirty: false,
     preview: Boolean(file.image || file.pdf || file.office || file.audio || file.video)
-      || (!unsupported && PREVIEWABLE_EXTS.includes(extOf(relPath))),
+      // 大檔先開編輯：預設預覽等於一打開就把整份轉成 DOM
+      || (!unsupported && PREVIEWABLE_EXTS.includes(extOf(relPath)) && (file.content || '').length <= PREVIEW_MAX_CHARS),
     image: file.image || '',
     imageBase: file.imageBase || '',
     pdf: file.pdf || '',
@@ -1316,6 +1323,7 @@ export async function openEditorTab(proj, relPath, line = 0) {
     audio: file.audio || '',
     video: file.video || '',
     unsupported,
+    big: Boolean(file.bigText),
     fileSize: file.size || 0,
     fileExt: extOf(relPath),
     mtimeMs: file.mtimeMs || Date.now(),
@@ -1417,8 +1425,17 @@ async function useMonaco(tab) {
     if (monacoTried) return
     monacoTried = true
     monaco = await loadMonaco()
-    if (!monaco) return
-    // Monaco 起來了才把原本那組藏起來（載入中仍然看得到內容）
+    if (!monaco) {
+      monacoFailed = true
+      // 被扣著的大檔現在才倒進 textarea（退路）
+      const shown = findTab(activeId)
+      if (shown === tab) paintEditor(tab)
+      return
+    }
+  }
+  // Monaco 起來了才把原本那組藏起來（載入中仍然看得到內容）。不放在上面那段：
+  // 先開 diff 的話 Monaco 是 diff 那條載的，這裡會跳過，畫面就永遠停在 textarea
+  if (el.monacoHost.hidden) {
     el.monacoHost.hidden = false
     if (el.ideGutter) el.ideGutter.hidden = true
     if (el.editorText) el.editorText.hidden = true
@@ -1427,8 +1444,10 @@ async function useMonaco(tab) {
   // 每次都問一遍：分頁全關掉時 `releaseEditors` 會把編輯器本身收掉，
   // 只在第一次建的話，關光之後再開檔就會是一片空白（`showTab` 直接 return）
   ensureEditor(monaco, el.monacoHost, onMonacoValue, paintMonacoStatus)
-  if (findTab(activeId) !== tab) return
-  showMonacoTab(monaco, tab)
+  // 載入中換了分頁：那一頁的 useMonaco 已經提早 return 了，改掛現在這一頁
+  const shown = findTab(activeId)
+  if (!shown || shown.kind !== 'editor' || shown.unsupported || shown.big) return
+  showMonacoTab(monaco, shown)
   applyGoto()
   paintMonacoStatus()
 }
@@ -1456,6 +1475,20 @@ function scheduleShadowSync(value) {
   shadowValue = value
   if (shadowTimer) return
   shadowTimer = window.setTimeout(flushShadowSync, 200)
+}
+
+/**
+ * 分頁內容倒進影子 textarea。大檔先扣著：Monaco 接手前那顆 textarea 是看得到的，
+ * 塞幾十萬行進去要排版好幾秒；Monaco 載不起來（`monacoFailed`）才倒。
+ * @param {HTMLTextAreaElement} text
+ * @param {string} content
+ * @returns {boolean} 有沒有扣著（扣著時 textarea 是空的，不能拿來存檔）
+ */
+function fillShadow(text, content) {
+  const held = !monacoFailed && content.length > SHADOW_MAX_CHARS
+  text.value = held ? '' : content
+  text.dataset.held = held ? '1' : ''
+  return held
 }
 
 function flushShadowSync() {
@@ -1513,6 +1546,68 @@ function paintMonacoStatus() {
   if (el.ideFileInfo) el.ideFileInfo.textContent = `${info.lines} 行`
 }
 
+/** 目前掛著的超大檔檢視（同時只留一個；切到別的編輯分頁就收掉） @type {{ id: string, view: any } | null} */
+let bigView = null
+
+function releaseBig() {
+  bigView?.view?.destroy()
+  bigView = null
+  if (el.bigText) {
+    el.bigText.hidden = true
+    el.bigText.replaceChildren()
+  }
+}
+
+/** IPC 回 `{ ok, data, error }`：拆成資料或例外，給分段檢視用 */
+async function unwrapResult(pending) {
+  const result = await pending
+  if (!result?.ok) throw new Error(result?.error?.message || '讀不到這個檔案')
+  return result.data
+}
+
+/**
+ * 超過 Monaco 上限的檔：唯讀分段檢視（`big-text-view.js`），Monaco 與 textarea 都不碰它。
+ * @param {WsTab} tab
+ */
+function paintBigTab(tab) {
+  for (const node of [el.ideContainer, el.editorPreview, el.unsupported, el.ideStatusbar,
+    el.editorPreviewBtn, el.editorSaveBtn, el.editorRunBtn, el.editorFindBtn, el.editorToChatBtn]) {
+    if (node) node.hidden = true
+  }
+  if (el.editorNote) {
+    el.editorNote.textContent = tab.readonly || ''
+    el.editorNote.hidden = !tab.readonly
+  }
+  if (!el.bigText) return
+  if (bigView?.id === tab.id) {
+    el.bigText.hidden = false
+    return
+  }
+  releaseBig()
+  el.bigText.hidden = false
+  el.bigText.replaceChildren(hint('正在建立索引（檔案越大越久）…'))
+  const current = { id: tab.id, view: null }
+  bigView = current
+  const api = electronAPI.workspace
+  const { projectId, relPath } = tab
+  unwrapResult(api.bigOpen(projectId, relPath)).then((info) => {
+    if (bigView !== current) return
+    current.view = mountBigText(el.bigText, {
+      ...info,
+      read: (start, count) => unwrapResult(api.bigRows(projectId, relPath, start, count)),
+      line: (line) => unwrapResult(api.bigLine(projectId, relPath, line)),
+      find: (query, afterRow, matchCase) => unwrapResult(api.bigFind(projectId, relPath, query, afterRow, matchCase)),
+      mtime: async () => {
+        const stat = await unwrapResult(api.getFileMtime(projectId, relPath))
+        return stat.exists ? stat.mtimeMs : 0
+      },
+      reopen: () => unwrapResult(api.bigOpen(projectId, relPath))
+    }, { onError: (message) => showToast(message, 'error') })
+  }, (error) => {
+    if (bigView === current) el.bigText?.replaceChildren(hint(error.message))
+  })
+}
+
 /**
  * @param {WsTab} tab
  */
@@ -1520,6 +1615,11 @@ function paintEditor(tab) {
   const text = /** @type {HTMLTextAreaElement | null} */ (el.editorText)
   if (!text) return
   if (el.editorName) el.editorName.textContent = tab.relPath || tab.title
+  if (tab.big) {
+    paintBigTab(tab)
+    return
+  }
+  if (bigView) releaseBig()
 
   if (tab.unsupported) {
     if (el.ideContainer) el.ideContainer.hidden = true
@@ -1533,6 +1633,7 @@ function paintEditor(tab) {
     if (el.unsupportedOpen) el.unsupportedOpen.hidden = !isRunnable(tab.relPath || '')
     if (el.editorPreviewBtn) el.editorPreviewBtn.hidden = true
     if (el.editorSaveBtn) el.editorSaveBtn.hidden = true
+    if (el.editorRunBtn) el.editorRunBtn.hidden = true
     if (el.editorFindBtn) el.editorFindBtn.hidden = true
     // 沒有文字可帶；留著的話會把上一個分頁殘留在 textarea 的選取標成這個檔案送進聊天
     if (el.editorToChatBtn) el.editorToChatBtn.hidden = true
@@ -1548,8 +1649,8 @@ function paintEditor(tab) {
   if (el.ideStatusbar) el.ideStatusbar.hidden = false
 
   cancelShadowSync()
-  text.value = tab.content || ''
-  text.readOnly = Boolean(tab.readonly)
+  const held = fillShadow(text, tab.content || '')
+  text.readOnly = Boolean(tab.readonly) || held
   void useMonaco(tab)
   if (el.editorNote) {
     el.editorNote.textContent = tab.readonly || ''
@@ -1571,6 +1672,7 @@ function paintEditor(tab) {
     el.editorSaveBtn.hidden = Boolean(tab.readonly)
     el.editorSaveBtn.textContent = '儲存'
   }
+  if (el.editorRunBtn) el.editorRunBtn.hidden = !tab.projectId || !isTerminalRunnable(tab.relPath || '')
 
   // Monaco 接手之後行號欄是 hidden 的，狀態列也由 `paintMonacoStatus` 蓋過去：
   // 這兩支各要把整份內容掃一遍（組全部行號、兩次 `split('\n')`、一顆 `Blob`），
@@ -1698,6 +1800,19 @@ function ensurePreviewZoom(box) {
 }
 
 /**
+ * HTML 預覽頁裡的 Ctrl+滾輪（wheel 不會穿出 iframe，由頁面裡那段腳本轉過來）。只認目前那個預覽 iframe。
+ * @param {MessageEvent} event
+ */
+function onPreviewFrameZoom(event) {
+  const box = el.editorPreview
+  const frame = box?.querySelector('iframe.ws-editor-frame')
+  const deltaY = event.data?.axondeckZoom
+  if (!box || !frame || event.source !== frame.contentWindow || typeof deltaY !== 'number') return
+  previewZoom = nextZoom(previewZoom, deltaY)
+  applyPreviewZoom(box)
+}
+
+/**
  * @param {HTMLElement} box
  */
 function applyPreviewZoom(box) {
@@ -1785,20 +1900,42 @@ function paintPreview(tab) {
     return
   }
   if (ext === 'html' || ext === 'htm') {
-    const frame = document.createElement('iframe')
-    frame.className = 'ws-editor-frame'
-    frame.setAttribute('sandbox', 'allow-scripts')
-    frame.setAttribute('title', '本機 HTML 預覽')
-    // 這份預覽刻意沒有 Ctrl+滾輪縮放：wheel 事件在 iframe 自己的 document 裡，
-    // 不會冒泡到外層 .ws-editor-preview。要接得到就得往使用者的 HTML 裡塞腳本，不值得。
-    frame.srcdoc = source
-    box.replaceChildren(frame)
+    void paintHtml(tab, box, generation, source)
     return
   }
-  box.replaceChildren(renderMarkdown(source, 0, tab.imageBase || '', {
+  const shown = previewSlice(source)
+  box.replaceChildren(renderMarkdown(shown.text, 0, tab.imageBase || '', {
     html: true,
     openLink: (link) => openPreviewLink(tab, link)
   }))
+  if (shown.cut) box.appendChild(hint('檔案太大，預覽只畫開頭一部分；完整內容請切到編輯。'))
+}
+
+/**
+ * HTML 預覽。以前用 srcdoc：它吃 App 的 CSP（行內腳本全被擋）、相對路徑的 CSS／JS／圖片也解不開。
+ * 改成 main 給的 `vi-media://` 網站網址（每個專案自己一個來源），內容送的是手上這一版（沒存也算）。
+ *
+ * @param {WsTab} tab
+ * @param {HTMLElement} box
+ * @param {number} generation
+ * @param {string} source
+ */
+async function paintHtml(tab, box, generation, source) {
+  box.replaceChildren(hint('HTML 載入中…'))
+  const res = await electronAPI.workspace.previewHtml(tab.projectId, tab.relPath, source)
+  if (generation !== previewGeneration || previewKey.id !== tab.id) return
+  if (!res?.ok) {
+    box.replaceChildren(hint(res?.error?.message || 'HTML 預覽失敗'))
+    return
+  }
+  const frame = document.createElement('iframe')
+  frame.className = 'ws-editor-frame'
+  // 預覽頁的來源跟 App 不同，allow-same-origin 只讓它用自己的 localStorage／讀自己的資源，碰不到 App
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals')
+  frame.setAttribute('title', '本機 HTML 預覽')
+  // Ctrl+滾輪由 main 塞進頁面的那段腳本 postMessage 回來（見 onPreviewFrameZoom）
+  frame.src = res.data.url
+  box.replaceChildren(frame)
 }
 
 /** 預覽裡點到相對路徑連結：照這份 Markdown 所在資料夾解成專案內路徑；資料夾在檔案樹選起來，檔案開分頁 */
@@ -2043,6 +2180,8 @@ async function saveFileNow(force) {
   const text = /** @type {HTMLTextAreaElement | null} */ (el.editorText)
   if (!tab || tab.kind !== 'editor' || !text || tab.readonly) return
   const live = monaco ? currentValue() : null
+  // Monaco 還沒接手、textarea 又是扣著的空殼：什麼都還沒改，存下去會把檔案清空
+  if (typeof live !== 'string' && text.dataset.held === '1') return
   const content = typeof live === 'string' ? live : text.value
   // 大檔不倒回影子（見 `scheduleShadowSync`）：存 12MB 的檔光這一行就多卡好幾百毫秒
   if (!monaco || content.length <= SHADOW_MAX_CHARS) text.value = content
@@ -2143,18 +2282,11 @@ async function showDiffInEditorTab(tab, staged) {
   const gen = projectSwitch
   const projectId = tab.projectId || ''
   const relPath = tab.relPath || ''
-  let diffData
+  let diffData, versions
   try {
-    diffData = await call(electronAPI.workspace.gitDiff(projectId, relPath, staged), '讀取 Diff 失敗')
+    ({ diffData, versions } = await loadDiff(projectId, relPath, staged))
   } catch {
     return
-  }
-  let versions = null
-  try {
-    const res = await electronAPI.workspace.gitFileVersions(projectId, relPath, staged)
-    if (res?.ok && res.data && !res.data.binary && !res.data.truncated) versions = res.data
-  } catch {
-    versions = null
   }
   if (staleOpen(gen, projectId) || findTab(tab.id) !== tab) return
   // 手上的草稿要先收回 `tab.content`：等一下換回編輯那一面時，`showTab` 是拿
@@ -2166,6 +2298,36 @@ async function showDiffInEditorTab(tab, staged) {
   tab.diffData = diffData
   tab.versions = versions
   await activate(tab.id)
+}
+
+const DIFF_WAIT_TEXT = '讀取變更中…'
+
+/**
+ * 讀 unified diff 跟兩份完整內容。超大檔 git 比對要好幾秒，等超過一下就掛著提示，免得以為沒點到。
+ * diff 編輯器要的是兩份完整內容，unified diff 只夠算 +/- 的數字；
+ * 拿不到（不是 repo、二進位檔、太大）就留 null，`paintDiff` 會退回逐行檢視。
+ * @returns {Promise<{ diffData: any, versions: any }>} diff 讀不到會丟錯（`call` 已經報過）
+ */
+async function loadDiff(projectId, relPath, staged) {
+  let shown = false
+  const timer = setTimeout(() => {
+    shown = true
+    showToast(DIFF_WAIT_TEXT, 'info', 0)
+  }, 400)
+  try {
+    const diffData = await call(electronAPI.workspace.gitDiff(projectId, relPath, staged), '讀取 Diff 失敗')
+    let versions = null
+    try {
+      const res = await electronAPI.workspace.gitFileVersions(projectId, relPath, staged)
+      if (res?.ok && res.data && !res.data.binary && !res.data.truncated) versions = res.data
+    } catch {
+      versions = null
+    }
+    return { diffData, versions }
+  } finally {
+    clearTimeout(timer)
+    if (shown) hideToast(DIFF_WAIT_TEXT)
+  }
 }
 
 /**
@@ -2201,24 +2363,12 @@ export async function openDiffTab(proj, relPath, staged = false, opts = {}) {
     return
   }
   const gen = projectSwitch
-  let diffData
+  let diffData, versions
   try {
-    diffData = await call(
-      electronAPI.workspace.gitDiff(proj.id, relPath, staged),
-      '讀取 Diff 失敗'
-    )
+    ({ diffData, versions } = await loadDiff(proj.id, relPath, staged))
   } catch {
     await openEditorTab(proj, relPath)
     return
-  }
-  // diff 編輯器要的是兩份完整內容，unified diff 只夠算 +/- 的數字。
-  // 拿不到（不是 repo、二進位檔）就留 null，`paintDiff` 會退回逐行檢視。
-  let versions = null
-  try {
-    const res = await electronAPI.workspace.gitFileVersions(proj.id, relPath, staged)
-    if (res?.ok && res.data && !res.data.binary && !res.data.truncated) versions = res.data
-  } catch {
-    versions = null
   }
   if (staleOpen(gen, proj.id)) return
   if (findTab(id)) {
@@ -2334,6 +2484,7 @@ async function paintDiffBody(tab) {
     if (!el.diffContent) return
     if (tab.diffData) {
       renderDiffLines(el.diffContent, parseUnifiedDiff(tab.diffData.diff))
+      if (tab.diffData.truncated) el.diffContent.append(hint('變更太多，只列出前面一部分（約 2MB）；上方的增減行數也只算這一部分。'))
     } else if (tab.conflict) {
       el.diffContent.replaceChildren(hint('並排比較需要 Monaco 編輯器，這次沒載起來。'))
     }
@@ -2345,6 +2496,7 @@ async function paintDiffBody(tab) {
   if (!monaco && !monacoTried) {
     monacoTried = true
     monaco = await loadMonaco()
+    monacoFailed = !monaco
   }
   if (!monaco || findTab(activeId) !== tab) {
     fallback()
@@ -2808,9 +2960,7 @@ function paintBrowser(tab) {
   const guest = ensureBrowserGuest(tab)
   if (input) input.value = tab.url || ''
   // 每個分頁一顆，所以切分頁＝只留自己那顆看得見
-  for (const node of [...(el.browserFrame?.querySelectorAll('webview') || [])]) {
-    /** @type {HTMLElement} */ (node).hidden = node !== guest
-  }
+  showGuest(el.browserFrame, guest)
   paintBrowserChrome(tab)
   if (!guest) return
   const href = safeUrl(tab.url || '')
@@ -3266,7 +3416,7 @@ async function restoreProjectTabs(proj, generation) {
           if (file.nativeMedia && !item.dirty) continue
           const hasDraft = typeof item.draftContent === 'string'
             && (item.dirty === true || Boolean(item.draftContent)) && item.draftContent !== file.content
-          const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || file.tooLarge)
+          const unsupported = Boolean((file.binary && !file.image && !file.pdf && !file.office && !file.audio && !file.video) || (file.tooLarge && !file.bigText))
           const isSvg = extOf(item.relPath) === 'svg'
           tabs.push({
             id: item.id,
@@ -3285,6 +3435,7 @@ async function restoreProjectTabs(proj, generation) {
             audio: file.audio || '',
             video: file.video || '',
             unsupported,
+            big: Boolean(file.bigText),
             fileSize: file.size || 0,
             fileExt: extOf(item.relPath),
             mtimeMs: hasDraft ? (item.mtimeMs || 0) : (file.mtimeMs || Date.now()),
@@ -3440,6 +3591,7 @@ export function initWsTabs() {
   el.editorSaveBtn = document.getElementById('wsEditorSaveBtn')
   el.editorDiffBtn = document.getElementById('wsEditorDiffBtn')
   el.editorFindBtn = document.getElementById('wsEditorFindBtn')
+  el.editorRunBtn = document.getElementById('wsEditorRunBtn')
   el.editorExtBanner = document.getElementById('wsEditorExtBanner')
   el.editorExtBannerMsg = document.querySelector('#wsEditorExtBanner .ws-ext-banner-msg')
   el.editorReloadDiskBtn = document.getElementById('wsEditorReloadDiskBtn')
@@ -3495,6 +3647,7 @@ export function initWsTabs() {
 
   // 不支援格式元素
   el.unsupported = document.getElementById('wsEditorUnsupported')
+  el.bigText = document.getElementById('wsBigText')
   el.unsupportedName = document.getElementById('wsEditorUnsupportedName')
   el.unsupportedSize = document.getElementById('wsEditorUnsupportedSize')
   el.unsupportedType = document.getElementById('wsEditorUnsupportedType')
@@ -3528,6 +3681,8 @@ export function initWsTabs() {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor') return
     const text = /** @type {HTMLTextAreaElement} */ (el.editorText)
+    // 扣著的大檔：textarea 是空殼，點一下就把分頁內容記成空字串
+    if (text.dataset.held === '1') return
     const changed = text.value !== tab.content
     if (typeof tab.savedContent !== 'string') tab.savedContent = tab.content || ''
     const next = text.value !== tab.savedContent
@@ -3643,6 +3798,15 @@ export function initWsTabs() {
   })
 
   el.editorSaveBtn?.addEventListener('click', () => void saveActiveFile())
+  window.addEventListener('message', onPreviewFrameZoom)
+  el.editorRunBtn?.addEventListener('click', async () => {
+    const tab = findTab(activeId)
+    if (!tab || tab.kind !== 'editor' || !tab.projectId || !tab.relPath) return
+    // 先存再跑，跑的才是畫面上這一版；存不成（例如外部改過）就不跑
+    if (tab.dirty) await saveActiveFile()
+    if (tab.dirty) return
+    void runInTerminal(tab.relPath)
+  })
   el.editorDiffBtn?.addEventListener('click', async () => {
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'editor' || !tab.projectId || !tab.relPath) return

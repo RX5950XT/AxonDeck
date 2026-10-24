@@ -11,17 +11,26 @@ const profile = tempDir('page-windows-')
 const fixture = path.join(profile, 'fixture-project')
 fs.mkdirSync(fixture)
 fs.writeFileSync(path.join(fixture, 'hello.txt'), '獨立視窗測試')
+const wallpaper = process.env.AXONDECK_TEST_WALLPAPER
+const wallpaperName = wallpaper ? `bg-1234567890123${path.extname(wallpaper)}` : ''
+if (wallpaper) {
+  fs.mkdirSync(path.join(profile, 'terminal-bg'))
+  fs.copyFileSync(wallpaper, path.join(profile, 'terminal-bg', wallpaperName))
+}
 fs.writeFileSync(path.join(profile, 'config.json'), JSON.stringify({
   sysmonSensors: false, uffsAuto: false, dictationEnabled: false, agyEnabled: false,
-  updateAutoCheck: false, telegramPanes: []
+  updateAutoCheck: false, telegramPanes: [], termBgImage: wallpaperName
 }))
-const source = process.env.AXONDECK_TEST_SOURCE === '1'
+const entry = process.env.AXONDECK_TEST_ENTRY
+const source = process.env.AXONDECK_TEST_SOURCE === '1' || !!entry
 const exe = source ? require('electron') : process.env.AXONDECK_EXE || path.resolve('dist/win-unpacked/AxonDeck.exe')
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
-const child = spawn(exe, [...(source ? ['.'] : []), `--remote-debugging-port=${PORT}`,
-  `--inspect=${PORT + 1}`, `--user-data-dir=${profile}`, '--hidden'], { detached: true, stdio: 'ignore', env })
+const child = spawn(exe, [...(source ? [entry || '.'] : []), `--remote-debugging-port=${PORT}`,
+  `--inspect=${PORT + 1}`, `--user-data-dir=${profile}`, '--hidden', '--disable-backgrounding-occluded-windows'], { detached: true, stdio: 'ignore', env })
 const clients = []
+const baseline = process.env.AXONDECK_MEMORY_BASELINE === '1'
+const errors = []
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function until(read, description) {
@@ -47,6 +56,7 @@ async function connect(query, port = PORT) {
   const pending = new Map()
   ws.onmessage = ({ data }) => {
     const message = JSON.parse(data)
+    if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text + ': ' + (message.params.exceptionDetails.exception?.description || ''))
     const request = pending.get(message.id)
     if (!request) return
     pending.delete(message.id)
@@ -67,6 +77,7 @@ async function connect(query, port = PORT) {
   }
   const client = { send, evaluate, ws, target }
   clients.push(client)
+  await send('Runtime.enable')
   if (port === PORT) await until(() => evaluate('!!window.electronAPI && document.readyState === "complete"'), `${query} ready`)
   return client
 }
@@ -102,8 +113,10 @@ async function main() {
   for (const page of NAV_PAGES) {
     console.log(`CHECK ${page}`)
     // host 是實際導覽列；CDP 可在 hidden 模式送滑鼠，不搶使用者焦點。
-    await host.evaluate(`electronAPI.pages.navigate({page:${JSON.stringify(page)}})`)
+    const navigation = await host.evaluate(`electronAPI.pages.navigate({page:${JSON.stringify(page)}})`)
+    assert.equal(navigation.ok, true, `${page}: ${JSON.stringify(navigation.error)}`)
     const client = page === 'chat' ? chat : await connect(`page=${page}`)
+    if (!baseline) assert.deepEqual(await client.evaluate('[...document.querySelectorAll(".page")].map(el => el.id)'), [`page-${page}`])
     await showInactive(page)
     await client.send('Page.captureScreenshot')
     await rightClick(client, page)
@@ -134,6 +147,7 @@ async function main() {
   await translation.evaluate(`import('./scripts/app.js').then(m => m.openSettingsPage('appearance'))`)
   const settings = clients.find((c) => c.target.url.includes('page=settings'))
   await until(() => settings.evaluate('document.querySelector("#set-appearance").classList.contains("active")'), '跨頁設定')
+  if (wallpaper) await until(() => settings.evaluate('document.getElementById("termAppearancePreview").style.getPropertyValue("--term-bg-image").includes("blob:")'), '桌布預覽真的載入圖片')
   console.log('PASS 跨頁前往設定')
   await translation.evaluate(`import('./scripts/app.js').then(m => m.openInFilesPage(${JSON.stringify(fixture)}))`)
   const explorer = clients.find((c) => c.target.url.includes('page=explorer'))
@@ -160,6 +174,24 @@ async function main() {
   await until(() => speech.evaluate('!document.body.classList.contains("page-floating")'), '原生最小化收回')
   assert.equal(await speech.evaluate('document.querySelector("#speechText").value'), '保留尚未生成的語音內容')
   console.log('PASS 原生最小化事件與真實輸入內容保留')
+  const measurements = []
+  for (const page of NAV_PAGES) {
+    const client = clients.find(c => c.target.url.includes(`page=${page}`))
+    await showInactive(page)
+    const switchMs = await host.evaluate(`(async () => { const start = performance.now(); await electronAPI.pages.navigate({page:${JSON.stringify(page)}}); return performance.now() - start })()`)
+    const frameMs = await client.evaluate(`new Promise(resolve => { const start = performance.now(); requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - start))) })`)
+    const state = await client.evaluate(`({elements: document.querySelectorAll('*').length, pages: document.querySelectorAll('.page').length, wallpaperChars: document.getElementById('termAppearancePreview')?.getAttribute('style')?.length || 0})`)
+    const heap = await client.send('Runtime.getHeapUsage')
+    measurements.push({ page, ...state, heapMiB: +(heap.usedSize / 1048576).toFixed(2), switchMs: +switchMs.toFixed(1), frameMs: +frameMs.toFixed(1) })
+  }
+  if (!baseline) {
+    assert.equal(await host.evaluate('document.querySelectorAll(".page").length'), 0)
+    assert.ok(measurements.filter(row => row.page !== 'settings').every(row => row.wallpaperChars === 0))
+  }
+  const pids = await inspector.evaluate("process.mainModule.require('electron').app.getAppMetrics().map(m => m.pid)")
+  const memory = execFileSync('powershell.exe', ['-NoProfile', '-Command', `$ids = @(${pids.join(',')}); $p = Get-CimInstance Win32_PerfRawData_PerfProc_Process | Where-Object { $ids -contains $_.IDProcess }; [pscustomobject]@{privateWSMiB=[math]::Round(($p | Measure-Object WorkingSetPrivate -Sum).Sum/1MB,1); commitMiB=[math]::Round(($p | Measure-Object PrivateBytes -Sum).Sum/1MB,1)} | ConvertTo-Json -Compress`], { encoding: 'utf8', windowsHide: true })
+  console.log('MEMORY', JSON.stringify({ baseline, pages: measurements, processes: pids.length, ...JSON.parse(memory) }))
+  assert.deepEqual(errors, [])
 }
 
 main().then(() => console.log('PASS 功能頁獨立視窗驗收完成')).catch((error) => {

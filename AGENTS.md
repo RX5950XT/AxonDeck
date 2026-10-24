@@ -201,7 +201,7 @@ Linux：`gh release create` 後 `release-linux` workflow（`.github/workflows/re
 | 範圍 | 主要腳本 |
 |---|---|
 | AI 頁／聊天 | `test-ai-web.js` `test-chat-sidebar.js` `test-markdown.js` `e2e-chat.js` `e2e-chat-cdp.js` |
-| 工作區 | `test-workspace*.js` `e2e-workspace-cdp.js`；Monaco／大檔 `probe-workspace-perf.js` `probe-workspace-bigfile.js` |
+| 工作區 | `test-workspace*.js` `e2e-workspace-cdp.js`；Monaco／大檔 `probe-workspace-perf.js` `probe-workspace-bigfile.js`；編輯視窗大檔 `probe-editor-bigfile.js`；超大檔分段 `test-big-text.js` |
 | 檔案總管 | `test-explorer*.js` `e2e-explorer-cdp.js` `e2e-explorer-dual-cdp.js` `probe-explorer-shell.js` `probe-explorer-uffs.js` |
 | 終端機 | `test-terminal*.js` `test-term-agent.js` `test-claude-hooks.js` `e2e-terminal-cdp.js`；宿主 `probe-terminal-restart.js` `probe-terminal-host-version.js`；IME `probe-terminal-ime.js` |
 | CC Proxy／閘道 | `test-ccswitch*.js` `e2e-ccswitch-cdp.js`；真上游 `probe-ccswitch-*.js` |

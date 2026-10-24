@@ -2,6 +2,7 @@
  * AxonDeck - 主應用程式邏輯
  */
 
+import './page-content.js'
 import {
   initChatPage,
   refreshChatPage,
@@ -957,6 +958,17 @@ export function setSidebarMode(mode) {
   if (mode === 'browser') import('./browser-page.js').then((m) => m.initBrowserPage())
 }
 
+/** 進 Browser 之前主區顯示的是什麼（離開 Browser 時回到這裡） */
+let lastNonBrowserPane = 'chat'
+
+/**
+ * @param {string} last
+ * @returns {'chat' | 'workspace' | 'web'}
+ */
+export function paneAfterLeavingBrowser(last) {
+  return last === 'workspace' || last === 'web' ? last : 'chat'
+}
+
 function initSidebarModes() {
   document.querySelectorAll('.sidebar-mode').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -964,6 +976,8 @@ function initSidebarModes() {
       setSidebarMode(mode)
       // Browser 沒有別的項目可點：按下去就顯示瀏覽器
       if (mode === 'browser') import('./browser-page.js').then((m) => m.showBrowserPage())
+      // 從 Browser 切到 Agent／Chat：主區也要離開瀏覽器，回到進 Browser 前的畫面（對話、專案或網頁版 AI）
+      else if (chatPaneMode === 'browser') setChatPaneMode(paneAfterLeavingBrowser(lastNonBrowserPane))
     })
   })
   let saved = ''
@@ -979,13 +993,46 @@ function initSidebarModes() {
   ))
 }
 
+/**
+ * 離開 Browser 模式不用 display:none：webview 會丟掉畫好的圖塊，切回來整頁重畫（毛玻璃多的網站最長一幀 50–110ms）。
+ * 改成凍結在原位置、原尺寸（含 is-browser 才有的 padding）透明疊到底下，切回來尺寸不變、直接接著畫。
+ * @param {HTMLElement} main
+ * @param {boolean} show
+ */
+function parkBrowserMain(main, show) {
+  if (show) {
+    main.classList.remove('hidden', 'is-parked')
+    main.style.cssText = ''
+    main.inert = false
+    return
+  }
+  if (main.classList.contains('hidden') || main.classList.contains('is-parked')) return
+  const box = main.getBoundingClientRect()
+  const holder = /** @type {HTMLElement | null} */ (main.offsetParent)
+  const origin = holder?.getBoundingClientRect()
+  const { padding, gap } = getComputedStyle(main)
+  Object.assign(main.style, {
+    left: `${box.left - (origin?.left || 0) - (holder?.clientLeft || 0)}px`,
+    top: `${box.top - (origin?.top || 0) - (holder?.clientTop || 0)}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    padding,
+    gap
+  })
+  main.classList.add('is-parked')
+  main.inert = true
+}
+
 export function setChatPaneMode(mode) {
   if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser') return
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
+  if (mode !== 'browser') lastNonBrowserPane = mode
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
   if (mode !== 'web') document.getElementById('chatPanel')?.classList.remove('is-arena')
-  document.getElementById('browserMain')?.classList.toggle('hidden', mode !== 'browser')
+  // 先在 is-browser 還在時量好尺寸再停放
+  const browserMain = document.getElementById('browserMain')
+  if (browserMain) parkBrowserMain(browserMain, mode === 'browser')
   document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
   const chatMain = document.getElementById('chatMain')
@@ -1039,7 +1086,9 @@ export function switchPage(pageName, subtab = '') {
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => {
     m.start()
-    if (subtab === 'recommend' || subtab === 'runtime') document.querySelector(`#hfSubtabs [data-subtab="${subtab}"]`)?.click()
+    // 推薦模型已併進執行環境，舊的 'recommend' 也導過去並捲到那一段
+    if (subtab === 'recommend' || subtab === 'runtime') document.querySelector('#hfSubtabs [data-subtab="runtime"]')?.click()
+    if (subtab === 'recommend') document.getElementById('hf-recommend')?.scrollIntoView({ block: 'start' })
   })
   if (pageName === 'speech') {
     import('./speech-page.js').then((m) => m.refreshSpeechPage())
@@ -1441,7 +1490,8 @@ export function cleanIpcError(error) {
  */
 let toastTimer = null
 
-export function showToast(message, type = 'success') {
+/** @param {number} [duration] 0＝不自己消失，等 `hideToast` 收 */
+export function showToast(message, type = 'success', duration = 3000) {
   const toastMessage = toast.querySelector('.toast-message')
   toastMessage.textContent = message
 
@@ -1449,8 +1499,16 @@ export function showToast(message, type = 'success') {
   toast.classList.remove('hidden')
 
   if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
+  toastTimer = duration ? setTimeout(() => {
     toast.classList.add('hidden')
     toastTimer = null
-  }, 3000)
+  }, duration) : null
+}
+
+/** 收掉還掛著的提示；給了 message 就只收同一句（中間被別的提示蓋掉就不動它） */
+export function hideToast(message) {
+  if (message !== undefined && toast.querySelector('.toast-message').textContent !== message) return
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = null
+  toast.classList.add('hidden')
 }

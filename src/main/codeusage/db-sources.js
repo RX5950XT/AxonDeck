@@ -6,12 +6,12 @@
  * - **OpenCode**：`~/.local/share/opencode/opencode.db` 的 `message` 表，
  *   `data` 是一份 JSON，assistant 訊息帶 `cost`／`tokens`／`modelID`。
  *   **自帶花費**，不必靠單價表。
- * - **Antigravity**：本機沒有 session 記錄可讀（`~/.antigravitycli` 只有專案清單），
- *   唯一有 token 數字的是 **AxonDeck 自己的 AGY 反代日誌** `<userData>/agy-logs.db`。
- *   所以這一家統計到的是「經過本 App 反代的流量」，不含使用者直接用 IDE／CLI 打的那些。
- *   這個限制要讓 UI 講清楚，不能假裝是完整用量。
+ * - **Antigravity**：兩份加總，彼此不重疊（反代只收 OpenAI 協定的外部工具，CLI 自己直連上游）：
+ *   1. **Antigravity CLI** `~/.gemini/antigravity-cli/conversations/<id>.db`（`readAntigravityCli`）；
+ *   2. **AxonDeck 自己的 AGY 反代日誌** `<userData>/agy-logs.db`（`readAntigravity`）。
+ *   Antigravity IDE 的對話不在這裡，算不到；這個限制要讓 UI 講清楚。
  *
- * 兩邊都用 Electron 內建 `node:sqlite`、`readOnly: true`、`allowExtension: false`
+ * 都用 Electron 內建 `node:sqlite`、`readOnly: true`、`allowExtension: false`
  * 與參數化固定 SQL（跟額度頁讀 OpenCode 同一套規矩）。
  */
 
@@ -170,8 +170,143 @@ function readAntigravity(sinceMs, dbPath) {
   }
 }
 
+/**
+ * 最小 protobuf 解碼：欄位號 → 值陣列（varint 是數字，其餘是 Buffer）。壞資料丟例外。
+ * @param {Uint8Array | undefined} input
+ * @returns {Map<number, Array<number | Buffer>>}
+ */
+function protoMap(input) {
+  const b = Buffer.from(input || []), out = new Map()
+  let i = 0
+  const varint = () => {
+    let n = 0, shift = 0, byte
+    do {
+      if (i >= b.length || shift > 63) throw new Error('BAD_PROTO')
+      byte = b[i++]
+      n += (byte & 127) * 2 ** shift
+      shift += 7
+    } while (byte & 128)
+    return n
+  }
+  while (i < b.length) {
+    const key = varint(), wire = key % 8, field = Math.floor(key / 8)
+    let value
+    if (wire === 0) value = varint()
+    else {
+      const length = wire === 2 ? varint() : wire === 1 ? 8 : wire === 5 ? 4 : -1
+      if (!field || length < 0 || i + length > b.length) throw new Error('BAD_PROTO')
+      value = b.subarray(i, i + length)
+      i += length
+    }
+    if (!out.has(field)) out.set(field, [])
+    out.get(field).push(value)
+  }
+  return out
+}
+
+/**
+ * `gen_metadata` 一列＝一次模型呼叫。欄位是實測反推的（本機 2 萬筆全部吻合）：
+ * 1.4 用量 {2 輸入（不含快取）, 5 快取讀取, 9 思考, 10 回答；3 = 9 + 10}；1.19 模型名，
+ * 少數只有 1.3 模型編號；1.20 鍵值表的 `last_step_index` 指到 `steps`，那一步 metadata 1.1 是秒數。
+ * @returns {object | null}
+ */
+function agyGen(data, stepMeta) {
+  const gen = protoMap(protoMap(data).get(1)?.[0])
+  const usage = protoMap(gen.get(4)?.[0])
+  const num = (field) => Number(usage.get(field)?.[0]) || 0
+  let stepIndex = NaN
+  for (const entry of gen.get(20) || []) {
+    const pair = protoMap(entry)
+    if (String(pair.get(1)?.[0] || '') === 'last_step_index') stepIndex = Number(String(pair.get(2)?.[0] || ''))
+  }
+  const meta = Number.isInteger(stepIndex) ? stepMeta.get(stepIndex)?.metadata : null
+  const ts = Number(protoMap(protoMap(meta).get(1)?.[0]).get(1)?.[0]) * 1000
+  if (!Number.isFinite(ts) || ts <= 0) return null
+  const name = gen.get(19)?.[0]
+  return {
+    ts,
+    model: Buffer.isBuffer(name) ? name.toString('utf8') : '',
+    modelId: String(gen.get(3)?.[0] ?? ''),
+    input: num(2),
+    output: num(10),
+    reasoning: num(9),
+    cacheRead: num(5),
+    cacheWrite: 0,
+    requests: 1,
+    costUsd: null
+  }
+}
+
+/** @param {string} root */
+function agyCliFiles(root) {
+  const dir = path.join(root, 'conversations')
+  let names
+  try {
+    names = fs.readdirSync(dir)
+  } catch {
+    return []
+  }
+  return names.filter((name) => /^[0-9a-f-]{36}\.db$/.test(name)).map((name) => [name.slice(0, -3), path.join(dir, name)])
+}
+
+/**
+ * 讀一份對話檔 `since` 之後的呼叫。
+ * @returns {{ idx: number | undefined, events: Array<object> }}
+ */
+function readAgyConversation(file, since, models) {
+  const out = { idx: undefined, events: [] }
+  const db = openReadOnly(file)
+  if (!db) return out
+  try {
+    const rows = db.prepare('SELECT idx, data FROM gen_metadata WHERE idx > ? ORDER BY idx LIMIT ?').all(since, MAX_ROWS)
+    const stepMeta = db.prepare('SELECT metadata FROM steps WHERE idx = ?')
+    for (const row of rows) {
+      let event = null
+      try {
+        event = agyGen(row.data, stepMeta)
+      } catch {
+        // 這一列格式不認得：跳過，不卡住後面
+      }
+      // 最後一筆還是 0 的可能正在跑：一天內先不推游標，下次再讀
+      const empty = event && !event.input && !event.output && !event.reasoning && !event.cacheRead
+      if (empty && row === rows[rows.length - 1] && Date.now() - event.ts < UNFINISHED_WAIT_MS) break
+      if (event?.model && event.modelId) models[event.modelId] = event.model
+      if (event) out.events.push(event)
+      out.idx = row.idx
+    }
+  } catch {
+    // 正在寫或版本不合：這一份下次再讀（已讀到的照收，游標停在那裡）
+  } finally {
+    try {
+      db.close()
+    } catch {
+      // 已關閉
+    }
+  }
+  return out
+}
+
+/**
+ * Antigravity CLI：每個對話一份 `conversations/<id>.db`。子代理也是自己一份（母對話不含它的用量，
+ * 實測 1.5 萬個 request_id 跨檔零重複），所以每份照算。**CLI 會自己刪對話檔**，呼叫端要逐檔記帳。
+ *
+ * @param {(id: string) => number | undefined} sinceOf 對話 id → 上次讀到的 `gen_metadata.idx`
+ * @param {Record<string, string>} models 模型編號 → 名稱（就地更新；給只有編號的那幾筆用）
+ * @param {string} root `~/.gemini/antigravity-cli`
+ * @returns {Array<{ id: string, path: string, idx: number | undefined, events: Array<object> }>}
+ */
+function readAntigravityCli(sinceOf, models, root) {
+  const files = agyCliFiles(root).map(([id, file]) => {
+    const since = sinceOf(id)
+    return { id, path: file, ...readAgyConversation(file, Number.isInteger(since) ? since : -1, models) }
+  })
+  const named = ({ modelId, ...event }) => ({ ...event, model: event.model || models[modelId] || 'unknown' })
+  return files.map((file) => ({ ...file, events: file.events.map(named) }))
+}
+
 module.exports = {
   MAX_ROWS,
   readOpencode,
-  readAntigravity
+  readAntigravity,
+  readAntigravityCli
 }

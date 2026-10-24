@@ -54,7 +54,7 @@ function normalizeLocation(raw) {
 
 /**
  * @param {unknown} raw
- * @returns {{ type: string, minSize: number|null, maxSize: number|null, fromMs: number|null, toMs: number|null, location: string }}
+ * @returns {{ type: string, minSize: number|null, maxSize: number|null, fromMs: number|null, toMs: number|null, location: string, root: string }}
  */
 function sanitizeSearchFilters(raw) {
   const value = raw && typeof raw === 'object' ? raw : {}
@@ -74,7 +74,15 @@ function sanitizeSearchFilters(raw) {
     fromMs = toMs
     toMs = swap
   }
-  return { type, minSize, maxSize, fromMs, toMs, location: normalizeLocation(value.location) }
+  return {
+    type,
+    minSize,
+    maxSize,
+    fromMs,
+    toMs,
+    location: normalizeLocation(value.location),
+    root: normalizeLocation(value.root)
+  }
 }
 
 function extensionOf(hit) {

@@ -2,8 +2,9 @@
 
 /**
  * GitHub Releases 的安裝檔在 APAC 常被 CDN 限速到幾十 KB/s（實測 ~50KB/s → 406MB 要一小時），
- * 同一支檔經公開反向代理可到 ~25MB/s。版本清單 latest.yml 仍只從 GitHub 讀（sha512 是信任根）；
- * 這裡只改寫 httpExecutor.download 拿到的 .exe 網址，下完仍由 electron-updater 對雜湊。
+ * 同一支檔經公開反向代理可到 ~25MB/s。版本清單 latest.yml／latest-linux.yml 仍只從 GitHub 讀
+ * （sha512 是信任根）；這裡只改寫 httpExecutor.download 拿到的安裝檔網址
+ * （Windows .exe／Linux .AppImage），下完仍由 electron-updater 對雜湊。
  */
 
 const fs = require('fs')
@@ -15,8 +16,8 @@ const MIRRORS = [
   'https://ghfast.top/',
   'https://gh-proxy.com/'
 ]
-const ASSET_EXE = new RegExp(
-  `^https://github\\.com/${OWNER}/${REPO}/releases/download/[^/]+/[^/]+\\.exe$`,
+const ASSET_INSTALLER = new RegExp(
+  `^https://github\\.com/${OWNER}/${REPO}/releases/download/[^/]+/[^/]+\\.(exe|AppImage)$`,
   'i'
 )
 
@@ -37,7 +38,7 @@ function toUrl(url) {
  */
 function downloadUrls(url) {
   const href = hrefOf(url)
-  if (!ASSET_EXE.test(href.split('?')[0])) return [toUrl(href || url)]
+  if (!ASSET_INSTALLER.test(href.split('?')[0])) return [toUrl(href || url)]
   return [...MIRRORS.map((prefix) => new URL(prefix + href)), new URL(href)]
 }
 
@@ -97,4 +98,12 @@ function downloadWithFallback(executor, deps = {}) {
   return executor
 }
 
-module.exports = { OWNER, REPO, MIRRORS, downloadUrls, rankDownloadUrls, downloadWithFallback }
+module.exports = {
+  OWNER,
+  REPO,
+  MIRRORS,
+  ASSET_INSTALLER,
+  downloadUrls,
+  rankDownloadUrls,
+  downloadWithFallback
+}

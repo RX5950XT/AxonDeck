@@ -92,6 +92,16 @@ function imageMime(full) {
  * @param {unknown} name
  * @returns {boolean}
  */
+/**
+ * Linux／macOS 的隱藏慣例：點開頭的名字（`.config`、`.bashrc`）。檔案頁一律列出隱藏項目，
+ * 這裡只決定要不要畫淡；Windows 照舊只看屬性與 HIDDEN_NAMES（`.git` 在 Windows 不算隱藏）。
+ * @param {string} name
+ * @param {string} [platformName]
+ */
+function isDotHidden(name, platformName = process.platform) {
+  return platformName !== 'win32' && String(name || '').startsWith('.')
+}
+
 function isHiddenName(name) {
   const s = String(name || '')
   if (!s) return false
@@ -438,7 +448,7 @@ async function readDirectoryEntries(full, opts) {
         size: Number(row.size) || 0,
         mtimeMs: Number(row.mtimeMs) || 0,
         ext: row.dir === true ? '' : path.extname(row.name).slice(1).toLowerCase(),
-        hidden: row.hidden === true || isHiddenName(row.name)
+        hidden: row.hidden === true || isHiddenName(row.name) || isDotHidden(row.name)
       }))
       .filter((entry) => opts.showHidden || !entry.hidden)
     const next = { createdAt: Date.now(), entries, sorted: new Map() }
@@ -448,7 +458,7 @@ async function readDirectoryEntries(full, opts) {
   const attrMap = await readAttrs(full)
   const flagged = dirents.map((d) => {
     const attr = attrMap ? attrMap.get(d.name.toLowerCase()) : null
-    return { dirent: d, hidden: Boolean(attr && attr.hidden) || isHiddenName(d.name) }
+    return { dirent: d, hidden: Boolean(attr && attr.hidden) || isHiddenName(d.name) || isDotHidden(d.name) }
   })
   const visible = opts.showHidden ? flagged : flagged.filter((item) => !item.hidden)
   const entries = await mapLimit(visible, STAT_CONCURRENCY, (item) => (
@@ -929,6 +939,7 @@ module.exports = {
   IMAGE_MIME,
   SORT_KEYS,
   isHiddenName,
+  isDotHidden,
   sanitizeSort,
   sortEntries,
   uniqueDest,

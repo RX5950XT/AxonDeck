@@ -69,6 +69,10 @@ function hookCommand(deps = {}) {
  * @returns {Promise<{ ok: boolean, error?: string, stop?: () => void }>}
  */
 async function startHook(deps) {
+  // WH_KEYBOARD_LL sidecar 僅 Windows；非 win32 立刻退回 uiohook 路徑
+  if (process.platform !== 'win32') {
+    return { ok: false, error: 'HOOK_UNSUPPORTED' }
+  }
   const { file: exePath, args } = hookCommand(deps)
   if (!exePath) return { ok: false, error: 'HOOK_EXE_MISSING' }
   const spawnFn = deps.spawnFn || spawn

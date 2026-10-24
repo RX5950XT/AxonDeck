@@ -763,7 +763,7 @@
                     <button type="button" id="wsFilesRevealBtn" class="btn-icon" title="在檔案頁開啟" aria-label="在 App 的檔案頁開啟這個專案">
                       🗁
                     </button>
-                    <button type="button" id="wsFilesSearchBtn" class="btn-icon" title="在專案裡搜尋" aria-label="在專案裡搜尋" aria-pressed="false">
+                    <button type="button" id="wsFilesSearchBtn" class="btn-icon" title="在專案裡找檔名或內容" aria-label="在專案裡找檔名或內容" aria-pressed="false">
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="10.5" cy="10.5" r="6" />
                         <path d="M15 15l5 5" />
@@ -775,12 +775,16 @@
                   </div>
                   <div class="ws-tree" id="wsTree" aria-label="檔案總管"></div>
                   <div class="ws-search" id="wsSearch" hidden>
+                    <div class="ws-search-modes" role="group" aria-label="搜尋模式">
+                      <button type="button" id="wsSearchModeName" class="btn btn-secondary btn-sm ws-search-mode is-on" aria-pressed="true">檔名</button>
+                      <button type="button" id="wsSearchModeContent" class="btn btn-secondary btn-sm ws-search-mode" aria-pressed="false">內容</button>
+                    </div>
                     <input
                       type="search"
                       id="wsSearchInput"
                       class="input input-sm"
-                      placeholder="在這個專案裡找…（至少兩個字）"
-                      aria-label="搜尋字串"
+                      placeholder="找檔名…（例如 Candy）"
+                      aria-label="搜尋檔名"
                     />
                     <div class="ws-search-results" id="wsSearchResults" aria-label="搜尋結果"></div>
                   </div>
@@ -1359,7 +1363,7 @@
                 </div>
                 <p id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></p>
                 <p id="sysmonNetworkNote" class="sysmon-detail sysmon-proc-note">欄名顯示整機占用；拖曳或用 Alt＋方向鍵調換欄位，名稱固定在第一欄。</p>
-                <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
+                <p class="sysmon-detail sysmon-proc-note" id="sysmonProcNote">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 
               <!--
@@ -1802,6 +1806,10 @@
                     <p class="setting-hint">
                       按住右 <kbd>Alt</kbd> 講話，放開自動貼上；快速點一下＝開始／結束，錄音中 <kbd>Esc</kbd> 取消。
                     </p>
+                    <p id="dictationHotkeyTipLinux" class="setting-hint dict-hotkey-note" hidden>
+                      <strong>X11：</strong>只能監聽右 Alt、無法攔截，前景程式也會收到這顆鍵。<strong>Wayland：</strong>只在 XWayland 視窗位於前景時有效。
+                    </p>
+                    <p id="dictationHotkeyNote" class="setting-hint dict-hotkey-note" hidden></p>
                   </div>
                   <div class="dict-state">
                     <div id="dictationStatus" class="dict-status" role="status" aria-live="polite">
@@ -2403,7 +2411,7 @@
                     <p class="install-error" id="installError" role="alert" hidden></p>
                     <div id="installJobs" class="install-jobs" aria-label="安裝工作" hidden></div>
                     <div id="installList" class="install-list" aria-label="應用程式"></div>
-                    <p class="setting-hint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
+                    <p class="setting-hint" id="installFootHint">操作會在背景執行，可以切換到其他頁面。需要管理員權限時，Windows 仍會要求授權；不支援靜默操作的程式會回報失敗。可更新清單只包含來源能確認的新版本。</p>
                   </section>
                   <section class="settings-section" id="set-cli" data-section="cli">
                     <header class="settings-section-head">

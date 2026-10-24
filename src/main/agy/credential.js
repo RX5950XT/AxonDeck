@@ -14,7 +14,7 @@ const {
 /**
  * 反代用的 Antigravity 憑證來源。
  *
- * 與額度頁共用同一條憑證鏈（Windows Credential Manager → OAuth refresh → loadCodeAssist），
+ * 與額度頁共用同一條憑證鏈（Windows CredManager／Linux secret-tool‧檔案 → OAuth refresh → loadCodeAssist），
  * 差別在反代是熱路徑：每個請求都要 token，所以這裡多一層記憶體快取與 in-flight 合併。
  * 憑證與 project id 一律不出 main。
  */
@@ -63,20 +63,50 @@ function invalidateToken() {
  * 看資料夾存在與否會誤判成已安裝（本機實測就是這個狀況）。
  */
 function detectSources(env) {
-  const localAppData = (env || process.env).LOCALAPPDATA || ''
-  if (!localAppData) return { cli: false, ide: false }
+  const e = env || process.env
+  if (process.platform === 'win32') {
+    const localAppData = e.LOCALAPPDATA || ''
+    if (!localAppData) return { cli: false, ide: false }
+    return {
+      cli: !!agyCliPath(e),
+      ide: dirHasExecutable(path.join(localAppData, 'Programs', 'Antigravity'))
+    }
+  }
+  // Linux／其他：認 ~/.local/bin/agy 與 PATH 上的 agy；IDE 桌面版路徑不固定，先不猜
   return {
-    cli: !!agyCliPath(env),
-    ide: dirHasExecutable(path.join(localAppData, 'Programs', 'Antigravity'))
+    cli: !!agyCliPath(e),
+    ide: false
   }
 }
 
-/** @returns {string} agy.exe 的完整路徑，沒裝就是空字串 */
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string} agy 執行檔完整路徑，沒裝就是空字串
+ */
 function agyCliPath(env) {
-  const localAppData = (env || process.env).LOCALAPPDATA || ''
-  if (!localAppData) return ''
-  const target = path.join(localAppData, 'agy', 'bin', 'agy.exe')
-  return fileExists(target) ? target : ''
+  const e = env || process.env
+  if (process.platform === 'win32') {
+    const localAppData = e.LOCALAPPDATA || ''
+    if (!localAppData) return ''
+    const target = path.join(localAppData, 'agy', 'bin', 'agy.exe')
+    return fileExists(target) ? target : ''
+  }
+  const home = e.HOME || require('os').homedir() || ''
+  const candidates = [
+    path.join(home, '.local', 'bin', 'agy'),
+    path.join(home, 'bin', 'agy')
+  ]
+  for (const target of candidates) {
+    if (fileExists(target)) return target
+  }
+  // PATH 上的 agy（不 shell out；只拆 PATH）
+  const pathVar = e.PATH || e.Path || ''
+  for (const dir of pathVar.split(path.delimiter)) {
+    if (!dir) continue
+    const target = path.join(dir, 'agy')
+    if (fileExists(target)) return target
+  }
+  return ''
 }
 
 function fileExists(target) {
@@ -89,7 +119,10 @@ function fileExists(target) {
 
 function dirHasExecutable(dir) {
   try {
-    return fs.readdirSync(dir).some((name) => name.toLowerCase().endsWith('.exe'))
+    return fs.readdirSync(dir).some((name) => {
+      const lower = name.toLowerCase()
+      return lower.endsWith('.exe') || (!lower.includes('.') && lower === 'antigravity')
+    })
   } catch {
     return false
   }
@@ -186,7 +219,12 @@ async function loadToken(deps) {
   const raw = await deps.readCredential()
   const credential = parseCredential(raw || '')
   if (!credential) {
-    throw new CredentialError('NO_CREDENTIAL', '找不到 Antigravity 登入憑證，請先在 Antigravity 登入。')
+    throw new CredentialError(
+      'NO_CREDENTIAL',
+      process.platform === 'win32'
+        ? '找不到 Antigravity 登入憑證，請先在 Antigravity 登入。'
+        : '找不到 Antigravity 登入憑證。請安裝 agy 並登入（Linux：金鑰環 gemini／antigravity，或 ~/.gemini/antigravity-cli）。'
+    )
   }
 
   const nowMs = deps.now()
@@ -323,6 +361,7 @@ async function status(options = {}) {
 
 module.exports = {
   detectSources,
+  agyCliPath,
   CLI_SPAWN_OPTIONS,
   CredentialError,
   acquire,

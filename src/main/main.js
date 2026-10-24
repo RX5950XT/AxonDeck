@@ -1019,13 +1019,16 @@ function createMainWindow() {
 
   // 插拔隨身碟／手機：Windows 把 WM_DEVICECHANGE 廣播給所有頂層視窗（藏起來的也收得到），
   // 不用輪詢。一次插拔會連來好幾則，等 1.5 秒安靜了（手機的 MTP 也掛好了）再通知檔案頁。
-  let deviceTimer = null
-  mainWindow.hookWindowMessage(0x0219, () => {
-    clearTimeout(deviceTimer)
-    deviceTimer = setTimeout(() => {
-      sendToPages('explorer:devicesChanged')
-    }, 1500)
-  })
+  // hookWindowMessage 是 Windows-only；Linux／macOS 沒有這個 API。
+  if (process.platform === 'win32' && typeof mainWindow.hookWindowMessage === 'function') {
+    let deviceTimer = null
+    mainWindow.hookWindowMessage(0x0219, () => {
+      clearTimeout(deviceTimer)
+      deviceTimer = setTimeout(() => {
+        sendToPages('explorer:devicesChanged')
+      }, 1500)
+    })
+  }
 
   // 關視窗 ≠ 結束：藏起來讓 AGY 反代繼續服務，真正的結束走系統匣選單。
   // isQuitting 這條一定要留——before-quit 會走到 app.exit()，但 app.quit() 途中
@@ -2318,8 +2321,22 @@ registerHfModelsIpc({
   isMainSender: assertMainWindowSender
 })
 
+/**
+ * Linux／macOS：「安裝」分頁靠 WinGet 與 Windows 解除安裝紀錄，沒有對應實作——
+ * 回固定的中文說明，不去跑 winget／reg.exe。
+ */
+const APP_INSTALLER_UNSUPPORTED = 'Linux 版暫不支援「安裝」分頁：常用程式的安裝、更新與解除安裝靠 Windows 的 WinGet。請改用發行版的套件管理員（apt、dnf、pacman）或 Flatpak。'
+function unsupportedAppInstaller() {
+  const failNow = () => { throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: APP_INSTALLER_UNSUPPORTED }) }
+  return {
+    snapshot: () => ({ categories: [], checkedAt: null, scanning: false, scanError: APP_INSTALLER_UNSUPPORTED, busy: false, iconsStamp: 0,
+      batch: null, jobs: [], installed: [], catalog: [], unsupported: true }),
+    refresh: failNow, start: failNow, upgradeAll: failNow, icons: async () => ({})
+  }
+}
 let appInstaller = null
 function loadAppInstaller() {
+  if (!appInstaller && process.platform !== 'win32') appInstaller = unsupportedAppInstaller()
   if (!appInstaller) appInstaller = require('./app-installer').createInstaller({
     cacheDir: path.join(app.getPath('userData'), 'app-installers'),
     notify: (state) => sendToPages('appInstaller:state', state)
@@ -2371,30 +2388,50 @@ registerBreezeIpc({
   isMainSender: assertMainWindowSender
 })
 
+/** Miroxen 引擎只發行 Windows 版（miroxen-win-x64＋cuBLAS DLL）；其他平台回固定中文說明，不碰引擎檔案。 */
+const MIROXEN_UNSUPPORTED = 'Linux 版暫不支援「生成圖片影像」：Miroxen 引擎目前只發行 Windows 版（miroxen-win-x64）。聊天裡的雲端生圖模型不受影響。'
+const MIROXEN_SUPPORTED = process.platform === 'win32'
+const miroxenUnsupported = () => Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: MIROXEN_UNSUPPORTED })
+/** 非 Windows：status 照實回「不支援」，其他動作直接回中文錯誤，不載入引擎 */
+async function loadMiroxenChecked() {
+  if (!MIROXEN_SUPPORTED) throw miroxenUnsupported()
+  return loadMiroxen()
+}
 registerMiroxenIpc({
   ipcMain,
   service: {
-    status: (options) => loadMiroxen().status(options),
-    start: () => loadMiroxen().start(),
-    stop: () => loadMiroxen().stop(),
-    openOutput: () => loadMiroxen().openOutput(),
-    api: () => loadMiroxen().api(),
-    setLan: (enabled) => loadMiroxen().setLan(enabled)
+    status: async (options) => MIROXEN_SUPPORTED
+      ? loadMiroxen().status(options)
+      : { supported: false, message: MIROXEN_UNSUPPORTED, gpuReady: false, hasNvidia: false, installed: false,
+          version: '', latest: '', update: false, models: [], running: false, starting: false, url: '' },
+    start: async () => (await loadMiroxenChecked()).start(),
+    stop: async () => MIROXEN_SUPPORTED ? loadMiroxen().stop() : true,
+    openOutput: async () => (await loadMiroxenChecked()).openOutput(),
+    api: async () => (await loadMiroxenChecked()).api(),
+    setLan: async (enabled) => (await loadMiroxenChecked()).setLan(enabled)
   },
   isMainSender: assertMainWindowSender
 })
 
+/** PDF 版面翻譯的 Python 執行環境（paddlepaddle＋uv）目前只鎖了 Windows wheel；其他平台回固定中文說明。 */
+const PDF_TRANSLATE_UNSUPPORTED = 'Linux 版暫不支援 PDF／圖片保留版面翻譯：版面辨識的 Python 執行環境目前只提供 Windows 版。一般文字翻譯不受影響。'
+async function loadPdfTranslateChecked() {
+  if (process.platform !== 'win32') {
+    throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: PDF_TRANSLATE_UNSUPPORTED })
+  }
+  return loadPdfTranslate()
+}
 registerPdfTranslateIpc({
   ipcMain,
   service: {
-    pick: async () => (await loadPdfTranslate()).pick(),
-    inspect: async (filename) => (await loadPdfTranslate()).inspect(filename),
-    pasteImage: async (payload) => (await loadPdfTranslate()).pasteImage(payload),
-    start: async (options) => (await loadPdfTranslate()).start(options),
-    cancel: async (jobId) => (await loadPdfTranslate()).cancel(jobId),
-    status: async () => (await loadPdfTranslate()).status(),
-    save: async (jobId) => (await loadPdfTranslate()).save(jobId),
-    clearCache: async () => (await loadPdfTranslate()).clearCache()
+    pick: async () => (await loadPdfTranslateChecked()).pick(),
+    inspect: async (filename) => (await loadPdfTranslateChecked()).inspect(filename),
+    pasteImage: async (payload) => (await loadPdfTranslateChecked()).pasteImage(payload),
+    start: async (options) => (await loadPdfTranslateChecked()).start(options),
+    cancel: async (jobId) => (await loadPdfTranslateChecked()).cancel(jobId),
+    status: async () => (await loadPdfTranslateChecked()).status(),
+    save: async (jobId) => (await loadPdfTranslateChecked()).save(jobId),
+    clearCache: async () => (await loadPdfTranslateChecked()).clearCache()
   },
   isMainSender: assertMainWindowSender
 })

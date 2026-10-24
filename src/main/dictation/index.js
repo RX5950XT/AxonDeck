@@ -148,6 +148,7 @@ async function refresh() {
  *             lang: string, cleaner: object }}
  */
 function status() {
+  const limits = hotkey.hotkeyLimitations()
   return {
     enabled: storeRef?.get('dictationEnabled', false) === true,
     listening: hotkey.isRunning(),
@@ -156,7 +157,10 @@ function status() {
     recording: hotkey.isRecording(),
     busy,
     lang: currentLang(),
-    cleaner: currentCleaner()
+    cleaner: currentCleaner(),
+    display: limits.display,
+    canGlobalHook: limits.canGlobalHook,
+    note: limits.note
   }
 }
 

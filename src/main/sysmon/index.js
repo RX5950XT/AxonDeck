@@ -300,6 +300,21 @@ function createSysmonService(deps = {}) {
     async killProcess(pidOrPids, force) {
       const pids = validateKillPids(pidOrPids)
       const forced = force === true
+      // Linux：用 POSIX signal，不走 taskkill／PowerShell UAC
+      if (process.platform !== 'win32') {
+        const result = { pid: pids[0], pids, forced, elevated: false }
+        for (const pid of pids) {
+          try {
+            process.kill(pid, forced ? 'SIGKILL' : 'SIGTERM')
+          } catch (err) {
+            if (err && err.code === 'ESRCH') continue
+            throw killError('SYSMON_KILL_DENIED', forced
+              ? '強制結束失敗：沒有權限或程序不存在'
+              : '結束失敗：沒有權限或程序不存在')
+          }
+        }
+        return result
+      }
       const args = pids.flatMap((pid) => ['/PID', String(pid)]).concat(forced ? ['/F', '/T'] : [])
       const code = await runKill(spawnFn, 'taskkill.exe', args, KILL_TIMEOUT_MS)
       const result = { pid: pids[0], pids, forced, elevated: false }

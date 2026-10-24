@@ -122,6 +122,9 @@ function renderNote(status) {
   const lines = []
   if (!status) lines.push('讀取狀態失敗')
   else {
+    if (status.supported === false) {
+      lines.push(status.note || '此平台尚未支援應用時長自動記錄。')
+    }
     if (status.webError === 'in-use') {
       lines.push('網站時長暫時沒進來：8908 埠被佔用。')
     }

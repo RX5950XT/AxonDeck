@@ -14,7 +14,10 @@ const context = { module: { exports: {} }, require: createRequire(file), process
   clearTimeout(key) { timers.delete(key) } }
 vm.runInNewContext(fs.readFileSync(file, 'utf8'), context)
 const children = []
-const sampler = context.module.exports.createSampler({ cpusFn: () => [], spawnFn() {
+const sampler = context.module.exports.createSampler({
+  cpusFn: () => [],
+  probeCommand: () => ({ file: 'fake-probe', args: ['sysmon'], unsupported: false }),
+  spawnFn() {
   const proc = Object.assign(new EventEmitter(), {
     stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough(), kill() {} })
   proc.commands = []

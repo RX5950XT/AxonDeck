@@ -17,6 +17,7 @@
 const path = require('path')
 const fs = require('fs')
 const { spawn } = require('child_process')
+const platform = require('../platform')
 
 /** 掛起來的等待上限：正常 200ms 內回 READY，冷啟動（自帶執行環境解壓）會久一點 */
 const READY_TIMEOUT_MS = 8000
@@ -54,6 +55,7 @@ function resolveExePath(deps = {}) {
  * @returns {Promise<{ ok: boolean, error?: string, send?: Function, stop?: Function }>}
  */
 async function startShell(deps = {}) {
+  if (!platform.isWindows) return { ok: false, error: 'SHELL_UNSUPPORTED' }
   const exePath = deps.exePath || resolveExePath(deps)
   if (!exePath) return { ok: false, error: 'SHELL_EXE_MISSING' }
   const spawnFn = deps.spawnFn || spawn

@@ -4,7 +4,8 @@
  * 由 electron-chrome-extensions（GPL-3.0）補上。
  *
  * - 擴充功能 ID 要跟商店一樣（有些擴充功能靠自己的 ID 跟網站溝通）：把 CRX 裡的公鑰寫進 manifest 的 `key`。
- * - 解壓用 Windows 內建的 `tar.exe`（bsdtar，會擋 `..` 與絕對路徑），不另外引入 zip 套件。
+ * - 解壓用 Windows 內建的 `tar.exe`（bsdtar，會擋 `..` 與絕對路徑），不另外引入 zip 套件；
+ *   Linux 用系統的 bsdtar，沒有就退回 unzip。
  * - 每顆瀏覽器 webview 都登記成擴充功能看得到的分頁（`attachTab`）；工具列圖示列＋徽章由畫面照 `actions()` 畫。
  * - 自動更新：跟 Chrome 打同一支更新檢查 API，有新版就重裝（啟動後一分鐘、之後每 6 小時）。
  * shortcut: 不驗 CRX 簽章（只從 Google 的 https 網址下載）。
@@ -80,11 +81,37 @@ function parseCrx(crx, id) {
 }
 
 function unzip(zipFile, dest) {
+  if (process.platform !== 'win32') return unzipUnix(zipFile, dest)
   const tar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
   return new Promise((resolve, reject) => {
     execFile(tar, ['-xf', zipFile, '-C', dest], { windowsHide: true }, (error, _out, stderr) => {
       if (error) reject(new Error(`解壓失敗：${String(stderr || error.message).trim()}`))
       else resolve()
+    })
+  })
+}
+
+/**
+ * Linux／macOS：優先 bsdtar（libarchive，跟 Windows 的 tar.exe 同一套，會擋 `..` 與絕對路徑），
+ * 沒有就用 unzip（Info-ZIP 也會略過 `../`；結束碼 1＝只有警告，例如 CRX 前面的偏移）。
+ * 只找固定的絕對路徑，不從 PATH 找。
+ */
+function unzipUnix(zipFile, dest) {
+  const fsSync = require('fs')
+  const pick = (names) => names.find((file) => { try { fsSync.accessSync(file, fsSync.constants.X_OK); return true } catch { return false } })
+  const bsdtar = pick(['/usr/bin/bsdtar', '/bin/bsdtar', '/usr/local/bin/bsdtar'])
+  const unzipBin = bsdtar ? '' : pick(['/usr/bin/unzip', '/bin/unzip', '/usr/local/bin/unzip'])
+  if (!bsdtar && !unzipBin) {
+    return Promise.reject(new Error('解壓失敗：找不到 bsdtar 或 unzip，請先安裝 libarchive-tools（bsdtar）或 unzip'))
+  }
+  const [exe, args, okCodes] = bsdtar
+    ? [bsdtar, ['-xf', zipFile, '-C', dest], [0]]
+    : [unzipBin, ['-qq', '-o', zipFile, '-d', dest], [0, 1]]
+  return new Promise((resolve, reject) => {
+    execFile(exe, args, { timeout: 60000 }, (error, _out, stderr) => {
+      const code = error ? (typeof error.code === 'number' ? error.code : -1) : 0
+      if (okCodes.includes(code)) resolve()
+      else reject(new Error(`解壓失敗：${String(stderr || error?.message || '').trim()}`))
     })
   })
 }
@@ -609,4 +636,4 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     change, openInternalUrl }
 }
 
-module.exports = { createBrowserExtensions, storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml, STORE_HOME }
+module.exports = { createBrowserExtensions, storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml, STORE_HOME, unzip }

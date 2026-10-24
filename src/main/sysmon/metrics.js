@@ -286,7 +286,9 @@ function parseStatic(rows) {
           driverDate: f[5] || '', width: num(f[6]), height: num(f[7]),
           refreshHz: num(f[8]), processor: f[9] || '', pnpId: f[10] || '',
           // AdapterRAM 是 uint32（16GB 的卡回 4293918720），有登錄檔的 64 位元真值就用它
-          vram: num(f[11]) || num(f[2])
+          vram: num(f[11]) || num(f[2]),
+          // Linux probe 才送：資料來源（nvidia-smi／sysfs／lspci）；Windows probe 沒有這格 → ''
+          source: f[12] || ''
         })
         break
       case 'PDISK':
@@ -411,6 +413,9 @@ function parseStatic(rows) {
           name: f[1] || '', charge: num(f[2]), status: num(f[3]),
           designVoltageMv: num(f[4]), chemistry: BATTERY_CHEMISTRY[num(f[5])] || ''
         })
+        break
+      case 'PLAT':
+        out.platform = f[1] || ''
         break
       case 'SEC':
         out.security = {

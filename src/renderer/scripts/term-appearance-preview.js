@@ -4,10 +4,18 @@ let imageName = null
 let imageUrl = ''
 let revision = 0
 
+/** Linux 的預設 shell 是 bash：提示字元換成 `~$`，不顯示 Windows 的 `PS C:\>`。 */
+function linuxPrompt(host) {
+  if (!/Linux/.test(navigator.userAgent) || /Windows/.test(navigator.userAgent)) return
+  const text = host.querySelector('.term-preview-text')?.firstChild
+  if (text && text.nodeType === Node.TEXT_NODE && text.nodeValue.startsWith('PS C:')) text.nodeValue = '~$ '
+}
+
 /** Same palette, wallpaper strength and font size as the terminal; no shell is started. */
 export async function refreshTermAppearancePreview() {
   const host = document.getElementById('termAppearancePreview')
   if (!host || !host.closest('#set-appearance.active')) return
+  linuxPrompt(host)
   const current = ++revision
   const status = document.getElementById('termPreviewStatus')
   try {

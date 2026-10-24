@@ -3,12 +3,18 @@
  *
  * `probe-workspace-perf.js` 量的是「有沒有重做」，這一支量的是**時間與記憶體**：
  *   [A] 1.4MB／4 萬行的檔案，從點下去到 Monaco 掛好幾毫秒
- *   [B] 大檔的「預覽變更」（並排 diff）算完要幾毫秒
+ *   [B] 改過的大檔點開直接是「檢視變更」（並排 diff），而且算得出來
  *   [C] 兩個分頁都關掉、強制 GC 之後，堆積有沒有掉回接近開檔前
  *   [D] 關掉 HTML 預覽分頁之後，那個 `<iframe>`（會一直跑腳本）有沒有被收掉
  *   [E] 關掉影片預覽分頁之後，`<video>`（會一直緩衝）有沒有被收掉
  *   [F] 3MB 與 12MB／30 萬行 JSON 用編輯器打開、可以編輯
  *   [F2] 12MB 檔上每打一個字的耗時、停下來後背景同步的卡頓、存檔寫得回去
+ *   [F3] 約 120MB／100 萬行 JSON（超過舊的 50MB 上限）開得起來、捲得順、存得回去
+ *   [F4] 超過 256MB（約 330MB／300 萬行）改用唯讀分段檢視：畫得出來、跳行、搜尋（分不分大小寫）、
+ *        外面接著寫入時自己更新並跟到檔尾（只掃新的那段）、關得掉
+ *   [F5] 超過 512K 字的 Markdown 預設開編輯，切預覽只畫開頭並註明
+ *   [F6] 超過 256MB 的 UTF-16 LE 檔也用分段檢視打開、中文正常、搜得到
+ *   [F7] 提交過又改過的 330MB 檔：樹上點開走「檢視變更」不會撐爆（diff 只收前一段），等的時候有提示、看得到改的那一行
  *   [G] 大圖片／影片（拖進度條）／音訊／PDF 走 `vi-media://` 串流；協定擋錯 token、越界、非媒體檔
  *
  * 全程用自己的暫存 user-data-dir，收尾只殺自己 spawn 的那個 pid。
@@ -49,6 +55,39 @@ git('config', 'user.name', 'probe')
 git('add', '-A')
 git('commit', '-qm', 'seed')
 fs.writeFileSync(path.join(PROJECT, 'big.js'), bigModified)
+/** [F3] 約 120MB、含中文（兩位元組字串）。commit 之後才寫，不拖慢 git */
+const GIANT_LINES = 1000000
+const giantRow = (i) => `  {"id": ${i}, "name": "item-${i}", "tags": ["alpha", "beta"], "note": "第 ${i} 筆中文測試資料"},`
+{
+  const out = fs.openSync(path.join(PROJECT, 'giant.json'), 'w')
+  for (let i = 0; i < GIANT_LINES; i += 50000) {
+    fs.writeSync(out, Array.from({ length: 50000 }, (_, k) => giantRow(i + k)).join('\n') + '\n')
+  }
+  fs.closeSync(out)
+}
+const GIANT_SIZE = fs.statSync(path.join(PROJECT, 'giant.json')).size
+/** [F4] 超過 Monaco 上限 */
+const OVER_LINES = 3000000
+{
+  const out = fs.openSync(path.join(PROJECT, 'over.json'), 'w')
+  for (let i = 0; i < OVER_LINES; i += 50000) {
+    fs.writeSync(out, Array.from({ length: 50000 }, (_, k) => giantRow(i + k)).join('\n') + '\n')
+  }
+  fs.closeSync(out)
+}
+/** [F6] 超過上限的 UTF-16 LE（有 BOM） */
+const WIDE_LINES = 2600000
+{
+  const out = fs.openSync(path.join(PROJECT, 'wide.log'), 'w')
+  fs.writeSync(out, Buffer.from([0xff, 0xfe]))
+  const pad = 'x'.repeat(30)
+  for (let i = 0; i < WIDE_LINES; i += 100000) {
+    fs.writeSync(out, Buffer.from(Array.from({ length: 100000 }, (_, k) => `Wide ${i + k} 寬字元測試資料 ${pad}`).join('\r\n') + '\r\n', 'utf16le'))
+  }
+  fs.closeSync(out)
+}
+/** [F5] 約 2MB 的 Markdown */
+fs.writeFileSync(path.join(PROJECT, 'long.md'), Array.from({ length: 40000 }, (_, i) => `## 第 ${i} 節\n\n一段說明文字 **粗體** 與 \`code\`。\n`).join('\n'))
 
 // ===== [G] 大媒體（舊版整份 base64 過 IPC，上限 2MB）。放在 commit 之後，不必進 git =====
 const IMG_SIDE = 3000
@@ -187,6 +226,8 @@ class Cdp {
   }
   close() { try { this.ws.close() } catch { /* 已斷線 */ } }
 }
+// 功能頁是各自的 WebContentsView：跟著主視窗目前那頁走（抓外殼頁會看不到側欄）
+require('./lib/page-cdp').followMainPage(Cdp)
 
 async function waitTargets(timeoutMs = 40000) {
   const start = Date.now()
@@ -303,15 +344,13 @@ async function main() {
     note(`[A] 開著大檔的堆積 ${openHeap} MB（+${Math.round((openHeap - baseHeap) * 10) / 10}）`)
 
     // ===== [B] 預覽變更 =====
-    ok('工具列出現「看未提交變更」', await waitInPage(cdp, `!document.getElementById('wsEditorDiffBtn')?.hidden`))
-    await cdp.eval(`window.__t0 = performance.now(); document.getElementById('wsEditorDiffBtn').click()`)
+    // 改過（還沒提交）的檔案在樹上點開，預設就是「檢視變更」（`workspace-page.js` 的樹點擊），不必再按按鈕
     const diffShown = await waitInPage(cdp, `!document.getElementById('wsDiffMonaco')?.hidden`)
     // 並排 diff 是非同步算的：等到它真的標出那一塊變更為止
     const diffReady = await waitInPage(cdp, `
       document.querySelectorAll('#wsDiffMonaco .line-insert, #wsDiffMonaco .char-insert, #wsDiffMonaco .line-delete').length > 0
     `, 40000)
-    const diffMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
-    ok('[B] 大檔的並排變更算得出來', diffShown && diffReady, `${diffMs}ms`)
+    ok('[B] 改過的大檔點開直接是並排變更，而且算得出來', diffShown && diffReady)
     const diffHeap = await heapMb(cdp)
     note(`[B] 開著大檔＋diff 的堆積 ${diffHeap} MB`)
 
@@ -446,11 +485,16 @@ async function main() {
       return m.getLineCount() === ${HUGE_LINES} && m.getLineContent(150000).startsWith('x'.repeat(40) + 'y'.repeat(5))
         && !!document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-dirty')
     })()`, 10000))
-    await cdp.eval(`window.__t0 = performance.now(); document.getElementById('wsEditorSaveBtn').click()`)
+    await cdp.eval(`window.__toasts = []; new MutationObserver(() => window.__toasts.push(document.querySelector('.toast')?.textContent.trim())).observe(document.querySelector('.toast'), { childList: true, subtree: true, characterData: true, attributes: true }); window.__t0 = performance.now(); document.getElementById('wsEditorSaveBtn').click()`)
     const savedOk = await waitInPage(cdp, `!document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-dirty')`, 20000)
     const saveMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
     const onDisk = fs.readFileSync(path.join(PROJECT, 'huge.json'), 'utf8')
-    ok('[F2] 12MB 檔存得回去（45 個字真的寫進磁碟）', savedOk && onDisk.length === jsonLines(HUGE_LINES).length + 45, `${saveMs}ms`)
+    ok('[F2] 12MB 檔存得回去（45 個字真的寫進磁碟）', savedOk && onDisk.length === jsonLines(HUGE_LINES).length + 45, `${saveMs}ms` + (savedOk ? '' : ' ' + await cdp.eval(`(async () => { const wm = await import(new URL('scripts/ws-monaco.js', location.href).href); let cv; try { cv = typeof wm.currentValue() } catch (e) { cv = 'throw ' + e.message } return JSON.stringify({ cv, toasts: window.__toasts, saveBtn: [document.getElementById('wsEditorSaveBtn').hidden, document.getElementById('wsEditorSaveBtn').disabled],
+      dialog: document.querySelector('dialog[open]')?.innerText.slice(0, 200) || '',
+      banner: document.getElementById('wsEditorExtBanner')?.hidden ? '' : document.getElementById('wsEditorExtBanner')?.innerText,
+      held: document.getElementById('wsEditorText').dataset.held, live: window.monaco.editor.getEditors()[0]?.getModel()?.getLineCount(),
+      disk: ${onDisk.length - jsonLines(HUGE_LINES).length}
+    }) })()`)))
     await cdp.eval(`(async () => {
       for (const btn of document.querySelectorAll('#wsTabStrip .ws-tab .ws-tab-close')) {
         btn.click()
@@ -458,6 +502,166 @@ async function main() {
       }
     })()`)
     ok('[F2] 兩個分頁都關掉了', await waitInPage(cdp, `document.querySelectorAll('#wsTabStrip .ws-tab').length === 0`, 5000))
+
+    // ===== [F3] 超過舊的 50MB 上限 =====
+    await cdp.eval(`window.__t0 = performance.now(); document.querySelector('#wsTree .ws-tree-row[data-rel="giant.json"]').click()`)
+    const giantShown = await waitInPage(cdp, `!!window.monaco && window.monaco.editor.getEditors()[0]?.getModel()?.getLineCount() > ${GIANT_LINES}`, 90000)
+    // 視窗最小化時不發 rAF：一律用 render(true) 同步強制畫一次
+    await cdp.eval('window.monaco.editor.getEditors()[0].render(true)')
+    const giantMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
+    const giantState = await cdp.eval(`({
+      unsupported: !document.getElementById('wsEditorUnsupported').hidden,
+      monaco: !document.getElementById('wsMonacoHost').hidden,
+      saveHidden: document.getElementById('wsEditorSaveBtn').hidden,
+      shadow: document.getElementById('wsEditorText')?.value.length || 0
+    })`)
+    ok(`[F3] ${(GIANT_SIZE / 1048576).toFixed(0)}MB／${GIANT_LINES} 行用編輯器打開、可以存`, giantShown && !giantState.unsupported && giantState.monaco && !giantState.saveHidden, `${giantMs}ms ${JSON.stringify(giantState)}`)
+    ok('[F3] 大檔沒倒進影子 textarea', giantState.shadow === 0)
+    const giantScroll = await cdp.eval(`(() => {
+      const ed = window.monaco.editor.getEditors()[0]; const times = []
+      for (let i = 0; i < 60; i += 1) {
+        const t = performance.now()
+        if (i % 2) ed.setScrollTop(ed.getScrollTop() + 400); else ed.revealLineInCenter(1 + Math.floor(Math.random() * ${GIANT_LINES}))
+        ed.render(true)
+        times.push(performance.now() - t)
+      }
+      times.sort((a, b) => a - b)
+      return { median: Math.round(times[30]), p95: Math.round(times[56]) }
+    })()`)
+    ok('[F3] 捲動／跳行後重畫中位數 < 16ms', giantScroll.median < 16, JSON.stringify(giantScroll))
+    await cdp.eval(`(() => { const ed = window.monaco.editor.getEditors()[0]; ed.setPosition({ lineNumber: 500000, column: 1 }); ed.trigger('keyboard', 'type', { text: 'zz' }) })()`)
+    await sleep(800)
+    await cdp.eval(`window.__t0 = performance.now(); document.getElementById('wsEditorSaveBtn').click()`)
+    const giantSaved = await waitInPage(cdp, `!document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-dirty')`, 60000)
+    const giantSaveMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
+    ok('[F3] 存得回去（多 2 bytes）', giantSaved && fs.statSync(path.join(PROJECT, 'giant.json')).size === GIANT_SIZE + 2, `${giantSaveMs}ms`)
+    await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-close').click()`)
+    ok('[F3] 分頁關得掉', await waitInPage(cdp, `document.querySelectorAll('#wsTabStrip .ws-tab').length === 0`, 5000))
+
+    // ===== [F4] 超過 256MB：唯讀分段檢視 =====
+    await cdp.eval(`window.__t0 = performance.now(); document.querySelector('#wsTree .ws-tree-row[data-rel="over.json"]').click()`)
+    const overShown = await waitInPage(cdp, `!document.getElementById('wsBigText').hidden && document.querySelectorAll('#wsBigText .bt-row:not([hidden]) .bt-tx').length > 5
+      && document.querySelector('#wsBigText .bt-row .bt-tx').textContent.length > 0`, 120000)
+    const overMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
+    const overState = await cdp.eval(`({
+      info: document.querySelector('#wsBigText .bt-info')?.textContent,
+      monaco: !document.querySelector('.ws-ide-container').hidden,
+      save: !document.getElementById('wsEditorSaveBtn').hidden,
+      note: document.getElementById('wsEditorNote').textContent
+    })`)
+    ok('[F4] 330MB 用分段檢視打開（不是「無法預覽」，Monaco／儲存都收起來）', overShown && !overState.monaco && !overState.save, `${overMs}ms ${JSON.stringify(overState)}`)
+    const overNav = await cdp.eval(`(async () => {
+      const wait = async (fn) => { const end = performance.now() + 30000; while (!fn()) { if (performance.now() > end) return false; await new Promise((r) => setTimeout(r, 5)) } return true }
+      const current = () => document.querySelector('#wsBigText .bt-row.is-current')
+      const line = document.querySelector('#wsBigText .bt-input[type=number]'); line.value = '2999990'
+      let t = performance.now()
+      line.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      const jumped = await wait(() => current()?.querySelector('.bt-ln').textContent === '2999990' && current().querySelector('.bt-tx').textContent)
+      const jumpMs = Math.round(performance.now() - t)
+      document.querySelector('#wsBigText .bt-body').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', ctrlKey: true, bubbles: true }))
+      const find = document.querySelector('#wsBigText .bt-find'); find.value = '"id": 2999998,'
+      t = performance.now()
+      find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      const found = await wait(() => current()?.querySelector('.bt-hit') && current().querySelector('.bt-ln').textContent === '2999999')
+      return { jumped, jumpMs, found, findMs: Math.round(performance.now() - t) }
+    })()`)
+    ok('[F4] 跳到倒數第 10 行、從頭搜尋到檔尾那一筆', overNav.jumped && overNav.found, JSON.stringify(overNav))
+    const caseNav = await cdp.eval(`(async () => {
+      const wait = async (fn) => { const end = performance.now() + 30000; while (!fn()) { if (performance.now() > end) return false; await new Promise((r) => setTimeout(r, 5)) } return true }
+      const current = () => document.querySelector('#wsBigText .bt-row.is-current')
+      const status = document.querySelector('#wsBigText .bt-status')
+      document.querySelector('#wsBigText .bt-body').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', ctrlKey: true, bubbles: true }))
+      const find = document.querySelector('#wsBigText .bt-find'); find.value = '"ID": 2999997,'
+      find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      const loose = await wait(() => current()?.querySelector('.bt-ln').textContent === '2999998' && current().querySelector('.bt-hit')?.textContent === '"id": 2999997,')
+      document.querySelector('#wsBigText .bt-case').click()
+      find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      const strict = await wait(() => status.textContent === '找不到')
+      document.querySelector('#wsBigText .bt-case').click()
+      return { loose, strict }
+    })()`)
+    ok('[F4] 預設不分大小寫；按 Aa 之後要一模一樣', caseNav.loose && caseNav.strict, JSON.stringify(caseNav))
+    // 停在檔尾，外面再寫 10 行：2 秒內要自己長出來，而且畫面跟到新的檔尾。
+    // 探針視窗是縮小的（document.hidden），檢視那時本來就不問磁碟：這一段假裝看得見
+    await cdp.eval(`Object.defineProperty(document, 'hidden', { get: () => false, configurable: true })`)
+    await cdp.eval(`document.querySelector('#wsBigText .bt-body').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', ctrlKey: true, bubbles: true }))`)
+    fs.appendFileSync(path.join(PROJECT, 'over.json'), Array.from({ length: 10 }, (_, k) => giantRow(OVER_LINES + k)).join('\n') + '\n')
+    const t0 = Date.now()
+    const grew = await waitInPage(cdp, `/3,000,010 行/.test(document.querySelector('#wsBigText .bt-info').textContent)
+      && [...document.querySelectorAll('#wsBigText .bt-row:not([hidden]) .bt-ln')].some((n) => n.textContent === '3000010')`, 20000)
+    ok('[F4] 外面接著寫入：自己更新行數、停在檔尾的跟到新的檔尾', grew, `${Date.now() - t0}ms`)
+    // 只是往後長：重建索引要接著掃，不是整份 330MB 重掃（整份約 1 秒）
+    await cdp.eval(`delete document.hidden`)
+    fs.appendFileSync(path.join(PROJECT, 'over.json'), Array.from({ length: 10 }, (_, k) => giantRow(OVER_LINES + 10 + k)).join('\n') + '\n')
+    const reindex = await cdp.eval(`(async () => {
+      const api = window.electronAPI.workspace
+      const list = (await api.listProjects()).data || []
+      const proj = list.find((p) => p.path === ${JSON.stringify(PROJECT)}) || list[0]
+      const t = performance.now()
+      const res = await api.bigOpen(proj.id, 'over.json')
+      return { ms: Math.round(performance.now() - t), lines: res.data?.lines }
+    })()`)
+    ok('[F4] 檔案變長只掃新的那段（< 300ms）', reindex.lines === OVER_LINES + 20 && reindex.ms < 300, JSON.stringify(reindex))
+    await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-close').click()`)
+    ok('[F4] 分頁關得掉、檢視收乾淨', await waitInPage(cdp, `document.querySelectorAll('#wsTabStrip .ws-tab').length === 0 && !document.querySelector('#wsBigText .bt')`, 5000))
+
+    // ===== [F5] 大 Markdown：預設編輯、預覽只畫開頭 =====
+    await cdp.eval(`document.querySelector('#wsTree .ws-tree-row[data-rel="long.md"]').click()`)
+    const mdEdit = await waitInPage(cdp, `!!window.monaco && window.monaco.editor.getEditors()[0]?.getModel()?.getLineCount() > 80000 && document.getElementById('wsEditorPreview').hidden`, 30000)
+    ok('[F5] 2MB Markdown 預設開編輯，不是一打開就整份預覽', mdEdit)
+    await cdp.eval(`window.__t0 = performance.now(); document.getElementById('wsEditorPreviewBtn').click()`)
+    const mdCut = await waitInPage(cdp, `!document.getElementById('wsEditorPreview').hidden && /預覽只畫開頭/.test(document.getElementById('wsEditorPreview').lastElementChild?.textContent || '')`, 30000)
+    const mdMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
+    ok('[F5] 切預覽只畫開頭並註明', mdCut, `${mdMs}ms`)
+    await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-close').click()`)
+    ok('[F5] 分頁關得掉', await waitInPage(cdp, `document.querySelectorAll('#wsTabStrip .ws-tab').length === 0`, 5000))
+
+    // ===== [F6] 超過 256MB 的 UTF-16 =====
+    await cdp.eval(`window.__t0 = performance.now(); document.querySelector('#wsTree .ws-tree-row[data-rel="wide.log"]').click()`)
+    const wideShown = await waitInPage(cdp, `document.querySelector('#wsBigText .bt-row .bt-tx')?.textContent?.startsWith('Wide 0 寬字元測試資料')`, 120000)
+    const wideMs = await cdp.eval('Math.round(performance.now() - window.__t0)')
+    const wideInfo = await cdp.eval(`document.querySelector('#wsBigText .bt-info')?.textContent || ''`)
+    ok('[F6] UTF-16 LE 超大檔用分段檢視打開、中文正常', wideShown && wideInfo.includes(`${WIDE_LINES.toLocaleString('en-US')} 行`), `${wideMs}ms ${wideInfo}`)
+    const wideFind = await cdp.eval(`(async () => {
+      const wait = async (fn) => { const end = performance.now() + 30000; while (!fn()) { if (performance.now() > end) return false; await new Promise((r) => setTimeout(r, 5)) } return true }
+      const current = () => document.querySelector('#wsBigText .bt-row.is-current')
+      const find = document.querySelector('#wsBigText .bt-find'); find.value = 'wide ${WIDE_LINES - 1} 寬'
+      const t = performance.now()
+      find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      const found = await wait(() => current()?.querySelector('.bt-ln').textContent === '${WIDE_LINES}')
+      return { found, ms: Math.round(performance.now() - t) }
+    })()`)
+    ok('[F6] UTF-16 檔搜得到最後一行', wideFind.found, JSON.stringify(wideFind))
+    await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-close').click()`)
+    ok('[F6] 分頁關得掉', await waitInPage(cdp, `document.querySelectorAll('#wsTabStrip .ws-tab').length === 0 && !document.querySelector('#wsBigText .bt')`, 5000))
+
+    // ===== [F7] 提交過又改過的 330MB 檔：樹上點開走「檢視變更」那條 =====
+    let t7 = Date.now()
+    git('add', 'over.json')
+    git('commit', '-qm', 'over')
+    note(`[F7] git 提交 330MB 花 ${Date.now() - t7}ms（測試準備，不算 app）`)
+    fs.appendFileSync(path.join(PROJECT, 'over.json'), giantRow(OVER_LINES + 20) + '\n')
+    const marked = await waitInPage(cdp, `!!document.querySelector('#wsTree .ws-tree-row[data-rel="over.json"] .ws-tree-status.is-changed')`, 30000)
+    ok('[F7] 樹上標成「改過」', marked)
+    const heap7 = await heapMb(cdp)
+    await cdp.eval(`window.__t0 = performance.now(); document.querySelector('#wsTree .ws-tree-row[data-rel="over.json"]').click()`)
+    // git 比對兩份 330MB 要好幾秒：等的時候要有提示，出來之後提示要收掉
+    ok('[F7] 等比對時掛著「讀取變更中…」', await waitInPage(cdp, `!document.querySelector('.toast').classList.contains('hidden') && document.querySelector('.toast').textContent.includes('讀取變更中')`, 5000))
+    const diff7 = await waitInPage(cdp, `(() => {
+      const box = document.getElementById('wsDiffContent')
+      return box && !box.hidden && box.textContent.length > 0
+    })()`, 60000)
+    const diff7Ms = await cdp.eval('Math.round(performance.now() - window.__t0)')
+    const diff7State = await cdp.eval(`({
+      text: document.getElementById('wsDiffContent').textContent.slice(-120),
+      rows: document.querySelectorAll('#wsDiffContent .ws-diff-line-add, #wsDiffContent .ws-diff-line-del').length,
+      stats: document.getElementById('wsDiffStats')?.textContent || ''
+    })`)
+    ok('[F7] 改過的 330MB 檔點開出得來（逐行檢視，看得到加的那一行）', diff7 && diff7State.rows > 0 && diff7State.text.includes(String(OVER_LINES + 20)), `${diff7Ms}ms ${JSON.stringify(diff7State)}`)
+    ok('[F7] 變更出來後提示收掉', await waitInPage(cdp, `document.querySelector('.toast').classList.contains('hidden') || !document.querySelector('.toast').textContent.includes('讀取變更中')`, 3000))
+    note(`[F7] 開著 330MB diff 的堆積 ${await heapMb(cdp)} MB（點之前 ${heap7}）`)
+    await cdp.eval(`document.querySelector('#wsTabStrip .ws-tab.is-active .ws-tab-close').click()`)
+    ok('[F7] 分頁關得掉', await waitInPage(cdp, `document.querySelectorAll('#wsTabStrip .ws-tab').length === 0`, 5000))
 
     // ===== [G] 大媒體走 vi-media:// 串流 =====
     note(`[G] 檔案大小：${Object.entries(mediaSizes).map(([k, v]) => `${k} ${(v / 1048576).toFixed(1)}MB`).join('、')}`)

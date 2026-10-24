@@ -4,7 +4,7 @@
  * 工作區 Office 預覽（`ws-office.js`）：在真的 Chromium 裡解 docx／xlsx／pptx／odt／ods／odp，確認畫得出內容。
  * 檔案是這裡自己拼的最小 OOXML（deflate 壓縮，走 DecompressionStream 那條）。
  *
- *   node_modules/electron/dist/electron.exe scripts/test-workspace-office.js
+ *   用法：npx electron scripts/test-workspace-office.js（`run-tests.js` 認這行，改用 Electron 跑）
  */
 
 const { app, BrowserWindow } = require('electron')

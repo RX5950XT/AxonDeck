@@ -21,8 +21,9 @@ const MAX_ENTRIES = 2000
 /**
  * 純文字的讀檔上限。畫面是 Monaco（虛擬捲動，20MB 以上自己關掉高亮，跟 VS Code 同一套），
  * 幾十萬行的 JSON 開得動。圖片／PDF／影音不受這條管（走 `media.js` 串流）。
+ * 256MB 是 Monaco 的天花板：超過 2.56 億字元 `getValue()` 直接丟例外（存檔就壞）。
  */
-const MAX_TEXT_BYTES = 50 * 1024 * 1024
+const MAX_TEXT_BYTES = 256 * 1024 * 1024
 /** 寫檔上限：跟讀檔同一條線，開得起來的就存得回去 */
 const MAX_WRITE_CHARS = MAX_TEXT_BYTES
 /** 一次拖進來最多幾個頂層項目（檔案或資料夾各算一個） */
@@ -287,7 +288,20 @@ async function readFile(root, relPath) {
   const media = mediaKind(full)
   // SVG 也是純文字：同時回 content，讓使用者可以切換「預覽」或「編輯原始碼」
   if (media && (ext !== 'svg' || stat.size > MAX_TEXT_BYTES)) return { ...base, media }
-  if (stat.size > MAX_TEXT_BYTES) return { ...base, tooLarge: true }
+  if (stat.size > MAX_TEXT_BYTES) {
+    // 超過 Monaco 上限：純文字改走唯讀分段檢視（`big-text.js`），二進位照舊不開。只看開頭判斷
+    const head = Buffer.alloc(8000)
+    const handle = await fsp.open(full, 'r')
+    try {
+      const { bytesRead } = await handle.read(head, 0, head.length, 0)
+      // 有 BOM 的 UTF-16 全是 00，但分段檢視讀得懂
+      const utf16 = bytesRead >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))
+      const text = utf16 || !head.subarray(0, bytesRead).includes(0)
+      return { ...base, tooLarge: true, binary: !text, bigText: text }
+    } finally {
+      await handle.close()
+    }
+  }
   const buf = await fsp.readFile(full)
   if (media) return { ...base, media, content: buf.includes(0) ? '' : buf.toString('utf8') }
   if (buf.includes(0)) return { ...base, binary: true }
@@ -296,6 +310,26 @@ async function readFile(root, relPath) {
 
 /** 暫存檔的流水號：同一個檔案同時被存兩次時，兩份暫存檔不可以撞在一起 */
 let tmpSeq = 0
+
+/** 被別的程序短暫抓著時會丟的錯誤碼 */
+const BUSY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+/**
+ * 暫存檔換上去。Windows 的防毒／索引會在檔案剛寫完時打開掃一下，那一兩百毫秒內 rename
+ * 會拿到 EPERM（實測 12MB 的 JSON 約一半機率中，檔案越大越常見）。等一下再試就好。
+ * @param {string} from
+ * @param {string} to
+ */
+async function renameRetry(from, to) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await fsp.rename(from, to)
+    } catch (error) {
+      if (attempt >= 20 || !BUSY_CODES.has(error?.code)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+}
 
 /**
  * 同一個檔案的寫入佇列。
@@ -359,7 +393,7 @@ async function writeFile(root, relPath, content, expectedMtimeMs) {
     const tmp = `${full}.${process.pid}-${(tmpSeq += 1)}.axondeck-tmp`
     try {
       await fsp.writeFile(tmp, content, 'utf8')
-      await fsp.rename(tmp, full)
+      await renameRetry(tmp, full)
     } catch {
       try {
         await fsp.unlink(tmp)
@@ -691,6 +725,7 @@ module.exports = {
   listDir,
   readFile,
   writeFile,
+  renameRetry,
   checkName,
   createEntry,
   renameEntry,

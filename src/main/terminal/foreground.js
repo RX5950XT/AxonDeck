@@ -20,8 +20,8 @@
  * 但「標題變了」對一般程式太寬鬆（瀏覽器切分頁、播影片都在改標題），所以標題這條路
  * 只認 `REUSE_WINDOW` 裡那幾支會重用視窗的編輯器。新程序開新視窗那條路照舊不設限。
  *
- * ponytail: 用一次性的 PowerShell 代跑，不引進 FFI 或原生模組。代價是慢一點
- * （PowerShell 冷啟約 0.3～0.7 秒，反正記事本本來就要開一下）。真的要更快再說。
+ * 有 axondeck-probe.exe 就跑原生版 `raise-window`（native/axondeck-probe/src/raise.rs，同一套規則），
+ * 幾毫秒就拍好快照；沒建置才退回一次性 PowerShell（冷啟＋Add-Type 編譯一秒多，記事本可能已先開好而抬不到）。
  */
 const { spawn } = require('child_process')
 const path = require('path')
@@ -116,10 +116,12 @@ function raiseChildWindow() {
   if (process.platform !== 'win32') return false
   if (pending && !pending.killed && pending.exitCode === null) return true
   try {
-    const encoded = Buffer.from(SCRIPT, 'utf16le').toString('base64')
-    const child = spawn(POWERSHELL, [
-      '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded
-    ], { stdio: 'ignore', windowsHide: true })
+    const probe = require('../native-probe').resolveProbeExe()
+    const child = probe
+      ? spawn(probe, ['raise-window', REUSE_WINDOW.join(',')], { stdio: 'ignore', windowsHide: true })
+      : spawn(POWERSHELL, [
+        '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', Buffer.from(SCRIPT, 'utf16le').toString('base64')
+      ], { stdio: 'ignore', windowsHide: true })
     child.on('error', () => { pending = null })
     child.on('exit', () => { if (pending === child) pending = null })
     child.unref()
@@ -131,7 +133,7 @@ function raiseChildWindow() {
   }
 }
 
-/** App 要關了：等在那裡的 PowerShell 沒必要留 */
+/** App 要關了：等在那裡的抬窗器沒必要留 */
 function stop() {
   if (pending && pending.exitCode === null) {
     try { pending.kill() } catch { /* 已經結束了 */ }

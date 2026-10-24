@@ -124,9 +124,12 @@ async function main() {
     let sent = false
     return { read: async () => sent ? { done: true } : (sent = true, { done: false, value: Buffer.from('{"version":"1.2.17"}') }), releaseLock() {} }
   } } } }
-  ok('agy 從官方 manifest 讀最新版', await version.fetchAgyLatest({ fetchImpl }) === '1.2.17')
-  await version.fetchAgyLatest({ fetchImpl, arch: 'arm64' })
+  ok('agy 從官方 manifest 讀最新版', await version.fetchAgyLatest({ fetchImpl, platform: 'win32' }) === '1.2.17')
+  await version.fetchAgyLatest({ fetchImpl, arch: 'arm64', platform: 'win32' })
   ok('agy 依 CPU 查公開平台 manifest', urls[0].endsWith('/windows_amd64.json') && urls[1].endsWith('/windows_arm64.json'))
+  await version.fetchAgyLatest({ fetchImpl, arch: 'x64', platform: 'linux' })
+  await version.fetchAgyLatest({ fetchImpl, arch: 'arm64', platform: 'linux' })
+  ok('agy 在 Linux 查 linux manifest', urls[2].endsWith('/linux_amd64.json') && urls[3].endsWith('/linux_arm64.json'))
   // 模組 IPC 真正註冊與 sender 守衛；絕不呼叫本機安裝服務。
   const handlers = new Map()
   const { registerCcSwitchIpc } = require('../src/main/ccswitch/ipc')

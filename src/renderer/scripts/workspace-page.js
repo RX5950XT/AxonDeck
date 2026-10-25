@@ -2148,6 +2148,36 @@ function paintGitBranch(status, uncommitted = 0) {
   el.gitBranch.title = status.upstream ? `上游：${status.upstream}` : '沒有設定上游'
 }
 
+/** 暫存區有沒有東西（衝突不算：那是還沒解完） */
+const isStagedFile = (f) => f.index !== '.' && f.index !== '?' && f.index !== 'U' && f.worktree !== 'U'
+
+/**
+ * 三顆動作鈕的字跟能不能按，照狀態走：按鈕上直接寫「會做什麼、做幾個」，
+ * 不用先懂暫存區才知道要按哪一顆。
+ * @param {{ files?: Array<object>, upstream?: string, unpushed?: number, ahead?: number } | null} status
+ */
+function paintGitActions(status) {
+  const files = status?.files || []
+  const staged = files.filter(isStagedFile).length
+  const unstaged = files.filter((f) => f.worktree !== '.').length
+  const unpushed = Number(status?.unpushed) || Number(status?.ahead) || 0
+  const commit = /** @type {HTMLButtonElement | null} */ (el.gitCommitBtn)
+  const push = /** @type {HTMLButtonElement | null} */ (el.gitPushBtn)
+  const stage = /** @type {HTMLButtonElement | null} */ (el.gitStageAllBtn)
+  if (commit) {
+    commit.disabled = !files.length
+    commit.textContent = staged ? `提交 ${staged} 個` : files.length ? `全部提交 ${files.length} 個` : '提交'
+    commit.title = staged ? '只提交暫存區的檔案（Ctrl+Enter）' : '沒有暫存的檔案，會把全部變更一起提交（Ctrl+Enter）'
+  }
+  if (stage) stage.hidden = !staged || !unstaged // 沒暫存時「提交」已經會全部帶走，這顆只在混著時才有用
+  if (push) {
+    const publish = Boolean(status) && !status.upstream
+    push.disabled = !status || (!publish && !unpushed)
+    push.textContent = publish ? '發布分支' : unpushed ? `推送 ↑${unpushed}` : '推送'
+    push.title = publish ? '這個分支還沒在遠端：推上去並設定上游' : unpushed ? `把 ${unpushed} 筆提交推上遠端` : '沒有要推送的提交'
+  }
+}
+
 async function renderGit() {
   const project = currentProject()
   if (!project || !el.gitFiles) return
@@ -2186,11 +2216,13 @@ async function renderGit() {
     el.reviewFiles?.replaceChildren()
     reviewRef = ''
     paintGitChangesStat([])
+    paintGitActions(null)
     void renderGitLog()
     return
   }
   paintGitBranch(status, Array.isArray(status.files) ? status.files.length : 0)
   lastGitStatus = status
+  paintGitActions(status)
   paintGitFiles(project, status)
   void renderWorktrees()
   void renderGitLog()
@@ -2765,8 +2797,15 @@ async function commitStaged() {
   const project = currentProject()
   const message = /** @type {HTMLTextAreaElement | null} */ (el.gitMessage)?.value || ''
   if (!project) return
+  if (!message.trim()) {
+    showToast('先寫一句提交訊息', 'error')
+    el.gitMessage?.focus()
+    return
+  }
+  // 暫存區空的就全部一起提交（跟 VS Code 的 smart commit 一樣），不再要先按「全部暫存」
+  const stageAll = !(lastGitStatus?.files || []).some(isStagedFile)
   try {
-    await call(electronAPI.workspace.gitCommit(project.id, message, false), '提交失敗')
+    await call(electronAPI.workspace.gitCommit(project.id, message, stageAll), '提交失敗')
   } catch {
     return
   }
@@ -3081,6 +3120,9 @@ function initWorkspacePage() {
   el.gitFilter = document.getElementById('wsGitFilter')
   el.gitMessage = document.getElementById('wsGitMessage')
   el.gitLog = document.getElementById('wsGitLog')
+  el.gitCommitBtn = document.getElementById('wsGitCommitBtn')
+  el.gitPushBtn = document.getElementById('wsGitPushBtn')
+  el.gitStageAllBtn = document.getElementById('wsGitStageAllBtn')
   el.worktrees = document.getElementById('wsWorktrees')
   el.agentList = document.getElementById('wsAgentList')
   el.reviewRef = document.getElementById('wsReviewRef')
@@ -3114,6 +3156,13 @@ function initWorkspacePage() {
   document.getElementById('wsAgentsRefreshBtn')?.addEventListener('click', () => void renderAgents())
   document.getElementById('wsGitStageAllBtn')?.addEventListener('click', () => void stageAll())
   document.getElementById('wsGitCommitBtn')?.addEventListener('click', () => void commitStaged())
+  el.gitMessage?.addEventListener('keydown', (event) => {
+    const e = /** @type {KeyboardEvent} */ (event)
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+      e.preventDefault()
+      void commitStaged()
+    }
+  })
   document.getElementById('wsGitPushBtn')?.addEventListener('click', () => void pushCurrent())
   document.getElementById('wsGitPullBtn')?.addEventListener('click', () => void pullCurrent())
   document.getElementById('wsPortsRefreshBtn')?.addEventListener('click', () => void renderPorts())

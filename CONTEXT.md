@@ -120,7 +120,7 @@ native/
 - 終端機常用分頁保留 WebGL 畫布，最多 8 個；超額只收最久沒看的背景格，三格並排不回收。不可回到切走立刻 dispose：會同步建立 DOM renderer，再切回又重建 GPU 畫布，造成切專案／新增分頁卡頓（v1.53.0 的退化）。`probe-workspace-latency.js --paint` 以可見隔離視窗、真側欄入口及兩幀完成量測，另驗長內容、畫布上限與並排。
 - 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄五顆：檔案樹（含搜尋）／Git／AI 記錄／Port（main 對每個埠打一次 HTTP，2xx 的 HTML 或 3xx 轉址才算「網頁」，排上面、每列最右邊一顆「開啟」；其他服務只列）／MCP/Skills（不是側欄面板，是在目前專案開一個 `cc-tools` 分頁，一個專案最多一個）；主區底部是額度條 `quota-bar.js`。
 - Agent 專案分類沿用 Chat 資料夾：`ws-project-folders.js` 管新增／改名／收合／分類排序；專案用拖曳或右鍵「移至資料夾」移動，分類標題可拖曳排序。`workspaces.json` 的 `folders`＋專案 `folderId` 走同一條 store 寫入佇列；刪分類只移回未分類，保留專案、草稿與檔案。回歸 `test-workspace-folders.js`／`e2e-workspace-folders-cdp.js`。
-- 檔案樹圖片與 MP4／WebM 直接開工作區分頁（`vi-media://`）；Markdown 圖片支援專案相對路徑；Git 面板有 GitHub 按鈕（`githubUrl`）。
+- 檔案樹圖片與 MP4／WebM 直接開工作區分頁（`vi-media://`）；Markdown 圖片支援專案相對路徑；Git 面板有 GitHub 按鈕（`githubUrl`）；按鈕字跟著狀態走（`paintGitActions`）：暫存區空的時「全部提交 N 個」直接 `add -A` 一起提交、Ctrl+Enter 提交；沒上游時「發布分支」＝`push -u origin HEAD`。
 - 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI；IPC 分段讀取，renderer 自動接成完整單頁，後續只重讀末段。標題／接續／複製路徑與概況／工具統計共用置頂區塊，長標題可展開；Ctrl+F 搜尋全文與工具內容，Enter／Shift+Enter／F3 前後跳轉，命中工具自動展開，Esc 關閉。
 - 終端機 PTY 在獨立宿主（`<userData>/terminal-host/`），App 重開／更新只斷線；五種 AI CLI 重開時接回原程序，程序已結束就用記住的對話 ID 接續（Claude 靠 hook，其他靠啟動前紀錄基準）。
 - Claude 狀態：hook（`<userData>/claude-hook/`）＋畫面判斷 → 分頁顯示運行中／等你回答／閒置。

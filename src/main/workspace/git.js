@@ -427,7 +427,15 @@ async function commit(projectId, message, stageAll) {
  */
 async function push(projectId) {
   const cwd = await rootOf(projectId)
-  const res = await run(cwd, ['push'])
+  let args = ['push']
+  const upstream = await run(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+  if (upstream.code !== 0) {
+    // 沒有上游＝新分支第一次推：直接幫它設上游（origin 優先），不要讓使用者去終端機打 -u
+    const remotes = (await run(cwd, ['remote'])).stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    if (!remotes.length) throw fail('PUSH_FAILED', '這個儲存庫沒有遠端（先 git remote add）')
+    args = ['push', '-u', remotes.includes('origin') ? 'origin' : remotes[0], 'HEAD']
+  }
+  const res = await run(cwd, args)
   if (res.code !== 0) throw fail('PUSH_FAILED', '推送失敗（可能是沒有權限或需要先 pull，細節看終端機）')
   return { pushed: true }
 }

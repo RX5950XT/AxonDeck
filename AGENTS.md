@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
-nav 十頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第五顆）、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
+nav 十頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第四顆）；本機 Port 與 App 資源佔用也是額度條的抽屜、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
 

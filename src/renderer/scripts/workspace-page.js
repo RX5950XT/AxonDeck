@@ -632,11 +632,9 @@ async function renderPanel(project = currentProject(), seq = projectSeq) {
   if (el.panelFiles) el.panelFiles.hidden = !has || panel !== 'files'
   if (el.panelGit) el.panelGit.hidden = !has || panel !== 'git'
   if (el.panelAgents) el.panelAgents.hidden = !has || panel !== 'agents'
-  if (el.panelPorts) el.panelPorts.hidden = !has || panel !== 'ports'
   if (!project || !isCurrentProject(project, seq)) return
   if (panel === 'files') await renderFilesPanel(project, seq)
   else if (panel === 'git') await renderGit(project, seq)
-  else if (panel === 'ports') await renderPorts(seq)
   else await renderAgents(project, seq)
 }
 
@@ -1807,10 +1805,10 @@ function renderSearchHits(project, found) {
 // ===== 本機 Port =====
 
 /**
- * 這台機器正在聽的本機 TCP 埠。跟專案無關，但擺在工作區最順手——
+ * 這台機器正在聽的本機 TCP 埠。跟專案無關，放在底下額度條的「Port」抽屜（quota-bar.js 打開時叫）——
  * dev server 起來之後點一下就用內建瀏覽器開。
  */
-async function renderPorts(seq = projectSeq) {
+export async function renderPorts() {
   const host = el.portList
   if (!host) return
   host.replaceChildren(note('查詢中…'))
@@ -1818,10 +1816,9 @@ async function renderPorts(seq = projectSeq) {
   try {
     ports = await call(electronAPI.workspace.listPorts(), '查不到 Port')
   } catch {
-    if (seq === projectSeq) host.replaceChildren()
+    host.replaceChildren()
     return
   }
-  if (seq !== projectSeq) return
   host.replaceChildren()
   if (!ports.length) {
     host.appendChild(note('現在沒有本機服務在監聽。'))
@@ -3127,7 +3124,6 @@ function initWorkspacePage() {
   el.agentList = document.getElementById('wsAgentList')
   el.reviewRef = document.getElementById('wsReviewRef')
   el.reviewFiles = document.getElementById('wsReviewFiles')
-  el.panelPorts = document.getElementById('wsPanelPorts')
   el.portList = document.getElementById('wsPortList')
   el.search = document.getElementById('wsSearch')
   el.searchInput = document.getElementById('wsSearchInput')

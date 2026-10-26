@@ -2419,6 +2419,9 @@ registerSysmonIpc({
   ipcMain,
   service: {
     status: (...args) => loadSysmon().status(...args),
+    appResources: () => require('./app-resources').collectAppResources({
+      app, webContents, sysmon: loadSysmon(), pageLabels: require('./page-windows').pageLabels
+    }),
     start: (...args) => loadSysmon().start(...args),
     stop: (...args) => loadSysmon().stop(...args),
     idle: (...args) => loadSysmon().idle(...args),

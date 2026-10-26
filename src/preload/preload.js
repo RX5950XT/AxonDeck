@@ -633,6 +633,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 這裡只送得出取樣間隔的 key、要結束的 pid，以及由系統對話框選出來的目錄。
   sysmon: {
     status: () => ipcRenderer.invoke('sysmon:status'),
+    /** 這個 App 各部分的 CPU／記憶體（額度條的「資源」） */
+    appResources: () => ipcRenderer.invoke('sysmon:appResources'),
     /** @param {'fast'|'normal'|'slow'} intervalKey main 端有白名單，未知值退回 normal */
     start: (intervalKey) => ipcRenderer.invoke('sysmon:start', intervalKey),
     stop: () => ipcRenderer.invoke('sysmon:stop'),

@@ -221,5 +221,6 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden }) {
 }
 
 module.exports = {
-  createPageWindows
+  createPageWindows,
+  pageLabels
 }

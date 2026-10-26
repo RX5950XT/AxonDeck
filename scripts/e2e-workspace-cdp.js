@@ -916,16 +916,17 @@ async function main() {
       fs.rmSync(outside) // temp-ok: 自己種的單一檔案
     }
 
-    // ===== [J] 埠號面板 =====
-    await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="ports"]').click()`)
+    // ===== [J] 埠號面板（額度條的 Port 抽屜） =====
+    await cdp.eval(`document.getElementById('quotaPortsBtn').click()`)
     ok('[J] 埠號面板顯示出來',
-      await waitInPage(cdp, `document.getElementById('wsPanelPorts').offsetHeight > 0`, 5000))
+      await waitInPage(cdp, `document.getElementById('quotaDrawerPorts').offsetHeight > 0`, 5000))
     // 這台機器上 App 自己就在聽 CDP 的埠，所以一定至少有一筆
     ok('[J] 列得出本機在聽的埠',
       await waitInPage(cdp, `document.querySelectorAll('#wsPortList .ws-port-row').length > 0`, 15000))
     ok('[J] 每一列都有埠號',
       await cdp.eval(`[...document.querySelectorAll('#wsPortList .ws-port-num')]
         .every((n) => /^[0-9]+$/.test(n.textContent.trim()))`))
+    await cdp.eval(`document.getElementById('quotaPortsBtn').click()`)
     await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="files"]').click()`)
 
     // ===== [K] PDF 預覽 =====

@@ -190,7 +190,7 @@ async function main() {
         chatWasDefault,
         hasApi: typeof window.electronAPI.usage?.load === 'function',
         noUsagePage: !document.getElementById('page-usage'),
-        barInWorkspace: !!bar && bar.closest('#termMain') !== null,
+        barInWorkspace: !!bar && bar.closest('#wsShell') !== null,
         hasSync: !!document.getElementById('quotaSyncBtn'),
         hasSettings: !!document.getElementById('usageSettingsDialog'),
         noDiagnostics: !document.getElementById('usageDiagnosticsDialog') && !document.getElementById('quotaDiagnosticsBtn'),

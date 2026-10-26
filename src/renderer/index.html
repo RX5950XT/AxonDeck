@@ -345,6 +345,9 @@
                 <div id="chatBrowserFrame" class="ws-browser-frame"></div>
               </aside>
 
+              <!-- 工作區外框：上面一列是主區＋右側欄，額度條在最下面橫跨兩者（app.js 跟著 termMain 一起切 hidden） -->
+              <div class="ws-shell hidden" id="wsShell">
+              <div class="ws-shell-row">
               <!--
                 工作區主區：跟聊天共用這一頁（`#chatMain` ⇄ `#termMain` 二選一）。
                 id 維持 `termMain`／`term-main` 不改名——終端機的未讀點判定與既有的
@@ -628,96 +631,6 @@
                     <div class="ws-ai-session-body" id="wsAiSessionBody"></div>
                   </div>
                 </div>
-
-                <!-- 訂閱額度：七家官方端點，一家一顆，點開看完整那張卡；拖曳可排序（quota-bar.js） -->
-                <div class="quota-bar" id="quotaBar" role="region" aria-label="訂閱額度">
-                  <!-- 額度條上方的抽屜：供應商切換／用量統計（原本 CC Proxy 頁），點條左邊兩顆按鈕開關 -->
-                  <div id="quotaDrawer" class="quota-drawer" hidden>
-                    <div class="quota-drawer-panel" id="quotaDrawerProviders" role="region" aria-label="Claude Code 供應商" hidden>
-                      <p id="ccError" class="live-error hidden cc-page-error" role="alert"></p>
-                      <p id="ccStatus" class="cc-status hidden cc-page-status" role="status" aria-live="polite"></p>
-                      <section class="cc-panel" aria-label="供應商">
-                        <p id="ccLivePath" class="cc-panel-desc"></p>
-                        <div id="ccGateway" class="cc-gateway">
-                          <span id="ccGatewayDot" class="agy-dot" aria-hidden="true"></span>
-                          <span class="cc-gateway-label">轉換閘道</span>
-                          <span id="ccGatewayText" class="cc-gateway-text" role="status" aria-live="polite"></span>
-                        </div>
-                        <div id="ccProviderList" class="cc-tiles" role="list"></div>
-                      </section>
-                    </div>
-                    <div class="quota-drawer-panel" id="quotaDrawerStats" role="region" aria-label="用量統計" hidden>
-                      <div class="cu-dash-head">
-                        <h2 id="cuTitle" class="cc-panel-title">用量統計</h2>
-                        <span id="cuSyncedAt" class="cu-synced">尚未掃描</span>
-                        <div class="cu-head-actions">
-                            <div id="cuRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
-                              <button type="button" class="agy-range-btn" data-cu-range="24h" aria-pressed="false">24 小時</button>
-                              <button type="button" class="agy-range-btn is-active" data-cu-range="7d" aria-pressed="true">7 天</button>
-                              <button type="button" class="agy-range-btn" data-cu-range="30d" aria-pressed="false">30 天</button>
-                              <button type="button" class="agy-range-btn" data-cu-range="all" aria-pressed="false">全部</button>
-                              <button type="button" class="agy-range-btn" data-cu-range="custom" aria-pressed="false" aria-controls="cuCustomRange">自訂</button>
-                            </div>
-                            <button type="button" id="cuPricesBtn" class="btn btn-secondary btn-sm">單價</button>
-                            <button type="button" id="cuSyncBtn" class="btn btn-primary btn-sm"
-                              title="增量掃描本機 session 記錄；規則改版會自動重讀">掃描本機記錄</button>
-                        </div>
-                      </div>
-                      <div id="cuCustomRange" class="cu-custom-range" role="group" aria-label="自訂日期範圍" hidden>
-                        <label>起日<input id="cuFrom" class="input" type="date"></label>
-                        <label>迄日<input id="cuTo" class="input" type="date"></label>
-                      </div>
-                      <p id="cuError" class="live-error hidden" role="alert"></p>
-                      <p id="cuUncosted" class="cu-note hidden" role="status"></p>
-
-                      <!-- 左：總計（花費＋四種 token，色點兼當圖例）在上、趨勢在下；右：依工具／依模型 -->
-                      <div class="cu-dash">
-                        <section class="cc-panel" aria-label="總計">
-                          <div id="cuSummary" class="cu-summary"></div>
-                        </section>
-
-                        <section class="cc-panel cu-trend" aria-labelledby="cuTrendTitle">
-                          <div class="cu-section-head">
-                            <h3 id="cuTrendTitle" class="cu-dist-title">趨勢</h3>
-                            <div id="cuChartLegend" class="cu-legend"></div>
-                          </div>
-                          <div id="cuChart" class="cu-chart" role="img" aria-label="用量趨勢"></div>
-                        </section>
-
-                        <section class="cc-panel cu-breakdown" aria-label="分佈">
-                          <div class="cu-dist">
-                            <h3 class="cu-dist-title">依工具</h3>
-                            <div id="cuProviders" class="cc-list"></div>
-                          </div>
-                          <div class="cu-dist">
-                            <h3 class="cu-dist-title">依模型</h3>
-                            <div id="cuModels" class="cc-list"></div>
-                          </div>
-                        </section>
-                      </div>
-                      <p class="cu-footnote">花費依 API 公開單價估算；訂閱方案扣的是額度，不是這筆錢。Claude Code 長對話幾乎都是快取讀取。</p>
-                    </div>
-                  </div>
-                  <div class="quota-dash" role="group" aria-label="Claude Code">
-                    <button type="button" id="quotaProviderBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="切換 Claude Code 供應商">
-                      <span id="quotaGatewayDot" class="agy-dot is-stopped" aria-hidden="true"></span>
-                      <span class="quota-dash-label">供應商</span>
-                      <span id="quotaProviderName" class="quota-dash-value">—</span>
-                    </button>
-                    <button type="button" id="quotaStatsBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="本機記錄的 token 用量與估計花費">
-                      <span class="quota-dash-label">用量統計</span>
-                      <span id="quotaStatsValue" class="quota-dash-value"></span>
-                    </button>
-                  </div>
-                  <div class="quota-items" id="quotaItems" role="list" aria-label="各家額度"></div>
-                  <div class="quota-bar-side">
-                    <span class="quota-last-sync" id="quotaLastSync" role="status" aria-live="polite">尚未同步</span>
-                    <button type="button" id="quotaSyncBtn" class="btn-icon quota-bar-btn" title="立即同步額度" aria-label="立即同步額度">↻</button>
-                    <button type="button" id="quotaSettingsBtn" class="btn-icon quota-bar-btn" title="顯示設定" aria-label="額度顯示設定">⚙</button>
-                  </div>
-                  <div id="quotaPopover" class="quota-popover" popover="auto" aria-label="額度詳情"></div>
-                  <p id="quotaSortStatus" class="visually-hidden" aria-live="polite"></p>
-                </div>
               </div>
 
               <div
@@ -746,9 +659,6 @@
                   </button>
                   <button type="button" class="ws-right-tab" role="tab" data-panel="agents" aria-selected="false">
                     AI 記錄
-                  </button>
-                  <button type="button" class="ws-right-tab" role="tab" data-panel="ports" aria-selected="false">
-                    Port
                   </button>
                   <button type="button" class="ws-right-tab" id="wsCcToolsBtn" title="在目前專案開「MCP 與 Skills」分頁">
                     MCP/Skills
@@ -873,18 +783,124 @@
                   </div>
                   <div class="ws-agent-list" id="wsAgentList" aria-label="AI 對話記錄"></div>
                 </div>
+              </aside>
+              </div>
+                <!-- 訂閱額度：七家官方端點，一家一顆，點開看完整那張卡；拖曳可排序（quota-bar.js） -->
+                <div class="quota-bar" id="quotaBar" role="region" aria-label="訂閱額度">
+                  <!-- 額度條上方的抽屜：供應商切換／用量統計（原本 CC Proxy 頁），點條左邊兩顆按鈕開關 -->
+                  <div id="quotaDrawer" class="quota-drawer" hidden>
+                    <div class="quota-drawer-panel" id="quotaDrawerProviders" role="region" aria-label="Claude Code 供應商" hidden>
+                      <p id="ccError" class="live-error hidden cc-page-error" role="alert"></p>
+                      <p id="ccStatus" class="cc-status hidden cc-page-status" role="status" aria-live="polite"></p>
+                      <section class="cc-panel" aria-label="供應商">
+                        <p id="ccLivePath" class="cc-panel-desc"></p>
+                        <div id="ccGateway" class="cc-gateway">
+                          <span id="ccGatewayDot" class="agy-dot" aria-hidden="true"></span>
+                          <span class="cc-gateway-label">轉換閘道</span>
+                          <span id="ccGatewayText" class="cc-gateway-text" role="status" aria-live="polite"></span>
+                        </div>
+                        <div id="ccProviderList" class="cc-tiles" role="list"></div>
+                      </section>
+                    </div>
+                    <div class="quota-drawer-panel" id="quotaDrawerStats" role="region" aria-label="用量統計" hidden>
+                      <div class="cu-dash-head">
+                        <h2 id="cuTitle" class="cc-panel-title">用量統計</h2>
+                        <span id="cuSyncedAt" class="cu-synced">尚未掃描</span>
+                        <div class="cu-head-actions">
+                            <div id="cuRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
+                              <button type="button" class="agy-range-btn" data-cu-range="24h" aria-pressed="false">24 小時</button>
+                              <button type="button" class="agy-range-btn is-active" data-cu-range="7d" aria-pressed="true">7 天</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="30d" aria-pressed="false">30 天</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="all" aria-pressed="false">全部</button>
+                              <button type="button" class="agy-range-btn" data-cu-range="custom" aria-pressed="false" aria-controls="cuCustomRange">自訂</button>
+                            </div>
+                            <button type="button" id="cuPricesBtn" class="btn btn-secondary btn-sm">單價</button>
+                            <button type="button" id="cuSyncBtn" class="btn btn-primary btn-sm"
+                              title="增量掃描本機 session 記錄；規則改版會自動重讀">掃描本機記錄</button>
+                        </div>
+                      </div>
+                      <div id="cuCustomRange" class="cu-custom-range" role="group" aria-label="自訂日期範圍" hidden>
+                        <label>起日<input id="cuFrom" class="input" type="date"></label>
+                        <label>迄日<input id="cuTo" class="input" type="date"></label>
+                      </div>
+                      <p id="cuError" class="live-error hidden" role="alert"></p>
+                      <p id="cuUncosted" class="cu-note hidden" role="status"></p>
 
-                <!-- Port：這台機器正在聽的本機 TCP 埠；開得起來的網頁在上面，點一下用內建瀏覽器開 -->
-                <div class="ws-right-body" id="wsPanelPorts" role="tabpanel" hidden>
-                  <div class="ws-right-head">
-                    <span class="ws-right-project">本機正在監聽</span>
-                    <button type="button" id="wsPortsRefreshBtn" class="btn-icon" title="重新整理" aria-label="重新整理 Port 清單">
-                      ⟳
+                      <!-- 左：總計（花費＋四種 token，色點兼當圖例）在上、趨勢在下；右：依工具／依模型 -->
+                      <div class="cu-dash">
+                        <section class="cc-panel" aria-label="總計">
+                          <div id="cuSummary" class="cu-summary"></div>
+                        </section>
+
+                        <section class="cc-panel cu-trend" aria-labelledby="cuTrendTitle">
+                          <div class="cu-section-head">
+                            <h3 id="cuTrendTitle" class="cu-dist-title">趨勢</h3>
+                            <div id="cuChartLegend" class="cu-legend"></div>
+                          </div>
+                          <div id="cuChart" class="cu-chart" role="img" aria-label="用量趨勢"></div>
+                        </section>
+
+                        <section class="cc-panel cu-breakdown" aria-label="分佈">
+                          <div class="cu-dist">
+                            <h3 class="cu-dist-title">依工具</h3>
+                            <div id="cuProviders" class="cc-list"></div>
+                          </div>
+                          <div class="cu-dist">
+                            <h3 class="cu-dist-title">依模型</h3>
+                            <div id="cuModels" class="cc-list"></div>
+                          </div>
+                        </section>
+                      </div>
+                      <p class="cu-footnote">花費依 API 公開單價估算；訂閱方案扣的是額度，不是這筆錢。Claude Code 長對話幾乎都是快取讀取。</p>
+                    </div>
+                    <!-- Port：這台機器正在聽的本機 TCP 埠；開得起來的網頁在上面，點一下用內建瀏覽器開（workspace-page.js） -->
+                    <div class="quota-drawer-panel" id="quotaDrawerPorts" role="region" aria-label="本機 Port" hidden>
+                      <div class="cu-dash-head">
+                        <h2 class="cc-panel-title">本機正在監聽</h2>
+                        <button type="button" id="wsPortsRefreshBtn" class="btn-icon" title="重新整理" aria-label="重新整理 Port 清單">⟳</button>
+                      </div>
+                      <div class="ws-port-list" id="wsPortList" aria-label="本機 Port"></div>
+                    </div>
+                    <!-- 資源：這個 App 各部分吃掉的 CPU／記憶體（app-resources-bar.js） -->
+                    <div class="quota-drawer-panel" id="quotaDrawerResources" role="region" aria-label="App 資源佔用" hidden>
+                      <div class="cu-dash-head">
+                        <h2 class="cc-panel-title">AxonDeck 資源佔用</h2>
+                        <span id="resTotal" class="cu-synced"></span>
+                      </div>
+                      <div id="resList" class="res-list" role="table" aria-label="各部分資源"></div>
+                      <p id="resNote" class="cu-footnote"></p>
+                    </div>
+                  </div>
+                  <div class="quota-dash" role="group" aria-label="Claude Code">
+                    <button type="button" id="quotaProviderBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="切換 Claude Code 供應商">
+                      <span id="quotaGatewayDot" class="agy-dot is-stopped" aria-hidden="true"></span>
+                      <span class="quota-dash-label">供應商</span>
+                      <span id="quotaProviderName" class="quota-dash-value">—</span>
+                    </button>
+                    <button type="button" id="quotaStatsBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="本機記錄的 token 用量與估計花費">
+                      <span class="quota-dash-label">用量統計</span>
+                      <span id="quotaStatsValue" class="quota-dash-value"></span>
                     </button>
                   </div>
-                  <div class="ws-port-list" id="wsPortList" aria-label="本機 Port"></div>
+                  <div class="quota-items" id="quotaItems" role="list" aria-label="各家額度"></div>
+                  <div class="quota-dash quota-dash-end" role="group" aria-label="本機">
+                    <button type="button" id="quotaPortsBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="本機正在監聽的 Port">
+                      <span class="quota-dash-label">Port</span>
+                    </button>
+                    <button type="button" id="quotaResBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="AxonDeck 各部分的 CPU／記憶體">
+                      <span class="quota-dash-label">資源</span>
+                      <span id="quotaResValue" class="quota-dash-value"></span>
+                    </button>
+                  </div>
+                  <div class="quota-bar-side">
+                    <span class="quota-last-sync" id="quotaLastSync" role="status" aria-live="polite">尚未同步</span>
+                    <button type="button" id="quotaSyncBtn" class="btn-icon quota-bar-btn" title="立即同步額度" aria-label="立即同步額度">↻</button>
+                    <button type="button" id="quotaSettingsBtn" class="btn-icon quota-bar-btn" title="顯示設定" aria-label="額度顯示設定">⚙</button>
+                  </div>
+                  <div id="quotaPopover" class="quota-popover" popover="auto" aria-label="額度詳情"></div>
+                  <p id="quotaSortStatus" class="visually-hidden" aria-live="polite"></p>
                 </div>
-              </aside>
+              </div>
             </div>
           </section>
 
@@ -1956,9 +1972,9 @@
                     <label>Temperature<input id="speechTemperature" class="input" type="number" min="0" max="2" step="0.05" value="0.9" /></label>
                     <label>Top K<input id="speechTopK" class="input" type="number" min="0" max="1024" value="50" /></label>
                     <label>Top P<input id="speechTopP" class="input" type="number" min="0" max="1" step="0.01" value="1" /></label>
-                    <label>重複懲罰<input id="speechRepetition" class="input" type="number" min="0" max="3" step="0.01" value="1.05" /></label>
-                    <label>每段字數<input id="speechSplit" class="input" type="number" min="0" max="10000" value="200" /></label>
-                    <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="30000" /></label>
+                    <label>重複懲罰<input id="speechRepetition" class="input" type="number" min="0" max="3" step="0.01" value="1.1" /></label>
+                    <label>每段字數<input id="speechSplit" class="input" type="number" min="0" max="10000" value="600" /></label>
+                    <label>生成上限<input id="speechMaxTokens" class="input" type="number" min="0" max="30000" value="750" /></label>
                     <label id="speechAcousticGroup" hidden>保留旋律<input id="speechAcoustic" class="input" type="number" min="0" max="15" value="0" /></label>
                   </div><p class="speech-hint">CFG 越高越遵循指令，也可能讓聲音變粗糙。笑聲等表情可試 2～3；變聲的保留旋律只建議用於歌聲，超過 2 可能失真。重做單句時會自動換一個隨機種子。</p></details>
                 </aside>

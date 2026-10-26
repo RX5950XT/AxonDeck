@@ -118,7 +118,7 @@ native/
 
 ### 專案工作區與終端機
 - 終端機常用分頁保留 WebGL 畫布，最多 8 個；超額只收最久沒看的背景格，三格並排不回收。不可回到切走立刻 dispose：會同步建立 DOM renderer，再切回又重建 GPU 畫布，造成切專案／新增分頁卡頓（v1.53.0 的退化）。`probe-workspace-latency.js --paint` 以可見隔離視窗、真側欄入口及兩幀完成量測，另驗長內容、畫布上限與並排。
-- 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄五顆：檔案樹（含搜尋）／Git／AI 記錄／Port（main 對每個埠打一次 HTTP，2xx 的 HTML 或 3xx 轉址才算「網頁」，排上面、每列最右邊一顆「開啟」；其他服務只列）／MCP/Skills（不是側欄面板，是在目前專案開一個 `cc-tools` 分頁，一個專案最多一個）；主區底部是額度條 `quota-bar.js`。
+- 專案＝本機資料夾（`workspaces.json`，含 `tabsState`）；分頁列放終端機／Monaco 編輯器／瀏覽器；右側欄四顆：檔案樹（含搜尋）／Git／AI 記錄／MCP/Skills（不是側欄面板，是在目前專案開一個 `cc-tools` 分頁，一個專案最多一個）。主區＋右側欄包在 `#wsShell`（app.js 跟 termMain 一起切 hidden），額度條 `quota-bar.js` 在它最下面橫跨兩者。
 - Agent 專案分類沿用 Chat 資料夾：`ws-project-folders.js` 管新增／改名／收合／分類排序；專案用拖曳或右鍵「移至資料夾」移動，分類標題可拖曳排序。`workspaces.json` 的 `folders`＋專案 `folderId` 走同一條 store 寫入佇列；刪分類只移回未分類，保留專案、草稿與檔案。回歸 `test-workspace-folders.js`／`e2e-workspace-folders-cdp.js`。
 - 檔案樹圖片與 MP4／WebM 直接開工作區分頁（`vi-media://`）；Markdown 圖片支援專案相對路徑；Git 面板有 GitHub 按鈕（`githubUrl`）；按鈕字跟著狀態走（`paintGitActions`）：暫存區空的時「全部提交 N 個」直接 `add -A` 一起提交、Ctrl+Enter 提交；沒上游時「發布分支」＝`push -u origin HEAD`。
 - 專案全文搜尋 64KB 區塊逐行讀、新查詢停止舊查詢。AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity CLI；IPC 分段讀取，renderer 自動接成完整單頁，後續只重讀末段。標題／接續／複製路徑與概況／工具統計共用置頂區塊，長標題可展開；Ctrl+F 搜尋全文與工具內容，Enter／Shift+Enter／F3 前後跳轉，命中工具自動展開，Esc 關閉。
@@ -167,6 +167,7 @@ native/
 ### 額度與用量統計
 - 額度：七家官方端點（`usage.json`），條看得到時快取超過 60 秒自動同步；Claude token 自己續期、報 `claude-code/` UA；Codex 重置次數可在詳情卡兌換。
 - Claude 官方訂閱多帳號：併在「Claude 官方訂閱」那張供應商卡裡（第二行是目前帳號；存兩個以上時卡片拉成整列、列出各帳號可切換／移除），終端機登入過的帳號自動記下、卡上「＋ 帳號」走隔離的 `claude auth login`；切換＝換 `.credentials.json` 的 `claudeAiOauth`＋`.claude.json` 的 `oauthAccount`，正在用第三方供應商會順便切回官方。存兩個以上時 Claude 詳情卡一個帳號一段（`profiles`），條上那顆仍是使用中的帳號。
+- 額度條右邊兩顆「Port」「資源」也是抽屜：Port（`renderPorts`，main 對每個埠打一次 HTTP，2xx 的 HTML 或 3xx 轉址才算「網頁」，排上面附「開啟」；其他服務只列）；資源（`app-resources-bar.js` ← `sysmon:appResources` ← `src/main/app-resources.js`：`getAppMetrics` 依 webContents 對成頁／網站，子程序取系統監控取樣器的原始清單往下找子孫，依直屬子程序分組；子程序讀數在背景時最舊約 30 秒）。
 - 額度條左邊兩顆按鈕「供應商」「用量統計」（顯示目前供應商、目前範圍花費），點開從條上方展開不透明抽屜（疊在內容上、不推擠終端機；點條外或 Esc 收起，彈窗與選單內的點擊不算）。同步診斷已整條拿掉（按鈕、彈窗、IPC）。
 - 用量統計：掃 Claude／Codex／Grok 等本機記錄（Rust `usage-scan`），每小時桶＋游標存 `code-usage.json`，第一次打開抽屜才載。Antigravity 讀 CLI 的 `~/.gemini/antigravity-cli/conversations/<id>.db`（`gen_metadata` protobuf，`db-sources.js#readAntigravityCli`）＋AGY 反代日誌，兩邊不重疊；CLI 會自己刪對話檔，所以跟 JSONL 一樣一檔一游標（`antigravity:<id>`）、刪檔進封存區；IDE 的用量讀不到。不限保留期（桶子永久留、檔案不看修改時間）；範圍 24 小時／7 天／30 天／全部／自訂（`resolveRange`：起訖日含迄日，兩天內小時桶，超過 96 天改週桶）。
 - Codex 新版把舊 session 壓成 `.jsonl.zst`（Rust `zstd` crate 解壓，JS 退路用 Node 內建 zstd），游標 key 去掉 `.zst`、位移算解壓後的，壓縮前讀過的不重算。Grok 子代理自己的 session 預設跳過（母那一輪的 usage 已含）；母那一輪結束時沒跑完或那一輪沒用量的才照算（`parsers.js#resolveSubagents`；`parent_prompt_id` 跟 `turn_completed.prompt_id` 不是同一套 id，靠「開出來後的下一個 turn_completed」判斷）。Claude resume／fork 複製的訊息跨檔去重（事件帶 `id`，比對其他游標的 `seen`）。OpenCode 遇到還沒完成（無 `time.completed`）且一天內的訊息先停，游標不跳過它。

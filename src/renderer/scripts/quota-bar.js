@@ -590,12 +590,14 @@ function startTimers() {
 
 const DRAWERS = {
   providers: { button: 'quotaProviderBtn', panel: 'quotaDrawerProviders' },
-  stats: { button: 'quotaStatsBtn', panel: 'quotaDrawerStats' }
+  stats: { button: 'quotaStatsBtn', panel: 'quotaDrawerStats' },
+  ports: { button: 'quotaPortsBtn', panel: 'quotaDrawerPorts' },
+  resources: { button: 'quotaResBtn', panel: 'quotaDrawerResources' }
 }
-/** @type {'' | 'providers' | 'stats'} */
+/** @type {'' | keyof typeof DRAWERS} */
 let drawerOpen = ''
 
-/** @param {'' | 'providers' | 'stats'} name 空字串＝收起來 */
+/** @param {'' | keyof typeof DRAWERS} name 空字串＝收起來 */
 function setDrawer(name) {
   drawerOpen = name
   const drawer = byId('quotaDrawer')
@@ -608,6 +610,8 @@ function setDrawer(name) {
   // 兩塊都是第一次打開才載模組；用量統計會掃本機記錄，不開就不碰
   if (name === 'providers') void import('./ccswitch-page.js').then((mod) => mod.refreshProviders())
   if (name === 'stats') void import('./code-usage-page.js').then((mod) => mod.refreshCodeUsagePage())
+  if (name === 'ports') void import('./workspace-page.js').then((mod) => mod.renderPorts())
+  void import('./app-resources-bar.js').then((mod) => mod.setResourcesOpen(name === 'resources'))
 }
 
 /** 點條以外的地方就收起來；彈窗、選單裡的點擊不算（編輯供應商、改單價都會開彈窗） */
@@ -620,7 +624,7 @@ function onOutsidePointer(event) {
 
 function bindDrawer() {
   for (const [key, ids] of Object.entries(DRAWERS)) {
-    byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {'providers'|'stats'} */ (key)))
+    byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {keyof typeof DRAWERS} */ (key)))
   }
   document.addEventListener('pointerdown', onOutsidePointer, true)
   document.addEventListener('keydown', (event) => {
@@ -768,6 +772,7 @@ async function initQuotaBar() {
   }
   render()
   startTimers()
+  void import('./app-resources-bar.js').then((mod) => mod.initResourcesBar(isBarVisible))
 }
 
 /** 切換 Claude 帳號後 main 已經重同步過：直接換上新狀態，不用等下一輪 */

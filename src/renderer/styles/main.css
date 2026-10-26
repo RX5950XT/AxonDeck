@@ -4124,6 +4124,27 @@ webview {
   text-align: right;
 }
 
+/* ── 工作區外框：上面一列主區＋右側欄，額度條在下面整條（index.html #wsShell） ── */
+.ws-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ws-shell-row {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-layout.is-workspace .ws-shell,
+.chat-layout.is-workspace .ws-shell-row {
+  gap: 2px;
+}
+
 /* ── 右側欄 ── */
 .ws-right {
   display: flex;
@@ -15738,6 +15759,78 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
 
 .quota-empty {
   padding: 0 8px;
+}
+
+/* 條右邊：Port／資源，跟左邊那組同一個樣子，分隔線改在左側 */
+.quota-dash-end {
+  padding: 0 0 0 8px;
+  border-right: 0;
+  border-left: 1px solid var(--border-light);
+}
+
+/* Port 抽屜是整條寬：清單排成多欄，分組標題橫跨整列 */
+.quota-drawer .ws-port-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  column-gap: 12px;
+}
+
+.quota-drawer .ws-port-group {
+  grid-column: 1 / -1;
+}
+
+/* 資源抽屜：部分｜程序數｜CPU｜記憶體｜記憶體佔比條 */
+.res-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.res-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px 64px 84px minmax(60px, 160px);
+  align-items: center;
+  gap: 12px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.res-row:not(.res-head):hover {
+  background-color: var(--surface-hover);
+}
+
+.res-head {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.res-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.res-count,
+.res-num {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.res-meter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+}
+
+.res-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-primary);
 }
 
 .quota-bar-side {

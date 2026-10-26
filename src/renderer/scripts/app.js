@@ -1038,6 +1038,7 @@ export function setChatPaneMode(mode) {
   const wsRightResizer = document.getElementById('wsRightResizer')
   if (chatMain) chatMain.classList.toggle('hidden', mode !== 'chat')
   if (termMain) termMain.classList.toggle('hidden', mode !== 'workspace')
+  document.getElementById('wsShell')?.classList.toggle('hidden', mode !== 'workspace')
   if (layout) layout.classList.toggle('is-workspace', mode === 'workspace')
   if (wsRight) wsRight.classList.toggle('hidden', mode !== 'workspace')
   if (wsRightResizer) wsRightResizer.classList.toggle('hidden', mode !== 'workspace')

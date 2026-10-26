@@ -37,7 +37,7 @@ vm.runInNewContext(fs.readFileSync(source, 'utf8'), {
   require: (id) => id === 'electron' ? {
     BrowserWindow: Window,
     screen: { getDisplayNearestPoint: () => display, getCursorScreenPoint: () => ({ x: 0, y: 0 }) }
-  } : require(id)
+  } : require(id.startsWith('.') ? path.resolve(path.dirname(source), id) : id)
 }, { filename: source })
 const hud = mod.exports
 function check(name, run) {

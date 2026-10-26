@@ -1,5 +1,6 @@
 'use strict'
 const { isInternalBrowserUrl } = require('../shared/browser-url.mjs')
+const { DEV_URL } = require('./dev-url')
 
 const { BrowserWindow, WebContentsView } = require('electron')
 const fs = require('fs')
@@ -86,7 +87,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden, onSh
     entries.set(page, entry)
     secure({ webContents: view.webContents })
     const loading = isDev
-      ? view.webContents.loadURL(`http://localhost:5173/?page=${page}`)
+      ? view.webContents.loadURL(`${DEV_URL}/?page=${page}`)
       : view.webContents.loadFile(indexFile, { query: { page } })
     loading.catch(() => {}) // did-fail-load 統一回報給呼叫端。
     return entry

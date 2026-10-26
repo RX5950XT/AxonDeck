@@ -9,6 +9,7 @@ const path = require('path')
 const { randomUUID } = require('crypto')
 const fs = require('../raw-fs').promises
 const { fail, text, wavHeader } = require('./protocol')
+const { polish } = require('./audio-clean')
 
 const RATE = 24000
 const MAX_TAKES = 50
@@ -99,7 +100,7 @@ function createTakes({ root }) {
    */
   function save({ parts, placement, title, mode, voice }) {
     if (!Array.isArray(parts) || !parts.length || parts.length > 2000) throw fail('INVALID_INPUT', '沒有可以合併的語音')
-    const clean = parts.map((part) => ({ pcm: part.pcm, text: text(part.text ?? '', '句子', 10000),
+    const clean = parts.map((part) => ({ pcm: polish(part.pcm), text: text(part.text ?? '', '句子', 10000),
       speaker: text(part.speaker ?? '', '角色', 120), at: seconds(part.at, MAX_TAKE_SECONDS, '字幕時間'),
       gap: seconds(part.gap, MAX_GAP_SECONDS, '句間停頓') }))
     const { pcm, segments } = compose(clean, placement === 'cue' ? 'cue' : 'sequence')

@@ -9,6 +9,7 @@
  */
 
 const path = require('path')
+const { DEV_URL } = require('./dev-url')
 const { BrowserWindow, ipcMain } = require('electron')
 const fsp = require('./raw-fs').promises
 const formats = require('./editor-formats.json')
@@ -95,7 +96,7 @@ function createWindow(file) {
   })
   win.on('closed', () => entries.delete(id))
   win.once('ready-to-show', () => win.show())
-  if (options.isDev) win.loadURL('http://localhost:5173/pages/editor.html')
+  if (options.isDev) win.loadURL(`${DEV_URL}/pages/editor.html`)
   else win.loadFile(path.join(__dirname, '../renderer/pages/editor.html'))
 }
 

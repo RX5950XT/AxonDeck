@@ -24,8 +24,11 @@ const REAL = CACHE ? { modelDir: CACHE, runtimeDir: path.join(CACHE, 'runtime') 
   : MODELS ? { modelDir: path.join(MODELS, 'breezetts2q8'), runtimeDir: path.join(MODELS, 'breezeruntime') } : null
 const PORT = 9253
 const DEV = process.env.AXONDECK_DEV === '1'
+// 原始碼版用自己的 vite 埠：5173 常被別的專案佔走，App 會載到別人的頁面
+const VITE_PORT = 5253
+const VITE_URL = `http://localhost:${VITE_PORT}`
 // 主視窗與功能頁的網址：打包版是 index.html，原始碼版是 vite
-const PAGE = DEV ? /localhost:5173/ : /index\.html/
+const PAGE = DEV ? new RegExp(`localhost:${VITE_PORT}`) : /index\.html/
 const INSPECT = PORT + 1
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 let passed = 0
@@ -202,6 +205,7 @@ async function realScriptGate(cdp, inspector) {
   check('逐句 WAV 長度等於版本長度', Math.abs(wavSeconds(sentenceFile) - sentences.duration) < 0.01)
   const original = sentences.segments.map((seg) => seg.length)
   const redone = await run('單句重做', async () => {
+    await cdp.eval(`document.querySelector('.speech-seg-box').open=true`)
     await cdp.click('#speechSegments li:nth-child(2) .seg-edit')
     await cdp.eval(`document.querySelector('#speechSegments li:nth-child(2) .seg-input').value='空氣變得很清新，連小鳥都開始唱歌了。'`)
     await cdp.click('#speechSegments li:nth-child(2) .seg-redo')
@@ -290,9 +294,13 @@ async function drag(cdp, selector, from, to) {
 }
 
 async function startVite() {
-  if (await fetch('http://localhost:5173/').then(() => true).catch(() => false)) return null
-  const vite = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), '--strictPort'], { cwd: ROOT, windowsHide: true, stdio: 'ignore' })
-  await waitFor(() => fetch('http://localhost:5173/').then(() => true).catch(() => false), 'vite 啟動')
+  const status = () => fetch(`${VITE_URL}/scripts/app.js`).then((response) => response.status).catch(() => 0)
+  const running = await status()
+  if (running === 200) return null
+  if (running) throw new Error(`${VITE_PORT} 埠被別的服務佔用，請先關掉它`)
+  const vite = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), '--port', String(VITE_PORT), '--strictPort'],
+    { cwd: ROOT, windowsHide: true, stdio: 'ignore' })
+  await waitFor(async () => (await status()) === 200, 'vite 啟動')
   return vite
 }
 
@@ -308,7 +316,7 @@ async function main() {
   const flags = ['--hidden', '--disable-backgrounding-occluded-windows', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
     `--remote-debugging-port=${PORT}`, `--inspect=${INSPECT}`, `--user-data-dir=${USER_DATA}`]
   const child = spawn(DEV ? require('electron') : EXE, DEV ? [ROOT, ...flags] : flags,
-    { detached: true, windowsHide: true, stdio: 'ignore', shell: false })
+    { detached: true, windowsHide: true, stdio: 'ignore', shell: false, env: DEV ? { ...process.env, AXONDECK_DEV_URL: VITE_URL } : process.env })
   let cdp, inspector
   try {
     cdp = await target(PORT)
@@ -326,6 +334,7 @@ async function main() {
     const tags = ['[笑]', '(laugh)', '[叹气]', '(sigh)', '[咳嗽]', '(cough)', '[清嗓子]', '(clears throat)', '[低语]', '(whispering)', '[倒抽气]', '(gasp)', '[紧张地轻笑]', '(nervous chuckle)', '[打哈欠]', '(yawn)', '[耳语]', '(whispers)']
     check('九類 18 個中英文標記齊全且無重複', await cdp.eval(`JSON.stringify([...speechEvents.querySelectorAll('[data-event]')].map(el=>el.dataset.event))===${JSON.stringify(JSON.stringify(tags))}`))
     check('每類都有相鄰中英按鈕，沒有重複標題或語言前綴', await cdp.eval(`speechEvents.querySelectorAll('.speech-event-group').length===9 && [...speechEvents.querySelectorAll('.speech-event-group')].every(el=>{const buttons=[...el.children];return buttons.length===2&&buttons.every(b=>b.matches('button[data-event]'))&&buttons[0].dataset.event.startsWith('[')&&buttons[1].dataset.event.startsWith('(')}) && !/中文|English|加入聲音|延伸語氣/.test(speechEvents.textContent)`))
+    await cdp.eval(`speechEvents.open=true`)
     for (const tag of tags) {
       await cdp.eval(`speechText.value='甲乙';speechText.setSelectionRange(1,2)`)
       await cdp.click(`#speechEvents [data-event="${tag}"]`)
@@ -333,7 +342,7 @@ async function main() {
     }
     await cdp.eval(`speechText.value='';speechText.dispatchEvent(new Event('input'))`)
     check('未下載提示可見，生成被停用', await visible(cdp, 'speechInstallNotice') && await cdp.eval(`document.getElementById('speechGenerate').disabled`))
-    check('沒有版本時顯示說明，不顯示空播放器', await visible(cdp, 'speechDockEmpty') && !(await visible(cdp, 'speechDockBody')))
+    check('沒有版本時不顯示空播放器', !(await visible(cdp, 'speechDockBody')))
     const missing = await cdp.eval(`window.electronAPI.breeze.generate({reqId:'qa-uninstalled',mode:'design',text:'你好',instruction:'溫暖清晰'})`)
     check('真正 IPC 拒絕未下載模型', missing?.ok === false && missing.error.code === 'NOT_INSTALLED')
     const invalid = await cdp.eval(`window.electronAPI.breeze.generate({reqId:'qa-invalid',mode:'invalid'})`)
@@ -454,6 +463,8 @@ async function main() {
     await waitFor(() => cdp.eval(`!speechGenerate.disabled && speechSegments.children.length===3`), '逐句生成')
     check('逐句生成送出三次請求', (await inspector.eval(`global.__speechQA.requests.length`)) === count + 3)
     check('版本帶三句與段落停頓', JSON.stringify(await inspector.eval(`global.__speechQA.saved.parts.map(p=>p.gap)`)) === JSON.stringify([0.3, 0.7, 0]))
+    check('分句清單預設收合在播放列裡', await cdp.eval(`!document.querySelector('.speech-seg-box').open && document.querySelector('.speech-seg-box > summary').offsetHeight>0`))
+    await cdp.click('.speech-seg-box > summary')
     check('分句清單可見並有試聽、修改、重做', await cdp.eval(`[...speechSegments.children].every(row=>row.querySelector('.seg-play')&&row.querySelector('.seg-edit')&&row.querySelector('.seg-redo')) && speechSegments.offsetHeight>0`))
     const takeId = await inspector.eval(`global.__speechQA.takes[0].id`)
     await cdp.click('#speechSegments li:nth-child(2) .seg-edit')
@@ -471,7 +482,7 @@ async function main() {
     await inspector.eval(`global.__speechQA.behavior='pendingSecond'; global.__speechQA.requests.length=0`)
     await cdp.click('#speechGenerate')
     await waitFor(() => inspector.eval(`!!global.__speechQA.pending`), '第二句進行中')
-    check('生成期間停用表單，停止按鈕可見', await cdp.eval(`speechText.disabled && speechCancel.offsetHeight>0 && !speechCancel.disabled`))
+    check('生成期間稿子照樣能改、生成鈕變排隊、停止按鈕可見', await cdp.eval(`!speechText.disabled && speechGenerate.textContent.startsWith('加入排隊') && speechCancel.offsetHeight>0 && !speechCancel.disabled`))
     await cdp.click('#speechCancel')
     await waitFor(() => cdp.eval(`!speechGenerate.disabled && speechProgress.textContent.includes('已停止')`), '停止')
     check('停止後保留完成的第一句成為版本', await cdp.eval(`speechProgress.textContent.includes('保留了完成的 1 句')`) && (await inspector.eval(`global.__speechQA.saved.parts.length`)) === 1)
@@ -536,7 +547,7 @@ async function main() {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 1100, deviceScaleFactor: 1, mobile: false })
       for (const theme of ['dark', 'light']) {
         await cdp.eval(`document.documentElement.setAttribute('data-theme',${JSON.stringify(theme)});
-          document.querySelectorAll('#page-speech,.main-content,.content').forEach(el=>el.scrollTop=0); document.documentElement.scrollTop=0; document.body.scrollTop=0;`)
+          document.querySelectorAll('#page-speech,.main-content,.content').forEach(el=>el.scrollTop=0); document.documentElement.scrollTop=0; document.body.scrollTop=0; speechEvents.open=true;`)
         await sleep(100)
         const geometry = await cdp.eval(`({overflow:document.querySelector('.speech-workbench').scrollWidth>document.querySelector('.speech-workbench').clientWidth+1,columns:getComputedStyle(speechForm).gridTemplateColumns.split(' ').length,color:getComputedStyle(speechText).color,background:getComputedStyle(speechText).backgroundColor,dock:document.querySelector('.speech-dock').scrollWidth<=document.querySelector('.speech-dock').clientWidth+1})`)
         check(`${width}px ${theme} 欄位無溢出，顏色有值`, !geometry.overflow && geometry.dock && geometry.color !== geometry.background && (width > 760 || geometry.columns === 1))

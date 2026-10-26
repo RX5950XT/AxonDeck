@@ -19,6 +19,7 @@
  */
 
 const { BrowserWindow, screen } = require('electron')
+const { DEV_URL } = require('../dev-url')
 const path = require('path')
 
 /**
@@ -136,7 +137,7 @@ function create() {
   })
 
   if (devMode) {
-    win.loadURL('http://localhost:5173/pages/dictation-hud.html')
+    win.loadURL(`${DEV_URL}/pages/dictation-hud.html`)
   } else {
     win.loadFile(path.join(__dirname, '../../renderer/pages/dictation-hud.html'))
   }

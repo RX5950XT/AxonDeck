@@ -139,7 +139,6 @@ export function createTakeDock({ call, onRedo, onError }) {
   async function refresh(selectId) {
     takes = await call('listTakes')
     select.replaceChildren(...takes.map((take, index) => new Option(label(take, index), take.id)))
-    $('speechDockEmpty').hidden = takes.length > 0
     $('speechDockBody').hidden = takes.length === 0
     const id = selectId && takes.some((t) => t.id === selectId) ? selectId : current && takes.some((t) => t.id === current.id) ? current.id : takes[0]?.id
     if (id !== current?.id || selectId) await load(id)

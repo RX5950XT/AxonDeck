@@ -3,6 +3,7 @@ const {
   Menu, Tray, nativeImage, protocol, webContents, net
 } = require('electron')
 const path = require('path')
+const { DEV_URL } = require('./dev-url')
 const fs = require('fs')
 
 /**
@@ -1030,7 +1031,7 @@ function createMainWindow() {
 
   // 載入頁面（先掛事件，避免 loadFile 太快把 ready-to-show 漏掉）
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173/?host=1')
+    mainWindow.loadURL(`${DEV_URL}/?host=1`)
     if (!startHidden) mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { host: '1' } })
@@ -1141,7 +1142,7 @@ function attachWindowSecurity(win) {
     try {
       const target = new URL(url)
       const current = new URL(win.webContents.getURL())
-      if (isDev && target.origin === 'http://localhost:5173') return
+      if (isDev && target.origin === DEV_URL) return
       // 只有同一份 App 頁面能保留 preload；任意本機 HTML 也不可信。
       if (target.protocol === 'file:' && target.origin === current.origin
         && target.host === current.host && target.pathname === current.pathname) return
@@ -1222,7 +1223,7 @@ function createSubtitleWindow() {
   attachWindowSecurity(subtitleWindow)
 
   if (isDev) {
-    subtitleWindow.loadURL('http://localhost:5173/pages/subtitle.html')
+    subtitleWindow.loadURL(`${DEV_URL}/pages/subtitle.html`)
   } else {
     subtitleWindow.loadFile(path.join(__dirname, '../renderer/pages/subtitle.html'))
   }

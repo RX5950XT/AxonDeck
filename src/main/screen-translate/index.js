@@ -1,6 +1,7 @@
 'use strict'
 
 const path = require('path')
+const { DEV_URL } = require('../dev-url')
 const { app, BrowserWindow, screen } = require('electron')
 const models = require('../models')
 const { readResponseText } = require('../usage/shared')
@@ -92,7 +93,7 @@ function createWindow(job) {
   }
   win.on('move', moved); win.on('resize', moved)
   win.on('closed', () => { if (session === job) void close() })
-  const loaded = config.isDev ? win.loadURL('http://localhost:5173/pages/screen-translate.html')
+  const loaded = config.isDev ? win.loadURL(`${DEV_URL}/pages/screen-translate.html`)
     : win.loadFile(path.join(__dirname, '../../renderer/pages/screen-translate.html'))
   loaded.catch(() => { if (session === job) void close() })
 }

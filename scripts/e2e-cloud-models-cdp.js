@@ -197,7 +197,7 @@ async function appearance(cdp) {
 
 async function speech(cdp, mock) {
   await navigate(cdp, 'speech')
-  await setInput(cdp, 'speechBackend', 'cloud', 'change')
+  await cdp.eval(`document.querySelector('#speechBackend [data-backend="cloud"]').click()`)
   await waitFor(() => cdp.eval(`!document.getElementById('speechCloudPanel').hidden && !document.getElementById('cloudSpeechGenerate').disabled`), '雲端語音可用')
   await setInput(cdp, 'cloudSpeechText', '這是本機測試語音')
   await cdp.eval(`document.getElementById('cloudSpeechGenerate').click()`)

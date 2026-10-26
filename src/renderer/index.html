@@ -1883,7 +1883,8 @@
           <!-- 翻譯 -->
           <section id="page-speech" class="page" aria-label="文字轉語音">
             <div class="speech-workbench">
-              <div class="speech-backend"><label for="speechBackend">語音來源</label><select id="speechBackend" class="input"><option value="local">本機 · Breeze-TTS-2</option><option value="cloud">雲端供應商</option></select></div>
+              <!-- 來源切換：JS 會把它搬進目前面板的標題列右邊 -->
+              <div id="speechBackend" class="speech-backend" role="radiogroup" aria-label="語音來源"><button type="button" data-backend="local" role="radio" aria-checked="true">本機</button><button type="button" data-backend="cloud" role="radio" aria-checked="false" tabindex="-1">雲端</button></div>
               <div id="speechCloudPanel" hidden>
                 <header class="speech-head"><div><h2>雲端文字轉語音</h2><p class="setting-hint">選擇聲音，把文字變成可播放與下載的 MP3。</p></div></header>
                 <p id="cloudSpeechEmpty" class="speech-notice">尚未加入文字轉語音模型。到設定的雲端模型選擇「文字轉語音」用途。</p>
@@ -1914,6 +1915,19 @@
                     </div>
                     <div class="speech-doc-tools">
                       <button id="speechImportSubtitle" type="button" class="btn btn-secondary btn-sm" hidden><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15h4"/><path d="M15 15h2"/><path d="M7 11h2"/><path d="M13 11h4"/></svg>匯入字幕</button><input id="speechSubtitleFile" type="file" accept=".srt,.vtt,.ass,.ssa" hidden />
+                      <details id="speechEvents" class="speech-events-menu"><summary class="btn btn-secondary btn-sm" title="笑聲、嘆氣等表情，插入游標位置"><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3"/><path d="M12 18v3"/><path d="M3 12h3"/><path d="M18 12h3"/><path d="m5.6 5.6 2.1 2.1"/><path d="m16.3 16.3 2.1 2.1"/><path d="m5.6 18.4 2.1-2.1"/><path d="m16.3 7.7 2.1-2.1"/></svg>標記</summary>
+                        <div class="speech-events" role="group" aria-label="插入語音標記">
+                          <div class="speech-event-group" role="group" aria-label="笑聲"><button type="button" data-event="[笑]">笑</button><button type="button" data-event="(laugh)">laugh</button></div>
+                          <div class="speech-event-group" role="group" aria-label="嘆氣"><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="(sigh)">sigh</button></div>
+                          <div class="speech-event-group" role="group" aria-label="咳嗽"><button type="button" data-event="[咳嗽]">咳嗽</button><button type="button" data-event="(cough)">cough</button></div>
+                          <div class="speech-event-group" role="group" aria-label="清喉嚨"><button type="button" data-event="[清嗓子]">清喉嚨</button><button type="button" data-event="(clears throat)">clears throat</button></div>
+                          <div class="speech-event-group" role="group" aria-label="低語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[低语]">低語</button><button type="button" data-event="(whispering)">whispering</button></div>
+                          <div class="speech-event-group" role="group" aria-label="倒抽氣" title="描述型標記，效果依台詞而異"><button type="button" data-event="[倒抽气]">倒抽氣</button><button type="button" data-event="(gasp)">gasp</button></div>
+                          <div class="speech-event-group" role="group" aria-label="緊張輕笑" title="描述型標記，效果依台詞而異"><button type="button" data-event="[紧张地轻笑]">緊張輕笑</button><button type="button" data-event="(nervous chuckle)">nervous chuckle</button></div>
+                          <div class="speech-event-group" role="group" aria-label="哈欠" title="描述型標記，效果依台詞而異"><button type="button" data-event="[打哈欠]">哈欠</button><button type="button" data-event="(yawn)">yawn</button></div>
+                          <div class="speech-event-group" role="group" aria-label="耳語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[耳语]">耳語</button><button type="button" data-event="(whispers)">whispers</button></div>
+                        </div>
+                      </details>
                       <button id="speechPronounceBtn" type="button" class="btn btn-secondary btn-sm" aria-expanded="false" aria-controls="speechPronounce" title="指定破音字或專有名詞怎麼念"><svg class="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>讀音<span id="speechPronounceCount" class="speech-badge" hidden></span></button>
                       <span id="speechCount" class="speech-count">0 / 100000</span>
                     </div>
@@ -1931,25 +1945,16 @@
                     <p id="speechCuesInfo" class="speech-hint" hidden></p>
                     <ol id="speechCueList" class="speech-cue-list"></ol>
                   </div>
-                  <div id="speechEvents" class="speech-events" role="group" aria-label="插入語音標記">
-                    <div class="speech-event-group" role="group" aria-label="笑聲"><button type="button" data-event="[笑]">笑</button><button type="button" data-event="(laugh)">laugh</button></div>
-                    <div class="speech-event-group" role="group" aria-label="嘆氣"><button type="button" data-event="[叹气]">嘆氣</button><button type="button" data-event="(sigh)">sigh</button></div>
-                    <div class="speech-event-group" role="group" aria-label="咳嗽"><button type="button" data-event="[咳嗽]">咳嗽</button><button type="button" data-event="(cough)">cough</button></div>
-                    <div class="speech-event-group" role="group" aria-label="清喉嚨"><button type="button" data-event="[清嗓子]">清喉嚨</button><button type="button" data-event="(clears throat)">clears throat</button></div>
-                    <div class="speech-event-group" role="group" aria-label="低語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[低语]">低語</button><button type="button" data-event="(whispering)">whispering</button></div>
-                    <div class="speech-event-group" role="group" aria-label="倒抽氣" title="描述型標記，效果依台詞而異"><button type="button" data-event="[倒抽气]">倒抽氣</button><button type="button" data-event="(gasp)">gasp</button></div>
-                    <div class="speech-event-group" role="group" aria-label="緊張輕笑" title="描述型標記，效果依台詞而異"><button type="button" data-event="[紧张地轻笑]">緊張輕笑</button><button type="button" data-event="(nervous chuckle)">nervous chuckle</button></div>
-                    <div class="speech-event-group" role="group" aria-label="哈欠" title="描述型標記，效果依台詞而異"><button type="button" data-event="[打哈欠]">哈欠</button><button type="button" data-event="(yawn)">yawn</button></div>
-                    <div class="speech-event-group" role="group" aria-label="耳語" title="描述型標記，效果依台詞而異"><button type="button" data-event="[耳语]">耳語</button><button type="button" data-event="(whispers)">whispers</button></div>
-                  </div>
                   <p id="speechTextHint" class="speech-hint" hidden>支援中文與英文。點選標記插入游標位置，也能直接在台詞寫 [中文描述] 或 (English description)。</p>
+                  <div class="speech-doc-foot">
+                    <label id="speechStreamLabel" class="speech-stream"><input id="speechStream" type="checkbox" checked />邊生成邊播放</label>
+                    <div class="speech-run">
+                      <button id="speechCancel" class="btn btn-secondary" type="button" hidden>停止</button>
+                      <button id="speechGenerate" class="btn btn-primary speech-generate" type="submit" disabled>生成語音</button>
+                    </div>
+                  </div>
                 </div>
                 <aside class="speech-inspector" aria-label="聲音設定">
-                  <div class="speech-run">
-                    <button id="speechGenerate" class="btn btn-primary speech-generate" type="submit" disabled>生成語音</button>
-                    <button id="speechCancel" class="btn btn-secondary" type="button" hidden>停止</button>
-                  </div>
-                  <label id="speechStreamLabel" class="speech-stream"><input id="speechStream" type="checkbox" checked />邊生成邊播放</label>
                   <div class="speech-modes" role="tablist" aria-label="語音生成模式">
                     <button id="speechModeDesign" class="speech-mode active" type="button" role="tab" data-mode="design" aria-selected="true" aria-controls="speechForm"><span class="speech-mode-title">聲音設計</span><span class="speech-mode-description">文字描述聲音</span></button>
                     <button id="speechModeClone" class="speech-mode" type="button" role="tab" data-mode="clone" aria-selected="false" aria-controls="speechForm" tabindex="-1"><span class="speech-mode-title">語音克隆</span><span class="speech-mode-description">用原聲讀新台詞</span></button>
@@ -1965,7 +1970,7 @@
                     <label for="speechVoice" id="speechVoiceLabel">參考聲音</label><div class="speech-voice-row"><select id="speechVoice" class="input"><option value="">新的參考音訊</option></select><button id="speechDeleteVoice" type="button" class="btn btn-secondary btn-sm" disabled>刪除</button></div>
                     <div id="speechNewReference"><div id="speechReferenceInput"></div><label for="speechRefText">參考音訊的逐字稿（自動辨識）</label><textarea id="speechRefText" class="input" rows="3" maxlength="10000" placeholder="選檔或錄音後自動辨識，可再手動修改；要和錄音裡說的一字不差。"></textarea><div class="speech-voice-row"><input id="speechVoiceName" class="input" maxlength="64" placeholder="聲音名稱（英數、-、_）" aria-label="聲音名稱" /><button id="speechSaveVoice" type="button" class="btn btn-secondary btn-sm">保存聲音</button></div><p class="speech-hint">5～20 秒、乾淨少雜音最好；保存後不用每次重新上傳。</p></div>
                   </div>
-                  <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
+                  <div id="speechInstructionGroup"><label for="speechInstruction" id="speechInstructionLabel">描述你想要的聲音</label><div id="speechPresets" class="speech-presets"><div class="speech-preset-head"><span>範本（點名稱套用，▶ 試聽）</span><div class="speech-preset-lang" role="group" aria-label="範本語言"><button type="button" data-lang="zh" aria-pressed="true">中文</button><button type="button" data-lang="en" aria-pressed="false">English</button></div></div><ul id="speechPresetList"></ul></div><textarea id="speechInstruction" class="input" rows="4" maxlength="4000" placeholder="溫暖清晰的年輕女性聲音，像在和朋友聊天。"></textarea><p class="speech-hint">聲音描述和台詞使用同一種語言，效果較好。</p></div>
                   <details class="speech-advanced"><summary>進階設定</summary><div class="speech-params">
                     <label>指令強度（CFG）<input id="speechCfg" class="input" type="number" min="0" max="10" step="0.1" value="1" /></label>
                     <label>隨機種子<input id="speechSeed" class="input" type="number" min="-2147483648" max="2147483647" value="42" /></label>
@@ -1981,8 +1986,7 @@
               </form>
               <section class="speech-dock" aria-labelledby="speechResultTitle">
                 <div class="speech-dock-head"><h2 id="speechResultTitle">你的聲音會出現在這裡</h2><span id="speechProgress" role="status" aria-live="polite">選好聲音、寫下台詞，就能開始。</span></div>
-                <p id="speechDockEmpty" class="speech-dock-empty">每次生成都會留一個版本，可以切換比較、挑最好的匯出。</p>
-                <div id="speechDockBody" hidden>
+                                <div id="speechDockBody" hidden>
                   <div class="speech-dock-bar">
                     <button id="speechPlay" class="speech-play" type="button" aria-label="播放" disabled></button>
                     <span id="speechTime" class="speech-time">00:00 / 00:00</span>
@@ -1993,7 +1997,7 @@
                     </div>
                   </div>
                   <canvas id="speechWave" class="speech-wave-canvas speech-dock-wave" tabindex="0" aria-label="語音波形：點一下跳到該位置，空白鍵播放，左右鍵快轉 5 秒"></canvas>
-                  <ol id="speechSegments" class="speech-segments" aria-label="分句" hidden></ol>
+                  <details class="speech-seg-box"><summary>分句清單 · 逐句試聽、修改、重做</summary><ol id="speechSegments" class="speech-segments" aria-label="分句" hidden></ol></details>
                 </div>
                 <audio id="speechPlayer" hidden></audio>
                 <p id="speechError" role="alert" hidden></p>

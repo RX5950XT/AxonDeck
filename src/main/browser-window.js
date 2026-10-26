@@ -13,6 +13,7 @@
  */
 
 const path = require('path')
+const { DEV_URL } = require('./dev-url')
 const { BrowserWindow, WebContentsView } = require('electron')
 
 /** 工具列高度（DIP），跟 browser-window.html 的 .bw-bar 一致 */
@@ -173,7 +174,7 @@ async function open(url, title = '', guest = null, slot = 0, compatible = false)
   win.once('ready-to-show', () => win.show())
 
   const query = { url, theme: light ? 'light' : 'dark' }
-  if (options.isDev) win.loadURL(`http://localhost:5173/pages/browser-window.html?${new URLSearchParams(query)}`)
+  if (options.isDev) win.loadURL(`${DEV_URL}/pages/browser-window.html?${new URLSearchParams(query)}`)
   else win.loadFile(path.join(__dirname, '../renderer/pages/browser-window.html'), { query })
 
   // 不等網頁載完：呼叫端拿到回覆就會關掉原分頁（狀態已經在 snapshot 量好了）

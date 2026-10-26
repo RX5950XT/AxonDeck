@@ -327,19 +327,9 @@ function writeState(patch) {
         tabs
       )
     }
-    s.set('lastPath', next.lastPath)
-    s.set('view', next.view)
-    s.set('tile', next.tile)
-    s.set('sort', next.sort)
-    s.set('sortDesc', next.sortDesc)
-    s.set('showHidden', next.showHidden)
-    s.set('folderSizes', next.folderSizes)
-    s.set('dualPane', next.dualPane)
-    s.set('uffsAuto', next.uffsAuto)
-    s.set('places', next.places)
-    s.set('folderViews', next.folderViews)
-    s.set('tabs', next.tabs)
-    s.set('activeTabId', next.activeTabId)
+    // 每個 set 都是一次同步寫檔＋fsync（切頁就存一次，13 次疊起來主程序會頓 100ms），只寫有變的、合成一次
+    const changed = Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(s.get(key)) !== JSON.stringify(value)))
+    if (Object.keys(changed).length) s.set(changed)
     return next
   })
 }

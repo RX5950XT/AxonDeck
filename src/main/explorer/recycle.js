@@ -12,7 +12,7 @@ const crypto = require('crypto')
 const fs = require('../raw-fs')
 const fsp = require('../raw-fs').promises
 const path = require('path')
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 const paths = require('./paths')
 const drives = require('./drives')
 

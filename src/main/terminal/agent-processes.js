@@ -2,9 +2,7 @@
 
 const path = require('node:path')
 const fs = require('../raw-fs').promises
-const { execFile } = require('node:child_process')
-const { promisify } = require('node:util')
-const run = promisify(execFile)
+const { runProcess } = require('../proc-broker')
 const { isAgentSessionId } = require('./store')
 
 /** 只採用原 PTY 的子程序；同目錄另一個工作台的 CLI 不算。 */
@@ -85,14 +83,21 @@ async function processSnapshot() {
   const probe = require('../native-probe').resolveProbeExe()
   if (probe) {
     try {
-      const { stdout } = await run(probe, ['procs-json'], { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 })
+      const { stdout } = await run(probe, ['procs-json'], 16 * 1024 * 1024)
       return validRows(JSON.parse(stdout || '[]'))
     } catch { /* 起不來或輸出壞掉：退回 PowerShell */ }
   }
   const exe = path.join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
   const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{Name='StartedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress"
-  const { stdout } = await run(exe, ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 5000, maxBuffer: 4 * 1024 * 1024 })
+  const { stdout } = await run(exe, ['-NoProfile', '-NonInteractive', '-Command', script], 4 * 1024 * 1024)
   return validRows(JSON.parse(stdout || '[]'))
+}
+
+/** 跟原本 execFile 一樣：失敗、逾時、輸出超量都丟例外 */
+async function run(file, args, maxChars) {
+  const res = await runProcess({ file, args, maxChars, timeoutMs: 5000 })
+  if (res.error || res.truncated || res.code !== 0) throw new Error('PROCESS_SNAPSHOT_FAILED')
+  return res
 }
 
 function validRows(rows) {

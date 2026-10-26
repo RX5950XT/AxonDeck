@@ -913,7 +913,7 @@ console.log('\n[S6] 隱藏／系統項目一律顯示')
   const storeSrc6 = fs.readFileSync(path.join(ROOT, 'src/main/explorer/store.js'), 'utf8')
   ok('explorer.json 存得下這個欄位',
     /showHidden: s\.get\('showHidden', true\) !== false/.test(storeSrc6)
-      && /s\.set\('showHidden', next\.showHidden\)/.test(storeSrc6))
+      && /showHidden: patch\.showHidden !== undefined/.test(storeSrc6) && /s\.set\(changed\)/.test(storeSrc6))
   const cssSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/styles/main.css'), 'utf8')
   ok('淡化樣式在', /\.ex-row\.is-dim/.test(cssSrc6))
   ok('圖示也淡化', /\.ex-row\.is-dim \.ex-row-icon/.test(cssSrc6))

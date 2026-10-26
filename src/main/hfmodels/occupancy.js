@@ -6,7 +6,7 @@
  */
 
 const os = require('os')
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 const { cpuUsage } = require('../sysmon/metrics')
 
 const GPU_TIMEOUT_MS = 1500

@@ -4,11 +4,8 @@
  * 另回報 CUDA Runtime / Vulkan 狀態（供設定頁與自動安裝）。
  */
 
-const { execFile } = require('child_process')
-const { promisify } = require('util')
+const { execFileAsync } = require('./proc-broker')
 const { detectCudaRuntime, detectVulkan } = require('./cuda-env')
-
-const execFileAsync = promisify(execFile)
 
 /** 最低 VRAM（MiB）。8GB 卡 nvidia-smi 回報 8188～8192，留一點餘裕 */
 const MIN_VRAM_MIB = 8184

@@ -46,11 +46,16 @@ function libCandidates() {
   return [system32, programFiles]
 }
 
-/** @returns {boolean} 系統裡有沒有 PawnIO */
+let installedCache = { at: 0, value: false }
+
+/** @returns {boolean} 系統裡有沒有 PawnIO（系統監控每秒問一次，同步 existsSync 偶爾要幾十 ms，快取 10 秒） */
 function isInstalled() {
-  return libCandidates().some((candidate) => {
+  if (Date.now() - installedCache.at < 10000) return installedCache.value
+  const value = libCandidates().some((candidate) => {
     try { return fs.existsSync(candidate) } catch { return false }
   })
+  installedCache = { at: Date.now(), value }
+  return value
 }
 
 function makeError(code, userMessage) {
@@ -154,6 +159,7 @@ async function install(deps = {}) {
       `$p = Start-Process -FilePath '${literal}' -ArgumentList '-install','-silent' -Verb RunAs -Wait -PassThru; exit $p.ExitCode`
     ], INSTALL_TIMEOUT_MS, spawnFn)
 
+    installedCache = { at: 0, value: false }
     if (!installedFn()) {
       throw code === 0
         ? makeError('PAWNIO_INSTALL_FAILED', 'PawnIO 安裝沒有完成，請改由官方網站手動安裝。')

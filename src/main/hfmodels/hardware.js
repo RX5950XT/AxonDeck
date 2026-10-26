@@ -98,7 +98,7 @@ const CUDA13_MIN_DRIVER = 580
  * @returns {Promise<{ hasNvidia: boolean, driver: string, cudaReady: boolean }>}
  */
 function nvidiaDriver(deps = {}) {
-  const execFileFn = deps.execFileFn || require('child_process').execFile
+  const execFileFn = deps.execFileFn || require('../proc-broker').execFile
   return new Promise((resolve) => {
     const none = { hasNvidia: false, driver: '', cudaReady: false }
     try {

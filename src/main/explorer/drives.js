@@ -10,7 +10,7 @@
 const fs = require('../raw-fs')
 const os = require('os')
 const path = require('path')
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 
 /** 虛擬位置：Windows 那樣的「本機」首頁（不是真路徑，別送進 paths）。 */
 const THIS_PC = 'thispc'

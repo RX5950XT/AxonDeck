@@ -5,7 +5,6 @@ const assert = require('assert/strict')
 const fs = require('fs')
 const path = require('path')
 const vm = require('vm')
-const { EventEmitter } = require('events')
 const { tempDir } = require('./lib/test-temp')
 const files = require('../src/main/workspace/files')
 const store = require('../src/main/workspace/store')
@@ -25,23 +24,12 @@ function harness(root, overrides = {}) {
   const state = { projects: [source, target], running: [], terminal: {
     id: 'term', projectId: target.id, cwd: target.path, preset: 'shell', shell: 'powershell'
   }, ...overrides }
-  const spawn = (exe, args, options) => {
-    assert.equal(exe, 'git')
-    assert.equal(options.shell, false)
-    assert.equal(options.env.GIT_TERMINAL_PROMPT, '0')
-    calls.push({ args, cwd: options.cwd })
-    const child = new EventEmitter()
-    child.stdout = new EventEmitter()
-    child.stdout.setEncoding = () => {}
-    child.stderr = new EventEmitter()
-    child.kill = () => {}
-    process.nextTick(() => {
-      const result = state.git ? state.git(args, options.cwd) : gitResult(args, source, target)
-      child.stdout.emit('data', result.stdout || '')
-      child.stderr.emit('data', 'secret stderr must never escape')
-      child.emit('close', result.code || 0)
-    })
-    return child
+  const runProcess = async (req) => {
+    assert.equal(req.file, 'git')
+    assert.equal(req.env.GIT_TERMINAL_PROMPT, '0')
+    calls.push({ args: req.args, cwd: req.cwd })
+    const result = state.git ? state.git(req.args, req.cwd) : gitResult(req.args, source, target)
+    return { code: result.code || 0, stdout: result.stdout || '', stderr: 'secret stderr must never escape' }
   }
   const fakeStore = { ...store, get: async id => state.projects.find(item => item.id === id),
     list: async () => state.projects,
@@ -51,7 +39,7 @@ function harness(root, overrides = {}) {
       if (state.storeError) throw new Error('store failed')
       return { ...req, id: 'created' }
     }, remove: async () => true }
-  const dependencies = { path, child_process: { spawn }, './store': fakeStore, './files': files,
+  const dependencies = { path, '../proc-broker': { runProcess }, './store': fakeStore, './files': files,
     '../raw-fs': fs, '../terminal/service': { listRunningUnder: async () => (
       typeof state.running === 'function' ? state.running() : state.running) },
     '../terminal/store': { get: async () => state.terminal },

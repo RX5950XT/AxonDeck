@@ -10,7 +10,7 @@
 const { app, shell, dialog, BrowserWindow, nativeImage } = require('electron')
 const fs = require('../raw-fs')
 const path = require('path')
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 const paths = require('./paths')
 const store = require('./store')
 const files = require('./fs')

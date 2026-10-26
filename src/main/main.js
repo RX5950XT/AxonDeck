@@ -726,6 +726,31 @@ function sanitizeSubtitleBounds(raw) {
   }
 }
 
+const PAGE_USE_DAYS = 7
+/** 這次開機已記過的頁：每個 store.set 都是同步寫檔，同一頁一次開機只記一次 */
+const pageUseLogged = new Set()
+
+/** @returns {Record<string, number>} 頁 → 最後使用時間（store 讀出來的要驗過） */
+function readPageUse() {
+  const raw = store?.get('pageUse', {})
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).filter(([page, at]) => /^\w{1,32}$/.test(page) && Number.isFinite(at)))
+}
+
+/** @param {string} page */
+function rememberPageUse(page) {
+  if (!store || pageUseLogged.has(page)) return
+  pageUseLogged.add(page)
+  store.set('pageUse', { ...readPageUse(), [page]: Date.now() })
+}
+
+/** 最近 7 天用過、還沒開的頁，最近用的排前面（chat 開機就載了） */
+function recentPages() {
+  const since = Date.now() - PAGE_USE_DAYS * 24 * 60 * 60 * 1000
+  return Object.entries(readPageUse()).filter(([page, at]) => page !== 'chat' && at >= since)
+    .sort((a, b) => b[1] - a[1]).map(([page]) => page)
+}
+
 /**
  * 初始化 electron-store（ESM 模組需要動態 import）
  */
@@ -982,7 +1007,7 @@ function createMainWindow() {
   mainWindow.setMenu(null)
   pageWindows = require('./page-windows').createPageWindows({
     main: mainWindow, isDev, icon: APP_ICON, background: mainBackgroundColor,
-    secure: attachWindowSecurity, hidden: startHidden
+    secure: attachWindowSecurity, hidden: startHidden, onShown: rememberPageUse
   })
 
   mainWindow.once('ready-to-show', () => {
@@ -996,6 +1021,10 @@ function createMainWindow() {
       // 要排在第一頁之後：功能頁切換以最後一次為準，先導過去會被這裡的 chat 蓋掉
       if (startupReveal) void revealInFiles(startupReveal)
       startupReveal = ''
+      // 開機忙完再預載最近 7 天用過的頁（最近用的先載）
+      setTimeout(() => {
+        void initStore().then(() => pageWindows?.prewarm(recentPages())).catch(() => {})
+      }, 8000).unref?.()
     })
   })
 

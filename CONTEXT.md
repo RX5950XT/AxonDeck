@@ -21,7 +21,7 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 | 設定 | `settings` | 雲端端點、終端機配色與桌布、AGY 反代、CLI 版本；本地模型與推論方式在 Local SI；EdgeTTS 在翻譯頁 |
 
 滑鼠側鍵（上一頁／下一頁）：`nav-history.js` 記「頁＋AI 主區＋對話」足跡（功能頁模式下每個 renderer 只記自己那頁，跨頁的足跡在 main `pages.history`）；檔案頁先退資料夾歷史，webview 裡按由 main 的 `before-mouse-event` 先讓網頁自己退，退到底才 `nav:side` 換 App 頁。回歸 `scripts/e2e-side-nav-cdp.js`。
-功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。`app.js` 第一個 import 的 `page-content.js` 在其他模組抓 DOM 前移除非本頁 `.page`，外置對話框用 `data-page-content` 指定所屬頁；無分頁參數的相容模式保留完整介面。設定頁只初始化供應商表單，桌布預覽只在外觀區啟用時載入；切頁仍保留同一個 renderer 與草稿。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
+功能頁獨立視窗（`src/main/page-windows.js`）：每頁一個 WebContentsView，主視窗外殼是 `index.html?host=1`（不畫頁面）。`app.js` 第一個 import 的 `page-content.js` 在其他模組抓 DOM 前移除非本頁 `.page`，外置對話框用 `data-page-content` 指定所屬頁；無分頁參數的相容模式保留完整介面。設定頁只初始化供應商表單，桌布預覽只在外觀區啟用時載入；切頁仍保留同一個 renderer 與草稿。右鍵彈出的視窗標題＝導覽鈕的 aria-label＋` — AxonDeck`（工作列靠它分辨）。開機第一頁好了 8 秒後 `prewarm` 依序在背景載好最近 7 天用過的頁（config `pageUse`：頁→最後顯示時間，每頁每次開機只寫一次），第一次點進去不必等冷啟動；沒用過的頁不預載省記憶體；切頁順暢度用 `scripts/probe-page-switch.js` 量（dev-sandbox 資料、視窗在螢幕外）。CDP 測試三個坑：①切頁要獨立一個 eval（同一個 eval 裡點完別頁再讀，讀到的是被藏起來的舊頁；`scripts/lib/page-cdp.js` 會跟著主視窗目前的頁換 target），被藏的頁要切回來走 `pages.navigate`；②模擬 main 推送要廣播給每個 `index.html` 的 webContents（跟 `sendToPages` 一樣），只送外殼頁面收不到；③`--hidden` 視窗不畫、不收合成滑鼠事件、不發 scroll／IntersectionObserver，要量這些先用 main inspector `showInactive()`。
 設定頁雲端分區是整份 `providerDraft` 寫回 `cloudProviders`：功能頁切走（`visibilitychange` hidden）時有沒存的修改就當下存，不能等被節流的計時器，否則會用舊草稿蓋掉別頁或 main 期間寫進來的供應商。
 
 ## 模組地圖
@@ -30,6 +30,7 @@ nav 十頁（順序可拖曳，存 localStorage `navOrder`；圖示是 SVG，`ws
 src/main/
   main.js            frameless 主窗、IPC 註冊、store allowlist、單一實例鎖、系統匣、網頁分區 setupSession
   ipc-invoke.js      模組 IPC 共用外殼；raw-fs.js（不鎖 asar）；safe-rm.js（不穿 junction）
+  proc-broker.js     在 utilityProcess 代開子程序（Windows CreateProcess 偶爾 200ms+，在 main 開會整個 App 頓住）；git.js、worktree.js、procs-json 走這條
   anthropic-stream.js／local-proxy-http.js   CC Proxy 閘道與 AGY 共用：中性 delta→Anthropic SSE、本機代理 Host／金鑰／JSON
   updater.js / update-mirrors.js   electron-updater＋GitHub latest.yml；安裝檔走鏡像、差分下載關閉
   chat*.js           雲端聊天 SSE（每對話一條 inflight）、會話＋側欄資料夾、取樣參數／思考檔位、自動標題、圖片、chat-imagegen（生圖退 images 端點、參考圖）

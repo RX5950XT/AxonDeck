@@ -23,10 +23,8 @@ npm run build:sensors / build:hook / build:media   # 感測器 sidecar／熱鍵�
 `resources/{sensors,hook,shell,probe,media}/` 不進版控；沒建也打得起來，只是對應功能降級。打包前關掉 `dist/win-unpacked/AxonDeck.exe`。
 
 ### 開預覽給使用者看（唯一正確做法）
-- 一律 `node scripts/dev-sandbox.js --packed`（背景執行）：沙箱 `%APPDATA%\axondeck-dev` 複製設定與專案清單，`models`／`hf-models` 以 junction 接回真資料，並關掉 AGY／語音輸入熱鍵／感測器等會影響整機的功能。
-- 不要直接開 `dist/win-unpacked/AxonDeck.exe`：跟安裝版搶同一把單一實例鎖，會自己關掉。
-- 不要自己帶空的 `--user-data-dir`（例如 `dist/win-unpacked/user-data`）：拿不到設定，還會把執行環境／模型重新下載一份（實際發生過，平白下載約 800 MB）。
-- 重新打包前先關掉沙箱預覽（`CommandLine` 含 `axondeck-dev` 的 AxonDeck.exe）。
+- 一律 `node scripts/dev-sandbox.js --packed`（背景執行）：沙箱 `%APPDATA%\axondeck-dev` 複製設定與專案清單，`models`／`hf-models` 以 junction 接回真資料，並關掉 AGY／語音輸入熱鍵／感測器等會影響整機的功能。重新打包前先關掉它（`CommandLine` 含 `axondeck-dev` 的 AxonDeck.exe）。
+- 不要直接開 `dist/win-unpacked/AxonDeck.exe`（跟安裝版搶單一實例鎖，會自己關掉），也不要自己帶空的 `--user-data-dir`（拿不到設定，還會重下約 800 MB 執行環境／模型）。
 
 ### 發行流程（漏一步舊版就永遠檢查不到更新，而且不報錯）
 ```bash
@@ -50,7 +48,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ## 慣例
 
-- kebab-case 檔名、camelCase 變數、UPPER_SNAKE 常數；Renderer ESM、Main／Preload CJS；函數 <50 行、檔案 <800 行。
+- kebab-case 檔名、camelCase 變數、UPPER_SNAKE 常數；Renderer ESM、Main／Preload CJS；函數 <50 行、檔案 <800 行。不寫分號，所以行首是 `(` 的那行會接到上一行：型別轉換先存變數。
 - 設定走 electron-store IPC，**key 僅 allowlist**；聊天／終端機／工作區／檔案總管／AGY／語音輸入紀錄／用量統計各有獨立 store。`hfToken`、`agyEnabled`、`ocControl` 刻意不進 allowlist。
 - 模組 IPC 外殼 `src/main/ipc-invoke.js`（主視窗守衛＋`{ ok, data|error }`），**handler 各模組逐一列舉**。
 - 兩窗 `sandbox: true`；CSP 的 `font-src data:`、`worker-src blob:`（Monaco）與 `img/media/connect-src vi-media:` 不可拿掉。
@@ -81,19 +79,16 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - v1.40 由 VoiceInk 改名 AxonDeck。刻意留舊名（改了升級會斷）：`com.voiceink.app`（NSIS 解除安裝 GUID、捷徑 AUMID、開機自啟動值名）、userData 已有 `%APPDATA%oiceink` 就沿用（設定裡存絕對路徑）、媒體 ProgID `VoiceInk.Media.*`（UserChoice 雜湊綁 ProgID）。GitHub repo 已改名 AxonDeck，舊網址（含舊版 App 的 `releases.atom`／`latest.yml`）靠 GitHub 自動轉址——**永遠不要再建名為 VoiceInk 的 repo**，否則轉址失效、舊版收不到更新。其餘舊名殘留由各模組啟動時清掉（Claude hooks、更新快取、工作列釘選、感測器排程、媒體登錄檔）。
 
 ### 啟動與常駐
-- `whenReady` 立刻建窗不 await store；重模組第一次用到才 require。
+- `whenReady` 立刻建窗不 await store；重模組第一次用到才 require。不可關 `setBackgroundThrottling`（`document.hidden` 會恆 false）。
 - 常駐三件套：`requestSingleInstanceLock()`；沒搶到用 `app.quit()`；`whenReady` 也 `if (!hasInstanceLock) return`。`--terminal-admin-host=` 要攔在搶鎖前。
-- 不可關 `setBackgroundThrottling`（`document.hidden` 會恆 false）。
 - `before-quit`：`workspace:flushDrafts` 排在終端機 `disconnect()` 前；`agy.shutdown()` 不是 `stop()`；風扇交還排在 `sensors.stop()` 前。
 
 ### 生成圖片影像（Miroxen）
-- 引擎不 pin 版本：`miroxen/runtime.js` 跟 `RX5950XT/Miroxen` 的 latest release，資產名固定 `miroxen-win-x64.zip`／`miroxen-deps-win-x64.zip`，以 API 的 `digest` 驗；deps digest 沒變不重下。Miroxen 改版要在那邊跑 `release.bat <版本>`，App 才看得到。
-- 模型共用 `models/miroxen/`（registry 的 `dir`）：刪一顆只刪沒被其他已下載模型用到的檔案，**不准對它 `removeTreeSync`**（開發機那個資料夾是接到 Miroxen repo 的 junction）。
-- 服務只聽 127.0.0.1 隨機埠＋隨機 API key（iframe 網址 hash 帶進去）；更新引擎、刪引擎或模型前先 `stop()`（執行中的 exe 蓋不掉）。引擎只在啟動時盤點模型，模型組合變了且佇列是空的才重開。
+- 引擎不 pin 版本：`miroxen/runtime.js` 跟 `RX5950XT/Miroxen` 的 latest release，資產名固定 `miroxen-win-x64.zip`／`miroxen-deps-win-x64.zip`，以 API 的 `digest` 驗；deps digest 沒變不重下。Miroxen 改版要在那邊跑 `release.bat <版本>`，App 才看得到。服務只聽 127.0.0.1 隨機埠＋隨機 API key（iframe 網址 hash 帶進去）。
+- 模型共用 `models/miroxen/`（registry 的 `dir`）：刪一顆只刪沒被其他已下載模型用到的檔案，**不准對它 `removeTreeSync`**（開發機那個資料夾是接到 Miroxen repo 的 junction）。更新引擎、刪引擎或模型前先 `stop()`（執行中的 exe 蓋不掉）。引擎只在啟動時盤點模型，模型組合變了且佇列是空的才重開。
 
 ### AI 頁：聊天與網頁版 AI
-- model 與訊息歷史所有權在 main；模型要對「目前這組供應商」驗證。
-- `chat.send` 的 inflight 佔位（每對話一格的 Map）要跟守衛同一同步區塊；`chat:abort` 一定帶 reqId。renderer 串流照 conversationId 分開。
+- model 與訊息歷史所有權在 main；模型要對「目前這組供應商」驗證。`chat.send` 的 inflight 佔位（每對話一格的 Map）要跟守衛同一同步區塊；`chat:abort` 一定帶 reqId。renderer 串流照 conversationId 分開。
 - 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；思考強度 `chatThinking` 是檔位字串（舊布林 true→medium），「自動」完全不帶欄位、「關閉」送 `none`（本機改 `chat_template_kwargs.enable_thinking=false`），生圖模型不帶；生圖模型先走 chat/completions，回 400／404／405／422 才退 `/images/generations`（OpenRouter 只吐圖的模型只收這條，`chat-imagegen.js`）；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
 - 重新生成在上游成功前不得 `dropTrailingAssistant`；`chats.json` 讀改寫走 `withStore`；側欄順序＝陣列順序；`chatProviders` sanitize 遇壞網址保留該筆只清 `apiUrl`；`__local` 要過濾掉。`markdown.js` 零 innerHTML，`INLINE_SRC` 每次 `new RegExp`。
 - 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。其他分區被 Cloudflare 擋的分頁由 `installChallengeFallback` 改回 Electron 識別（換 Chrome 版號、標頭順序、拿掉 shim 都實測無效）；同一個 session 的 `onHeadersReceived` 只能掛一個，Grok 分區不要再掛它。
@@ -104,7 +99,6 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 開分頁每次 await 後核對 `projectSwitch` 並重新 `findTab`；改名／搬檔要 `retargetTabs`；切專案要 `disposeModelsExcept`。
 - 大檔：Monaco 停手 300ms 才 `getValue()`、`stash()` 先 `flushChange()`；`showTab` 用 `modelText` 比對不 `getValue()`。Monaco 只能走 AMD `min/vs`。
 - 媒體不讀內容不轉 base64：走 `vi-media://<token>/` 協定（自解 Range）；`registerSchemesAsPrivileged` 在 ready 前；Electron 沒 PDF 檢視器，用 pdf.js。
-- 行首是 `(` 的那行會接到上一行（沒分號）；型別轉換先存變數。
 - `git status --porcelain=v2 -b -z`（欄位依位置）；`git log` 用 `%x1f` 不混 `-z`；跟分支比要比 `merge-base`；`--numstat` 配 `--no-renames`。暫存區／變更的行數分開算（`--cached` vs `diff`）。
 - 內建瀏覽器：`webviewTag` 只開主視窗、guest 不掛 preload；每分頁一顆 webview，換專案停放不拆；要自寫 `webview[hidden] { display: none }`。
 - 外部拖入一律複製不搬移，先量再複製、超上限整批拒絕；`dragover` 要放行外部檔案。搜尋四個上限（200 命中／8000 檔／1MB／15 秒）缺一不可。
@@ -113,8 +107,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ### 檔案總管
 - 整機搜尋不准自己 walk，只代跑 `<userData>/uffs/` 的 UFFS（checksum 缺就失敗）；CDP／沙箱的 `uffsAuto` 關掉。
-- 刪／改名／搬移擋磁碟根、`%SystemRoot%`、家目錄本身（`assertMutable`）；預設丟資源回收筒；撞名產 `name (2).ext`；回收筒強制釘選。
-- 「開資料夾」一律走 App 檔案頁（`openInFilesPage`），不叫 `shell.showItemInFolder`。
+- 刪／改名／搬移擋磁碟根、`%SystemRoot%`、家目錄本身（`assertMutable`）；預設丟資源回收筒；撞名產 `name (2).ext`；回收筒強制釘選。「開資料夾」一律走 App 檔案頁（`openInFilesPage`），不叫 `shell.showItemInFolder`。
 - ZIP／手機（MTP）是虛擬路徑（`zip-ops.js`／`mtp.js`，`index.js` 每入口先問）；ZIP 唯讀、擋 zip-slip；MTP 只能永久刪除、全走殼層 sidecar。
 - 殼層 sidecar 主執行緒要跑訊息迴圈；pidl 用 `LPArray`；IContextMenu3 不做事退回 v2；縮圖用 `IShellItemImageFactory`（測試要斷言縮圖≠類型圖示）。
 - 列目錄先排序再截斷（`MAX_STAT` 10000）；點開頭在 Windows 不等於隱藏，不准加回 `startsWith('.')`。
@@ -125,8 +118,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ### 終端機
 - PTY 在 App 外的獨立宿主（優先 Rust `axondeck-term.exe`，退路 Electron 版）；**改終端機行為要兩邊一起改**（`host.rs`↔`host.js` 逐條對應）。`before-quit` 只 `disconnect()`。
-- 宿主活得比 App 久：auth 回報 `runtime`，跟 `runtimeName()` 對不上就是舊宿主（要重開才生效）。
-- 環境不沿用宿主繼承的：Rust 用 `CreateEnvironmentBlock`；濾掉 `CLAUDECODE`／`CLAUDE_CODE_*`；從 Claude Code 裡開 App 驗收也要先拿掉它們。
+- 宿主活得比 App 久：auth 回報 `runtime`，跟 `runtimeName()` 對不上就是舊宿主（要重開才生效）。環境不沿用宿主繼承的：Rust 用 `CreateEnvironmentBlock`；濾掉 `CLAUDECODE`／`CLAUDE_CODE_*`；從 Claude Code 裡開 App 驗收也要先拿掉它們。
 - 狀態＝宿主結束 → Claude hook → 畫面 → 靜默（`term-agent.js` 的 `mergeState`）；hook 說 idle 最弱。hook exe 的 stdout 一個字都不能寫；`--user-data-dir` 時不寫真的 `~/.claude/settings.json`。畫面規則照 `scripts/fixtures/term-agent/` 真實畫面校正。
 - 忙碌判定 OSC 133（帶 history id 比大小）＋靜默雙軌；無標記的 cmd 不套「送出後一直算運行中」。
 - 輸入法：組字期間用 CSS 變數＋`!important` 釘錨點（`term-ime.js`），不要改回每幀 JS 擺位；textarea 用透明色藏不用 `opacity: 0`；`.term-host` 用 `overflow: clip`。
@@ -137,7 +129,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - Ctrl+G 橋接：batch 只能 ASCII、路徑不出 batch；`EDITOR=notepad` 不算使用者選過；`EDITOR`／`VISUAL` 都要蓋；存檔不收分頁、關分頁才放走；放走過的請求進忽略名單。
 - 桌布：store 只存檔名、renderer 轉 `blob:`（CSS 塞 data URI 超過約 2M 字元會安靜失效）；強度下限 10；管理員終端機用 `Start-Process -Verb RunAs` 開 host；host 模式 userData 指到暫存。
 
-### HF模型／本地 LLM／翻譯
+### Local SI／本地 LLM／翻譯
 - Breeze-TTS-2 Q8 走獨立 `breeze-server`，不可送進 llama router／preset。模型下載連帶安裝 `breezeruntime`，兩者以固定 SHA-256 校驗；移除任一者前先停 Breeze。參考音訊由 main 對話框選取，renderer 只持 token；聲音收藏在 `userData/breeze-tts/voices`，不隨模型移除。
 - 推論一律 llama-server router 模式；關思考明寫 `reasoning = off`；`/metrics` 要 `--metrics` 且帶 `?model=`。
 - 記憶體配置交給 `llama-fit-params`（主動寫死 `gpu-layers` 等於關掉它）；KV 用 GGUF 的 `key_length／value_length`；`safeValue` 不准清中括號；`readConfig` 不在清單的 modelId 回空字串不退回第一顆。關思考用 `reasoning: { exclude: true }`。
@@ -145,10 +137,8 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ### ASR／語音輸入／錄音
 - `asr-select.js` 是本地 ASR 唯一選擇點；`model-scope.js` 是三子分頁模型唯一解析點。本地 GPU ASR 只能走 llama-server 且要帶 `--device`；三支 ASR 都套 `s2twp`。
-- 焦點在自己視窗時不走剪貼簿（`insertIntoOwnWindow`）；自動化測試一律把 `insert` 換成 stub。
-- 右 Alt 只能用低階鍵盤 hook；HUD `focusable: false`＋`showInactive()`；`await` rAF 一定配逾時（視窗被遮住 rAF 不跑）。
-- 整理：失敗退回原文；字典送前送後各套一次、單趟掃描；本地逐段結果用空行接不用 `joinSegments`。
-- 錄音與字幕邊錄邊 append，不在 renderer 累積；檔名只收 `rec-<13 位毫秒>.webm`／`live-<13 位毫秒>`。
+- 焦點在自己視窗時不走剪貼簿（`insertIntoOwnWindow`）；自動化測試一律把 `insert` 換成 stub。右 Alt 只能用低階鍵盤 hook；HUD `focusable: false`＋`showInactive()`；`await` rAF 一定配逾時（視窗被遮住 rAF 不跑）。
+- 整理：失敗退回原文；字典送前送後各套一次、單趟掃描；本地逐段結果用空行接不用 `joinSegments`。錄音與字幕邊錄邊 append，不在 renderer 累積；檔名只收 `rec-<13 位毫秒>.webm`／`live-<13 位毫秒>`。
 
 ### CC Proxy／AGY反代
 - 轉換閘道沒有手動開關：`ccswitch/index.js` 的 `activateProvider` 依目標路由自動開（gateway）／關（直連、官方訂閱），開機由 `autoStartGateway` 接續。切到 `agy` 那家時 AGY 沒開就先 `start()`；AGY 只在執行中才自動播種成供應商。
@@ -163,24 +153,20 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 ### 用量統計與額度
 - 游標 key 跟著檔案走（session 會搬進 `archived_sessions`）。Codex fork 的開頭重播一筆都不收（到第一個 `turn_context`）。
 - 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重（resume／fork 會把舊訊息複製進新檔，要跨檔去重）；Grok ticks 一律 1 USD = 1e10；Grok 母 session 的 usage 已含子代理，子代理自己的檔不能再算（例外見 CONTEXT）；Codex 舊 session 會被壓成 `.jsonl.zst`。parsers.js 與 `usage.rs` 規則必須一致（跑 `probe-usage-native-parity.js`；它的真實資料段在有 session 正在寫時可能偶發位元組數不同，重跑即可）。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
-- `mergeExpectedWindows` 只能由 `usage/index.js` 呼叫，空窗不 merge（會生出假的 100%）。
+- `mergeExpectedWindows` 只能由 `usage/index.js` 呼叫，空窗不 merge（會生出假的 100%）。Codex 重置兌換只走官方 `codex app-server`，測試絕不真的兌換。Grok `tier: 1`＝SuperGrok，其他不猜。
 - Claude token 自己續（`usage/claude-auth.js`）：兩把鎖、鎖內重讀、CAS 寫回、原子替換；額度 API 要報 `claude-code/<版本>` UA，429 不重試並冷卻。Grok／Antigravity 靠代跑 CLI 續期並確認 token 真的換了。
 - Claude 多帳號（`usage/claude-accounts.js`）：使用中的帳號以 CLI 檔案為準、每次同步／切換前抄回快照，**快照絕不拿去續期**；只有沒在用的帳號由我們續、寫回自己的 store。續期、抄快照、切換排同一條隊，切換另拿 claude-auth 的兩把鎖。新增帳號在暫存 `CLAUDE_CONFIG_DIR` 跑 `claude auth login --claudeai`。回歸 `test-claude-accounts.js`。
-- Codex 重置兌換只走官方 `codex app-server`，測試絕不真的兌換。Grok `tier: 1`＝SuperGrok，其他不猜。
-
 ### 系統監控／風扇／效能調整
 - 一律 `Win32_PerfRawData_*`（配 `Timestamp_Sys100NS` 差值）；GPU 引擎 key 含 LUID＋索引；不顯示 Idle。
 - 取樣優先 Rust `axondeck-probe.exe`，退路 `probe.ps1`；兩邊格式完全一致，改任一邊跑 `probe-native-probe-parity.js`；`usage.rs` 改了跑 `probe-usage-native-parity.js`。probe 是 GUI 子系統（不掛 conhost）。
-- 取樣器開機常駐、沒人看走 `idle()`；nvidia-smi 看門狗從 spawn 就武裝。
+- 取樣器開機常駐、沒人看走 `idle()`；nvidia-smi 看門狗從 spawn 就武裝。讀不到值不可用 0 佔位；有 `LIMIT` 的清單不拿來算總數。
 - 感測器 sidecar：只有它提權、AboveNormal＋Highest、斷線指數退避一直重拉；看門狗不算 `_inCommand`、只交還不結束；寫管道 `lock (writer)`；管道 `PipeOptions.Asynchronous`。硬碟溫度排除 `Warning|Critical` 門檻值。
 - 風扇手動 PWM 會留在晶片：`minPwm` ≥20、5 秒看門狗、目標值每秒重送。效能調整卡住要還原、≥95°C 立刻還原、開機不自動套用、CDP 不准按套用。
-- 讀不到值不可用 0 佔位；有 `LIMIT` 的清單不拿來算總數。
 
 ### UI／CSS
 - `themes.css` 沒有 `--surface`／`--accent`／`--border`（是 `--surface-glass`／`--accent-primary`／`--border-color`）；打錯不報錯，回歸量 computed 顏色。
 - 用 `el.hidden` 收合的元素若 CSS 寫了 `display`，要自補 `[hidden] { display: none }`；`<dialog>` 的 `display` 要帶 `[open]`。斷言量 `offsetHeight`。
-- `backdrop-filter` 會偷走 `position: fixed` 基準；程式改 `<select>.value` 要 `syncCustomSelects()`。
-- renderer JS 不准 `import './x.css'`（打包版用 `file://` 直接載 ES module，整條 import 鏈死掉）。
+- `backdrop-filter` 會偷走 `position: fixed` 基準；程式改 `<select>.value` 要 `syncCustomSelects()`；renderer JS 不准 `import './x.css'`（打包版用 `file://` 直接載 ES module，整條 import 鏈死掉）。
 - 禁用左側強調條／裝飾條；值不准 ellipsis（用 `overflow-wrap: anywhere`）；hover 才出現的操作等於沒有。
 
 ### 測試（CDP／e2e）
@@ -188,12 +174,12 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 暫存一律 `scripts/lib/test-temp.js`；CDP 用暫存 `--user-data-dir`，只 `taskkill /PID /T` 自己 spawn 的 pid（先 taskkill 再 `child.kill()`），**禁止 `/IM AxonDeck.exe`**。
 - 只用 `[data-id]` 指涉自己建的東西；同時只跑一支 CDP；主視窗用 `/index\.html/` 挑；開頭關 `sysmonSensors`。
 - nav 頁面清單／數量不准手抄，一律 `scripts/lib/nav-pages.js`（讀 index.html；手抄的清單在加 `speech`、拆 AGY 時各壞過一次）。
+- 開發模式 e2e（`AXONDECK_DEV=1`）自己在專屬埠開 vite 並用 `AXONDECK_DEV_URL` 告訴 App：5173 常被別的專案佔走，功能頁會逾時。
 - 用 node `spawn({ detached: true })` 開測試實例（PowerShell `Start-Process` 會被連帶收掉）；`npx electron <script>` 要補 `app.setPath('userData', ...)`；UI 斷言等「量得到尺寸」不睡固定時間；批次 sed 改識別字後逐條看 `git diff`。
 
 ## 驗證方式
 
-靜態檢查（先跑，秒級）：`npm run lint`＝ESLint（`eslint.config.mjs`：`no-undef`、`no-unused-vars`、`import/no-unresolved`，只這三類）＋`node scripts/lint-ipc.js`（preload channel 有 main 註冊、`electronAPI.<ns>.<fn>` 有定義、`service.X` 有轉發）。`electron:pack` 打包前會先跑，失敗就不打包。ESLint 版本鎖定，升級前先查發佈日。
-純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `AXONDECK_EXE`）。
+靜態檢查（先跑，秒級）：`npm run lint`＝ESLint（`eslint.config.mjs`：`no-undef`、`no-unused-vars`、`import/no-unresolved`，只這三類）＋`node scripts/lint-ipc.js`（preload channel 有 main 註冊、`electronAPI.<ns>.<fn>` 有定義、`service.X` 有轉發）。`electron:pack` 打包前會先跑，失敗就不打包。ESLint 版本鎖定，升級前先查發佈日。純函式用 `node scripts/<x>.js`；需要 Electron 用 `npx electron`；打包版 UI 先 `electron:pack` 再跑 CDP（吃 `AXONDECK_EXE`）。
 全部單元測試一次跑：`node scripts/run-tests.js [檔名關鍵字]`（`test-*.js`，檔頭寫 `npx electron` 的自動改用 Electron）。`scripts/` 前綴：`test-` 單元、`e2e-` 整條流程／打包版 CDP、`probe-` 真上游或真硬體排查、`bench-` 效能量測。單元測試只留要守的純邏輯與 vm 執行 renderer 的行為測試；刪 `test-` 時先確認它不是唯一守住某條行為的測試。
 
 | 範圍 | 主要腳本 |
@@ -207,7 +193,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 | 用量／額度 | `test-code-usage.js` `test-usage.js` `test-claude-auth.js` `e2e-usage-cdp.js`；`probe-usage-native-parity.js` |
 | 系統監控 | `test-sysmon*.js` `e2e-sysmon-cdp.js` `e2e-sysmon-disk-cdp.js` `cargo test` |
 | 語音／ASR | `test-dictation.js` `e2e-dictation.js` `test-stt-archive.js` `e2e-stt-cdp.js` `e2e-recorder-cdp.js` |
-| HF模型 | `test-hfmodels.js` `e2e-hfmodels.js` `probe-hf-router.js` |
+| Local SI／TTS | `test-hfmodels.js` `e2e-hfmodels.js` `probe-hf-router.js`；`test-breeze-tts.js` `e2e-speech-cdp.js` |
 | 原生媒體 | `test-media-player.js` `cargo test --bin axondeck-media` `probe-native-media.js` `probe-media-packaged.js` |
 | 跨模組 | `test-error-hygiene.js` `test-ipc-invoke.js` `test-updater.js` `test-temp-hygiene.js` `test-safe-rm.js` `e2e-cdp-smoke.js` `e2e-visual-cdp.js` |
 

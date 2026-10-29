@@ -407,6 +407,12 @@ test('工具往返帶 id（Claude 模型上游要 tool_use.id，少了第二輪 
   ] }, 'claude-sonnet-4-6').contents.flatMap((c) => c.parts)
   assert.strictEqual(viaOpenai.find((p) => p.functionCall).functionCall.id, 'call_1')
   assert.strictEqual(viaOpenai.find((p) => p.functionResponse).functionResponse.id, 'call_1')
+  const split = gemini.splitParts({ content: { parts: [{ text: '好' }, { inlineData: { mimeType: 'image/png', data: 'QQ==' } }] } })
+  assert.strictEqual(split.text, '好\n\n![image](data:image/png;base64,QQ==)')
+  assert.strictEqual(split.images.length, 1)
+  // Gemini 3+ 歷史工具呼叫缺簽章會 400
+  assert.ok(parts.find((p) => p.functionCall).thoughtSignature)
+  assert.ok(viaOpenai.find((p) => p.functionCall).thoughtSignature)
 })
 
 test('空 object 補 properties，避免上游 400', () => {
@@ -693,7 +699,7 @@ test('Claude 池（含 GPT OSS）在 Gemini 之前，Gemini 由新到舊', () =>
   const shuffled = [
     'gemini-pro-agent',
     'gemini-3.6-flash-low',
-    'gpt-oss-120b-medium',
+    'gpt-oss-20b-medium',
     'gemini-3-flash',
     'claude-sonnet-4-6',
     'gemini-3.1-flash-lite',
@@ -707,11 +713,13 @@ test('Claude 池（含 GPT OSS）在 Gemini 之前，Gemini 由新到舊', () =>
   for (const id of shuffled) {
     models[id] = { maxTokens: 1_000_000, maxOutputTokens: 65536, modelProvider: 'MODEL_PROVIDER_GOOGLE' }
   }
+  // 使用者移除的模型直接不進型錄
+  models['gpt-oss-120b-medium'] = models['gemini-2.5-pro'] = models['gemini-3-flash']
   const ids = catalog.parseCatalog({ models }).models.map((row) => row.id)
   assert.deepStrictEqual(ids, [
     'claude-opus-4-6-thinking',
     'claude-sonnet-4-6',
-    'gpt-oss-120b-medium',
+    'gpt-oss-20b-medium',
     'gemini-3.10-flash',
     'gemini-3.6-flash-high',
     'gemini-3.6-flash-low',

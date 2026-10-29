@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('crypto')
 const {
+  SKIP_THOUGHT_SIGNATURE,
   finishReasonOf,
   firstCandidate,
   schemaFor,
@@ -9,7 +10,7 @@ const {
   unwrapEnvelope,
   usageFrom
 } = require('./gemini')
-const { allowsZeroThinkingBudget, supportsThinking } = require('./model-map')
+const { allowsZeroThinkingBudget, isImageModel, supportsThinking } = require('./model-map')
 
 const MAX_OUTPUT_TOKENS = 65536
 const DATA_URI = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/
@@ -121,7 +122,10 @@ function messagesToContents(messages) {
         if (typeof call.id === 'string') toolNames.set(call.id, name)
         // Claude 模型的上游把 functionCall 轉回 tool_use，id 是必填
         const id = typeof call.id === 'string' && call.id ? { id: call.id } : {}
-        parts.push({ functionCall: { name, args: parseArguments(call.function?.arguments), ...id } })
+        parts.push({
+          functionCall: { name, args: parseArguments(call.function?.arguments), ...id },
+          thoughtSignature: SKIP_THOUGHT_SIGNATURE
+        })
       }
       if (parts.length) contents.push({ role: 'model', parts })
       continue
@@ -153,6 +157,12 @@ function buildGenerationConfig(body, mapped) {
   if (Array.isArray(stop)) {
     const sequences = stop.filter((s) => typeof s === 'string' && s).slice(0, 5)
     if (sequences.length) config.stopSequences = sequences
+  }
+
+  // 生圖模型帶小 maxOutputTokens 會固定回 429（2026-10-29 實測），也不需要思考設定
+  if (isImageModel(mapped)) {
+    delete config.maxOutputTokens
+    return config
   }
 
   // 沒明講就關掉思考：多數客戶端不會顯示 reasoning，開著只是白燒 token

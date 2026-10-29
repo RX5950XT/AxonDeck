@@ -1,7 +1,7 @@
 'use strict'
 
 const upstream = require('./upstream')
-const { RETIRED_MODELS } = require('./model-map')
+const { HIDDEN_MODELS, RETIRED_MODELS, isImageModel } = require('./model-map')
 
 /**
  * 上游模型型錄：解析、過濾、快取。
@@ -52,7 +52,7 @@ function parseCatalog(payload) {
     ? payload.deprecatedModelIds
     : {}
 
-  const models = Object.keys(raw).map((id) => {
+  const models = Object.keys(raw).filter((id) => !HIDDEN_MODELS.has(id)).map((id) => {
     const entry = raw[id] || {}
     const quota = entry.quotaInfo && typeof entry.quotaInfo === 'object' ? entry.quotaInfo : {}
     const remaining = Number(quota.remainingFraction)
@@ -70,6 +70,8 @@ function parseCatalog(payload) {
       resetTime: typeof quota.resetTime === 'string' ? quota.resetTime : '',
       deprecated: Boolean(replacement),
       replacedBy: typeof replacement?.newModelId === 'string' ? replacement.newModelId : '',
+      // context 不到對話門檻，但能從聊天端點與 /v1/images/generations 生圖
+      image: isImageModel(id),
       chatCapable: false
     }
   })
@@ -246,7 +248,7 @@ async function listForApi({ options } = {}) {
     const { models, fetchedAt } = await list({ options })
     const created = Math.floor(fetchedAt / 1000)
     const rows = models
-      .filter((model) => model.chatCapable && !model.deprecated)
+      .filter((model) => (model.chatCapable || model.image) && !model.deprecated)
       .map((model) => ({
         id: model.id,
         object: 'model',

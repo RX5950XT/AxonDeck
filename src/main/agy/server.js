@@ -8,7 +8,8 @@ const catalog = require('./catalog')
 const logs = require('./logs')
 const openai = require('./openai')
 const upstream = require('./upstream')
-const { listModels, resolveModel } = require('./model-map')
+const { firstCandidate, splitParts, unwrapEnvelope } = require('./gemini')
+const { DEFAULT_IMAGE_MODEL, isImageModel, listModels, resolveModel } = require('./model-map')
 
 const HOST = '127.0.0.1'
 const MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -206,6 +207,84 @@ async function handleCountTokens(req, res) {
   }
 }
 
+/** OpenAI 的 size → 上游 imageConfig.aspectRatio；不認得就不帶（上游預設 1:1） */
+const IMAGE_ASPECTS = Object.freeze({
+  '1024x1024': '1:1',
+  '1536x1024': '3:2',
+  '1024x1536': '2:3',
+  '1792x1024': '16:9',
+  '1024x1792': '9:16'
+})
+const MAX_IMAGES = 4
+
+/** OpenAI /v1/images/generations：每張圖各打一次上游（上游一次只回一張） */
+async function handleImages(req, res) {
+  const startedMs = Date.now()
+  const entry = { id: randomUUID(), ts: startedMs, protocol: 'openai', path: '/v1/images/generations', status: 0, durationMs: 0, stream: false }
+  try {
+    let body
+    try {
+      body = JSON.parse(await readBody(req))
+    } catch (error) {
+      if (error?.message === 'BODY_TOO_LARGE') throw error
+      entry.status = 400
+      entry.errorCode = 'INVALID_JSON'
+      sendError(res, 'openai', 400, 'INVALID_JSON', '請求不是合法的 JSON')
+      return
+    }
+    const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
+    if (!prompt) {
+      entry.status = 400
+      entry.errorCode = 'INVALID_PROMPT'
+      sendError(res, 'openai', 400, 'INVALID_PROMPT', 'prompt 不可為空')
+      return
+    }
+    const resolved = resolveModel(body.model || DEFAULT_IMAGE_MODEL, await catalog.snapshot({ options: upstreamOptions })).mapped
+    const mapped = isImageModel(resolved) ? resolved : DEFAULT_IMAGE_MODEL
+    entry.model = typeof body.model === 'string' ? body.model : ''
+    entry.mappedModel = mapped
+
+    const aspectRatio = IMAGE_ASPECTS[body.size]
+    const inner = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['IMAGE'], ...(aspectRatio ? { imageConfig: { aspectRatio } } : {}) }
+    }
+    const controller = new AbortController()
+    req.on('close', () => { if (!res.writableEnded) controller.abort() })
+
+    const count = Math.min(MAX_IMAGES, Math.max(1, Math.floor(Number(body.n)) || 1))
+    const data = []
+    for (let i = 0; i < count; i += 1) {
+      const payload = await upstream.once({ inner, model: mapped, signal: controller.signal, options: upstreamOptions })
+      const { images } = splitParts(firstCandidate(unwrapEnvelope(payload)))
+      for (const image of images) {
+        data.push(body.response_format === 'url'
+          ? { url: `data:${image.mimeType};base64,${image.data}` }
+          : { b64_json: image.data })
+      }
+    }
+    if (!data.length) {
+      // 通常是安全過濾擋掉，上游只回文字或空內容
+      entry.status = 502
+      entry.errorCode = 'NO_IMAGE'
+      sendError(res, 'openai', 502, 'NO_IMAGE', '上游沒有產生圖片（可能被內容過濾擋下）')
+      return
+    }
+    entry.status = 200
+    sendJson(res, 200, { created: Math.floor(Date.now() / 1000), data })
+  } catch (error) {
+    const code = error?.code || (error?.message === 'BODY_TOO_LARGE' ? 'BODY_TOO_LARGE' : 'INTERNAL_ERROR')
+    entry.errorCode = code
+    entry.status = statusFor(error, code)
+    if (error?.retryAfter) res.setHeader('retry-after', error.retryAfter)
+    if (!res.writableEnded) sendError(res, 'openai', entry.status, code, `生圖失敗（${code}）`)
+  } finally {
+    if (!res.writableEnded) res.end()
+    entry.durationMs = Date.now() - startedMs
+    logs.append(entry)
+  }
+}
+
 function route(req, res) {
   const pathname = String(req.url || '').split('?')[0]
 
@@ -236,6 +315,10 @@ function route(req, res) {
   }
   if (req.method === 'POST' && pathname === '/v1/chat/completions') {
     void handleCompletion(req, res, ADAPTERS.openai)
+    return
+  }
+  if (req.method === 'POST' && pathname === '/v1/images/generations') {
+    void handleImages(req, res)
     return
   }
   if (req.method === 'POST' && pathname === '/v1/messages') {

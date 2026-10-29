@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.68.0**（2026-10-26）。
+AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.69.0**（2026-10-29）。
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -127,7 +127,7 @@ native/
 - 單價：自訂 → 內建表 → models.dev（只收原廠、一天一次）；`RULES_VERSION = 16`；Haiku 5.5 依單請求是否超過 100K 分級距。
 - 供應商：Grok、Codex、Ollama Cloud、OpenCode Go、Command Code、OpenRouter 可選上游格式，非 Anthropic 走本機閘道；閘道跟著供應商自動開關。AGY 執行中自動多一張「Antigravity」供應商。模型清單每天同步一次，依 AI lab 分組（`cc-model-groups.js`）。
 - MCP：五家共用切換；Codex／Grok `config.toml` 由 `toml-edit.js` 只換變動的 `[mcp_servers.<id>]` 區塊（註解、CRLF、BOM 原樣），切不安全才整份重寫。「測試」走 `mcp-check.js`（stdio 30 秒、HTTP 60 秒，結束 `taskkill /T /F`）。
-- AGY 反代：設定頁 `#set-agy`，`agy-page.js` 只在該區看得到時輪詢。模型映射先比即時型錄再退靜態表；實測 404 的放 `RETIRED_MODELS`。`USER_AGENT` 必須報 `antigravity/cli/x.y.z`（否則型錄沒有 Argon）。上游額度 Gemini 與 Claude／GPT 各一池，Pro 的 Gemini 4 Argon 另一池只有每週。
+- AGY 反代：設定頁 `#set-agy`，`agy-page.js` 只在該區看得到時輪詢。模型映射先比即時型錄再退靜態表；實測 404 的放 `RETIRED_MODELS`，使用者不要的放 `HIDDEN_MODELS`（型錄直接丟掉）。歷史工具呼叫一律附 `thoughtSignature` 略過值，否則 Gemini 3+ 回 400。生圖（`gemini-*-image`）：聊天端點回 markdown data URI，另有 `/v1/images/generations`；不可帶 `maxOutputTokens`（會 429）。`USER_AGENT` 必須報 `antigravity/cli/x.y.z`（否則型錄沒有 Argon）。上游額度 Gemini 與 Claude／GPT 各一池，Pro 的 Gemini 4 Argon 另一池只有每週。
 
 ### Local SI 與本地推論
 - 子分頁：執行環境（本機模型、推薦 `#hf-recommend`、啟動、硬體、引擎、圖片影像 API）／探索。推薦有 ASR 兩顆、LinguaForge 0.8B、Index-Translate 2B、PaddleOCR-VL-1.6、PP-DocLayoutV3、Breeze-TTS-2 Q8、Miroxen 模型；舊 Qwen3.5 key 遷移到 Index。

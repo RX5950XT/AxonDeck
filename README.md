@@ -4,8 +4,10 @@
 
 Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言模型、語音轉文字、翻譯、文字轉語音、生成圖片影像、系統監控，全部放在同一個 App。語音與翻譯可以完全離線跑本地模型，也能改用雲端 API。
 
-**目前版本 v1.68.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
+**目前版本 v1.69.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
 
+> v1.69.0：AGY 反代支援生圖，更新模型清單並改善工具呼叫相容性。
+>
 > v1.68.0：切頁、Git 面板、檔案頁、系統監控不再突然頓一下（切回已開過的頁最慢 0.65 秒 → 0.09 秒），最近 7 天用過的頁開機後先在背景載好；文字轉語音改版（女聲範本試聽、底部播放列、生成可排隊、自動整理音量與頭尾靜音）；額度條延伸到右側欄下方並顯示 App 資源佔用；Git 面板新分支一鍵發布。
 > 歷次更新見 [Releases](https://github.com/RX5950XT/AxonDeck/releases)。
 
@@ -112,7 +114,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 
 ### AGY 反代與設定
 
-- **AGY 反代**：把本機 Antigravity 登入轉成 OpenAI（`/v1/chat/completions`）與 Anthropic（`/v1/messages`）相容 API；只聽 `127.0.0.1`、強制金鑰，附流量日誌與統計。
+- **AGY 反代**：把本機 Antigravity 登入轉成 OpenAI（`/v1/chat/completions`）與 Anthropic（`/v1/messages`）相容 API，另支援生圖（`/v1/images/generations`）；只聽 `127.0.0.1`、強制金鑰，附流量日誌與統計。
 - **安裝**：常用軟體一鍵安裝，WinGet 已安裝程式的更新與解除安裝；更新失敗自動改用管理員權限或原廠安裝程式重試。
 - **CLI 版本**：Claude Code、Codex、Grok、OpenCode 等的版本檢查、安裝與更新。
 - 主題深淺色、終端機外觀、開機自啟動、關視窗留在系統匣、自動更新。

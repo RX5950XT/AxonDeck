@@ -572,7 +572,7 @@ async function main() {
     // --- 切走頁面要停止輪詢 ---
     await cdp.eval(`document.querySelector('[data-page="chat"]').click()`)
     await sleep(500)
-    const leftPage = await cdp.eval(`document.getElementById('page-settings').classList.contains('active') === false`)
+    const leftPage = await cdp.eval(`document.getElementById('page-chat')?.classList.contains('active') === true`)
     if (!leftPage) fail('切換頁面失敗')
     pass('可正常切離 AGY 頁')
 

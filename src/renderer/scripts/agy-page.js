@@ -540,7 +540,7 @@ async function loadModels(force = false) {
     modelCatalog = Array.isArray(result.data?.models) ? result.data.models : []
     modelsLoaded = true
     if (meta) {
-      const chat = modelCatalog.filter((m) => m.chatCapable).length
+      const chat = modelCatalog.filter((m) => m.chatCapable || m.image).length
       meta.textContent = result.data?.cached
         ? `共 ${modelCatalog.length} 個（對話可用 ${chat}）・快取`
         : `共 ${modelCatalog.length} 個（對話可用 ${chat}）・剛更新`
@@ -571,7 +571,7 @@ function renderModelCatalog() {
   }
 
   const showAll = byId('agyModelsShowAll')?.checked === true
-  const rows = showAll ? modelCatalog : modelCatalog.filter((m) => m.chatCapable)
+  const rows = showAll ? modelCatalog : modelCatalog.filter((m) => m.chatCapable || m.image)
   if (!rows.length) {
     const empty = document.createElement('p')
     empty.className = 'agy-models-empty'
@@ -590,7 +590,7 @@ function renderModelCatalog() {
 function buildModelRow(model) {
   const row = document.createElement('div')
   row.className = 'agy-model-row'
-  if (!model.chatCapable) row.classList.add('is-internal')
+  if (!model.chatCapable && !model.image) row.classList.add('is-internal')
 
   const idButton = document.createElement('button')
   idButton.type = 'button'
@@ -643,7 +643,7 @@ function buildModelRow(model) {
   if (!model.chatCapable) {
     const internal = document.createElement('span')
     internal.className = 'agy-model-tag'
-    internal.textContent = 'IDE 內部'
+    internal.textContent = model.image ? '生圖' : 'IDE 內部'
     tags.appendChild(internal)
   }
 

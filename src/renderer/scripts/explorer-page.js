@@ -796,7 +796,7 @@ function bindOnce() {
     // 比的是「要去的資料夾」不是 cwd：正在切換的時候拿舊 cwd 重讀會把切換蓋回去
     const here = navTarget || cwd
     if (pathKey(payload.path) === pathKey(here) && !inSearch()) {
-      void loadDir(here, { silent: true, keepSelection: true })
+      void loadDir(here, { silent: true, keepSelection: true, keepScroll: true })
     }
     if (dualPane && payload.path === secondPane.cwd) void loadSecond(secondPane.cwd, { pushHistory: false, keepSelection: true })
   })
@@ -1163,11 +1163,13 @@ function paintList() {
     after.className = 'ex-virtual-spacer'
     after.style.height = `${range.after}px`
     host.appendChild(after)
-    host.scrollTop = scrollTop
   } else {
     // 超過一頁的資料夾，還沒載到的那幾頁是空位；碰到就丟例外，整個 paintList 停在要縮圖之前
     for (const entry of rows) if (entry) host.appendChild(rowEl(entry))
   }
+  // 兩種畫法都要擺回去：一般清單／方格漏擺的話，資料夾監看每重畫一次就跳回最上面
+  // （WinRAR 壓縮中檔案大小一直變，畫面會一直往上彈）。
+  host.scrollTop = scrollTop
   paintFileIcons(host, (target) => electronAPI.explorer.fileIcon(target))
   paintStatus()
   paintCmdBar()
@@ -2653,6 +2655,7 @@ async function loadDir(dirPath, opts = {}) {
   navTarget = String(dirPath || '')
   if (pathKey(dirPath) === THIS_PC) return loadHome(opts)
   const seq = ++navSeq
+  const keepScroll = Boolean(opts.keepScroll) && !restoreScrollTop && pathKey(dirPath) === pathKey(cwd)
   // 這個資料夾自己記的排序／檢視；讀成功才套上，失敗時畫面還是上一個資料夾的樣子
   const pref = folderPrefs(dirPath)
   let data
@@ -2703,8 +2706,11 @@ async function loadDir(dirPath, opts = {}) {
     paintList()
     // 一律照 tab 記下的位置擺：新資料夾就是 0，還原的分頁就是原本捲到的地方。
     // paintList() 現在會保留重畫前的捲動位置，這裡不補 0 的話會沿用上一個資料夾的位置。
+    // 同一個資料夾的重讀（監看、操作後重整）例外：留在原位，只把捲到的那幾頁補回來。
     const listHost = $('exList')
-    if (listHost) listHost.scrollTop = restoreScrollTop
+    if (keepScroll) {
+      if (truncated) void loadVisiblePages()
+    } else if (listHost) listHost.scrollTop = restoreScrollTop
   }
   if (restoreSearch) {
     const input = /** @type {HTMLInputElement | null} */ ($('exSearch'))
@@ -3192,7 +3198,7 @@ async function refreshAfterMutate() {
       return
     }
   }
-  await loadDir(cwd, { silent: true })
+  await loadDir(cwd, { silent: true, keepScroll: true })
 }
 
 async function pasteHere() {

@@ -517,8 +517,10 @@ async function download(key, onProgress) {
     }
     const dependency = key === 'unlimitedocr2q8' ? 'ppdoclayoutv3'
       : (def.runtime === 'breeze' || def.runtime === 'miroxen' || (def.runtime === 'pdf' && def.kind === 'ocr')) ? def.requires : null
-    if (dependency && (!isDownloaded(dependency)
-      || (key === 'unlimitedocr2q8' && !isDownloaded('pdfruntime')))) {
+    // 只裝 GPU 版 PDF 執行環境也算有，不再把 CPU 版裝回來
+    const hasPdfRuntime = isDownloaded('pdfruntime') || isDownloaded('pdfruntimegpu')
+    if (dependency && (!(dependency === 'pdfruntime' ? hasPdfRuntime : isDownloaded(dependency))
+      || (key === 'unlimitedocr2q8' && !hasPdfRuntime))) {
       const cancelDependency = () => cancelDownload(dependency)
       controller.signal.addEventListener('abort', cancelDependency, { once: true })
       try {

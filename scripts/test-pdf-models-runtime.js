@@ -74,10 +74,16 @@ async function main() {
     fixture.filename = file
     fixture.paths = Module._nodeModulePaths(path.dirname(file))
     let dependencyCancelled = false
+    let gpuReady = false
+    const installs = []
     Module._load = function (id, ...args) {
       if (id === 'electron') return { app: { getPath: () => dir } }
-      if (id === './pdf-translate/runtime') return { isReady: () => false,
-        install: ({ signal }) => new Promise((resolve, reject) => {
+      if (id === './hfmodels/download') return { downloadFile: async options => {
+        fs.writeFileSync(options.dest, Buffer.alloc(options.expectedBytes))
+        return { bytes: options.expectedBytes }
+      } }
+      if (id === './pdf-translate/runtime') return { isReady: (_dir, variant) => gpuReady && variant === 'gpu',
+        install: ({ signal, variant }) => installs.push(variant) && new Promise((resolve, reject) => {
           signal.addEventListener('abort', () => {
             dependencyCancelled = true
             reject(new Error('下載已取消'))
@@ -96,6 +102,14 @@ async function main() {
       await assert.rejects(pending, /已取消/)
       assert.equal(dependencyCancelled, true, '取消 OCR 時，自動安裝的 layout / PDF runtime 也停止')
       assert.equal(api.status().models.pdfruntime.downloading, false)
+
+      gpuReady = true
+      installs.length = 0
+      for (const file of api.MODELS.ppdoclayoutv3.files) api.MODELS.ppdoclayoutv3.fileBytes[file] = 1
+      api.MODELS.unlimitedocr2q8.fileBytes = { [def.files[0]]: 3, [def.files[1]]: 5 }
+      await api.download('unlimitedocr2q8', () => {})
+      assert.deepEqual(installs, [], '只裝 GPU 版 PDF 執行環境時，下載 OCR 不能再裝 CPU 版')
+      assert.equal(api.isDownloaded('unlimitedocr2q8'), true)
     } finally { Module._load = originalLoad }
     console.log('PASS PDF OCR registry、各檔大小、mmproj 完整性、runtime 基底與取消')
   } finally { removeTree(dir) }

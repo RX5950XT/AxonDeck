@@ -4,7 +4,21 @@
 
 ## 進行中
 
-（無）
+### OCR 換成 Unlimited-OCR-2 Q8（取代 PaddleOCR-VL-1.6）
+- [x] 在 patch 過的 llama.cpp b11913 編 `llama.dll`＋`mtmd.dll`（BACKEND_DL，只這兩顆有改推論），疊在官方 b11913 包上
+- [x] 本機組 b11913 CUDA 執行環境＋疊加包，實測 OCR、ASR、翻譯模型都載得起來
+- [x] models.js：LLAMA_BUILD→b11913、疊加包＋版本記號、`unlimitedocr2q8` 取代 `paddleocrvl16`、清掉舊資料夾
+- [x] router preset：OCR 用 `-np 1`、不量化 KV
+- [x] 螢幕翻譯：`<PAGE>` 提示、輸出區塊轉純文字
+- [x] PDF worker：PaddleOCRVL spotting → 直接打 router，`<BLOCK>` 區塊轉 units（保留 PP-DocLayoutV3 版面）
+- [x] archs.js 跟 b11913 同步；測試／腳本／README／CONTEXT／NOTICE 更新
+- [x] 用 Griffiths 量子力學 PDF 實測；lint＋相關測試
+- [x] 疊加包上傳到 HF `RX5950XT/Unlimited-OCR-2-GGUF` 的 `llama.cpp-bin/`（README 補說明）；用 App 的 models.download 實際下載驗過 SHA-256、解壓順序與記號檔
+- Review：worker／螢幕翻譯／pdf models／hf 推薦／archs 測試全過；真模型 router 跑 Griffiths 掃描頁 21、15 頁（每頁約 25 秒），段落全翻、公式與圖留原樣；後續修掉框線接縫（改蓋矩形）、補行距／首行縮排／左右對齊／標題粗體、全大寫標題轉大小寫；Vulkan 執行環境＋Antigravity gemini-3.5-flash-lite 實測 15、21 頁通過。
+- [x] 行內上下標、譯文被改寫回的 LaTeX、局部粗體（系統黑體粗體字）；螢幕翻譯公式轉 Unicode
+- [x] Vulkan：SAM 的 rel-pos／qkv 乘法改成不在第 4 維廣播（不再退回 CPU），疊加包與 patch 重新上傳 HF
+- [x] 掃描表格：逐格換字／整張重排；OCR preset 開 `special`（表格標籤）；`other`（表格標題、資料來源）也翻
+- Review（後續）：CUDA 實測每頁 5.5～7 秒（之前 25 秒是錯的）、Vulkan 約 15 秒；不切塊模式會讀錯字不採用。表格用 OmniDocBench 8 張表驗：6 張逐格、2 張整張重排。
 
 ## 待辦／未解
 

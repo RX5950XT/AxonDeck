@@ -15,7 +15,21 @@ const { removeTreeSync } = require('./safe-rm')
  * Windows Vulkan 版是自帶 CPU backend DLL 的完整包，任何有現代顯卡驅動的機器都能跑，
  * 不需要 CUDA／cuDNN。CUDA 版另外要 239MB＋373MB cudart，先不做第二套。
  */
-const LLAMA_BUILD = 'b10666'
+const LLAMA_BUILD = 'b11913'
+/**
+ * Unlimited-OCR-2 要 patch 過的 llama.cpp（主線不認 `unlimited-ocr2` 架構）。patch 只動到推論的 llama.dll／mtmd.dll
+ * （C API 不變、ggml 沒動），所以兩個官方包（Vulkan／CUDA）都疊同一個小包上去，不必自己編整套後端。
+ * 記號檔讓舊版（沒疊包）的執行環境判定成未安裝，進 Local SI 會自動重裝。
+ */
+const OCR_OVERLAY = `llama-${LLAMA_BUILD}-unlimited-ocr2-win-x64.zip`
+const OCR_OVERLAY_MARK = 'axondeck-unlimited-ocr2.txt'
+const OCR_OVERLAY_BYTES = 2096885
+const OCR_REPO = 'https://huggingface.co/RX5950XT/Unlimited-OCR-2-GGUF/resolve/main/'
+const ocrOverlay = {
+  urls: { [OCR_OVERLAY]: `${OCR_REPO}llama.cpp-bin/${OCR_OVERLAY}` },
+  fileBytes: { [OCR_OVERLAY]: OCR_OVERLAY_BYTES },
+  sha256: { [OCR_OVERLAY]: '931f4842d9c261d0aa57ce6469f4f8297da4f9a7eb02852464478d8754a1d06d' }
+}
 const BREEZE_BUILD = 'v0.1.0'
 const BREEZE_DIR = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
 
@@ -67,21 +81,21 @@ function miroxenFiles(list) {
  * check: 有值時以「這些檔案都在」判定已安裝（archive 解壓後檔名跟下載名不同）
  */
 const MODELS = {
-  paddleocrvl16: {
-    label: 'PaddleOCR-VL-1.6 · 文件辨識',
+  unlimitedocr2q8: {
+    label: 'Unlimited-OCR-2 · Q8_0 · 文件辨識',
     kind: 'ocr',
     runtime: 'llama',
     requires: 'llamaruntime',
-    description: '辨識文字、公式、表格與圖表，和翻譯模型共用 llama.cpp。',
-    totalBytes: 1817539616,
-    base: 'https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/main/',
-    files: ['PaddleOCR-VL-1.6-GGUF.gguf', 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf'],
-    gguf: 'PaddleOCR-VL-1.6-GGUF.gguf',
-    mmproj: 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf',
-    fileBytes: { 'PaddleOCR-VL-1.6-GGUF.gguf': 935769056, 'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': 881770560 },
+    description: '整頁辨識段落、標題、公式與表格（螢幕翻譯、PDF 掃描頁），和翻譯模型共用 llama.cpp。',
+    totalBytes: 3959273024,
+    base: OCR_REPO,
+    files: ['Unlimited-OCR-2-Q8_0.gguf', 'mmproj-Unlimited-OCR-2-F16.gguf'],
+    gguf: 'Unlimited-OCR-2-Q8_0.gguf',
+    mmproj: 'mmproj-Unlimited-OCR-2-F16.gguf',
+    fileBytes: { 'Unlimited-OCR-2-Q8_0.gguf': 3134027072, 'mmproj-Unlimited-OCR-2-F16.gguf': 825245952 },
     sha256: {
-      'PaddleOCR-VL-1.6-GGUF.gguf': 'f3ae46ec885050acf4b3d31944431e1fd90d50664fb09126af4a3c050ba14ee8',
-      'PaddleOCR-VL-1.6-GGUF-mmproj.gguf': '204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a'
+      'Unlimited-OCR-2-Q8_0.gguf': '3511e48eafaf584aace163884efc46892c753c184d38433e2ae61ed3d5d2f7a3',
+      'mmproj-Unlimited-OCR-2-F16.gguf': 'd56faafeaa28600567ee088509bad94fd1e133f185bb6aeaab2c6828fc0914d6'
     }
   },
   ppdoclayoutv3: {
@@ -181,27 +195,31 @@ const MODELS = {
    * stderr 尾巴看得到，不會靜默錯。
    */
   llamaruntimecuda: {
-    label: `llama.cpp 執行環境 · CUDA 13.3（${LLAMA_BUILD}）`,
+    label: `llama.cpp 執行環境 · CUDA 13.4（${LLAMA_BUILD}）`,
     kind: 'runtime',
-    totalBytes: 537_500_000,
+    totalBytes: 164710119 + 423535356 + OCR_OVERLAY_BYTES,
     base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
+    // 疊加包放最後：依序解壓，後解的蓋掉官方的 llama.dll／mtmd.dll
     files: [
-      `llama-${LLAMA_BUILD}-bin-win-cuda-13.3-x64.zip`,
-      'cudart-llama-bin-win-cuda-13.3-x64.zip'
+      `llama-${LLAMA_BUILD}-bin-win-cuda-13.4-x64.zip`,
+      'cudart-llama-bin-win-cuda-13.4-x64.zip',
+      OCR_OVERLAY
     ],
+    ...ocrOverlay,
     archive: true,
-    check: ['llama-server.exe', 'ggml-cuda.dll'],
+    check: ['llama-server.exe', 'ggml-cuda.dll', OCR_OVERLAY_MARK],
     binary: 'llama-server.exe'
   },
   /** GPU ASR 的執行檔（llama-server）；zip 內是扁平結構，解壓即用 */
   llamaruntime: {
     label: `llama.cpp 執行環境 · Vulkan（${LLAMA_BUILD}）`,
     kind: 'runtime',
-    totalBytes: 34478547,
+    totalBytes: 37140477 + OCR_OVERLAY_BYTES,
     base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
-    files: [`llama-${LLAMA_BUILD}-bin-win-vulkan-x64.zip`],
+    files: [`llama-${LLAMA_BUILD}-bin-win-vulkan-x64.zip`, OCR_OVERLAY],
+    ...ocrOverlay,
     archive: true,
-    check: ['llama-server.exe', 'ggml-vulkan.dll', 'mtmd.dll'],
+    check: ['llama-server.exe', 'ggml-vulkan.dll', 'mtmd.dll', OCR_OVERLAY_MARK],
     binary: 'llama-server.exe'
   },
   /** Miroxen 引擎：跟著 GitHub latest release 走（`miroxen/runtime.js` 自己裝），只給 CUDA 13 驅動的 NVIDIA 卡 */
@@ -298,7 +316,10 @@ const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
 
 /** 只有 GGUF OCR 送進 router；版面模型由 PDF 執行環境載入。 */
-const OCR_MODEL_KEYS = ['paddleocrvl16']
+const OCR_MODEL_KEYS = ['unlimitedocr2q8']
+
+/** 已換掉、不再使用的模型資料夾（PaddleOCR-VL-1.6 → Unlimited-OCR-2）：啟動時清掉，省 1.8 GB */
+const RETIRED_MODEL_DIRS = ['paddleocrvl16']
 
 /**
  * @param {unknown} key
@@ -494,17 +515,17 @@ async function download(key, onProgress) {
       activeDownloads.delete(key)
       return status()
     }
-    const dependency = key === 'paddleocrvl16' ? 'ppdoclayoutv3'
+    const dependency = key === 'unlimitedocr2q8' ? 'ppdoclayoutv3'
       : (def.runtime === 'breeze' || def.runtime === 'miroxen' || (def.runtime === 'pdf' && def.kind === 'ocr')) ? def.requires : null
     if (dependency && (!isDownloaded(dependency)
-      || (key === 'paddleocrvl16' && !isDownloaded('pdfruntime')))) {
+      || (key === 'unlimitedocr2q8' && !isDownloaded('pdfruntime')))) {
       const cancelDependency = () => cancelDownload(dependency)
       controller.signal.addEventListener('abort', cancelDependency, { once: true })
       try {
         await download(dependency, progress => {
           onProgress(progress)
           onProgress({ key, receivedBytes: 0, totalBytes: def.totalBytes,
-            stage: key === 'paddleocrvl16' ? '準備 PDF 辨識模型與執行環境…'
+            stage: key === 'unlimitedocr2q8' ? '準備 PDF 辨識模型與執行環境…'
               : def.runtime === 'pdf' ? '準備 PDF 執行環境…'
                 : def.runtime === 'miroxen' ? '準備圖片影像引擎…' : '準備語音執行環境…',
             cancellable: progress.cancellable ?? !progress.stage })
@@ -633,8 +654,18 @@ async function openFolder(key) {
   return dir
 }
 
+/** 清掉換下來的舊模型資料夾；失敗（檔案被占用）下次啟動再試 */
+function removeRetired() {
+  for (const name of RETIRED_MODEL_DIRS) {
+    const dir = path.join(modelsRoot(), name)
+    if (!fs.existsSync(dir)) continue
+    try { removeTreeSync(dir) } catch { console.warn('[models] 舊模型資料夾清除失敗，下次啟動再試') }
+  }
+}
+
 module.exports = {
   MODELS,
+  removeRetired,
   LLM_MODEL_KEYS,
   ASR_MODEL_KEYS,
   OCR_MODEL_KEYS,

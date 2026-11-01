@@ -310,16 +310,18 @@ async function writePresets() {
   for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS, ...models.OCR_MODEL_KEYS]) {
     if (!models.isDownloaded(key)) continue
     const device = hardware.pickDevice(devices)?.id || 'none'
+    const ocr = models.OCR_MODEL_KEYS.includes(key)
     entries.push({ id: key, args: {
       model: models.filePath(key, 'gguf'),
       // ASR 音訊約 13 token／秒，最長 2 分鐘加轉寫，4096 夠。翻譯要裝原文與譯文，用 8192。
-      'ctx-size': models.isAsrKey(key) ? '4096' : '8192', device,
-      // V 用 q8_0 必須開 flash attention，否則載入失敗
-      'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on',
+      // OCR 整頁：影像最多約 2000 token（gundam 切 16 塊）＋輸出上限 8192。
+      'ctx-size': models.isAsrKey(key) ? '4096' : ocr ? '16384' : '8192', device,
+      // Unlimited-OCR-2 的頁碼與位置從 KV cache 的 token 序列推算：只能單一序列，KV 不量化（照原作者驗證的設定）。
+      // 表格的 <tr>、</td> 是特殊 token，不開 special 會被 server 吃掉（整張表黏成一串）。
+      // 其他模型 V 用 q8_0 必須開 flash attention，否則載入失敗
+      ...(ocr ? { parallel: '1', special: 'on' } : { 'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on' }),
       ...(models.MODELS[key].mmproj ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
       reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
-      // Spotting 的座標是特殊 token；只靠 API 的 skip_special_tokens 無法讓 llama 保留它們。
-      ...(key === 'paddleocrvl16' ? { special: 'on' } : {}),
       ...(device === 'none' ? { 'gpu-layers': '0' } : {})
     } })
   }

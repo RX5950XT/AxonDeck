@@ -1,6 +1,6 @@
 'use strict'
 
-/** node scripts/e2e-screen-translate-cdp.js — 打包版真桌面擷取 → PaddleOCR-VL → 本機翻譯。 */
+/** node scripts/e2e-screen-translate-cdp.js — 打包版真桌面擷取 → Unlimited-OCR-2 → 本機翻譯。 */
 const assert = require('assert/strict')
 const fs = require('fs')
 const path = require('path')
@@ -79,7 +79,7 @@ async function main() {
     const mainTarget = await waitFor(async () => (await list(inspect))[0], 'main inspector')
     inspector = new Cdp(mainTarget.webSocketDebuggerUrl); inspector.fixedPage = true; await inspector.connect()
     await waitFor(() => ui.eval('!!window.electronAPI?.screenTranslate'), 'preload')
-    const missing = await ui.eval("electronAPI.models.status().then(s=>['paddleocrvl16','linguaforge08q4'].filter(k=>!s.models[k]?.downloaded))")
+    const missing = await ui.eval("electronAPI.models.status().then(s=>['unlimitedocr2q8','linguaforge08q4'].filter(k=>!s.models[k]?.downloaded))")
     assert.deepEqual(missing, [], '真模型必須事先下載；測試不自動下載')
     await ui.eval("electronAPI.pages.navigate({page:'translate'})")
     await waitFor(() => ui.eval("document.getElementById('screenTranslateOpen')?.offsetHeight>0"), '翻譯入口')

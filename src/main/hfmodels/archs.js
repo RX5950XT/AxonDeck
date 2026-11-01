@@ -7,10 +7,10 @@
  * 升級執行環境時要照新版重抄（`test-hf-archs.js` 會擋版本不一致）。
  * 只留「生成文字」的：拿掉 `clip`（只是 mmproj）、草稿頭（eagle3／dflash／gemma4-assistant）、
  * 聲碼器（wavtokenizer-dec），以及 AxonDeck 沒接的向量（bert 家族、gemma-embedding、llama-embed、t5encoder）
- * 與語音生成（qwen3tts、pockettts）。
+ * 與語音生成（qwen3tts、pockettts）。b11913 另加 Unlimited-OCR-2 的 `unlimited-ocr2`（App 疊加的 patch，見 models.js）；gemma-embedding2 是向量，不收。
  * 但很多向量／語音模型底子是 qwen3、llama，光看架構擋不掉，所以另外看檔頭的 pooling_type、HF 用途標籤與名字。
  */
-const LLAMA_ARCHS_BUILD = 'b10666'
+const LLAMA_ARCHS_BUILD = 'b11913'
 
 const LLAMA_ARCHS = new Set(`
 llama llama4 deci falcon grok gpt2 gptj gptneox mpt baichuan starcoder refact bloom stablelm qwen qwen2
@@ -23,6 +23,8 @@ granitehybrid graniteswitch granite_swa chameleon plm bailingmoe bailingmoe2 bai
 afmoe laguna ernie4_5 ernie4_5-moe hunyuan-moe hunyuan-dense hunyuan_vl hy_v3 smollm3 gpt-oss lfm2 lfm2moe
 dream smallthinker llada llada-moe seed_oss grovemoe apertus minimax-01 minimax-m2 minimax-m3 cogvlm rnd1
 pangu-embedded mistral3 mistral4 paddleocr mimo2 step35 maincoder kimi-linear kimi-k3 talkie mellum nanbeige
+sensenova_u1 flint clef vllm-decision2 maple muse-spark unlimited-ocr2 deepseek41 hy_v4 hrm_text spark2_5 maion-coder
+glm5-next k2-horizon beam kolibri1
 `.trim().split(/\s+/))
 
 /** @param {unknown} arch */

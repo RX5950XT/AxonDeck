@@ -1801,9 +1801,9 @@ ipcMain.handle('models:download', async (event, key) => {
 ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 
 ipcMain.handle('models:delete', async (event, key) => {
-  if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
+  if (pdfTranslateMod && ['unlimitedocr2q8', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
     ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
-  if (screenTranslateMod && ['paddleocrvl16', 'llamaruntime', 'llamaruntimecuda', ...models.LLM_MODEL_KEYS].includes(key)) screenTranslateMod.assertIdle()
+  if (screenTranslateMod && ['unlimitedocr2q8', 'llamaruntime', 'llamaruntimecuda', ...models.LLM_MODEL_KEYS].includes(key)) screenTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
   if ((key === 'miroxenruntime' || models.MIROXEN_MODEL_KEYS.includes(key)) && miroxenMod) await miroxenMod.stop()
   return models.remove(key)
@@ -2892,6 +2892,7 @@ app.whenReady().then(() => {
     }
   })
   migrateLoginItemName()
+  setImmediate(() => models.removeRetired())
   initStore()
     .then(() => {
       // 更新檢查要等 store（自動更新開關存在裡面）；延後 20 秒讓開機那陣忙完再說

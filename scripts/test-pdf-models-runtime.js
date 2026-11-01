@@ -22,8 +22,8 @@ const runtime = require('../src/main/pdf-translate/runtime')
 
 async function main() {
   try {
-    assert.deepEqual(models.OCR_MODEL_KEYS, ['paddleocrvl16'])
-    for (const key of ['paddleocrvl16', 'ppdoclayoutv3']) {
+    assert.deepEqual(models.OCR_MODEL_KEYS, ['unlimitedocr2q8'])
+    for (const key of ['unlimitedocr2q8', 'ppdoclayoutv3']) {
       const def = models.MODELS[key]
       assert.equal(def.kind, 'ocr')
       assert.equal(def.totalBytes, Object.values(def.fileBytes).reduce((a, b) => a + b, 0))
@@ -58,15 +58,15 @@ async function main() {
       fs.writeFileSync(target, 'x')
     }
 
-    const def = models.MODELS.paddleocrvl16
+    const def = models.MODELS.unlimitedocr2q8
     def.fileBytes = { [def.files[0]]: 3, [def.files[1]]: 5 }
     def.totalBytes = 8
     const statuses = []
-    await models.download('paddleocrvl16', progress => statuses.push(progress))
+    await models.download('unlimitedocr2q8', progress => statuses.push(progress))
     assert.deepEqual(calls.map(c => c.expectedBytes), [3, 5], '多檔使用各自大小，不能拿模型總大小驗證')
-    assert.equal(models.isDownloaded('paddleocrvl16'), true)
-    fs.writeFileSync(models.filePath('paddleocrvl16', 'mmproj'), 'x')
-    assert.equal(models.isDownloaded('paddleocrvl16'), false, '缺損 mmproj 不算下載完成')
+    assert.equal(models.isDownloaded('unlimitedocr2q8'), true)
+    fs.writeFileSync(models.filePath('unlimitedocr2q8', 'mmproj'), 'x')
+    assert.equal(models.isDownloaded('unlimitedocr2q8'), false, '缺損 mmproj 不算下載完成')
     assert.equal(statuses.at(-1).receivedBytes, 8)
 
     const file = path.resolve(__dirname, '../src/main/models.js')
@@ -88,11 +88,11 @@ async function main() {
     try {
       fixture._compile(fs.readFileSync(file, 'utf8'), file)
       const api = fixture.exports
-      const pending = api.download('paddleocrvl16', () => {})
+      const pending = api.download('unlimitedocr2q8', () => {})
       assert.equal(api.status().models.pdfruntime.downloading, true)
       assert.equal(api.status().models.ppdoclayoutv3.downloading, true)
-      assert.equal(api.status().models.paddleocrvl16.downloading, true)
-      api.cancelDownload('paddleocrvl16')
+      assert.equal(api.status().models.unlimitedocr2q8.downloading, true)
+      api.cancelDownload('unlimitedocr2q8')
       await assert.rejects(pending, /已取消/)
       assert.equal(dependencyCancelled, true, '取消 OCR 時，自動安裝的 layout / PDF runtime 也停止')
       assert.equal(api.status().models.pdfruntime.downloading, false)

@@ -1,7 +1,8 @@
 'use strict'
 
-/** npx electron scripts/probe-pdf-translate.js [--ocr-only] [--preview]
- * 真 PaddleOCR-VL + PP-DocLayoutV3 + LinguaForge；只用生成的 PDF 和隔離 userData。
+/** npx electron scripts/probe-pdf-translate.js [--ocr-only] [--preview] [--input=<pdf> --pages=20-21] [--translator=app]
+ * 真 Unlimited-OCR-2 + PP-DocLayoutV3 + LinguaForge；預設用生成的 PDF，`--input` 換成真文件（只讀、另存到暫存，`--out=<資料夾>` 留譯後頁面 PNG）。
+ * 隔離 userData；`AXONDECK_PROBE_MODELS` 可指到另一份 models（例如還沒發布的執行環境）。
  */
 const assert = require('assert/strict')
 const fs = require('fs')
@@ -14,8 +15,11 @@ const { tempDir } = require('./lib/test-temp')
 const execute = promisify(execFile)
 const OCR_ONLY = process.argv.includes('--ocr-only')
 const PREVIEW = process.argv.includes('--preview')
+const option = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) || ''
+const INPUT = option('input')
+const PAGES = option('pages')
 const root = tempDir('pdf-real-probe-')
-const modelRoot = path.join(app.getPath('appData'), 'voiceink', 'models')
+const modelRoot = process.env.AXONDECK_PROBE_MODELS || path.join(app.getPath('appData'), 'voiceink', 'models')
 fs.symlinkSync(modelRoot, path.join(root, 'models'), 'junction')
 app.setPath('userData', root)
 
@@ -26,6 +30,12 @@ const runtime = require('../src/main/pdf-translate/runtime')
 const models = require('../src/main/models')
 const values = { translator: 'local', localTranslateModel: 'linguaforge08q4',
   sysmonSensors: false, uffsAuto: false, chatProviders: [], hfModelsDir: path.join(root, 'hf-models') }
+// --translator=app：沿用 App 現在選的翻譯模型（例如雲端 Antigravity）；金鑰只留在記憶體
+if (option('translator') === 'app') {
+  const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('appData'), 'voiceink', 'config.json'), 'utf8'))
+  for (const key of ['translator', 'localTranslateModel', 'translateProviderId', 'translateModelId', 'chatProviders',
+    'translateGlossary', 'translateGlossaryBuiltin']) if (saved[key] !== undefined) values[key] = saved[key]
+}
 const store = { get: (key, fallback) => values[key] ?? fallback, set: (key, value) => { values[key] = value } }
 const source = path.join(root, 'source.pdf')
 const output = path.join(root, 'translated.pdf')
@@ -51,40 +61,50 @@ async function ocrOnly() {
   hf.init({ userDataPath: root, store })
   await hf.writePresets()
   const preset = path.join(root, 'hf-presets.ini')
-  const section = fs.readFileSync(preset, 'utf8').split('[paddleocrvl16]\n')[1]?.split(/\n\[/, 1)[0]
-  assert(section && /^special = on$/m.test(section), 'OCR 正式 preset 沒有保留 Spotting 座標 token')
+  const section = fs.readFileSync(preset, 'utf8').split('[unlimitedocr2q8]\n')[1]?.split(/\n\[/, 1)[0]
+  assert(section && /^parallel = 1$/m.test(section) && /^special = on$/m.test(section) && !/cache-type/.test(section),
+    'OCR preset 要單一序列、KV 不量化、輸出特殊 token（表格標籤）')
   await hf.ensureRuntime()
   const endpoint = hf.endpoint()
   assert(endpoint, 'OCR router 尚未啟動')
   const started = Date.now()
-  const pulse = setInterval(() => console.log(`OCR spotting：${Math.round((Date.now() - started) / 1000)} 秒`), 30000)
+  const pulse = setInterval(() => console.log(`OCR：${Math.round((Date.now() - started) / 1000)} 秒`), 30000)
   try {
     const response = await fetch(`${endpoint.baseUrl.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
       method: 'POST', signal: AbortSignal.timeout(20 * 60 * 1000),
       headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-      body: JSON.stringify({ model: 'paddleocrvl16', temperature: 0, max_tokens: 2048, stream: false,
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'Spotting:' },
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${fs.readFileSync(path.join(root, 'source.png')).toString('base64')}` } }] }] })
+      body: JSON.stringify({ model: 'unlimitedocr2q8', temperature: 0, max_tokens: 4096, stream: false,
+        messages: [{ role: 'user', content: [{ type: 'text', text: '<PAGE>' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${fs.readFileSync(path.join(root, 'source.png')).toString('base64')}` } },
+          { type: 'text', text: 'Multi page parsing.' }] }] })
     })
     assert(response.ok, `OCR HTTP ${response.status}`)
     const result = await response.json()
     const content = result.choices?.[0]?.message?.content
     assert(typeof content === 'string' && content.trim(), 'OCR 回傳空白')
     assert(Number(result.usage?.completion_tokens) > 0, 'OCR 沒有產出 token')
-    assert(/Document|title|paragraph/i.test(content), 'OCR 未辨識 fixture 文字')
-    assert(/<\|LOC_\d+\|>/.test(content), 'Spotting 座標標記遺失，不能用來替換掃描文字')
-    const locations = [...content.matchAll(/<\|LOC_(\d+)\|>/g)].map((match) => Number(match[1]))
-    assert(locations.length >= 8 && locations.length % 8 === 0 && locations.every((value) => value >= 0 && value <= 1000), 'Spotting 四點座標格式錯誤')
+    assert(/Document title/.test(content) && /First paragraph line/.test(content), 'OCR 未辨識 fixture 文字')
+    const blocks = [...content.matchAll(/<BLOCK>([a-z_]+)\[(\d+), (\d+), (\d+), (\d+)\]<FORK>/g)]
+    assert(blocks.length >= 3 && blocks.every((m) => m.slice(2).every((v) => Number(v) <= 1000)), '區塊座標格式錯誤')
     console.log(JSON.stringify({ mode: 'ocr-only', seconds: (Date.now() - started) / 1000,
       completionTokens: result.usage.completion_tokens, finishReason: result.choices[0].finish_reason,
-      spottingPolygons: locations.length / 8, fixtureRecognition: content.slice(0, 12000) }, null, 2))
+      blocks: blocks.map((m) => m[1]), fixtureRecognition: content.slice(0, 12000) }, null, 2))
   } finally { clearInterval(pulse) }
 }
 
 async function translate() {
   const ready = service.status()
   assert(ready.ready, `PDF 執行環境未完整安裝：${ready.missing.join('、')}`)
-  assert(models.isDownloaded('linguaforge08q4'), 'LinguaForge 尚未下載')
+  assert(values.translator !== 'local' || models.isDownloaded('linguaforge08q4'), 'LinguaForge 尚未下載')
+  if (INPUT) {
+    const label = /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(INPUT) ? '圖片' : 'PDF'
+    await runOne({ input: INPUT, output, target: 'translated.pdf', expectPages: 0, label, pages: PAGES })
+    for (const number of (PAGES.match(/\d+/g) || ['1']).slice(0, 2)) {
+      await python(`import sys,pymupdf as fitz
+with fitz.open(sys.argv[1]) as d:d[int(sys.argv[2])-1].get_pixmap(dpi=110).save(sys.argv[3])`, [output, number, path.join(option('out') || root, `page-${number}.png`)])
+    }
+    return
+  }
   await runOne({ input: source, output, target: 'translated.pdf', expectPages: 4, label: 'PDF' })
   const checked = await verifyOutput()
   console.log(JSON.stringify({ mode: 'full-pdf', ...checked }))
@@ -102,7 +122,7 @@ with fitz.open(sys.argv[1]) as src,fitz.open(sys.argv[2]) as dst:
   console.log(JSON.stringify({ mode: 'image', pages: 1, verified: true }))
 }
 
-async function runOne({ input, output, target, expectPages, label }) {
+async function runOne({ input, output, target, expectPages, label, pages }) {
   let finish, reject, last = null
   const completion = new Promise((resolve, fail) => { finish = resolve; reject = fail })
   service.init({ store, send: (_channel, event) => {
@@ -120,11 +140,11 @@ async function runOne({ input, output, target, expectPages, label }) {
   let timeout
   const pulse = setInterval(() => console.log(`${label}：已執行 ${Math.round((Date.now() - started) / 1000)} 秒`), 30000)
   try {
-    const { jobId } = service.start({ fileId: picked.fileId, sourceLang: 'en', targetLang: 'zh-TW' })
+    const { jobId } = service.start({ fileId: picked.fileId, sourceLang: 'en', targetLang: 'zh-TW', ...(pages ? { pages } : {}) })
     const summary = await Promise.race([completion, new Promise((_, fail) => {
       timeout = setTimeout(() => fail(new Error(`${label}真模型驗證超過 40 分鐘`)), 40 * 60 * 1000)
     })])
-    assert(summary.pages === expectPages && summary.translatedBlocks > 0, `${label}沒有真正翻譯`)
+    assert((!expectPages || summary.pages === expectPages) && summary.translatedBlocks > 0, `${label}沒有真正翻譯`)
     const saved = await service.save(jobId)
     assert(saved.saved && fs.existsSync(output), `另存${label}失敗`)
     console.log(JSON.stringify({ mode: `${label}-job`, seconds: (Date.now() - started) / 1000,
@@ -146,7 +166,7 @@ with fitz.open(sys.argv[1]) as src,fitz.open(sys.argv[2]) as dst:
  assert 'E = mc^2' in dst[0].get_text(),'原生公式遭更改'
  before=[d['items'] for d in src[0].get_drawings()];after=[d['items'] for d in dst[0].get_drawings()]
  assert all(p in after for p in before),'表格／圖表向量線條遭更改'
- for rect in (fitz.Rect(25,110,170,134),fitz.Rect(100,295,275,380),src[0].search_for('E = mc^2')[-1]):
+ for rect in (fitz.Rect(25,110,170,134),fitz.Rect(100,295,275,380)):
   a=src[1].get_pixmap(matrix=fitz.Matrix(2,2),clip=rect);b=dst[1].get_pixmap(matrix=fitz.Matrix(2,2),clip=rect)
   assert a.samples==b.samples,'掃描公式／曲線像素遭更改'
  assert dst[3].rect==src[3].rect,'旋轉頁尺寸遭更改'

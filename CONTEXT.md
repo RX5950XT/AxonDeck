@@ -130,7 +130,8 @@ native/
 - AGY 反代：設定頁 `#set-agy`，`agy-page.js` 只在該區看得到時輪詢。模型映射先比即時型錄再退靜態表；實測 404 的放 `RETIRED_MODELS`，使用者不要的放 `HIDDEN_MODELS`（型錄直接丟掉）。歷史工具呼叫一律附 `thoughtSignature` 略過值，否則 Gemini 3+ 回 400。生圖（`gemini-*-image`）：聊天端點回 markdown data URI，另有 `/v1/images/generations`；不可帶 `maxOutputTokens`（會 429）。`USER_AGENT` 必須報 `antigravity/cli/x.y.z`（否則型錄沒有 Argon）。上游額度 Gemini 與 Claude／GPT 各一池，Pro 的 Gemini 4 Argon 另一池只有每週。
 
 ### Local SI 與本地推論
-- 子分頁：執行環境（本機模型、推薦 `#hf-recommend`、啟動、硬體、引擎、圖片影像 API）／探索。推薦有 ASR 兩顆、LinguaForge 0.8B、Index-Translate 2B、PaddleOCR-VL-1.6、PP-DocLayoutV3、Breeze-TTS-2 Q8、Miroxen 模型；舊 Qwen3.5 key 遷移到 Index。
+- 子分頁：執行環境（本機模型、推薦 `#hf-recommend`、啟動、硬體、引擎、圖片影像 API）／探索。推薦有 ASR 兩顆、LinguaForge 0.8B、Index-Translate 2B、Unlimited-OCR-2 Q8、PP-DocLayoutV3、Breeze-TTS-2 Q8、Miroxen 模型；舊 Qwen3.5 key 遷移到 Index。
+- llama.cpp 固定 b11913，官方 Vulkan／CUDA 13.4 包解完再疊 `llama-b11913-unlimited-ocr2-win-x64.zip`（只換 llama.dll／mtmd.dll，放在 HF `RX5950XT/Unlimited-OCR-2-GGUF` 的 `llama.cpp-bin/`；來源是該 repo 的 patch，在本機 `Unlimited-OCR-2-GGUF` 專案用 `build-overlay.cmd` 重編）；記號檔 `axondeck-unlimited-ocr2.txt` 沒有就算未安裝。
 - 推論一律 llama-server router；推薦模型以絕對路徑寫 preset 不複製。NVIDIA ≥8GB（門檻 8184 MiB）用 GPU，否則 CPU。預設 ASR ctx 4096、翻譯 ctx 8192，KV q8_0＋flash attention，`cache-ram = 512`；顯存以 nvidia-smi 為準。
 - 進 Local SI 自動補建議執行環境；探索下載後排隊 fit＋bench。探索只列文字生成模型（`archs.js`＝llama.cpp `LLM_ARCH_NAMES` 扣掉非文字，升級 llama 要重抄，`test-hf-archs.js` 擋）。
 - ASR 0.6B／1.7B 都是 Q8_0 GGUF，經 `asr-select` 走共用 router。本地翻譯經 `local-llm-router.js`；關 App 要連只由翻譯載入的 router 一起收。
@@ -140,8 +141,8 @@ native/
 - 一般翻譯切頁仍繼續，保留 `translate` 引擎，完成／失敗／停止才釋放。LinguaForge 約 2000 字一段、清單標記先剝再貼回。Edge TTS 的 `node-edge-tts` 固定 1.2.11（舊服務 403）。
 - Index-Translate 修補：行首「A. 」先剝再貼回；殘留英文／假名改用官方 instTrans 格式重翻；出口 `jpKanjiToTw` 換回繁體字。
 - 術語表（`glossary.js`）：自訂 `translateGlossary` 優先，再補內建 `translateGlossaryBuiltin`（`naer-terms.tsv.gz`，只收至少兩學科共用的 2–5 字片語，約 20.8 萬條，由 `build-glossary-data.js` 產生）。只在目標繁中套用；雲端進 system prompt，Index 只給唯一譯名，LinguaForge 不套。
-- 螢幕翻譯：`pages/screen-translate.html`，`setShape` 挖空取景、`setBackgroundMaterial('none')`、`setContentProtection`；PaddleOCR-VL 經 router 讀記憶體截圖不落盤；獨立 `screen` engine owner。驗證 `test-screen-translate.js`、`e2e-screen-translate-cdp.js`。
-- PDF／圖片翻譯（`pdf-translate/`）：main 凍結設定、複製來源到暫存，worker 逐頁 PP-DocLayoutV3 版面偵測→翻譯→替換。有文字層用原生文字，VL OCR 只補掃描頁；數學不翻。雲端同頁段落合批（`translateSegments`，≤3000 字／40 段）並行 4 批；本地一次一段。
+- 螢幕翻譯：`pages/screen-translate.html`，`setShape` 挖空取景、`setBackgroundMaterial('none')`、`setContentProtection`；Unlimited-OCR-2 經 router 讀記憶體截圖不落盤（`<PAGE>`＋圖＋`Multi page parsing.`，`<BLOCK>` 轉純文字；行內 LaTeX 由 `screen-translate/latex.js` 轉 Unicode 上下標，譯文被改寫回的 `$…$` 也再轉）；獨立 `screen` engine owner。驗證 `test-screen-translate.js`、`e2e-screen-translate-cdp.js`。
+- PDF／圖片翻譯（`pdf-translate/`）：main 凍結設定、複製來源到暫存，worker 逐頁 PP-DocLayoutV3 版面偵測→翻譯→替換。有文字層用原生文字；沒文字層的頁（或段落）整頁送 Unlimited-OCR-2 一次，`<BLOCK>` 文字類區塊換成譯文，行內 LaTeX 轉成文字一起翻（符號換 Unicode，上下標寫成 `^(…)`／`_(…)` 送翻，排版時才換成 `<sup>`／`<sub>`；譯文裡被雲端模型改寫回 LaTeX 的（`V_0`、`\hbar`）排版前再轉一次；分數維持 a/b）；公式、圖、頁碼留原樣（圖內文字模型不輸出）；掃描表格 `table_units`：從圖上的空白／格線推格子（`table_grid`，推不出或跟 OCR 欄數對不上就回 None），推得出就逐格換字（每欄對齊、整表一個字級、OCR 多拆一格的列不動），推不出就每格照樣送翻、排版時整張重排成 HTML 表（`prepare_table`）。OCR 只能單一序列（preset `parallel = 1`、KV 不量化、`special = on`：表格的 `<tr>`／`</td>` 是特殊 token，不開會被 server 吃掉）。掃描頁擦字是蓋背景色矩形，不用遮蔽（遮蔽會改寫掃描圖像素，邊緣留暗線）；譯文照原書量出的字級、行距、首行縮排排版並左右對齊（`raster_metrics`），標題與整塊粗體保留粗體、段落內局部粗體留 `**…**` 送翻再換 `<b>`（粗體字用系統黑體粗體 `BOLD_FONTS`，內建中文字型沒有粗體），全大寫標題先轉一般大小寫再翻。雲端同頁段落合批（`translateSegments`，≤3000 字／40 段）並行 4 批；本地一次一段。
 - PDF 其他：頁碼選擇（`parsePages`）、雙語對照（`interleave`）、文件術語抽取（`terms.js`，只雲端）、譯文快取（`cache.js`，`node:sqlite`，30 天）；每頁子集化字型；worker 以 `-I` 啟動所以 stdin 要在程式內設 UTF-8；Windows 上 detached 啟動。
 - PDF 環境：`pdfruntime` 固定 uv／Python 3.12.12／PaddlePaddle 3.3.1／PaddleOCR 3.7.0／PyMuPDF 1.28.2；`pdfruntimegpu` 換 paddlepaddle-gpu cu129。套件照 `requirements-*.txt` `--require-hashes` 安裝，`rankedIndexes` 量 3MB 挑最快鏡像；裝完 `prune`；Python 一律帶 `isolatedEnv`。GPU 版面偵測 4.3→0.09 秒／頁。
 

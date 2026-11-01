@@ -4,8 +4,10 @@
 
 Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言模型、語音轉文字、翻譯、文字轉語音、生成圖片影像、系統監控，全部放在同一個 App。語音與翻譯可以完全離線跑本地模型，也能改用雲端 API。
 
-**目前版本 v1.69.1** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
+**目前版本 v1.70.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
 
+> v1.70.0：PDF／圖片與螢幕翻譯的文字辨識換成 Unlimited-OCR-2（舊的 PaddleOCR-VL 自動移除）；掃描頁的表格也會翻（逐格換字或整張重排）、行內公式的上下標與局部粗體照原樣排；Vulkan 顯示卡辨識更快。
+>
 > v1.69.1：修正檔案頁在資料夾內有檔案持續變大（如 WinRAR 壓縮中）時畫面閃爍並不停跳回頂端。
 >
 > v1.68.0：切頁、Git 面板、檔案頁、系統監控不再突然頓一下（切回已開過的頁最慢 0.65 秒 → 0.09 秒），最近 7 天用過的頁開機後先在背景載好；文字轉語音改版（女聲範本試聽、底部播放列、生成可排隊、自動整理音量與頭尾靜音）；額度條延伸到右側欄下方並顯示 App 資源佔用；Git 面板新分支一鍵發布。
@@ -130,7 +132,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 | Qwen3-ASR 0.6B／1.7B（Q8_0） | 語音辨識，52 種語言（含國／粵／閩語），中文輸出自動轉臺灣繁體 |
 | LinguaForge 0.8B（Q4_K_M） | 本地翻譯，繁中／英／日專用微調 |
 | Index-Translate 2B（Q4_K_M） | 本地翻譯，多語 |
-| PaddleOCR-VL-1.6、PP-DocLayoutV3 | 螢幕翻譯與 PDF 翻譯的文字與版面辨識 |
+| Unlimited-OCR-2（Q8_0）、PP-DocLayoutV3 | 螢幕翻譯與 PDF 翻譯的文字與版面辨識（OCR 跑在打過 patch 的 llama.cpp b11913） |
 | Breeze-TTS-2（Q8_0，約 3.32 GiB） | 文字轉語音 |
 | Qwen-Image-2.1、MiniMax-H3 | 生成圖片、有聲影片（Miroxen） |
 

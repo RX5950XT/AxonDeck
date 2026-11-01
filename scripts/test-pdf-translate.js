@@ -21,7 +21,7 @@ const events = []
 const settings = { translator: 'local', localTranslateModel: 'linguaforge08q4' }
 const source = path.resolve('src/main/pdf-translate/index.js')
 const realRequire = createRequire(source)
-const modelKeys = ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'llamaruntime']
+const modelKeys = ['unlimitedocr2q8', 'ppdoclayoutv3', 'pdfruntime', 'llamaruntime']
 const box = vm.createContext({ module: { exports: {} }, Buffer, structuredClone, setTimeout, clearTimeout,
   __dirname: path.dirname(source),
   AbortController, process: { platform: 'linux', env: {} },
@@ -33,7 +33,7 @@ const box = vm.createContext({ module: { exports: {} }, Buffer, structuredClone,
       isDownloaded: () => ready, modelDir: (key) => path.join(root, key) }
     if (id === './runtime') return { pythonExe: () => 'python.exe', isolatedEnv: () => ({}) }
     if (id === '../hfmodels') return { init() {}, writePresets: async () => {}, ensureRuntime: async () => {},
-      refreshModels: async () => [{ id: 'paddleocrvl16' }],
+      refreshModels: async () => [{ id: 'unlimitedocr2q8' }],
       endpoint: () => ({ baseUrl: 'http://127.0.0.1:1234', apiKey: 'private-runtime-key' }) }
     if (id === '../engine') return { setStore() {}, acquire: async () => ({ ok: engineReady }), release: async () => { released++ } }
     if (id === '../model-scope') return { readLlm: (store) => ({ mode: 'local', modelKey: store.get('fileLlm').split(':')[1] }) }

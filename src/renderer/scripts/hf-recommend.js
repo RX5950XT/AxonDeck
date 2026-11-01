@@ -15,7 +15,7 @@ const MODEL_GROUPS = [
   ['tts', '語音生成'],
   ['asr', '語音辨識'],
   ['llm', '翻譯'],
-  ['ocr', 'PDF 文件辨識']
+  ['ocr', '文件辨識（PDF／螢幕翻譯）']
 ]
 
 let bound = false

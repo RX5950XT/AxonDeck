@@ -267,7 +267,7 @@ async function main() {
         legacySettings: !!document.getElementById('set-local'),
         inRuntime: !!document.querySelector('#hf-runtime #hf-recommend'), running: document.querySelectorAll('#hf-recommend .hf-status.is-on').length }
     })()`), 15_000, '十一顆推薦模型')
-    assert(JSON.stringify(recommend.keys) === JSON.stringify(['miroxenqwenturbo', 'miroxenqwen', 'miroxenh3', 'miroxenh3turbo', 'breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b', 'paddleocrvl16', 'ppdoclayoutv3']), '推薦列出圖片影像、語音生成、ASR、翻譯與兩顆 PDF 辨識模型', JSON.stringify(recommend))
+    assert(JSON.stringify(recommend.keys) === JSON.stringify(['miroxenqwenturbo', 'miroxenqwen', 'miroxenh3', 'miroxenh3turbo', 'breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b', 'unlimitedocr2q8', 'ppdoclayoutv3']), '推薦列出圖片影像、語音生成、ASR、翻譯與兩顆 PDF 辨識模型', JSON.stringify(recommend))
     assert(recommend.labels.every((label) => label && !/[（(](?:CPU|GPU)[）)]/.test(label)), '推薦模型名稱沒有 CPU／GPU 標籤')
     assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
     assert(JSON.stringify(recommend.groups) === JSON.stringify(['圖片影像生成（Miroxen，需 NVIDIA）', '語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']), '推薦分組不混進執行環境')

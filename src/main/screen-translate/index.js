@@ -7,10 +7,24 @@ const models = require('../models')
 const { readResponseText } = require('../usage/shared')
 const { splitText } = require('../pdf-translate/protocol')
 const { fail, capture, changed } = require('./capture')
+const { mathText } = require('./latex')
 
 const LANGUAGES = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko'])
 const MIN_SIZE = { width: 240, height: 110 }
 const AIM_OPACITY = 0.6, READ_OPACITY = 0.95
+/** Unlimited-OCR-2 的區塊：圖、公式、頁碼不翻（圖內文字模型本來就不輸出） */
+const OCR_SKIP = new Set(['image', 'chart', 'equation', 'page_number'])
+const OCR_BLOCK = /<BLOCK>([a-z_]+)(?:<[A-Z0-9_]+>)*\[[\d,\s]+\]<FORK>([\s\S]*?)(?=<BLOCK>|<PAGE>|$)/g
+
+/** `<BLOCK>類型[x0, y0, x1, y1]<FORK>內容` → 每塊一行純文字（拿掉 Markdown 粗斜體、表格標籤；公式轉成 Unicode） */
+function ocrText(content) {
+  return [...content.matchAll(OCR_BLOCK)].filter(([, label]) => !OCR_SKIP.has(label))
+    .map(([, , text]) => text.replace(/<\/tr>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/^\s*#+\s*/, '').replace(/(\*\*|__)(.+?)\1/gs, '$2')
+      .replace(/(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])/gs, '$1')
+      .replace(/[ \t]+/g, ' ').trim()).map(mathText)
+    .filter(Boolean).join('\n')
+}
+
 let config
 let session = null
 let closing = null
@@ -51,9 +65,9 @@ function open(options) {
   if (session) { session.win.showInactive(); return status() }
   if (closing) throw fail('BUSY', '取景視窗正在關閉，請稍候再開啟')
   if (process.platform !== 'win32') throw fail('UNSUPPORTED', '螢幕翻譯目前支援 Windows')
-  const missing = ['paddleocrvl16'].filter((key) => !models.isDownloaded(key))
+  const missing = ['unlimitedocr2q8'].filter((key) => !models.isDownloaded(key))
   if (!['llamaruntime', 'llamaruntimecuda'].some((key) => models.isDownloaded(key))) missing.push('llamaruntime')
-  if (missing.length) throw fail('NOT_INSTALLED', '請先到 Local SI 安裝 PaddleOCR-VL 與 llama.cpp 執行環境')
+  if (missing.length) throw fail('NOT_INSTALLED', '請先到 Local SI 安裝 Unlimited-OCR-2 與 llama.cpp 執行環境')
   const translator = translatorSnapshot()
   const job = { translator, controller: new AbortController(), prepared: false, timer: null, pending: null,
     image: null, lastMoved: 0, view: { open: true, paused: false, stage: 'preparing', source: '', translation: '', error: '',
@@ -104,7 +118,7 @@ async function prepare(job) {
   await hf.writePresets()
   await hf.ensureRuntime()
   if (session !== job) return
-  if (!(await hf.refreshModels()).some((row) => row.id === 'paddleocrvl16')) await hf.applyPresets()
+  if (!(await hf.refreshModels()).some((row) => row.id === 'unlimitedocr2q8')) await hf.applyPresets()
   if (session !== job) return
   if (job.translator.local) {
     const engine = require('../engine')
@@ -135,14 +149,15 @@ async function recognize(image, signal) {
   const response = await fetch(`${endpoint.baseUrl.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
     method: 'POST', signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]),
     headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-    body: JSON.stringify({ model: 'paddleocrvl16', temperature: 0, max_tokens: 4096, stream: false,
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'OCR:' }, { type: 'image_url', image_url: { url: image.toDataURL() } }] }] }) })
+    body: JSON.stringify({ model: 'unlimitedocr2q8', temperature: 0, max_tokens: 4096, stream: false,
+      messages: [{ role: 'user', content: [{ type: 'text', text: '<PAGE>' }, { type: 'image_url', image_url: { url: image.toDataURL() } },
+        { type: 'text', text: 'Multi page parsing.' }] }] }) })
   if (!response.ok) { await response.body?.cancel(); throw fail('OCR_FAILED', `畫面辨識失敗（HTTP ${response.status}），請檢查 Local SI 後重試`) }
   const result = JSON.parse(await readResponseText(response, 1024 * 1024))
   const choice = result?.choices?.[0]
   if (typeof choice?.message?.content !== 'string') throw fail('OCR_FAILED', '辨識回應格式錯誤，請重試')
   if (choice.finish_reason === 'length') throw fail('TOO_MUCH_TEXT', '框內文字太多，請縮小範圍後重試')
-  return choice.message.content.replace(/<\|[^|]*\|>/g, '').replace(/<\/s>\s*$/, '').trim()
+  return ocrText(choice.message.content)
 }
 
 async function cycle(job) {
@@ -164,7 +179,7 @@ async function cycle(job) {
       : await require('../local-llm').translate(job.translator.store, text, job.view.targetLang, { scope: 'file', mode: 'file', signal })
     signal.throwIfAborted()
     if (!piece?.trim()) throw fail('EMPTY_TRANSLATION', '翻譯沒有回傳文字，請按重試')
-    translation += (translation ? '\n' : '') + piece.trim()
+    translation += (translation ? '\n' : '') + mathText(piece.trim())
   }
   job.image = sample
   publish(job, { translation, stage: source ? 'watching' : 'empty' })
@@ -213,4 +228,4 @@ function close() {
   return closing
 }
 
-module.exports = { init, open, pause, resize, close, status, owns, assertIdle }
+module.exports = { init, open, pause, resize, close, status, owns, assertIdle, ocrText }

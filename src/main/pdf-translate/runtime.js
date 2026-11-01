@@ -185,7 +185,7 @@ async function install({ dir, signal, onProgress = () => {}, variant = 'cpu' }) 
   // GPU 版要真的抓得到顯示卡；裝了但驅動不支援，等於白裝 5 GB，直接讓安裝失敗
   const gpuCheck = variant === 'gpu' ? '; assert paddle.device.cuda.device_count() > 0' : ''
   await run(pythonExe(dir), ['-I', '-c',
-    'import paddle, pymupdf; from paddleocr import PaddleOCRVL; from importlib.metadata import version; '
+    'import paddle, pymupdf; from paddleocr import LayoutDetection; from importlib.metadata import version; '
       + `assert version('${spec.paddle}') == '3.3.1'; assert version('paddleocr') == '3.7.0'; assert version('pymupdf') == '1.28.2'`
       + gpuCheck],
     { dir, env, signal, stage: variant === 'gpu' ? '檢查顯示卡加速' : '檢查文件辨識套件' })

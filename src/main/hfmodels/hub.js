@@ -21,7 +21,7 @@ const HOST = 'https://huggingface.co'
 const LABEL = 'Hugging Face'
 /** 一個 repo 的檔案清單；GGUF repo 通常十幾個檔案，1000 是 HF tree 端點自己的單頁上限 */
 const TREE_LIMIT = 1000
-const SEARCH_LIMIT_MAX = 50
+const SEARCH_LIMIT_MAX = 100
 /** 抓檔頭用：`<arch>.*` 那幾格排在詞表之前，實測 1MB 綽綽有餘 */
 const PEEK_BYTES = 1024 * 1024
 /** README 只拿來顯示模型卡，200KB 綽綽有餘（LFS 大檔不會是 README） */
@@ -92,29 +92,65 @@ function authHeaders() {
   return value ? { authorization: `Bearer ${value}` } : {}
 }
 
+// 架構名沒寫 moe、但整個架構都是 MoE 的（名字、tag 常沒標）。後面一排是讀 GGUF 檔頭 expert_count 確認過的。
+// llama、gemma4、granitehybrid 這類同一個架構有 Dense 也有 MoE，不能放進來，交給名字判斷。
+const MOE_ARCHS = new Set(['gpt-oss', 'deepseek2', 'deepseek2-ocr', 'deepseek32', 'deepseek4', 'qwen3next', 'dbrx',
+  'arctic', 'jamba', 'grok', 'minimax-01', 'minimax-m2', 'minimax-m3', 'dots1', 'llama4', 'glm-dsa', 'smallthinker',
+  'kimi-linear', 'mimo2',
+  'qwen4exp', 'deepseek41', 'glm5-next', 'hy_v3', 'laguna', 'flint', 'mellum', 'inkling', 'kimi-k3', 'maple',
+  'mistral4', 'muse-spark', 'rnd1', 'step35'])
+
+/**
+ * 總參數：HF 的 gguf.total 只是它挑的那一個檔，可能挑到 mmproj（clip）或 MTP／草稿小檔，
+ * 所以跟 repo 名（35B-A3B 取 35B、8x7B 取 56B）取大的那個。
+ * @returns {number} 參數個數，看不出來回 0
+ */
+function repoParams(id, gguf) {
+  const total = gguf?.architecture === 'clip' ? 0 : Number(gguf?.total) || 0
+  const name = String(id).split('/')[1] || ''
+  const experts = name.match(/(\d+)x(\d+(?:\.\d+)?)B(?![a-z])/i)
+  const sizes = experts ? [Number(experts[1]) * Number(experts[2]) * 1e9]
+    : [...name.matchAll(/(?<![A-Za-z\d.])(\d+(?:\.\d+)?)([BM])(?![a-z])/gi)]
+      .map((m) => Number(m[1]) * (m[2].toUpperCase() === 'B' ? 1e9 : 1e6))
+  return Math.max(total, ...sizes)
+}
+
+/** MoE：架構、tag 或 repo 名（A3B、8x7B、MoE）任一看得出來就算 */
+function repoIsMoe(id, arch, tags) {
+  const base = String(arch || '').replace(/-vision$/, '')
+  return /moe/i.test(base) || MOE_ARCHS.has(base) || tags.some((t) => /^(moe|mixture-of-experts)$/i.test(t))
+    || /(?<![A-Za-z])A\d+(?:\.\d+)?B(?![a-z])|(?<![a-z])moe(?![a-z])|\d+x\d+(?:\.\d+)?B/i.test(String(id).split('/')[1] || '')
+}
+
 /**
  * 搜尋 GGUF repo
- * @param {{ query?: string, limit?: number, sort?: 'downloads' | 'likes' | 'lastModified' }} options
+ * @param {{ query?: string, limit?: number, sort?: 'downloads' | 'likes' | 'lastModified',
+ *           kind?: '' | 'dense' | 'moe', maxParamsB?: number }} options maxParamsB：總參數上限（十億），0 不限
  * @returns {Promise<Array<{ id: string, downloads: number, likes: number, tags: string[],
- *                           pipelineTag: string, createdAt: string, gated: boolean }>>}
+ *                           pipelineTag: string, createdAt: string, gated: boolean, params: number, moe: boolean }>>}
  */
 async function searchModels(options = {}) {
   const query = String(options.query || '').trim().slice(0, 120)
-  const limit = Math.max(1, Math.min(SEARCH_LIMIT_MAX, Number(options.limit) || 24))
+  const limit = Math.max(1, Math.min(SEARCH_LIMIT_MAX, Number(options.limit) || SEARCH_LIMIT_MAX))
   const sort = ['downloads', 'likes', 'lastModified'].includes(options.sort) ? options.sort : 'downloads'
   const url = new URL('/api/models', HOST)
   url.searchParams.set('filter', 'gguf')
   url.searchParams.set('sort', sort)
   url.searchParams.set('direction', '-1')
   // 多抓一倍：不支援的架構會被濾掉，不然一頁常常只剩一半
-  url.searchParams.set('limit', String(limit * 2))
+  const kind = ['dense', 'moe'].includes(options.kind) ? options.kind : ''
+  const maxParams = Math.max(0, Number(options.maxParamsB) || 0) * 1e9
+  // 有篩選時多抓一些：濾掉的多，不然常常只剩幾筆
+  url.searchParams.set('limit', String(limit * (kind || maxParams ? 8 : 2)))
   if (query) url.searchParams.set('search', query)
   // 指定 expand 後只回這幾欄，所以原本要用的欄位都要列
   for (const field of ['gguf', 'downloads', 'likes', 'tags', 'pipeline_tag', 'createdAt', 'gated']) {
     url.searchParams.append('expand[]', field)
   }
 
-  const rows = await fetchJson(url.toString(), { label: LABEL, headers: authHeaders(), allowArray: true })
+  // gguf 欄位帶整份 chat template（每筆約 8KB），篩選時抓 800 筆約 6MB，超過預設 1MB
+  const rows = await fetchJson(url.toString(), { label: LABEL, headers: authHeaders(), allowArray: true,
+    maxBytes: 16 * 1024 * 1024 })
   if (!Array.isArray(rows)) return []
   return rows
     .filter((row) => row && isRepoId(row.id))
@@ -127,9 +163,14 @@ async function searchModels(options = {}) {
       tags: Array.isArray(row.tags) ? row.tags.filter((t) => typeof t === 'string').slice(0, 40) : [],
       pipelineTag: typeof row.pipeline_tag === 'string' ? row.pipeline_tag : '',
       createdAt: typeof row.createdAt === 'string' ? row.createdAt : '',
-      gated: row.gated === true || typeof row.gated === 'string'
+      gated: row.gated === true || typeof row.gated === 'string',
+      params: repoParams(row.id, row.gguf),
+      moe: repoIsMoe(row.id, row.gguf?.architecture, Array.isArray(row.tags) ? row.tags : [])
     }))
     .filter((row) => !isNonTextRepo(row))
+    .filter((row) => !kind || row.moe === (kind === 'moe'))
+    // 看不出參數的，設了上限就不列（沒辦法保證放得下）
+    .filter((row) => !maxParams || (row.params > 0 && row.params <= maxParams))
     .slice(0, limit)
 }
 
@@ -356,6 +397,6 @@ function stripFrontMatter(text) {
 }
 
 module.exports = {
-  isRepoId, isRepoPath, searchModels, listFiles, pageBase, fileUrl, peekFile, modelCard, readme,
+  isRepoId, isRepoPath, searchModels, repoParams, repoIsMoe, listFiles, pageBase, fileUrl, peekFile, modelCard, readme,
   htmlTablesToMarkdown, setToken, hasToken, authHeaders, HOST, PEEK_BYTES
 }

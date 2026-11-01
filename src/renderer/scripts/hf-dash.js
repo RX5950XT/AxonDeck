@@ -189,6 +189,16 @@ function renderGpus(devices, gpus) {
   }))
 }
 
+function renderGpuModels(list) {
+  const box = $('hfGpuModels')
+  if (!box) return
+  const rows = Array.isArray(list) ? list : []
+  box.replaceChildren(el('span', 'hf-setting-label', '顯卡上的模型'), ...(rows.length
+    ? rows.map((row) => el('span', `hf-chip ${row.partial ? 'is-warn' : 'is-good'}`,
+      row.partial ? `${row.label}（部分在顯卡）` : row.label))
+    : [el('span', 'setting-hint', '沒有')]))
+}
+
 function renderLog(lines) {
   const pre = $('hfServerLog')
   if (!pre) return
@@ -222,6 +232,7 @@ async function refresh(seq) {
   ] : null)
   renderOccupancy(data.occupancy)
   renderGpus(data.devices, data.occupancy?.gpus)
+  renderGpuModels(data.gpuModels)
   renderLog(data.logTail)
   paintRunning(data.models)
 }

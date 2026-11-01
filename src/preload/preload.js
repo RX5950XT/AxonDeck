@@ -700,7 +700,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // router 的 api key 不出 main。要匯入本機檔案也是 main 開對話框，這裡沒有路徑參數。
   hfmodels: {
     /** @param {string} query @param {'downloads'|'likes'|'lastModified'} [sort] */
-    search: (query, sort) => ipcRenderer.invoke('hfmodels:search', query, sort),
+    search: (query, sort, filters) => ipcRenderer.invoke('hfmodels:search', query, sort, filters),
     /** 一個 repo 有哪些量化變體、哪些已經裝了 */
     inspect: (repoId) => ipcRenderer.invoke('hfmodels:inspect', repoId),
     /** 還沒下載就先算「跑不跑得動」（main 用 HTTP Range 抓檔頭前 1MB） */

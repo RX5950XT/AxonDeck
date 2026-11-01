@@ -98,6 +98,8 @@ function lanAddresses() {
     .map((item) => item.address)
 }
 
+const isRunning = () => !!server && !starting
+
 /** Local SI 的 API 面板：網址、金鑰、區網開關 */
 function api() {
   const running = !!server && !starting
@@ -212,4 +214,4 @@ async function openOutput() {
   return outDir()
 }
 
-module.exports = { setStore, status, start, stop, shutdown: stop, openOutput, api, setLan }
+module.exports = { setStore, status, start, stop, shutdown: stop, openOutput, api, setLan, isRunning }

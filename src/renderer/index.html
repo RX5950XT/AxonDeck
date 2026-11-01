@@ -1123,6 +1123,19 @@
                     </select>
                     <button type="button" id="hfSearchBtn" class="btn btn-primary">搜尋</button>
                   </div>
+                  <div class="hf-filterbar">
+                    <select id="hfSearchKind" class="select" aria-label="模型架構">
+                      <option value="">Dense＋MoE</option>
+                      <option value="dense">只看 Dense</option>
+                      <option value="moe">只看 MoE</option>
+                    </select>
+                    <label class="hf-params-filter">
+                      <span>總參數上限</span>
+                      <input type="range" id="hfSearchParams" class="range-input" min="0" max="36" step="1" value="36"
+                             aria-label="總參數上限" aria-valuetext="不限">
+                      <output id="hfSearchParamsText" for="hfSearchParams">不限</output>
+                    </label>
+                  </div>
                   <div class="hf-split">
                     <div id="hfSearchResults" class="hf-results" role="listbox"
                          aria-label="搜尋結果" aria-live="polite"></div>
@@ -1208,6 +1221,7 @@
                           <div id="hfGpuMeters" class="hf-gpu-meters" aria-label="GPU 占用">
                             <p class="setting-hint">讀取顯示卡…</p>
                           </div>
+                          <div id="hfGpuModels" class="hf-gpu-models" aria-label="顯卡上的模型"></div>
                         </div>
                         <dl class="hf-specs" id="hfHardwareSpecs"></dl>
                         <p class="setting-hint" id="hfInferHint" role="status">偵測中…</p>

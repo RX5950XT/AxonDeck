@@ -34,8 +34,9 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   })
 
   // ---- 探索 ----
-  ipcMain.handle('hfmodels:search', (event, query, sort) => (
-    invoke(event, () => service.search({ query: str(query), sort: str(sort) }))
+  ipcMain.handle('hfmodels:search', (event, query, sort, filters) => (
+    invoke(event, () => service.search({ query: str(query), sort: str(sort), kind: str(filters?.kind),
+      maxParamsB: Math.max(0, Math.min(10000, Number(filters?.maxParamsB) || 0)) }))
   ))
   ipcMain.handle('hfmodels:inspect', (event, repoId) => (
     invoke(event, () => service.inspect(str(repoId)))

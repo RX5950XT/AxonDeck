@@ -133,7 +133,7 @@ native/
 - 子分頁：執行環境（本機模型、推薦 `#hf-recommend`、啟動、硬體、引擎、圖片影像 API）／探索。推薦有 ASR 兩顆、LinguaForge 0.8B、Index-Translate 2B、Unlimited-OCR-2 Q8、PP-DocLayoutV3、Breeze-TTS-2 Q8、Miroxen 模型；舊 Qwen3.5 key 遷移到 Index。
 - llama.cpp 固定 b11913，官方 Vulkan／CUDA 13.4 包解完再疊 `llama-b11913-unlimited-ocr2-win-x64.zip`（只換 llama.dll／mtmd.dll，放在 HF `RX5950XT/Unlimited-OCR-2-GGUF` 的 `llama.cpp-bin/`；來源是該 repo 的 patch，在本機 `Unlimited-OCR-2-GGUF` 專案用 `build-overlay.cmd` 重編）；記號檔 `axondeck-unlimited-ocr2.txt` 沒有就算未安裝。
 - 推論一律 llama-server router；推薦模型以絕對路徑寫 preset 不複製。NVIDIA ≥8GB（門檻 8184 MiB）用 GPU，否則 CPU。預設 ASR ctx 4096、翻譯 ctx 8192，KV q8_0＋flash attention，`cache-ram = 512`；顯存以 nvidia-smi 為準。
-- 進 Local SI 自動補建議執行環境；探索下載後排隊 fit＋bench。探索只列文字生成模型（`archs.js`＝llama.cpp `LLM_ARCH_NAMES` 扣掉非文字，升級 llama 要重抄，`test-hf-archs.js` 擋）。
+- 進 Local SI 自動補建議執行環境；探索下載後排隊 fit＋bench。探索只列文字生成模型（`archs.js`＝llama.cpp `LLM_ARCH_NAMES` 扣掉非文字，升級 llama 要重抄，`test-hf-archs.js` 擋）。探索一次 100 筆，可篩 Dense／MoE 與總參數上限（`hub.js` 的 `repoParams`／`repoIsMoe`；`MOE_ARCHS` 是讀檔頭 expert_count 確認過的整族 MoE 架構，新架構要補）。推論區「顯卡上的模型」＝router 載著且 presets 排在 GPU 的＋Breeze／Miroxen／PDF 版面（只看已載入的模組）。
 - ASR 0.6B／1.7B 都是 Q8_0 GGUF，經 `asr-select` 走共用 router。本地翻譯經 `local-llm-router.js`；關 App 要連只由翻譯載入的 router 一起收。
 - 本機預覽 `dev-sandbox.js --packed --with-chats` 用 `%APPDATA%/axondeck-dev`，models／hf-models 接回正式資料。
 

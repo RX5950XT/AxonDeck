@@ -139,6 +139,25 @@ function el(tag, cls, text) {
 
 // ===== 探索 =====
 
+/** 總參數滑桿的刻度（十億）；最後一格 0 = 不限 */
+// 小模型那段切細（常見的 1.5B、7B、27B、235B 都有一格），越大越疏
+const PARAM_STEPS = [0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 20, 24,
+  27, 30, 32, 36, 40, 48, 56, 70, 80, 100, 120, 150, 200, 235, 300, 400, 500, 700, 1000, 0]
+
+function paramsLimit() {
+  const index = Number(/** @type {HTMLInputElement} */ ($('hfSearchParams'))?.value)
+  return PARAM_STEPS[Number.isInteger(index) ? index : PARAM_STEPS.length - 1] ?? 0
+}
+
+function syncParamsText() {
+  const limit = paramsLimit()
+  const text = limit ? `≤ ${limit}B` : '不限'
+  const out = $('hfSearchParams')
+  out?.setAttribute('aria-valuetext', text)
+  const label = $('hfSearchParamsText')
+  if (label) label.textContent = text
+}
+
 function scheduleSearch() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS)
@@ -155,11 +174,14 @@ async function runSearch() {
   const query = /** @type {HTMLInputElement} */ ($('hfSearchInput'))?.value.trim() || ''
   const sort = /** @type {HTMLSelectElement} */ ($('hfSearchSort'))?.value || 'downloads'
   box.replaceChildren(el('p', 'setting-hint', '搜尋中…'))
-  const rows = await call(electronAPI.hfmodels.search(query, sort))
+  const kind = /** @type {HTMLSelectElement} */ ($('hfSearchKind'))?.value || ''
+  const rows = await call(electronAPI.hfmodels.search(query, sort, { kind, maxParamsB: paramsLimit() }))
   if (seq !== searchSeq) return
   if (!rows) { box.replaceChildren(); return }
   if (!rows.length) {
-    box.replaceChildren(el('p', 'setting-hint', '沒有找到有 GGUF 的 repo。可以直接貼上 owner/repo。'))
+    box.replaceChildren(el('p', 'setting-hint', kind || paramsLimit()
+      ? '沒有符合篩選的 repo。放寬架構或參數上限再試。'
+      : '沒有找到有 GGUF 的 repo。可以直接貼上 owner/repo。'))
     return
   }
   box.replaceChildren(...rows.map(renderResultRow))
@@ -187,6 +209,8 @@ function renderResultRow(repo) {
   row.appendChild(text)
 
   const meta = el('span', 'hf-result-meta')
+  const size = [formatParams(repo.params), repo.moe ? 'MoE' : ''].filter(Boolean).join(' · ')
+  if (size) meta.appendChild(el('span', 'hf-chip', size))
   meta.appendChild(el('span', 'hf-chip', `↓ ${formatCount(repo.downloads)}`))
   if (repo.gated) meta.appendChild(el('span', 'hf-chip is-warn', '需授權'))
   row.appendChild(meta)
@@ -1132,6 +1156,8 @@ export function start() {
       if (key.key === 'Enter') { clearTimeout(searchTimer); runSearch() }
     })
     $('hfSearchSort')?.addEventListener('change', runSearch)
+    $('hfSearchKind')?.addEventListener('change', runSearch)
+    $('hfSearchParams')?.addEventListener('input', () => { syncParamsText(); scheduleSearch() })
     $('hfRuntimeToggle')?.addEventListener('click', toggleRuntime)
     $('hfLoadBtn')?.addEventListener('click', loadSelected)
     $('hfLoadSelect')?.addEventListener('change', syncLoadButton)

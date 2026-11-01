@@ -1711,10 +1711,15 @@ option:disabled:checked {
   color: var(--accent-primary);
 }
 
+/* 寬的時候兩欄、窄到一張卡不到 300px 就退回一欄；最多兩欄 */
 .model-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(300px, calc((100% - 8px) / 2)), 1fr));
   gap: 8px;
+}
+
+.model-list > .model-group-title {
+  grid-column: 1 / -1;
 }
 
 .model-item {
@@ -13295,6 +13300,30 @@ h6.md-h { font-size: 14px; }
   align-items: center;
 }
 
+.hf-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.hf-params-filter {
+  display: flex;
+  flex: 1 1 280px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.hf-params-filter output {
+  min-width: 4em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
 .hf-searchbar .input {
   flex: 1 1 auto;
   min-width: 0;
@@ -13322,7 +13351,8 @@ h6.md-h { font-size: 14px; }
   grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
-  height: clamp(420px, calc(100vh - 340px), 900px);
+  /* 340 + 篩選列約 40 */
+  height: clamp(420px, calc(100vh - 380px), 900px);
 }
 
 .hf-split > .hf-results,
@@ -13693,6 +13723,18 @@ h6.md-h { font-size: 14px; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.hf-gpu-models {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.hf-gpu-models .hf-chip {
+  white-space: normal;
 }
 
 .hf-gpu {

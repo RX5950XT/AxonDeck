@@ -478,6 +478,18 @@ try {
     ok('多一層路徑', hub.isRepoId('a/b/c') === false)
     ok('夾網址', hub.isRepoId('https://evil.example/x') === false)
     ok('非字串', hub.isRepoId(null) === false)
+    ok('參數：HF 報的是 mmproj 就改看名字', hub.repoParams('o/X-35B-A3B-GGUF', { total: 4e8, architecture: 'clip' }) === 35e9)
+    ok('參數：HF 挑到 MTP 小檔時取名字的', hub.repoParams('o/Qwen-27B-MTP-GGUF', { total: 1.9e9, architecture: 'qwen35' }) === 27e9)
+    ok('參數：8x7B', hub.repoParams('o/Mixtral-8x7B-GGUF', {}) === 56e9)
+    ok('參數：M 單位', hub.repoParams('o/LFM2-350M-GGUF', {}) === 350e6)
+    ok('參數：看不出來回 0', hub.repoParams('o/model-GGUF', {}) === 0)
+    ok('MoE：A3B', hub.repoIsMoe('o/X-35B-A3B-GGUF', 'clip', []) === true)
+    ok('MoE：架構沒寫 moe', hub.repoIsMoe('o/gpt-oss-20b-GGUF', 'gpt-oss', []) === true)
+    ok('Dense', hub.repoIsMoe('o/Qwen3.8-27B-GGUF', 'qwen35', []) === false)
+    ok('MoE：架構名沒寫 moe（讀檔頭確認過的）', hub.repoIsMoe('o/GLM-5.3-Flash-GGUF', 'glm5-next-vision', []) === true)
+    ok('同架構有 Dense 也有 MoE 時看名字', hub.repoIsMoe('o/gemma-4-26B-A4B-it-GGUF', 'gemma4', []) === true
+      && hub.repoIsMoe('o/gemma-4-12b-it-GGUF', 'gemma4', []) === false)
+    ok('名字裡夾 moe 字母不算', hub.repoIsMoe('o/Amoeba-7B-GGUF', 'llama', []) === false)
     // HF 的 benchmark 表很多是 HTML：剝標籤會攤成直排數字，要先轉成 markdown 表格
     const md = hub.htmlTablesToMarkdown('x\n<table><thead><tr><th></th><th>A|B</th></tr></thead>'
       + '<tr><td colspan="2">Group &amp; X</td></tr><tr><td>MMLU</td><td>80.8</td></tr></table>\ny')

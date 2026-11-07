@@ -1666,7 +1666,7 @@ function secondRowEl(entry) {
   icon.className = 'ex-row-icon'
   paintDefaultFileIcon(icon, entry)
   icon.setAttribute('aria-hidden', 'true')
-  icon.classList.toggle('is-shortcut', entry.ext === 'lnk')
+  icon.classList.toggle('is-shortcut', entry.ext === 'lnk' || entry.link === true)
   // 跟左欄一樣跟殼層要真的縮圖／類型圖示，方格檢視才不會只剩 emoji。
   if (entry.path) {
     icon.dataset.path = entry.path
@@ -2105,7 +2105,7 @@ function rowEl(entry) {
   icon.className = 'ex-row-icon'
   paintDefaultFileIcon(icon, entry)
   icon.setAttribute('aria-hidden', 'true')
-  icon.classList.toggle('is-shortcut', entry.ext === 'lnk')
+  icon.classList.toggle('is-shortcut', entry.ext === 'lnk' || entry.link === true)
   if (!inRecycle() && entry.path) {
     icon.dataset.path = entry.path
     icon.dataset.iconKey = `${entry.path}:${entry.mtimeMs || 0}:${entry.dir ? 'd' : 'f'}`

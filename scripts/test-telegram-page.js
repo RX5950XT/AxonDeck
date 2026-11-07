@@ -139,6 +139,28 @@ async function run() {
   await evaluate('window.setPane(true)')
   await until(`document.querySelector('webview').getURL().endsWith('#room0')`)
   console.log('PASS 換主區切回：回到原本的聊天室')
+  // 畫面上看得到就算前景：格子失焦要補回 focus（Web A 才會捲到新訊息、不回報離線）；看不到或 App 到背景就不補
+  const foreground = `document.querySelector('webview').executeJavaScript('window.__axForeground')`
+  const refocus = `document.querySelector('webview').executeJavaScript(\`new Promise((resolve) => {
+    const onFocus = () => resolve(true)
+    window.addEventListener('focus', onFocus, { once: true })
+    window.dispatchEvent(new Event('blur'))
+    setTimeout(() => { window.removeEventListener('focus', onFocus); resolve(false) }, 200)
+  })\`)`
+  await evaluate('window.watch()')
+  await until(foreground)
+  assert.equal(await evaluate(refocus), true, '看得到時失焦要補回 focus')
+  wc.send('pages:appFocus', false)
+  await until(`${foreground}.then((value) => !value)`)
+  assert.equal(await evaluate(refocus), false, 'App 在背景不補 focus')
+  wc.send('pages:appFocus', true)
+  await until(foreground)
+  await evaluate('window.setPane(false)')
+  await until(`${foreground}.then((value) => !value)`)
+  await evaluate('window.setPane(true)')
+  await until(foreground)
+  await until(`document.querySelector('webview').getURL().endsWith('#room0')`)
+  console.log('PASS 看得到才維持前景；換主區或 App 到背景就交回背景')
   // 閒置收格：第一格留著連線；有草稿或翻舊訊息的留著；切回來全部回原本的聊天室
   await evaluate(`Promise.all([...document.querySelectorAll('webview')].map(v =>
     v.executeJavaScript('document.body.insertAdjacentHTML("beforeend", "<div id=editable-message-text></div><div class=MessageList style=height:50px;overflow:auto><div style=height:500px></div></div>"); document.querySelector(".MessageList").scrollTop = 450; 1')))`)

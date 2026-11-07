@@ -167,6 +167,9 @@ function sendToPages(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
   pageWindows?.broadcast(channel, payload)
 }
+// 功能頁自己判斷不了 App 在不在前景：焦點進 webview 時，頁面也算失焦（Telegram 靠這個決定要不要維持前景）
+app.on('browser-window-focus', () => pageWindows?.broadcast('pages:appFocus', true))
+app.on('browser-window-blur', () => pageWindows?.broadcast('pages:appFocus', false))
 // 字幕視窗
 let subtitleWindow = null
 // 系統匣圖示（第一次縮到背景才建立）

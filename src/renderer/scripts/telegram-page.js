@@ -68,8 +68,16 @@ const CAN_PARK_PROBE = `(() => {
   return !list || list.scrollHeight - list.scrollTop - list.clientHeight < 80
 })()`
 
+// 在格子裡跑：Web A 只要失焦就當自己在背景（新訊息不捲到底、不標已讀，全部失焦還向伺服器回報離線）。
+// 但 webview 的焦點常在側欄或另一格：畫面上看得到時，失焦就立刻補回 focus
+const KEEP_FOREGROUND = `window.__axKeepForeground || (window.__axKeepForeground = true, window.addEventListener('blur', () => {
+  setTimeout(() => { if (window.__axForeground) window.dispatchEvent(new Event('focus')) })
+}))`
+
 let initialized = false
 let loading = false
+/** 第一次開 Telegram 一定是使用者在 App 裡點的，所以先當在前景 */
+let appFocused = true
 let pageVisible = true
 /** AI 頁主區現在是不是 Telegram（對話、專案、瀏覽器都在同一頁） */
 let paneVisible = true
@@ -138,6 +146,16 @@ const isOnScreen = () => pageVisible && paneVisible
 const isShown = () => isOnScreen() && !document.hidden
 const isHome = (url) => url.replace(/#$/, '') === HOME_URL
 
+/** Telegram 在畫面上且 App 在前景才算使用者在看；其餘照實告訴 Web A 在背景（回報離線、不標已讀） */
+function syncForeground() {
+  const foreground = isShown() && appFocused
+  for (const view of frame().querySelectorAll('webview')) {
+    try {
+      view.executeJavaScript(`window.__axForeground = ${foreground}; window.dispatchEvent(new Event('${foreground ? 'focus' : 'blur'}')); 1`).catch(() => {})
+    } catch { /* 還沒載好：dom-ready 會補 */ }
+  }
+}
+
 /** 使用者看得到時，這格現在的網址就是他停的地方 */
 function rememberUrl(view, url) {
   if (!isShown() || url === 'about:blank') return // about:blank 是關格子、重載、收格子的過渡頁
@@ -199,6 +217,7 @@ async function parkIdle() {
 }
 
 async function watchStuck() {
+  syncForeground() // Web A 主程式比 dom-ready 晚載，掛載時會自己當成背景，這裡補回來
   void parkIdle()
   if (!isOnScreen()) { stuckSince = 0; return }
   let stuck = false
@@ -220,6 +239,7 @@ async function watchStuck() {
 /** 切走（換頁、最小化）開始算閒置；切回來把收掉的載回、背景被 Web A 改掉網址的格子帶回原本的聊天室 */
 function onVisibilityChanged() {
   stuckSince = 0
+  syncForeground()
   if (!isShown()) {
     hiddenSince ||= Date.now()
     return
@@ -312,6 +332,8 @@ function mountView(pane, url) {
   view.addEventListener('dom-ready', () => {
     view.executeJavaScript(DIRECT_LINKS).catch((error) => console.error('[telegram] 連結直開掛不上:', error))
     view.executeJavaScript(SEND_SCROLL).catch((error) => console.error('[telegram] 送出後捲到底掛不上:', error))
+    view.executeJavaScript(KEEP_FOREGROUND).catch((error) => console.error('[telegram] 前景狀態掛不上:', error))
+    syncForeground()
   })
   // 當掉的若是主分頁，其他格收不到交棒通知，只重載這一格也會被它們帶回死掉的主分頁
   view.addEventListener('render-process-gone', (event) => {
@@ -330,6 +352,10 @@ export async function refreshTelegramPage() {
   if (!initialized) {
     initialized = true
     electronAPI.pages.onVisibility(onPageVisibility)
+    electronAPI.pages.onAppFocus((focused) => {
+      appFocused = focused
+      syncForeground()
+    })
     document.addEventListener('visibilitychange', onVisibilityChanged)
     setInterval(watchStuck, WATCH_EVERY_MS)
   }

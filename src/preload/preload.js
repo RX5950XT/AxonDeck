@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_event, value) => callback(value)
       ipcRenderer.on('pages:visibility', handler)
       return () => ipcRenderer.removeListener('pages:visibility', handler)
+    },
+    onAppFocus: (callback) => {
+      const handler = (_event, value) => callback(value === true)
+      ipcRenderer.on('pages:appFocus', handler)
+      return () => ipcRenderer.removeListener('pages:appFocus', handler)
     }
   },
   screenTranslate: {

@@ -96,7 +96,8 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 ### Telegram（Web A）
 - 開著的 Web A 被外部改 hash（`loadURL` 只差 hash、`location.hash`）一律立刻彈回聊天列表（真實頁面實測）；帶回聊天室要先導到 about:blank 再整頁載。mock 測不出來，fixture 要模擬彈回。
 - 不可用 CDP `Memory.forciblyPurgeJavaScriptMemory`：Web A 約 30 秒後兩格都當掉。`simulatePressureNotification` 不當但只省約 14%。
-- 量真實 Web A 用 `Partitions/telegram` 複製到暫存（排除 LOCK、Cache、Service Worker），不開使用者的聊天室（開了可能標已讀），用完刪副本。視窗要在螢幕上且有焦點、副本含快取；螢幕外沒焦點加上排除快取時，載入後會被彈回列表，結果不能當真。
+- Web A 失焦就當背景（新訊息不捲到底、不標已讀，全部失焦還回報離線）；webview 的焦點常不在格子裡，所以看得到且 App 在前景時由 `KEEP_FOREGROUND` 補回 focus，別拿掉。
+- 量真實 Web A 用 `Partitions/telegram` 複製到暫存（排除 LOCK、Cache、Service Worker），不開使用者的聊天室（開了可能標已讀），用完刪副本。副本跟開著的 App 共用登入，更新只送到最後活躍的連線：量訊息延遲不準，還可能讓 App 晚收訊息。視窗要在螢幕上且有焦點、副本含快取；螢幕外沒焦點加上排除快取時，載入後會被彈回列表，結果不能當真。
 
 ### 專案工作區
 - 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload。`npm run lint` 的 `scripts/lint-ipc.js` 擋這三條（全模組，不只工作區）；`module.exports` 列未定義名字由 ESLint `no-undef` 擋（＝載入期 ReferenceError，單元測試抓不到）。

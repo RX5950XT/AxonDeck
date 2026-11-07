@@ -4,6 +4,12 @@
 
 ## 進行中
 
+### 資源抽屜重複計算、Telegram 跑掉、網頁閒置釋放
+- [x] 資源抽屜記憶體改獨占量（Electron `privateBytes`、子程序 `privateMemory`）
+- [x] Telegram：切回只改 hash 會被彈回列表並寫進設定 → 整頁重載；載入中回列表不寫入；最小化也算看不到
+- [x] Telegram／網頁版 AI 閒置 1 小時釋放；重開會變樣的不收
+- Review：`test-app-resources`、`test-telegram-page`（舊程式碼重現失敗）、`test-ai-web-sleep`、lint 通過；真實 Web A 驗到彈回與收格／載回。有焦點視窗＋完整 session 副本對真實 Web A 實測：載入、背景改址切回、閒置收格切回都回到原聊天室。未驗：真的最小化再還原（只測了切頁訊號）、使用者自己的群組聊天室。
+
 ### OCR 換成 Unlimited-OCR-2 Q8（取代 PaddleOCR-VL-1.6）
 - [x] 在 patch 過的 llama.cpp b11913 編 `llama.dll`＋`mtmd.dll`（BACKEND_DL，只這兩顆有改推論），疊在官方 b11913 包上
 - [x] 本機組 b11913 CUDA 執行環境＋疊加包，實測 OCR、ASR、翻譯模型都載得起來
@@ -107,3 +113,17 @@
 - 2026-10-07 CC Proxy：CLI 版本搬設定頁、MCP 四家讀寫、Skills 與記憶；v1.42.0。
 - 2026-10-06 改名 AxonDeck＋新 logo；本地模型搬進 Local SI、改走共用 llama-server router；AGY 接 Claude Code。
 - 2026-10-03～04 v1.39.x：網頁版 AI、Google 登入、全專案讀碼修 61 條 bug、Grok Cloudflare。
+
+## Review：Telegram 移進 Chat 側欄、入口可選、網頁對話狀態
+
+- Telegram 從導覽列移到 Chat 側欄，住 AI 頁主區（`setChatPaneMode('telegram')`），不再有獨立 renderer，也不能單獨開獨立視窗。入口顯示選擇存 localStorage `chatLaunchersHidden`。
+- 網頁對話每 2 秒看開著的 webview 有沒有停止鈕，生成中＝`running`，背景結束＝`done`（未讀）。
+- 已驗證：lint、test-telegram-page、test-ai-web-sleep、test-browser-mode-recycle-fix、test-window-security、e2e-side-nav；打包版隔離資料 CDP 跑側欄、選單、停放、狀態（停止鈕是注入的）。
+- 未驗證：已登入的真實 Telegram 在新位置的行為；ChatGPT／Gemini／Claude／Grok 真實停止鈕的標籤。
+
+## Review：分類右鍵、Port／資源直條、額度條移到 Chat 頁
+
+- 專案分類拿掉三點按鈕，標題按右鍵開選單。
+- Port、資源抽屜改貼右邊的直條（寬上限 420px、高上限 68vh／720px），供應商、用量統計維持整條寬。
+- 額度條從 `#wsShell` 搬到 `.chat-stage` 最下面：Agent、Chat、網頁 AI、Telegram 都有，Browser 模式藏起來。
+- 已驗證：lint、test-browser-mode-recycle-fix、e2e-usage-cdp、e2e-workspace-folders-cdp、打包版隔離資料 CDP（各模式額度條、抽屜尺寸與截圖）。

@@ -4,8 +4,10 @@
 
 Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言模型、語音轉文字、翻譯、文字轉語音、生成圖片影像、系統監控，全部放在同一個 App。語音與翻譯可以完全離線跑本地模型，也能改用雲端 API。
 
-**目前版本 v1.71.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
+**目前版本 v1.72.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
 
+> v1.72.0：Telegram 移到 Chat 側欄，側欄入口可自選，Arena、Telegram 按右鍵開獨立視窗；網頁版 AI 對話列顯示生成中與完成未讀；額度條改放 AI 頁最下方（Browser 模式不顯示），Port、資源改成右側直條彈窗；專案分類改用右鍵選單；網頁版 AI 與 Telegram 閒置會釋放記憶體，資源統計不再重複計算。
+>
 > v1.71.0：Local SI 探索一次列 100 筆，可篩 Dense／MoE 與總參數上限（滑桿），結果標出參數量與 MoE；推論區列出目前在顯卡上的模型；推薦模型改兩欄排列。
 >
 > v1.70.1：已裝 PDF GPU 加速時，下載文件辨識模型不再把 CPU 版執行環境裝回來，CPU 版可放心移除。
@@ -26,7 +28,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 | 頁面 | 做什麼 |
 |---|---|
 | **Super Intelligence** | AI 對話（雲端／本機模型）、ChatGPT／Gemini／Claude／Grok 網頁版、專案工作區＋終端機＋內建瀏覽器 |
-| **Telegram** | Telegram 網頁版，最多 4 格並排 |
+| **Telegram** | Telegram 網頁版，最多 4 格並排（入口在 Super Intelligence 的 Chat 側欄） |
 | **檔案** | 整機檔案總管，操作跟 Windows 檔案總管一樣 |
 | **語音轉文字** | 檔案轉錄、錄音機、即時字幕、全域語音輸入 |
 | **翻譯** | 文字翻譯（不限字數）、螢幕翻譯、PDF／圖片保留版面翻譯 |
@@ -57,7 +59,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 - 內建瀏覽器支援 Chrome 擴充功能（商店或本機資料夾安裝）、垂直分頁與分組、閒置 1 小時自動休眠。
 - 檔案預覽：Markdown（Mermaid、數學、程式碼上色、提示框）、HTML、Office 文件、圖片影音、超過 256MB 的文字檔唯讀分段檢視。
 
-### 額度條（終端機下方）
+### 額度條（AI 頁最下方）
 
 - 集中看 Claude Code、Codex、Antigravity、OpenCode Go、Grok、Ollama Cloud、Command Code 的已用額度與重置倒數，全部走官方端點。
 - 抽屜：**供應商**（切換 Claude Code 用哪家，非 Anthropic 走本機轉換閘道；Claude 官方訂閱可存多帳號切換）、**用量統計**（掃本機 CLI 紀錄算實際 token 與美金）、**Port**（本機在聽的埠）、**資源**（App 各頁與子程序佔用）。

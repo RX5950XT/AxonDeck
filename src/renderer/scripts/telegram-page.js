@@ -1,7 +1,7 @@
 import { electronAPI } from './app.js'
 
 /**
- * Telegram 頁：官方網頁版（Web A）放進 <webview>，可以並排多開幾格。
+ * Telegram（AI 頁 Chat 側欄的入口，主區 `setChatPaneMode('telegram')`）：官方網頁版（Web A）放進 <webview>，可以並排多開幾格。
  *
  * 每一格都用同一個 `persist:telegram`：Web A 本來就支援同帳號多分頁，
  * 所以登入一次、每一格都是登入狀態。每格頂端一條細列：✕ 關掉這格，
@@ -56,8 +56,30 @@ const SEND_SCROLL = `window.__axSendScroll || (window.__axSendScroll = true, (()
   }, true)
 })())`
 
+// Web A 不吃外部改的 hash：開著的頁面被改 hash（loadURL 或 location.hash 都一樣）會立刻彈回聊天列表。
+// 要換聊天室只能整頁重載；重載時網址也會走「聊天室 → 列表 → 聊天室」，有時最後還停在列表（真實 Web A 量到的），都不是使用者去的
+const SETTLE_MS = 15000
+// 看不到超過這麼久才收，只留第一格連線收通知；其他格導到 about:blank 放掉網頁（每格約 150–200MB，導走時正常交棒）
+const PARK_AFTER_MS = 60 * 60 * 1000
+// 在格子裡跑：重載後長得跟現在一樣才收——有打到一半的字，或往上翻著舊訊息，重載會變樣，就留著
+const CAN_PARK_PROBE = `(() => {
+  if (document.getElementById('editable-message-text')?.textContent.trim()) return false
+  const list = document.querySelector('.MessageList')
+  return !list || list.scrollHeight - list.scrollTop - list.clientHeight < 80
+})()`
+
 let initialized = false
+let loading = false
 let pageVisible = true
+/** AI 頁主區現在是不是 Telegram（對話、專案、瀏覽器都在同一頁） */
+let paneVisible = true
+let hiddenSince = 0
+/** 收掉的格子：切回來照 dataset.src 載回 @type {Set<HTMLElement>} */
+const parked = new Set()
+/** 正在載入、還沒穩定的格子 @type {WeakMap<HTMLElement, ReturnType<typeof setTimeout>>} */
+const settling = new WeakMap()
+/** 載入後被 Web A 彈回列表的格子：記住的聊天室留著下次開，但不一直重載 @type {WeakSet<HTMLElement>} */
+const bounced = new WeakSet()
 let stuckSince = 0
 let lastReloadAllAt = 0
 
@@ -112,27 +134,80 @@ function barButton(className, text, label, onClick) {
   return btn
 }
 
+const isOnScreen = () => pageVisible && paneVisible
+const isShown = () => isOnScreen() && !document.hidden
+const isHome = (url) => url.replace(/#$/, '') === HOME_URL
+
+/** 使用者看得到時，這格現在的網址就是他停的地方 */
+function rememberUrl(view, url) {
+  if (!isShown() || url === 'about:blank') return // about:blank 是關格子、重載、收格子的過渡頁
+  bounced.delete(view)
+  view.dataset.src = safeUrl(url)
+  save()
+}
+
+/** 載入中先不把「回到列表」當成使用者去的（見 SETTLE_MS）；穩定後還在列表也不蓋掉記住的聊天室，只是不再重載它 */
+function settle(view) {
+  clearTimeout(settling.get(view))
+  bounced.delete(view)
+  settling.set(view, setTimeout(() => {
+    settling.delete(view)
+    let url = ''
+    try { url = view.getURL() } catch { return } // 格子已經拿掉
+    if (isHome(url) && !isHome(view.dataset.src)) bounced.add(view)
+    else rememberUrl(view, url)
+  }, SETTLE_MS))
+}
+
 /** 全部格子先卸載再同時載回原本的聊天室（理由見 WATCH_EVERY_MS 上面） */
 async function reloadAll(why) {
   if (Date.now() - lastReloadAllAt < RELOAD_ALL_GAP_MS) return
   lastReloadAllAt = Date.now()
   stuckSince = 0
+  parked.clear()
   console.warn('[telegram] 全部格子重載:', why)
   const views = [...frame().querySelectorAll('webview')]
   const urls = views.map((view) => view.dataset.src)
   await Promise.allSettled(views.map((view) => view.loadURL('about:blank')))
-  views.forEach((view, index) => view.loadURL(urls[index]).catch(() => {}))
+  views.forEach((view, index) => {
+    settle(view)
+    view.loadURL(urls[index]).catch(() => {})
+  })
+}
+
+/** 只重載一格回原本的聊天室：先導走才是整頁重載（只改 hash 會被彈回列表，見 SETTLE_MS） */
+async function reloadPane(view, url) {
+  settle(view)
+  await view.loadURL('about:blank').catch(() => {})
+  await view.loadURL(url)
+}
+
+/** 第一格以外閒置夠久就收掉；正在出聲（通話、語音）或收了會變樣的不收 */
+async function parkIdle() {
+  if (isShown() || !hiddenSince || Date.now() - hiddenSince < PARK_AFTER_MS) return
+  for (const view of [...frame().querySelectorAll('webview')].slice(1)) {
+    if (parked.has(view)) continue
+    try {
+      if (view.isCurrentlyAudible() || !await view.executeJavaScript(CAN_PARK_PROBE) || isShown()) continue
+      parked.add(view)
+      await view.loadURL('about:blank')
+    } catch (error) {
+      parked.delete(view)
+      console.error('[telegram] 收格子失敗:', error)
+    }
+  }
 }
 
 async function watchStuck() {
-  if (!pageVisible) { stuckSince = 0; return }
+  void parkIdle()
+  if (!isOnScreen()) { stuckSince = 0; return }
   let stuck = false
   for (const view of frame().querySelectorAll('webview')) {
     try {
       if (await view.executeJavaScript(STUCK_PROBE)) stuck = true
     } catch { /* 還沒載好或正在重載 */ }
   }
-  if (!pageVisible) return
+  if (!isOnScreen()) return
   if (!stuck) {
     stuckSince = 0
   } else if (!stuckSince) {
@@ -142,19 +217,37 @@ async function watchStuck() {
   }
 }
 
-function onPageVisibility(visible) {
-  pageVisible = visible
+/** 切走（換頁、最小化）開始算閒置；切回來把收掉的載回、背景被 Web A 改掉網址的格子帶回原本的聊天室 */
+function onVisibilityChanged() {
   stuckSince = 0
-  if (!visible) return
+  if (!isShown()) {
+    hiddenSince ||= Date.now()
+    return
+  }
+  hiddenSince = 0
   for (const view of frame().querySelectorAll('webview')) {
     try {
       const url = view.dataset.src
       const currentUrl = view.getURL()
-      if (currentUrl && currentUrl !== 'about:blank' && currentUrl !== url) {
-        view.loadURL(url).catch((error) => console.error('[telegram] 還原聊天室失敗:', error))
+      const wasParked = parked.delete(view)
+      if (bounced.has(view) && !wasParked) continue
+      if (currentUrl && currentUrl !== url && (wasParked || currentUrl !== 'about:blank')) {
+        reloadPane(view, url).catch((error) => console.error('[telegram] 還原聊天室失敗:', error))
       }
     } catch { /* 還沒載好的格子會沿用建立時的網址 */ }
   }
+}
+
+function onPageVisibility(visible) {
+  pageVisible = visible
+  onVisibilityChanged()
+}
+
+/** @param {boolean} visible */
+export function setTelegramPaneVisible(visible) {
+  if (paneVisible === visible) return
+  paneVisible = visible
+  if (initialized) onVisibilityChanged()
 }
 
 /**
@@ -209,11 +302,10 @@ function mountView(pane, url) {
   view.setAttribute('allowpopups', '')
   view.dataset.src = url
   const remember = (event) => {
-    if (!pageVisible || /** @type {any} */ (event).isMainFrame === false) return
+    if (/** @type {any} */ (event).isMainFrame === false) return
     const url = /** @type {any} */ (event).url
-    if (url === 'about:blank') return // 關格子、全部重載時的過渡頁，不是使用者停的聊天室
-    view.dataset.src = safeUrl(url)
-    save()
+    if (isHome(url) && settling.has(view)) return
+    rememberUrl(view, url)
   }
   view.addEventListener('did-navigate', remember)
   view.addEventListener('did-navigate-in-page', remember)
@@ -227,14 +319,35 @@ function mountView(pane, url) {
   })
 
   pane.append(view)
+  settle(view)
   view.setAttribute('src', url) // 幾格同時載，不排隊
 }
 
-/** 第一次切進來才建：沒點過 Telegram 就不去連線 */
+/** 第一次切進來才建：沒點過 Telegram 就不去連線；彈成獨立視窗後收掉，回來再照存檔建 */
 export async function refreshTelegramPage() {
-  if (initialized || !frame()) return
-  initialized = true
-  electronAPI.pages.onVisibility(onPageVisibility)
+  if (!frame() || loading || frame().children.length) return
+  loading = true
+  if (!initialized) {
+    initialized = true
+    electronAPI.pages.onVisibility(onPageVisibility)
+    document.addEventListener('visibilitychange', onVisibilityChanged)
+    setInterval(watchStuck, WATCH_EVERY_MS)
+  }
   ;(await loadSaved()).forEach(addPane)
-  setInterval(watchStuck, WATCH_EVERY_MS)
+  loading = false
+}
+
+/** 要彈成獨立視窗：這邊全部卸載交棒（見 closePane），聊天室已存在 telegramPanes，那邊照著開 */
+export async function closeTelegramPanes() {
+  const panes = [...(frame()?.querySelectorAll('.telegram-pane') || [])]
+  parked.clear()
+  const unload = async (pane) => { await pane.querySelector('webview').loadURL('about:blank') }
+  await Promise.race([Promise.allSettled(panes.map(unload)), new Promise((resolve) => setTimeout(resolve, 1500))])
+  panes.forEach((pane) => pane.remove())
+}
+
+/** 獨立視窗那份：格子改放進 #page-telegram（AI 頁主區在這個視窗看不到） */
+export function mountTelegramPopup() {
+  document.getElementById('page-telegram')?.append(frame())
+  return refreshTelegramPage()
 }

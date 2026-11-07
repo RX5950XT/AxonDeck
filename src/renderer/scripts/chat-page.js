@@ -11,6 +11,7 @@
 
 import { showToast, electronAPI, cleanIpcError, openSettingsPage, setChatPaneMode, getChatPaneEpoch } from './app.js'
 import { noteLocation } from './nav-history.js'
+import { initChatLaunchers } from './chat-launchers.js'
 import { renderMarkdown } from './markdown.js'
 import { createChatSidebar } from './chat-sidebar.js'
 import { openParamsDialog, countParams } from './chat-params-panel.js'
@@ -112,6 +113,8 @@ let sidebar = null
  * @type {Map<string, Stream>}
  */
 const streams = new Map()
+/** 網頁版對話裡正在生成的（ai-web-page.js 回報） @type {Set<string>} */
+const webRunning = new Set()
 /** 在背景跑完、還沒被看過的對話 @type {Map<string, { state: 'done'|'error', error: string }>} */
 const finished = new Map()
 /** 畫面上那顆「回應中」泡泡屬於哪個對話 @type {{ id: string, contentEl: HTMLElement, bodyEl: HTMLElement, thinkBody: HTMLElement | null } | null} */
@@ -178,7 +181,7 @@ export function initChatPage() {
     btn.addEventListener('click', () => void handleNew('', /** @type {HTMLElement} */ (btn).dataset.aiWeb))
   })
   document.getElementById('chatNewFolderBtn')?.addEventListener('click', () => void sidebar.createFolder())
-  document.getElementById('chatArenaBtn')?.addEventListener('click', () => void import('./ai-web-page.js').then((m) => m.openArena()))
+  initChatLaunchers(() => (currentId ? openConversation(currentId) : setChatPaneMode('chat')))
   paramsBtn?.addEventListener('click', () => void handleParams())
   modelSelect?.addEventListener('change', handleModelChange)
   promptSelect?.addEventListener('change', handlePromptChange)
@@ -229,8 +232,20 @@ export async function refreshChatPage() {
  * @returns {'running'|'done'|'error'|''}
  */
 function statusOf(id, conv) {
-  if (streams.has(id) || conv?.streaming) return 'running'
+  if (streams.has(id) || conv?.streaming || webRunning.has(id)) return 'running'
   return finished.get(id)?.state || ''
+}
+
+/**
+ * @param {string} id
+ * @param {'running'|'done'|''} state
+ */
+function onWebStatus(id, state) {
+  if (state === 'running') webRunning.add(id)
+  else webRunning.delete(id)
+  if (state === 'done') finished.set(id, { state, error: '' })
+  else finished.delete(id)
+  sidebar.render()
 }
 
 /**
@@ -272,9 +287,10 @@ async function openConversation(id) {
   currentIsWeb = !!conv.web
   if (conv.web) {
     hideError()
+    finished.delete(conv.id)
     sidebar.render()
     const m = await import('./ai-web-page.js')
-    if (seq === openSeq) m.openAiWeb(conv, () => void sidebar.reload())
+    if (seq === openSeq) m.openAiWeb(conv, () => void sidebar.reload(), onWebStatus)
     return
   }
   // 聊天與終端機同頁：點對話就是切回對話主區

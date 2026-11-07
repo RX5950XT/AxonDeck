@@ -301,7 +301,7 @@ const STORE_ALLOWLIST = new Set([
   'theme',
   'closeToTray',
   'autoUpdate',
-  // Telegram 頁多開的每一格停在哪（網址），renderer 那邊不存 localStorage：
+  // Telegram 多開的每一格停在哪（網址），renderer 那邊不存 localStorage：
   // 結束走 app.exit()，localStorage 最後幾秒的寫入會掉
   'telegramPanes',
   'subtitleFontScale',
@@ -1086,7 +1086,7 @@ function createMainWindow() {
  * 把那個視窗叫到前面。功能頁還沒建好或開不起來才退回系統瀏覽器。
  * @param {string} url 已確認是 http(s)
  * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
- * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的（Telegram 等），開在 Browser 模式
+ * @param {'' | 'browser'} [target] 'browser'＝從 Telegram 或 AI 頁以外點的，開在 Browser 模式
  */
 function openInProjectBrowser(url, project = '', target = '', sourceGuestId = 0) {
   const outside = () => {
@@ -1117,6 +1117,8 @@ scriptLaunch.setOpenUrl(openInProjectBrowser)
  * @returns {'' | 'browser'}
  */
 function linkTarget(contents) {
+  // Telegram 跟對話同一頁，但它不是對話：連結一樣開在 Browser 模式
+  if (contents.session === session.fromPartition('persist:telegram')) return 'browser'
   const chat = pageWindows?.contents('chat')
   return chat && (contents === chat || contents.hostWebContents === chat) ? '' : 'browser'
 }
@@ -2765,7 +2767,7 @@ app.on('web-contents-created', (_event, contents) => {
       void browserWindow.open(url, '', null, 0, true)
       return { action: 'deny' }
     }
-    // Telegram 等 AI 頁以外的 webview 點的連結開在 Browser 模式
+    // Telegram 的 webview 點的連結開在 Browser 模式（linkTarget）
     if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(contents))
     return { action: 'deny' }
   })

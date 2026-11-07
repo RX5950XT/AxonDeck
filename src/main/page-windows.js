@@ -2,15 +2,18 @@
 const { isInternalBrowserUrl } = require('../shared/browser-url.mjs')
 const { DEV_URL } = require('./dev-url')
 
-const { BrowserWindow, WebContentsView } = require('electron')
+const { BrowserWindow, WebContentsView, webContents } = require('electron')
 const fs = require('fs')
 const path = require('path')
 
 const indexFile = path.join(__dirname, '../renderer/index.html')
 const navHtml = fs.readFileSync(indexFile, 'utf8')
-const pageNames = [...navHtml.matchAll(/class="nav-tab[^"]*" data-page="(\w+)"/g)].map((m) => m[1])
+/** 沒有導覽鈕、只開成獨立視窗的頁：平常住在 AI 頁主區，右鍵才彈出來；關掉就整份收掉，回到主區重開 */
+const POPUP_ONLY = new Set(['telegram', 'arena'])
+const pageNames = [...navHtml.matchAll(/class="nav-tab[^"]*" data-page="(\w+)"/g)].map((m) => m[1]).concat([...POPUP_ONLY])
 /** 彈出視窗的標題（工作列看的就是它）：沿用導覽列那顆的 aria-label */
-const pageLabels = new Map([...navHtml.matchAll(/class="nav-tab[^"]*" data-page="(\w+)"[^>]*aria-label="([^"]+)"/g)].map((m) => [m[1], m[2]]))
+const pageLabels = new Map([...navHtml.matchAll(/class="nav-tab[^"]*" data-page="(\w+)"[^>]*aria-label="([^"]+)"/g)].map((m) => [m[1], m[2]])
+  .concat([['telegram', 'Telegram'], ['arena', 'Arena']]))
 
 /** 每頁只有一份 renderer；收回只搬 view，不重載、不複製草稿或工作。 */
 function createPageWindows({ main, isDev, icon, background, secure, hidden, onShown = () => {} }) {
@@ -72,7 +75,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden, onSh
     if (entries.has(page)) return entries.get(page)
     const view = new WebContentsView({ webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
-      webviewTag: page === 'chat' || page === 'telegram', spellcheck: false,
+      webviewTag: page === 'chat' || POPUP_ONLY.has(page), spellcheck: false,
       preload: path.join(__dirname, '../preload/preload.js')
     } })
     view.setBackgroundColor(background())
@@ -119,6 +122,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden, onSh
 
   async function navigate(request, detach = false, record = true) {
     const data = validateRequest(request)
+    detach = detach || POPUP_ONLY.has(data.page)
     const sequence = ++revision
     const entry = ensure(data.page)
     if (!detach && !entry.popup) { pendingPage = data.page; publish() }
@@ -147,7 +151,7 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden, onSh
   async function prewarm(pages) {
     for (const page of pages) {
       if (disposed) return
-      if (entries.has(page) || !pageNames.includes(page)) continue
+      if (entries.has(page) || !pageNames.includes(page) || POPUP_ONLY.has(page)) continue
       const entry = ensure(page)
       try {
         await entry.ready
@@ -160,12 +164,29 @@ function createPageWindows({ main, isDev, icon, background, secure, hidden, onSh
     }
   }
 
+  /** 裡面的網頁先導走再關：Web A 只在 beforeunload 交棒，直接關會讓之後開的格子卡在連線中 */
+  function retire(entry) {
+    entries.delete(entry.page)
+    const contents = entry.view.webContents
+    const guests = webContents.getAllWebContents().filter((wc) => wc.hostWebContents === contents)
+    const unloaded = Promise.allSettled(guests.map((guest) => guest.loadURL('about:blank')))
+    const close = () => { if (!contents.isDestroyed()) contents.close() }
+    Promise.race([unloaded, new Promise((resolve) => setTimeout(resolve, 1500))]).then(close, close)
+  }
+
   function dock(entry) {
     if (!entry.popup || disposed) return
     ++revision
     const popup = entry.popup
     popup.contentView.removeChildView(entry.view)
     entry.popup = null
+    if (POPUP_ONLY.has(entry.page)) {
+      retire(entry)
+      popup.destroy()
+      if (!hidden) { if (main.isMinimized()) main.restore(); main.show(); main.focus() }
+      publish()
+      return
+    }
     // 主視窗正在顯示別頁就維持原畫面，收回的頁先藏著；主視窗沒頁可顯示才換過去
     if (current) visibility(entry, false)
     else {

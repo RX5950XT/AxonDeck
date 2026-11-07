@@ -601,7 +601,10 @@ let drawerOpen = ''
 function setDrawer(name) {
   drawerOpen = name
   const drawer = byId('quotaDrawer')
-  if (drawer) drawer.hidden = !name
+  if (drawer) {
+    drawer.hidden = !name
+    drawer.classList.toggle('is-narrow', name === 'ports' || name === 'resources')
+  }
   for (const [key, ids] of Object.entries(DRAWERS)) {
     const panel = byId(ids.panel)
     if (panel) panel.hidden = key !== name

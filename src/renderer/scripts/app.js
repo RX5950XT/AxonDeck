@@ -69,7 +69,7 @@ async function loadTranscribePage() {
   return transcribePage
 }
 
-/** 工作區底下那條訂閱額度。 @returns {Promise<typeof import('./quota-bar.js')>} */
+/** AI 頁主區底下那條訂閱額度。 @returns {Promise<typeof import('./quota-bar.js')>} */
 async function loadQuotaBar() {
   if (!quotaBar) quotaBar = await import('./quota-bar.js')
   return quotaBar
@@ -144,10 +144,10 @@ export async function openFolderInWorkspace(full) {
 /**
  * 網址留在 App 裡，在哪裡點就開在哪裡（main 的外連、終端機連結都走這裡）：
  * Agent（工作區）→ 專案瀏覽器分頁；對話／網頁版 AI → 右側瀏覽器；
- * Browser 模式、其他功能頁（Telegram 等）→ Browser 模式的新分頁。三處同一個 partition。
+ * Browser 模式、Telegram、其他功能頁 → Browser 模式的新分頁。三處同一個 partition。
  * @param {string} url http(s)
  * @param {string} [project] 指定專案（專案腳本開的網址）
- * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的，一律開在 Browser 模式
+ * @param {'' | 'browser'} [target] 'browser'＝從 Telegram 或 AI 頁以外點的，一律開在 Browser 模式
  */
 export async function openUrlInApp(url, project = '', target = '', sourceGuestId = 0) {
   if (pageOwner && pageOwner !== 'chat') return navigateToPage({ page: 'chat', action: 'browser', full: url, project, target: target === 'tab' ? 'tab' : 'browser', sourceGuestId })
@@ -878,9 +878,10 @@ function initNavigation() {
 /**
  * 聊天與工作區共用同一頁：主區要顯示哪一個由最後點選的側欄項目決定。
  * 'chat'＝對話主區、'workspace'＝工作區主區（分頁列＋終端機／編輯器／瀏覽器）、
- * 'web'＝AI 網頁版（ChatGPT／Gemini／Claude／Grok，見 ai-web-page.js）、'browser'＝獨立瀏覽器（browser-page.js）。
+ * 'web'＝AI 網頁版（ChatGPT／Gemini／Claude／Grok，見 ai-web-page.js）、'browser'＝獨立瀏覽器（browser-page.js）、
+ * 'telegram'＝Telegram（telegram-page.js）。
  * 切分頁時保持原樣，不重置。
- * @type {'chat' | 'workspace' | 'web' | 'browser'}
+ * @type {'chat' | 'workspace' | 'web' | 'browser' | 'telegram'}
  */
 let chatPaneMode = 'chat'
 /** 主區真的換過一次就加一。晚回來的對話載入用這個判斷自己是不是舊的。 */
@@ -959,10 +960,10 @@ let lastNonBrowserPane = 'chat'
 
 /**
  * @param {string} last
- * @returns {'chat' | 'workspace' | 'web'}
+ * @returns {'chat' | 'workspace' | 'web' | 'telegram'}
  */
 export function paneAfterLeavingBrowser(last) {
-  return last === 'workspace' || last === 'web' ? last : 'chat'
+  return last === 'workspace' || last === 'web' || last === 'telegram' ? last : 'chat'
 }
 
 function initSidebarModes() {
@@ -990,12 +991,12 @@ function initSidebarModes() {
 }
 
 /**
- * 離開 Browser 模式不用 display:none：webview 會丟掉畫好的圖塊，切回來整頁重畫（毛玻璃多的網站最長一幀 50–110ms）。
+ * 離開 Browser／Telegram 不用 display:none：webview 會丟掉畫好的圖塊，切回來整頁重畫（毛玻璃多的網站最長一幀 50–110ms）。
  * 改成凍結在原位置、原尺寸（含 is-browser 才有的 padding）透明疊到底下，切回來尺寸不變、直接接著畫。
  * @param {HTMLElement} main
  * @param {boolean} show
  */
-function parkBrowserMain(main, show) {
+function parkPane(main, show) {
   if (show) {
     main.classList.remove('hidden', 'is-parked')
     main.style.cssText = ''
@@ -1019,16 +1020,32 @@ function parkBrowserMain(main, show) {
   main.inert = true
 }
 
+/** 點過 Telegram 才載它的程式；之後每次換主區都告訴它看不看得到（閒置釋放、記聊天室都看這個） */
+let telegramOpened = false
+
+function syncTelegramPane(mode) {
+  const telegramMain = document.getElementById('telegramMain')
+  if (telegramMain) parkPane(telegramMain, mode === 'telegram')
+  document.getElementById('chatPanel')?.classList.toggle('is-telegram', mode === 'telegram')
+  telegramOpened ||= mode === 'telegram'
+  if (!telegramOpened) return
+  import('./telegram-page.js').then((m) => {
+    m.setTelegramPaneVisible(chatPaneMode === 'telegram')
+    if (mode === 'telegram') void m.refreshTelegramPage()
+  })
+}
+
 export function setChatPaneMode(mode) {
-  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser') return
+  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser' && mode !== 'telegram') return
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
   if (mode !== 'browser') lastNonBrowserPane = mode
+  syncTelegramPane(mode) // 先量好尺寸再動別的主區
   document.getElementById('aiWebMain')?.classList.toggle('hidden', mode !== 'web')
   if (mode !== 'web') document.getElementById('chatPanel')?.classList.remove('is-arena')
   // 先在 is-browser 還在時量好尺寸再停放
   const browserMain = document.getElementById('browserMain')
-  if (browserMain) parkBrowserMain(browserMain, mode === 'browser')
+  if (browserMain) parkPane(browserMain, mode === 'browser')
   document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
   const chatMain = document.getElementById('chatMain')
@@ -1045,8 +1062,9 @@ export function setChatPaneMode(mode) {
   // 工作區主區剛從 display:none 顯現，xterm 要等這一幀才 fit 得準
   if (mode === 'workspace') {
     loadTerminalPage().then((m) => m.refreshTerminalPage())
-    loadQuotaBar().then((m) => m.refreshQuotaBar())
   }
+  // Arena 獨立視窗也走這裡，但那裡看不到額度條
+  if (mode !== 'browser' && (!pageOwner || pageOwner === 'chat')) loadQuotaBar().then((m) => m.refreshQuotaBar())
   noteLocation()
 }
 
@@ -1068,7 +1086,6 @@ export function switchPage(pageName, subtab = '') {
   pages.forEach(page => {
     const on = page.id === `page-${pageName}`
     page.classList.toggle('active', on)
-    // Telegram 切走時只是透明疊在底下（見 main.css），不 inert 的話 Tab 還摸得到那幾格
     page.inert = !on
   })
   // 先啟動新頁 acquire，再 release 舊頁，避免中間 owner 歸零觸發 unload＋重付 warm
@@ -1079,7 +1096,9 @@ export function switchPage(pageName, subtab = '') {
     loadWorkspacePage().then((m) => m.refreshWorkspacePage())
     setChatPaneMode(chatPaneMode)
   }
-  if (pageName === 'telegram') import('./telegram-page.js').then((m) => m.refreshTelegramPage())
+  // 只有 Telegram、Arena 的獨立視窗會切到這兩頁（別的頁在上面就轉給 main 了）
+  if (pageName === 'telegram') import('./telegram-page.js').then((m) => m.mountTelegramPopup())
+  if (pageName === 'arena') import('./ai-web-page.js').then((m) => m.mountArenaPopup())
   if (pageName === 'explorer') loadExplorerPage().then((m) => m.refreshExplorerPage())
   if (pageName === 'hfmodels') loadHfPage().then((m) => {
     m.start()

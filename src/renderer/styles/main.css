@@ -2142,14 +2142,22 @@ option:disabled:checked {
   color: var(--danger);
 }
 
-/* ── 側欄：一排五顆「新增對話」（Local＋四家網頁版）、搜尋列帶資料夾鈕、Arena 釘選列 ── */
+/* ── 側欄：一排「新增對話」（Local＋四家網頁版）、搜尋列帶資料夾與顯示選擇鈕、Arena／Telegram 釘選列 ── */
 .chat-panel-actions {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  display: flex;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+.chat-panel-actions[hidden],
+.chat-panel-actions .btn[hidden],
+.chat-pinned[hidden],
+.chat-arena-entry[hidden] {
+  display: none;
 }
 
 .chat-panel-actions .btn {
+  flex: 1;
   justify-content: center;
   min-width: 0;
   height: 32px;
@@ -2200,13 +2208,23 @@ option:disabled:checked {
   stroke-linejoin: round;
 }
 
-/* Arena 不是對話：像清單列但固定在最上面，底下一條細線跟對話隔開 */
+/* Arena、Telegram 不是對話：像清單列但固定在最上面，底下一條細線跟對話隔開；兩個都顯示時各佔一半 */
+.chat-pinned {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.chat-pinned.is-split .chat-arena-meta {
+  display: none;
+}
+
 .chat-arena-entry {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 9px;
-  flex-shrink: 0;
-  width: 100%;
+  min-width: 0;
   padding: 8px 11px;
   border: 1px solid transparent;
   border-radius: var(--radius-control, var(--radius-sm));
@@ -2231,7 +2249,10 @@ option:disabled:checked {
 }
 
 .chat-arena-name {
+  overflow: hidden;
   color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-arena-meta {
@@ -2241,19 +2262,21 @@ option:disabled:checked {
   white-space: nowrap;
 }
 
-.chat-arena-entry + .chat-list {
+.chat-search-row + .chat-list {
   padding-top: 8px;
   border-top: 1px solid var(--border-color);
 }
 
-/* 正在看 Arena：它亮、清單上原本選中的那則退回一般樣子（免得兩個都像選中） */
-#chatPanel.is-arena .chat-arena-entry {
+/* 正在看 Arena／Telegram：它亮、清單上原本選中的那則退回一般樣子（免得兩個都像選中） */
+#chatPanel.is-arena #chatArenaBtn,
+#chatPanel.is-telegram #chatTelegramBtn {
   border-color: var(--glass-border-strong, var(--border-color));
   background: var(--surface-hover, var(--bg-tertiary));
   color: var(--accent-primary);
 }
 
-#chatPanel.is-arena .chat-list-item.active {
+#chatPanel.is-arena .chat-list-item.active,
+#chatPanel.is-telegram .chat-list-item.active {
   border-color: transparent;
   background: transparent;
   color: var(--text-secondary);
@@ -4129,7 +4152,30 @@ webview {
   text-align: right;
 }
 
-/* ── 工作區外框：上面一列主區＋右側欄，額度條在下面整條（index.html #wsShell） ── */
+/* ── 側欄右邊：上面一列主區，額度條在下面整條（index.html .chat-stage）── */
+.chat-stage,
+.chat-stage-row {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: 4px;
+}
+
+.chat-stage {
+  flex-direction: column;
+}
+
+.chat-layout.is-workspace :is(.chat-stage, .chat-stage-row),
+.chat-layout.is-browser :is(.chat-stage, .chat-stage-row) {
+  gap: 2px;
+}
+
+.chat-layout.is-browser .quota-bar {
+  display: none;
+}
+
+/* ── 工作區外框：主區＋右側欄（index.html #wsShell） ── */
 .ws-shell {
   display: flex;
   flex-direction: column;
@@ -4186,8 +4232,9 @@ webview {
   min-width: 0;
 }
 
-/* 離開 Browser 模式：凍結原位置與尺寸、透明疊到底下，圖塊留著（見 app.js parkBrowserMain） */
-.browser-main.is-parked {
+/* 離開 Browser／Telegram：凍結原位置與尺寸、透明疊到底下，圖塊留著（見 app.js parkPane） */
+.browser-main.is-parked,
+.telegram-main.is-parked {
   position: absolute;
   z-index: -1;
   opacity: 0;
@@ -5907,24 +5954,6 @@ body.is-col-resizing webview {
 .proj-list-item .chat-list-open {
   gap: 1px;
   padding: 6px 10px;
-}
-
-#projList .proj-folder-btn {
-  flex: none;
-  width: auto;
-  min-width: 28px;
-  padding: 4px;
-  opacity: 1;
-  font-size: 11px;
-}
-
-.proj-folder-btn svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 3;
-  stroke-linecap: round;
 }
 
 #projList .chat-folder-name {
@@ -7842,6 +7871,11 @@ h6.md-h { font-size: 14px; }
     flex-direction: column;
     gap: 8px;
     padding: 8px;
+  }
+
+  .chat-stage-row {
+    flex-direction: column;
+    gap: 8px;
   }
 
   .chat-sidebar {
@@ -14111,14 +14145,16 @@ h6.md-h { font-size: 14px; }
   min-height: 0;
 }
 
-/* ===== Telegram（<webview> 滿版）===== */
+/* ===== Telegram（<webview> 填滿 AI 頁主區或獨立視窗）===== */
 
-.content:has(#page-telegram.active) {
+.content:has(#page-telegram.active),
+.content:has(#page-arena.active) {
   padding: 0;
   overflow: hidden;
 }
 
-#page-telegram.active {
+#page-telegram.active,
+#page-arena.active {
   display: flex;
   height: 100%;
   min-height: 0;
@@ -14127,20 +14163,17 @@ h6.md-h { font-size: 14px; }
 /*
  * 切走時不可以 display:none／visibility:hidden：webview 會被當成藏起來、圖塊全丟，
  * 切回來 GPU 要把每一格重畫一遍，主視窗整個卡 0.3–0.9 秒（3 格實測）。
- * 改成原尺寸疊在底下、透明、點不到：圖塊留著，切回來 ~25ms；藏著時 Chromium 不畫透明層，CPU 一樣省。
+ * 改成原尺寸疊在底下、透明、點不到（app.js parkPane）：圖塊留著，切回來 ~25ms；藏著時 Chromium 不畫透明層，CPU 一樣省。
  */
 .main-content {
   position: relative;
 }
 
-#page-telegram:not(.active) {
+.telegram-main {
+  flex: 1;
   display: flex;
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  opacity: 0;
-  pointer-events: none;
-  animation: none;
+  min-width: 0;
+  min-height: 0;
 }
 
 .telegram-frame {
@@ -15559,7 +15592,7 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   .ex-preview-markdown { padding: 16px; }
 }
 
-/* ── 訂閱額度條：工作區主區最下面那一條（quota-bar.js） ──
+/* ── 訂閱額度條：AI 頁主區最下面那一條，Browser 模式不顯示（quota-bar.js） ──
    以前的額度頁收成一條：一家一顆，顆上是每個視窗的小量表，點開是原本那張卡片。
    provider 色只落在那顆小圓點，狀態色只落在量表（跟卡片同一套規矩）。 */
 .quota-bar {
@@ -15810,18 +15843,14 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   border-left: 1px solid var(--border-light);
 }
 
-/* Port 抽屜是整條寬：清單排成多欄，分組標題橫跨整列 */
-.quota-drawer .ws-port-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  column-gap: 12px;
+/* Port、資源：貼著條右邊的直條彈窗，內容短也維持直條 */
+.quota-drawer.is-narrow {
+  left: auto;
+  width: min(420px, 100%);
+  height: min(68vh, 720px);
 }
 
-.quota-drawer .ws-port-group {
-  grid-column: 1 / -1;
-}
-
-/* 資源抽屜：部分｜程序數｜CPU｜記憶體｜記憶體佔比條 */
+/* 資源：部分｜程序數｜CPU｜記憶體，記憶體佔比條排在該列下面 */
 .res-list {
   display: flex;
   flex-direction: column;
@@ -15830,9 +15859,9 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
 
 .res-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px 64px 84px minmax(60px, 160px);
+  grid-template-columns: minmax(0, 1fr) 32px 48px 72px;
   align-items: center;
-  gap: 12px;
+  gap: 4px 8px;
   min-height: 26px;
   padding: 2px 8px;
   border-radius: var(--radius-sm);
@@ -15862,8 +15891,13 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   text-align: right;
 }
 
+.res-head > :not(:first-child) {
+  text-align: right;
+}
+
 .res-meter {
-  height: 6px;
+  grid-column: 1 / -1;
+  height: 4px;
   overflow: hidden;
   border-radius: 3px;
   background: var(--bg-tertiary);

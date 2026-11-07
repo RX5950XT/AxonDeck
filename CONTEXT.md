@@ -8,8 +8,7 @@ AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置�
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
-| Super Intelligence | `chat` | 側欄 Agent（專案）／Chat（對話）／Browser；主區 `setChatPaneMode('chat'\|'workspace'\|'web')` |
-| Telegram | `telegram` | Web A 放 `<webview>`，最多 4 格、共用 `persist:telegram` |
+| Super Intelligence | `chat` | 側欄 Agent（專案）／Chat（對話）／Browser；主區 `setChatPaneMode('chat'\|'workspace'\|'web'\|'browser'\|'telegram')`；Chat 側欄入口可勾選顯示（`chat-launchers.js`） |
 | 檔案 | `explorer` | 整機檔案總管＋UFFS 搜尋 |
 | 語音轉文字 | `stt` | 檔案轉錄、錄音機、即時字幕、語音輸入 |
 | 翻譯 | `translate` | 文字／螢幕／PDF 翻譯、術語表、EdgeTTS（跟模型按鈕同一排） |
@@ -19,7 +18,7 @@ AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置�
 | Local SI | `hfmodels` | 執行環境（含推薦）／探索；llama-server router 一顆程序管全部模型 |
 | 設定 | `settings` | 雲端模型／基本／外觀／AGY 反代／安裝／CLI 版本 |
 
-原 CC Proxy 頁已拆：供應商與用量統計是工作區額度條的抽屜，MCP／Skills 是專案分頁，AGY 與 CLI 版本在設定頁；邏輯仍在 `ccswitch-page.js`。導覽順序存 localStorage `navOrder`，圖示在 `ws-tool-icons.js` 的 `toolIcon`。
+原 CC Proxy 頁已拆：供應商與用量統計是額度條的抽屜，MCP／Skills 是專案分頁，AGY 與 CLI 版本在設定頁；邏輯仍在 `ccswitch-page.js`。導覽順序存 localStorage `navOrder`，圖示在 `ws-tool-icons.js` 的 `toolIcon`。
 
 ## 跨模組架構
 
@@ -78,6 +77,7 @@ native/
 - Local 對話：思考強度 8 檔（`chatThinking`）；生圖模型換成比例／解析度選單（`chatImageOptions`，auto 從提示詞猜），沒附圖時拿上一張生成圖當參考；圖片右上下載鈕（`chat:saveImage`）。不同對話可同時回應。
 - 網頁版對話存 `chats.json` 的 `web: { site, url, title }`；分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`（UA 偽裝 Chrome、`ai-web-shim.js`、`Sec-CH-UA`、權限只給剪貼簿／全螢幕／麥克風）。
 - Cloudflare：Grok 用 `grok-clearance.js` 借 Edge／Chrome 拿 `cf_clearance`；其他分區 `installChallengeFallback` 看到 `cf-mitigated: challenge` 就把該分頁改回 Electron 原 UA 重載。另有「無套件相容視窗」（`persist:wsbrowser-clean`）。
+- 閒置釋放（`sleepIdleAiWeb`）：切走超過 1 小時的網頁版對話整顆 webview 拿掉，點回照網址重建；有打到一半的字、還在生成（找停止鈕）、往上翻著、正在出聲的不收。回歸 `test-ai-web-sleep.js`。
 - 順暢度：`installRenderBoost` 對 ChatGPT／Gemini／Grok 的訊息節點插 `content-visibility:auto`（選擇器改版就失效，退回原樣）。
 - 外連開在哪：Agent 模式 → 專案瀏覽器分頁；對話／網頁版 AI → 右側 `chat-browser.js`；Browser 模式與 SI 以外 → Browser 模式新分頁（`browser-page.js`，分頁與群組存 localStorage `browserTabs`，垂直分頁可拖曳分組）。空白分頁開 Infinity New Tab（`NEWTAB_URL`）。
 - 分頁右鍵「彈出獨立視窗」走 `browser-window.js`：main 自建 WebContentsView，首次載入前還原整串歷史（webview 搬不了視窗）。
@@ -89,7 +89,7 @@ native/
 
 ### 專案工作區與終端機
 - 專案＝本機資料夾（`workspaces.json`，含 `tabsState`、`folders`、`folderId`、`setupScript`）。分類沿用 Chat 資料夾（`ws-project-folders.js`），刪分類只移回未分類。
-- 右側欄四顆：檔案樹／Git／AI 記錄／MCP・Skills（開成 `cc-tools` 分頁，一專案一個）。主區＋右側欄包在 `#wsShell`，額度條 `quota-bar.js` 在最下面橫跨兩者。
+- 右側欄四顆：檔案樹／Git／AI 記錄／MCP・Skills（開成 `cc-tools` 分頁，一專案一個）。主區＋右側欄包在 `#wsShell`；額度條 `quota-bar.js` 在外層 `.chat-stage` 最下面，Agent、Chat、網頁 AI、Telegram 共用，Browser 模式藏起來。
 - Git 面板按鈕依狀態（`paintGitActions`）：暫存區空就「全部提交 N 個」＝`add -A`；沒上游時「發布分支」＝`push -u origin HEAD`；GitHub 鈕 `githubUrl`。
 - 專案全文搜尋走 Rust `search`（平行讀檔，結果與 JS 版一致）；新查詢停止舊查詢。
 - AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity；IPC 分段讀、renderer 接成完整單頁；Ctrl+F 搜尋全文與工具內容。
@@ -120,7 +120,7 @@ native/
 
 ### 額度條、用量統計、Claude Code 供應商、AGY 反代
 - 額度：七家官方端點（`usage.json`），條看得到且快取超過 60 秒自動同步。背景 `quota-watch.js` 每 5 分鐘 tick、30 分鐘同步（帶 `--user-data-dir` 不跑）；提醒 `quota-alerts.js`、預熱 `warmup.js`（CLI 送 hi，工作目錄 `userData/warmup`），記號存 `usage-watch.json`。
-- 條左「供應商」「用量統計」、右「Port」「資源」都是向上展開的抽屜（點條外或 Esc 收）。Port：`renderPorts` 對每個埠打 HTTP 判斷是不是網頁；資源：`app-resources.js` 用 `getAppMetrics` 對頁／網站，子程序從取樣器清單找子孫。
+- 條左「供應商」「用量統計」、右「Port」「資源」都是向上展開的抽屜（點條外或 Esc 收）；Port、資源是貼右邊的直條（`.is-narrow`），另外兩個整條寬。Port：`renderPorts` 對每個埠打 HTTP 判斷是不是網頁；資源：`app-resources.js` 用 `getAppMetrics` 對頁／網站，子程序從取樣器清單找子孫；記憶體一律算獨占量（`privateBytes`／`privateMemory`），不用 working set（共用部分會重複算）。
 - Claude 多帳號：併在「Claude 官方訂閱」供應商卡；切換＝換 `.credentials.json` 的 `claudeAiOauth`＋`.claude.json` 的 `oauthAccount`。
 - 用量統計：Rust `usage-scan` 掃本機紀錄，每小時桶＋游標存 `code-usage.json`，第一次開抽屜才載；不限保留期。Antigravity 讀 CLI 的 `conversations/<id>.db`（protobuf 實測反推）＋AGY 日誌；IDE 用量讀不到。
 - 重讀不丟資料：每個游標記 `contrib`；檔案被刪移進 `archive`，整份重讀時加回。Codex `.jsonl.zst` 解壓後算位移；Grok 子代理預設跳過（`resolveSubagents`）；Claude resume／fork 跨檔去重。
@@ -174,8 +174,14 @@ native/
 - 安裝（`app-installer/`）：WinGet 用 node-pty 跑讀進度；同時 3 筆、MSI 互撞重試；失敗依序改管理員靜默→原廠安裝畫面；`SELF_UPDATERS`（iCUE、gcloud）；Google App 走官方 stub 並驗簽章。`inventory.js` 依安裝實例定位，移除程式不存在時可「清除失效紀錄」（先備份）。
 - 更新：手動「重新啟動並安裝」顯示進度；結束 App 時靜默；關機登出不裝。`electron:build` 走 `pack-preview.js --release`（lint→磁碟根 NSIS→驗 asar／`app-update.yml`／latest.yml→同步回 dist）。
 
+### 網頁版 AI 狀態
+- 只看開著的 webview 有沒有停止鈕（`pollAiWebStatus`，2 秒）：側欄顯示回應中／已完成（未讀）；沒開過、App 重開後的對話沒有狀態。按鈕標籤改版就抓不到。
+
 ### Telegram
-- 各格同時載、切走不卸載；用 `opacity:0`＋`position:absolute` 藏（display:none 會丟圖塊）。每 20 秒探各格，卡住 60 秒或當掉就依序重載；當機記到 `userData/crash.log`。
+- 不是導覽頁：入口在 Chat 側欄，住在 AI 頁主區（`#telegramMain`）。Telegram、Arena 右鍵開獨立視窗（`POPUP_ONLY`，各一份 renderer）：主區那份先卸載、視窗照存檔開；收回（關閉或最小化）就整份收掉，下次點回主區重開。Arena 會重新載入。
+- 各格同時載；用 `opacity:0`＋`position:absolute` 藏（display:none 會丟圖塊，`parkPane`）。每 20 秒探各格，卡住 60 秒或當掉就依序重載；當機記到 `userData/crash.log`。
+- 記住的聊天室（`dataset.src`→`telegramPanes`）只在看得到（`pageVisible`、`paneVisible` 且 `!document.hidden`）時更新；載入後 15 秒內（`SETTLE_MS`）回列表不算使用者去的，穩定後還在列表也不蓋掉，只標 `bounced` 不再重載。切回發現網址被改：先 about:blank 再整頁載回。
+- 閒置釋放：看不到超過 1 小時，第一格以外導到 about:blank（第一格留著連線收通知）；有草稿、往上翻著、正在出聲的不收。切回照 `dataset.src` 載回。
 
 ## 資料落點（`%APPDATA%/axondeck/`，舊安裝沿用 `%APPDATA%/voiceink`）
 

@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
-nav 十頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、專案工作區、終端機同一頁）｜Telegram｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是工作區額度條的抽屜、MCP 與 Skills 是專案分頁（右側欄第四顆）；本機 Port 與 App 資源佔用也是額度條的抽屜、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
+nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、Telegram、專案工作區、終端機同一頁）｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是額度條（AI 頁主區最下面，Browser 模式不顯示）的抽屜、MCP 與 Skills 是專案分頁（右側欄第四顆）；本機 Port 與 App 資源佔用也是額度條的抽屜、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
 
 ## 指令
 
@@ -92,6 +92,11 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 取樣參數只送 temperature／top_p／max_tokens／stop 且沒勾不送；思考強度 `chatThinking` 是檔位字串（舊布林 true→medium），「自動」完全不帶欄位、「關閉」送 `none`（本機改 `chat_template_kwargs.enable_thinking=false`），生圖模型不帶；生圖模型先走 chat/completions，回 400／404／405／422 才退 `/images/generations`（OpenRouter 只吐圖的模型只收這條，`chat-imagegen.js`）；串流用首 token 60s＋閒置 120s 雙計時器，中斷仍存已收內容。
 - 重新生成在上游成功前不得 `dropTrailingAssistant`；`chats.json` 讀改寫走 `withStore`；側欄順序＝陣列順序；`chatProviders` sanitize 遇壞網址保留該筆只清 `apiUrl`；`__local` 要過濾掉。`markdown.js` 零 innerHTML，`INLINE_SRC` 每次 `new RegExp`。
 - 網頁版 AI：網址只收該站網域、擋登入／OAuth／授權碼（`ai-web.js` 的 `safeUrl`）。UA 偽裝成 Chrome 給 Google 登入用。**Grok 的 Cloudflare 擋 Electron（怎麼換 UA、點勾選框都無限重來）**：`grok-clearance.js` 碰到 `cf-mitigated: challenge` 就開系統 Edge／Chrome 過驗證，把 `cf_clearance` 連同它的 UA 帶回 `persist:ai-grok`（通行證綁 UA）。除錯埠必須給固定號碼，用 `0` 一律不放行。其他分區被 Cloudflare 擋的分頁由 `installChallengeFallback` 改回 Electron 識別（換 Chrome 版號、標頭順序、拿掉 shim 都實測無效）；同一個 session 的 `onHeadersReceived` 只能掛一個，Grok 分區不要再掛它。
+
+### Telegram（Web A）
+- 開著的 Web A 被外部改 hash（`loadURL` 只差 hash、`location.hash`）一律立刻彈回聊天列表（真實頁面實測）；帶回聊天室要先導到 about:blank 再整頁載。mock 測不出來，fixture 要模擬彈回。
+- 不可用 CDP `Memory.forciblyPurgeJavaScriptMemory`：Web A 約 30 秒後兩格都當掉。`simulatePressureNotification` 不當但只省約 14%。
+- 量真實 Web A 用 `Partitions/telegram` 複製到暫存（排除 LOCK、Cache、Service Worker），不開使用者的聊天室（開了可能標已讀），用完刪副本。視窗要在螢幕上且有焦點、副本含快取；螢幕外沒焦點加上排除快取時，載入後會被彈回列表，結果不能當真。
 
 ### 專案工作區
 - 三份清單要對齊：`ipc.js` 用到的 `service.X`、`main.js` 逐一列舉白名單、preload。`npm run lint` 的 `scripts/lint-ipc.js` 擋這三條（全模組，不只工作區）；`module.exports` 列未定義名字由 ESLint `no-undef` 擋（＝載入期 ReferenceError，單元測試抓不到）。

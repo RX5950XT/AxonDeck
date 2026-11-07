@@ -30,10 +30,6 @@
             <span class="nav-icon" data-icon="ai"></span>
             <span class="nav-text nav-text-stack"><span>Super</span> <span>Intelligence</span></span>
           </button>
-          <button class="nav-tab" data-page="telegram" title="Telegram" aria-label="Telegram">
-            <span class="nav-icon" data-icon="telegram"></span>
-            <span class="nav-text">Telegram</span>
-          </button>
           <button class="nav-tab" data-page="explorer" title="檔案" aria-label="檔案">
             <span class="nav-icon" data-icon="folder"></span>
             <span class="nav-text">檔案</span>
@@ -153,7 +149,8 @@
 
                 <section class="sidebar-panel" id="chatPanel" role="tabpanel">
                   <!-- 第一排五顆都是「新增一則對話」：Local＝本機／API，其餘四家＝網頁版 AI（ai-web-page.js），都列在下面清單。
-                       資料夾是整理清單的動作，放搜尋框旁；Arena 不是對話、也不多開（只有一個），釘在清單最上面 -->
+                       資料夾與「選要顯示哪些」是整理側欄的動作，放搜尋框旁（chat-launchers.js）；
+                       Arena、Telegram 不是對話、也不多開（只有一個），釘在清單最上面 -->
                   <div class="chat-panel-actions" role="group" aria-label="新增對話">
                     <button type="button" id="chatNewBtn" class="btn btn-secondary btn-sm chat-new-btn" title="新增 Local 對話（本機／API 模型）" aria-label="Local">
                       <span class="nav-icon" data-icon="local"></span>
@@ -171,6 +168,17 @@
                       <span class="nav-icon" data-icon="grok"></span>
                     </button>
                   </div>
+                  <div class="chat-pinned">
+                    <button type="button" id="chatArenaBtn" class="chat-arena-entry" title="LLM Arena（只開一個，切走也保留畫面；右鍵開獨立視窗）">
+                      <span class="nav-icon" data-icon="arena"></span>
+                      <span class="chat-arena-name">Arena</span>
+                      <span class="chat-arena-meta">模型競技場</span>
+                    </button>
+                    <button type="button" id="chatTelegramBtn" class="chat-arena-entry" title="Telegram（只開一個，切走也保留畫面；右鍵開獨立視窗）">
+                      <span class="nav-icon" data-icon="telegram"></span>
+                      <span class="chat-arena-name">Telegram</span>
+                    </button>
+                  </div>
                   <div class="chat-search-row">
                     <input
                       type="search"
@@ -186,12 +194,17 @@
                         <path d="M10 14h4" />
                       </svg>
                     </button>
+                    <button type="button" id="chatLauncherEditBtn" class="btn btn-secondary btn-sm chat-new-folder-btn" title="選擇要顯示哪些按鈕" aria-label="選擇要顯示哪些按鈕" aria-haspopup="menu" aria-expanded="false">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 8h9" />
+                        <path d="M18 8h2" />
+                        <circle cx="15.5" cy="8" r="2.2" />
+                        <path d="M4 16h2" />
+                        <path d="M11 16h9" />
+                        <circle cx="8.5" cy="16" r="2.2" />
+                      </svg>
+                    </button>
                   </div>
-                  <button type="button" id="chatArenaBtn" class="chat-arena-entry" title="LLM Arena（只開一個，切走也保留畫面）">
-                    <span class="nav-icon" data-icon="arena"></span>
-                    <span class="chat-arena-name">Arena</span>
-                    <span class="chat-arena-meta">模型競技場</span>
-                  </button>
                   <div id="chatList" class="chat-list" aria-label="對話清單"></div>
                 </section>
 
@@ -206,8 +219,16 @@
                 tabindex="0"
               ></div>
 
+              <!-- 側欄右邊：上面一列是主區（只切 hidden，不搬 DOM），額度條在最下面，Agent／Chat 共用；Browser 模式藏起來 -->
+              <div class="chat-stage">
+              <div class="chat-stage-row">
               <!-- 網頁版 AI 對話：webview 第一次打開才建，久沒看會收掉（網址存在那則對話，下次接著開） -->
               <div class="ai-web-main hidden" id="aiWebMain"></div>
+
+              <!-- Telegram：官方網頁版塞進 <webview>，可並排多開（同一個 partition＝掃碼登入一次）；第一次點進來才建 -->
+              <div class="telegram-main hidden" id="telegramMain">
+                <div id="telegramFrame" class="telegram-frame"></div>
+              </div>
 
               <!-- Browser 模式：跟專案瀏覽器同一個 partition（登入狀態、擴充功能共用） -->
               <div class="ws-browser browser-main hidden" id="browserMain">
@@ -345,7 +366,7 @@
                 <div id="chatBrowserFrame" class="ws-browser-frame"></div>
               </aside>
 
-              <!-- 工作區外框：上面一列是主區＋右側欄，額度條在最下面橫跨兩者（app.js 跟著 termMain 一起切 hidden） -->
+              <!-- 工作區外框：主區＋右側欄（app.js 跟著 termMain 一起切 hidden） -->
               <div class="ws-shell hidden" id="wsShell">
               <div class="ws-shell-row">
               <!--
@@ -785,6 +806,8 @@
                 </div>
               </aside>
               </div>
+              </div>
+              </div>
                 <!-- 訂閱額度：七家官方端點，一家一顆，點開看完整那張卡；拖曳可排序（quota-bar.js） -->
                 <div class="quota-bar" id="quotaBar" role="region" aria-label="訂閱額度">
                   <!-- 額度條上方的抽屜：供應商切換／用量統計（原本 CC Proxy 頁），點條左邊兩顆按鈕開關 -->
@@ -905,10 +928,9 @@
           </section>
 
           <!-- 整機檔案總管：瀏覽本機資料夾 + UFFS 檔名搜尋 -->
-          <!-- Telegram：官方網頁版塞進 <webview>，可並排多開（同一個 partition＝掃碼登入一次）；第一次點進來才建 -->
-          <section id="page-telegram" class="page">
-            <div id="telegramFrame" class="telegram-frame"></div>
-          </section>
+          <!-- Telegram、Arena 只有獨立視窗才用這兩頁（main 的 POPUP_ONLY）；平常住在 AI 頁主區 -->
+          <section id="page-telegram" class="page"></section>
+          <section id="page-arena" class="page"></section>
 
           <section id="page-explorer" class="page">
             <div class="ex-shell">

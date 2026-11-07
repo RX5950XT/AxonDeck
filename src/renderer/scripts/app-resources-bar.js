@@ -9,6 +9,7 @@ import { electronAPI } from './app.js'
 import { formatBytes } from './disk-treemap.js'
 
 const POLL_MS = 5000
+const MEMORY_NOTE = '記憶體是各程序獨占的量（認可大小），共用的部分不重複算。'
 
 let open = false
 let timer = 0
@@ -71,7 +72,7 @@ function paintList() {
   const head = document.createElement('div')
   head.className = 'res-row res-head'
   head.setAttribute('role', 'row')
-  for (const text of ['部分', '程序', 'CPU', '記憶體', '']) {
+  for (const text of ['部分', '程序', 'CPU', '記憶體']) {
     const cell = document.createElement('span')
     cell.setAttribute('role', 'columnheader')
     cell.textContent = text
@@ -85,8 +86,8 @@ function paintList() {
   if (note) {
     const age = last.childrenAt ? Math.round((Date.now() - last.childrenAt) / 1000) : -1
     note.textContent = age < 0
-      ? 'CPU 是佔整台電腦的比例。終端機、本機模型這些子程序要等系統監控取樣器跑起來才算得到。'
-      : `CPU 是佔整台電腦的比例。終端機、本機模型這些子程序的讀數是 ${age} 秒前的（系統監控在背景時約 30 秒更新一次）。`
+      ? `${MEMORY_NOTE} CPU 是佔整台電腦的比例。終端機、本機模型這些子程序要等系統監控取樣器跑起來才算得到。`
+      : `${MEMORY_NOTE} CPU 是佔整台電腦的比例。終端機、本機模型這些子程序的讀數是 ${age} 秒前的（系統監控在背景時約 30 秒更新一次）。`
   }
 }
 

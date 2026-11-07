@@ -11,6 +11,8 @@
  *    依「掛在誰底下」分組，所以終端機裡跑的 claude／node 會算在終端機那一組。
  *
  * CPU 一律換成「佔整台機器的 %」（跟工作管理員一樣）；Electron 給的是單核 %，要除核心數。
+ * 記憶體一律算各程序的獨占量（認可大小）：working set 含共用記憶體，Chromium 三十幾個程序加起來會把同一份算好幾次
+ * （實測 working set 加總 10.5GB、獨占 4.7GB）。拿不到獨占量的平台退回 working set。
  */
 
 /** 直屬子程序的名字 → 給人看的名稱；沒列到的直接用程序名 */
@@ -58,9 +60,9 @@ function parseUrl(raw) {
 
 /**
  * @param {{
- *   metrics: Array<{ pid: number, type: string, serviceName?: string, cpu: { percentCPUUsage: number }, memory: { workingSetSize: number } }>,
+ *   metrics: Array<{ pid: number, type: string, serviceName?: string, cpu: { percentCPUUsage: number }, memory: { workingSetSize: number, privateBytes?: number } }>,
  *   contents: Array<{ pid: number, type: string, url: string }>,
- *   processes: Array<{ pid: number, parentPid: number, name: string, cpu: number, memory: number, startedAt?: number }>,
+ *   processes: Array<{ pid: number, parentPid: number, name: string, cpu: number, memory: number, privateMemory?: number, startedAt?: number }>,
  *   rootPid: number,
  *   cores: number,
  *   pageLabels?: Map<string, string>,
@@ -89,7 +91,7 @@ function summarize({ metrics, contents, processes, rootPid, cores, pageLabels = 
   for (const m of metrics) {
     electronPids.add(m.pid)
     const cpu = (m.cpu?.percentCPUUsage || 0) / coreCount
-    const memory = (m.memory?.workingSetSize || 0) * 1024
+    const memory = (m.memory?.privateBytes || m.memory?.workingSetSize || 0) * 1024
     let label = BACKGROUND
     if (m.type === 'Browser') label = '主程序'
     else if (m.type === 'GPU') label = 'GPU 程序'
@@ -116,7 +118,7 @@ function summarize({ metrics, contents, processes, rootPid, cores, pageLabels = 
   const walk = (proc, label) => {
     if (seen.has(proc.pid)) return
     seen.add(proc.pid)
-    add(label, proc.cpu || 0, proc.memory || 0)
+    add(label, proc.cpu || 0, proc.privateMemory || proc.memory || 0)
     for (const child of childrenOf(proc.pid)) walk(child, label)
   }
   // 用自己的 exe 開的子程序（ELECTRON_RUN_AS_NODE 的終端機宿主、crashpad）不在 getAppMetrics 裡

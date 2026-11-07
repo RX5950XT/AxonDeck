@@ -83,18 +83,11 @@ export function createProjectFolders({ getList, getProjects, call, reload }) {
     toggle.addEventListener('click', () => {
       if (!justDragged) void change(api.updateFolder(folder.id, { collapsed: !folder.collapsed }))
     })
-    const menu = document.createElement('button')
-    menu.type = 'button'
-    menu.className = 'chat-list-btn proj-folder-btn'
-    menu.setAttribute('aria-label', `${folder.name}：資料夾選單`)
-    menu.setAttribute('aria-haspopup', 'menu')
-    menu.append(icon('M5 12h.01M12 12h.01M19 12h.01'))
-    menu.addEventListener('click', () => folderMenu(menu, folder, name))
     head.addEventListener('contextmenu', (event) => {
       event.preventDefault()
-      folderMenu(menu, folder, name, { x: event.clientX, y: event.clientY })
+      folderMenu(head, folder, name, { x: event.clientX, y: event.clientY })
     })
-    head.append(toggle, menu)
+    head.append(toggle)
     const body = document.createElement('div')
     body.className = 'chat-folder-body'
     body.hidden = folder.collapsed

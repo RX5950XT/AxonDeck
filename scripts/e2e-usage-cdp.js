@@ -190,14 +190,14 @@ async function main() {
       return {
         order: [...document.querySelectorAll('.header-nav .nav-tab')].map((item) => item.dataset.page),
         noPage: !document.getElementById('page-usage'),
-        inShell: bar.closest('#wsShell') !== null,
+        inStage: bar.closest('.chat-stage') !== null && bar.closest('#wsShell') === null,
         belowSurfaces: rect.top >= surfaces.bottom - 1,
         height: rect.height,
         chips: document.querySelectorAll('#quotaItems .quota-item').length
       }
     })()`)
     if (JSON.stringify(structure.order) !== JSON.stringify(EXPECTED_ORDER) || !structure.noPage ||
-        !structure.inShell || !structure.belowSurfaces || structure.height > 40 || structure.chips !== 7) {
+        !structure.inStage || !structure.belowSurfaces || structure.height > 40 || structure.chips !== 7) {
       throw new Error(`額度條結構錯誤：${JSON.stringify(structure)}`)
     }
     pass(`額度頁拿掉了；額度條在終端機下面、高 ${Math.round(structure.height)}px、七顆都在`)

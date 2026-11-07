@@ -55,6 +55,26 @@ const bg = summarize({
 assert.deepStrictEqual(bg.groups.map((g) => [g.label, g.count]), [['擴充功能與背景工作', 2]])
 console.log('test-app-resources: background ok')
 
+// 記憶體算獨占量：共用記憶體不重複算；拿不到才退回 working set
+const shared = summarize({
+  rootPid: 1, cores: 1, contents: [],
+  metrics: [
+    { pid: 1, type: 'Browser', cpu: { percentCPUUsage: 0 }, memory: { workingSetSize: 1000, privateBytes: 100 } },
+    { pid: 2, type: 'GPU', cpu: { percentCPUUsage: 0 }, memory: { workingSetSize: 700 } }
+  ],
+  processes: [
+    { pid: 3, parentPid: 1, name: 'llama-server', cpu: 0, memory: 900, privateMemory: 300 },
+    { pid: 4, parentPid: 1, name: 'ffmpeg', cpu: 0, memory: 50 }
+  ]
+})
+const sharedBy = new Map(shared.groups.map((g) => [g.label, g.memory]))
+assert.strictEqual(sharedBy.get('主程序'), 100 * 1024)
+assert.strictEqual(sharedBy.get('GPU 程序'), 700 * 1024)
+assert.strictEqual(sharedBy.get('本機模型'), 300)
+assert.strictEqual(sharedBy.get('ffmpeg'), 50)
+assert.strictEqual(shared.total.memory, 800 * 1024 + 350)
+console.log('test-app-resources: private memory ok')
+
 // pid 重用：比父程序還早開的不算我們的
 const reuse = summarize({
   rootPid: 1, cores: 1, contents: [],

@@ -179,7 +179,7 @@ async function main() {
       JSON.stringify(visualShell)
     )
 
-    // ===== 訂閱額度條（工作區主區最下面；以前是獨立的額度頁） =====
+    // ===== 訂閱額度條（AI 頁主區最下面；以前是獨立的額度頁） =====
     const usageUi = await cdp.eval(`(async () => {
       const order = [...document.querySelectorAll('.header-nav .nav-tab')]
         .map((item) => item.dataset.page)
@@ -191,7 +191,7 @@ async function main() {
         chatWasDefault,
         hasApi: typeof window.electronAPI.usage?.load === 'function',
         noUsagePage: !document.getElementById('page-usage'),
-        barInWorkspace: !!bar && bar.closest('#wsShell') !== null,
+        barInStage: !!bar && bar.closest('.chat-stage') !== null,
         hasSync: !!document.getElementById('quotaSyncBtn'),
         hasSettings: !!document.getElementById('usageSettingsDialog'),
         noDiagnostics: !document.getElementById('usageDiagnosticsDialog') && !document.getElementById('quotaDiagnosticsBtn'),
@@ -207,7 +207,7 @@ async function main() {
       JSON.stringify(usageUi?.order) === JSON.stringify(NAV_PAGES) &&
         usageUi.hasApi &&
         usageUi.noUsagePage &&
-        usageUi.barInWorkspace &&
+        usageUi.barInStage &&
         usageUi.hasSync &&
         usageUi.hasSettings &&
         usageUi.noDiagnostics &&

@@ -76,6 +76,7 @@
   --syntax-meta: #b4a4c6;
   --term-fg: #e8e5dc;
   --term-selection: rgba(120, 163, 181, 0.35);
+  --selection-bg: rgba(120, 163, 181, 0.35);
 
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
   --shadow-sm: 0 12px 36px rgba(0, 0, 0, 0.18);
@@ -171,6 +172,7 @@
   --syntax-meta: #66567c;
   --term-fg: #23292c;
   --term-selection: rgba(61, 106, 125, 0.25);
+  --selection-bg: rgba(61, 106, 125, 0.25);
 
   --shadow: 0 24px 70px rgba(55, 67, 69, 0.17);
   --shadow-sm: 0 10px 30px rgba(55, 67, 69, 0.11);
@@ -189,4 +191,9 @@ option:disabled {
 
 body {
   transition: color 180ms ease, background-color 180ms ease;
+}
+
+/* 所有能選取的字都用同一個半透明反白；只設底色，字色維持原樣 */
+::selection {
+  background: var(--selection-bg);
 }

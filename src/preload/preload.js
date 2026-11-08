@@ -71,8 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudTts: {
     status: () => ipcRenderer.invoke('cloudTts:status'),
     generate: (options) => ipcRenderer.invoke('cloudTts:generate', options),
-    cancel: (options) => ipcRenderer.invoke('cloudTts:cancel', options),
-    saveAudio: (options) => ipcRenderer.invoke('cloudTts:saveAudio', options)
+    cancel: (options) => ipcRenderer.invoke('cloudTts:cancel', options)
   },
   breeze: {
     status: () => ipcRenderer.invoke('breeze:status'),

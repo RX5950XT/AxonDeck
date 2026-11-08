@@ -23,11 +23,11 @@ export const TERM_THEMES = {
   },
   dracula: {
     label: 'Dracula',
-    colors: { background: '#282a36', foreground: '#f8f8f2', cursor: '#ff79c6', selectionBackground: 'rgba(68, 71, 90, 0.85)' }
+    colors: { background: '#282a36', foreground: '#f8f8f2', cursor: '#ff79c6', selectionBackground: 'rgba(98, 114, 164, 0.5)' }
   },
   solarized: {
     label: 'Solarized Dark',
-    colors: { background: '#002b36', foreground: '#93a1a1', cursor: '#b58900', selectionBackground: 'rgba(7, 54, 66, 0.9)' }
+    colors: { background: '#002b36', foreground: '#93a1a1', cursor: '#b58900', selectionBackground: 'rgba(147, 161, 161, 0.28)' }
   }
 }
 

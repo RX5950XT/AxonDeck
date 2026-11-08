@@ -1,33 +1,34 @@
-import { initCloudSpeech, refreshCloudSpeech } from './cloud-speech.js'
+/**
+ * 文字轉語音頁。左邊寫稿（整段／逐句／字幕配音／變聲），右邊選聲音與版本，底部播放列。
+ * Breeze 的四種模式由畫面組合推出來：
+ *   描述聲音＝design；用錄音的聲音＝clone，有填語氣＝direction；變聲＝convert。
+ */
+import { initCloudSpeech, refreshCloudSpeech, cloudReady, cloudSnapshot, cloudModelKey, generateCloud, cancelCloud, CLOUD_MAX_CHARS } from './cloud-speech.js'
 import { electronAPI, switchPage } from './app.js'
 import { askConfirm } from './app-dialog.js'
 import { syncCustomSelects } from './custom-select.js'
-import { splitSentences, parseSubtitles, applyPronunciations, formatTime } from './speech-script.js'
+import { splitSentences, parseSubtitles, formatTime, PRESETS, PRESET_SAMPLE } from './speech-script.js'
+import { createPronounce } from './speech-pronounce.js'
 import { createAudioInput } from './speech-audio-input.js'
 import { createTakeDock } from './speech-takes.js'
+import { createStream } from './speech-stream.js'
 import { svgIcon } from './speech-wave.js'
 
 const $ = (id) => document.getElementById(id)
 const MODE_NAMES = { design: '聲音設計', clone: '語音克隆', direction: '語氣指導', convert: '變聲' }
 const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024
-// 聲音設計範本（女聲）。中文描述用簡體：官方範例和表情標籤都是簡體
-const PRESETS = [
-  { name: '溫柔知性', zh: '温柔知性的年轻女性，声音清澈柔和，语速适中，像在耐心地向朋友解释一件事。', en: 'A gentle, articulate young woman with a clear, soft voice, speaking at a moderate pace as if patiently explaining something to a friend.' },
-  { name: '活潑少女', zh: '活泼开朗的少女，声音明亮甜美，音调偏高，语速稍快，充满朝气和笑意。', en: 'A cheerful, bubbly teenage girl with a bright, sweet, high-pitched voice, speaking a little fast, full of energy and smiles.' },
-  { name: '新聞主播', zh: '专业的女新闻主播，声音沉稳清晰，咬字标准，语调平稳有力，正式而可信。', en: 'A professional female news anchor with a steady, crisp voice, precise diction and a confident, even tone. Formal and trustworthy.' },
-  { name: '睡前故事', zh: '温暖的年轻妈妈在讲睡前故事，声音轻柔缓慢，带着气声，安静而放松。', en: 'A warm young mother telling a bedtime story, speaking softly and slowly with a slightly breathy, calm and soothing voice.' },
-  { name: '親切客服', zh: '亲切有礼的女客服，声音甜美干净，语气热情友善，节奏轻快但不急躁。', en: 'A polite, friendly female customer service agent with a sweet, clean voice, warm and welcoming, upbeat but never rushed.' },
-  { name: '成熟沉穩', zh: '成熟沉稳的中年女性，声音低沉有磁性，语速偏慢，从容而有说服力。', en: 'A mature, composed middle-aged woman with a low, rich and resonant voice, speaking slowly with calm confidence.' }
-]
-const PRESET_SAMPLE = { zh: '你好，很高興認識你。今天天氣真好，要不要一起出去走走？', en: 'Hi there, it is so nice to meet you. The weather is lovely today, shall we go for a walk?' }
-let presetLang = 'zh'
-let initialized = false
-let mode = 'design'
+const LOCAL_MAX_CHARS = 100000
+const PARAMS = ['speechCfg', 'speechSeed', 'speechTemperature', 'speechTopK', 'speechTopP', 'speechRepetition', 'speechSplit', 'speechMaxTokens', 'speechAcoustic']
+const TEXT_PARAMS = ['speechTopP', 'speechRepetition', 'speechSplit', 'speechMaxTokens']
+let engine = 'local'
 let script = 'whole'
-let scriptBeforeConvert = ''
+let voiceKind = 'describe'
+let selectedVoice = ''
+let presetLang = 'zh'
 let reference = null
 let source = null
 let requestId = ''
+let jobCloud = false
 let job = false
 // 生成中又按生成：當下的設定先拍下來排隊，做完這個接著做
 const queue = []
@@ -36,15 +37,14 @@ let stopped = false
 let installed = false
 let serviceBusy = false
 let savingVoice = false
-let audioContext = null
-let playAt = 0
-let pcmTail = null
+let inputBusy = false
+let live = null
 let subtitle = null
 let savedVoices = []
-let pronunciations = []
+let voicesLoaded = false
+let draftTimer = 0
 const speakerVoices = new Map()
-const playing = new Set()
-let referenceInput, sourceInput, dock
+let referenceInput, sourceInput, dock, pronounce
 
 function showError(error) {
   $('speechError').textContent = error?.message || '語音操作失敗，請稍後再試。'
@@ -58,104 +58,171 @@ async function call(name, payload) {
   return response.data
 }
 
+// ── 狀態 → 畫面 ──
+
+const cloud = () => engine === 'cloud'
+/** 雲端只有整段；其他生成方式的設定保留著，切回本機就還原。 */
+const view = () => cloud() ? 'whole' : script
+const kind = () => view() === 'convert' ? 'mine' : voiceKind
+
+function currentMode() {
+  if (view() === 'convert') return 'convert'
+  if (kind() === 'describe') return 'design'
+  return $('speechTone').value.trim() ? 'direction' : 'clone'
+}
+
+function pickRadios(selector, attr, value) {
+  document.querySelectorAll(selector).forEach((button) => {
+    const on = button.dataset[attr] === value
+    button.classList.toggle('active', on)
+    button.setAttribute('aria-checked', String(on))
+    button.tabIndex = on ? 0 : -1
+  })
+}
+
 function paintStatus(status) {
   installed = Boolean(status.installed)
   serviceBusy = Boolean(status.busy)
-  $('speechInstallNotice').hidden = installed
-  $('speechModelStatus').textContent = status.busy ? '正在生成語音' : status.loading ? '正在載入模型…' : status.ready ? '模型已就緒 · 本機生成' : installed ? '已安裝 · 生成時載入' : '尚未下載'
-  $('speechGenerate').disabled = !installed || (serviceBusy && !job)
+  $('speechModelStatus').textContent = `Breeze-TTS-2 · ${status.busy ? '正在生成' : status.loading ? '正在載入模型…' : status.ready ? '已就緒' : installed ? '已安裝，生成時載入' : '尚未下載'}`
+  paint()
 }
 
-function setMode(next) {
-  mode = next
-  document.querySelectorAll('.speech-mode').forEach((button) => {
-    const selected = button.dataset.mode === mode
-    button.classList.toggle('active', selected)
-    button.setAttribute('aria-selected', String(selected))
-    button.tabIndex = selected ? 0 : -1
-    if (selected) $('speechForm').setAttribute('aria-labelledby', button.id)
-  })
-  const convert = mode === 'convert'
-  // 變聲只能整段；切回其他模式時還原原本的生成方式
-  if (convert && script !== 'whole') { scriptBeforeConvert = script; setScript('whole') }
-  else if (!convert && scriptBeforeConvert) { setScript(scriptBeforeConvert); scriptBeforeConvert = '' }
-  $('speechForm').dataset.mode = mode
-  $('speechVoiceLabel').textContent = convert ? '換成誰的聲音' : '參考聲音'
-  $('speechReference').hidden = mode === 'design'
+function paint() {
+  // 讀檔／保存聲音時欄位先鎖住，不要被重畫解開
+  if (inputBusy || savingVoice) return
+  const now = view()
+  const convert = now === 'convert'
+  const form = $('speechForm')
+  form.dataset.engine = engine
+  form.dataset.script = now
+  form.dataset.mode = currentMode()
+  pickRadios('.speech-script-mode', 'script', now)
+  pickRadios('#speechBackend button', 'backend', engine)
+  pickRadios('#speechVoiceKind button', 'kind', kind())
+  $('speechInstallNotice').hidden = cloud() || installed
+  $('speechModelStatus').hidden = cloud()
+  $('speechLocalVoice').hidden = cloud()
+  $('speechCloudVoice').hidden = !cloud()
+  document.querySelector('.speech-script-modes').hidden = cloud()
+  $('speechText').hidden = now === 'subtitle'
+  $('speechCues').hidden = now !== 'subtitle'
+  $('speechImportSubtitle').hidden = now !== 'subtitle'
+  $('speechEvents').hidden = cloud() || now === 'subtitle' || convert
   $('speechSource').hidden = !convert
-  $('speechEvents').hidden = convert || script === 'subtitle'
   $('speechTextHint').hidden = !convert
-  $('speechStreamLabel').hidden = convert
-  $('speechInstructionGroup').hidden = mode === 'clone' || convert
-  $('speechPresets').hidden = mode !== 'design'
+  $('speechStreamLabel').hidden = cloud() || convert
+  // 變聲一定要有目標聲音：只能用錄音的聲音
+  document.querySelector('#speechVoiceKind [data-kind="describe"]').disabled = convert
+  $('speechDescribe').hidden = kind() !== 'describe'
+  $('speechReference').hidden = kind() !== 'mine'
+  $('speechToneGroup').hidden = convert
+  $('speechVoiceLabel').textContent = convert ? '換成誰的聲音' : '選一個聲音'
   $('speechAcousticGroup').hidden = !convert
+  for (const id of TEXT_PARAMS) { $(id).disabled = convert; $(id).closest('label').hidden = convert }
   $('speechTextLabel').textContent = convert ? '原錄音逐字稿（可不填）' : '想說的話'
-  $('speechText').placeholder = convert ? '原錄音逐字稿（可不填）：寫下原錄音的內容，能讓變聲更準確。' : '你好，今天想用什麼聲音說故事？'
-  $('speechInstructionLabel').textContent = mode === 'direction' ? '希望怎麼說' : '描述你想要的聲音'
-  $('speechInstruction').placeholder = mode === 'direction' ? '慢慢說，語氣平靜而認真，最後一句帶一點笑意。' : '溫暖清晰的年輕女性聲音，像在和朋友聊天。'
-  $('speechTextHint').textContent = convert ? '變聲需要原錄音和目標聲音，整段完成後才能試聽。逐字稿可選填；歌曲可展開進階設定調整旋律。' : '支援中文與英文。點選標記插入游標位置，也能直接在台詞寫 [中文描述] 或 (English description)。'
-  $('speechTemperature').value = convert ? '0.3' : '0.9'
-  $('speechTopK').value = convert ? '1' : '50'
-  for (const id of ['speechTopP', 'speechRepetition', 'speechSplit', 'speechMaxTokens']) {
-    $(id).disabled = convert
-    $(id).closest('label').hidden = convert
-  }
-  document.querySelectorAll('.speech-script-mode').forEach((button) => { button.disabled = convert && button.dataset.script !== 'whole' })
-  paintGenerateLabel()
-}
-
-function setScript(next) {
-  script = next
-  $('speechForm').dataset.script = script
-  document.querySelectorAll('.speech-script-mode').forEach((button) => {
-    const selected = button.dataset.script === script
-    button.classList.toggle('active', selected)
-    button.setAttribute('aria-checked', String(selected))
-    button.tabIndex = selected ? 0 : -1
-  })
-  const sub = script === 'subtitle'
-  $('speechText').hidden = sub
-  $('speechCues').hidden = !sub
-  $('speechImportSubtitle').hidden = !sub
-  $('speechSpeakers').hidden = !sub || !subtitle
-  $('speechEvents').hidden = sub || mode === 'convert'
+  $('speechText').placeholder = convert ? '原錄音逐字稿（可不填）：寫下原錄音的內容，能讓變聲更準確。' : '寫下想讓聲音說的話…'
+  $('speechText').maxLength = cloud() ? CLOUD_MAX_CHARS : LOCAL_MAX_CHARS
+  $('speechTextHint').textContent = '變聲需要原錄音和目標聲音，整段完成後才能試聽。逐字稿可選填；歌曲可展開進階設定調整旋律。'
+  paintVoices()
+  renderSpeakers()
   updateCount()
-  paintGenerateLabel()
 }
 
-function paintGenerateLabel() {
-  if (job) { $('speechGenerate').textContent = queue.length ? `加入排隊 · 已排 ${queue.length} 個` : '加入排隊'; return }
-  const count = script === 'sentences' ? splitSentences($('speechText').value).length : script === 'subtitle' ? subtitle?.cues.length || 0 : 0
-  $('speechGenerate').textContent = mode === 'convert' ? '開始變聲' : count > 1 ? `生成語音 · ${count} 句` : '生成語音'
+function canGenerate() {
+  if (savingVoice || inputBusy) return false
+  return cloud() ? cloudReady() : installed && (!serviceBusy || job)
+}
+
+function paintGenerate() {
+  const button = $('speechGenerate')
+  button.disabled = !canGenerate()
+  $('speechCancel').hidden = !job && !savingVoice
+  if (job) { button.textContent = queue.length ? `加入排隊 · 已排 ${queue.length} 個` : '加入排隊'; return }
+  const count = view() === 'sentences' ? splitSentences($('speechText').value).length : view() === 'subtitle' ? subtitle?.cues.length || 0 : 0
+  button.textContent = currentMode() === 'convert' ? '開始變聲' : count > 1 ? `生成語音 · ${count} 句` : '生成語音'
 }
 
 function updateCount() {
-  $('speechCount').textContent = script === 'subtitle'
+  const length = $('speechText').value.length
+  const limit = cloud() ? CLOUD_MAX_CHARS : LOCAL_MAX_CHARS
+  $('speechCount').textContent = view() === 'subtitle'
     ? (subtitle ? `${subtitle.cues.length} 句 · ${subtitle.speakers.filter(Boolean).length} 個角色` : '尚未匯入')
-    : `${$('speechText').value.length} / 100000`
-  paintGenerateLabel()
+    : `${length} / ${limit}`
+  $('speechCount').classList.toggle('over', view() !== 'subtitle' && length > limit)
+  paintGenerate()
 }
 
-function updateVoice() {
-  const saved = Boolean($('speechVoice').value)
-  $('speechNewReference').hidden = saved
-  $('speechDeleteVoice').disabled = !saved || job
+function setScript(next) {
+  // 進出變聲時換一組取樣預設（變聲要低溫）；其他切換不動使用者調過的值
+  if ((script === 'convert') !== (next === 'convert')) {
+    $('speechTemperature').value = next === 'convert' ? '0.3' : '0.9'
+    $('speechTopK').value = next === 'convert' ? '1' : '50'
+  }
+  script = next
+  paint()
+  saveDraft()
+}
+
+function setEngine(next) {
+  engine = next
+  paint()
+  if (cloud()) void refreshCloudSpeech()
+  saveDraft()
+}
+
+function setVoiceKind(next) { voiceKind = next; paint(); saveDraft() }
+
+// ── 聲音清單 ──
+
+function voiceRow(id, name, meta, invalid) {
+  const row = document.createElement('li')
+  const pick = document.createElement('button')
+  pick.type = 'button'
+  pick.className = 'speech-voice-pick'
+  pick.setAttribute('role', 'radio')
+  pick.dataset.voice = id
+  pick.disabled = invalid
+  pick.innerHTML = '<span class="voice-name"></span><span class="voice-meta"></span>'
+  pick.querySelector('.voice-name').textContent = name
+  pick.querySelector('.voice-meta').textContent = meta
+  row.append(pick)
+  if (id) {
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'btn-icon voice-delete'
+    remove.dataset.remove = id
+    remove.setAttribute('aria-label', `刪除聲音「${id}」`)
+    remove.title = '刪除這個聲音'
+    remove.innerHTML = svgIcon('trash')
+    row.append(remove)
+  }
+  return row
+}
+
+function renderVoices() {
+  if (voicesLoaded && selectedVoice && !savedVoices.some((voice) => voice.id === selectedVoice && !voice.invalid)) selectedVoice = ''
+  $('speechVoiceList').replaceChildren(
+    ...savedVoices.map((voice) => voiceRow(voice.id, voice.id, voice.invalid ? '聲音檔損壞' : `${Number(voice.seconds || 0).toFixed(1)} 秒`, voice.invalid === true)),
+    voiceRow('', '新的錄音', reference ? reference.name : '選檔或現場錄一段', false))
+  paintVoices()
+}
+
+function paintVoices() {
+  pickRadios('.speech-voice-pick', 'voice', selectedVoice)
+  document.querySelectorAll('.speech-voice-pick').forEach((button) => {
+    button.disabled = savedVoices.some((voice) => voice.id === button.dataset.voice && voice.invalid)
+  })
+  $('speechNewReference').hidden = Boolean(selectedVoice)
+  const locked = job || savingVoice || inputBusy
+  document.querySelectorAll('.voice-delete').forEach((button) => { button.disabled = locked })
+  $('speechSaveVoice').disabled = locked
 }
 
 async function refreshVoices() {
   savedVoices = await call('voices')
-  const select = $('speechVoice')
-  const selected = select.value
-  select.replaceChildren(new Option('新的參考音訊', ''))
-  for (const voice of savedVoices) {
-    const option = new Option(`${voice.id} · ${voice.invalid ? '聲音檔損壞' : Number(voice.seconds || 0).toFixed(1) + ' 秒'}`, voice.id)
-    option.disabled = voice.invalid === true
-    select.add(option)
-  }
-  select.value = savedVoices.some((voice) => voice.id === selected) ? selected : ''
-  updateVoice()
+  voicesLoaded = true
+  renderVoices()
   renderSpeakers()
-  syncCustomSelects()
 }
 
 async function saveVoice() {
@@ -165,69 +232,46 @@ async function saveVoice() {
   $('speechProgress').textContent = '正在編碼並保存聲音…'
   try {
     const voice = await call('saveVoice', { name: $('speechVoiceName').value.trim(), refAudioId: reference.audioId, refText: $('speechRefText').value.trim() })
+    selectedVoice = voice.id
     await refreshVoices()
-    $('speechVoice').value = voice.id
-    updateVoice()
-    syncCustomSelects()
-    $('speechProgress').textContent = '聲音已保存，下次可以直接使用。'
+    $('speechProgress').textContent = '聲音已保存，下次可以直接點選。'
+    saveDraft()
   } finally { savingVoice = false; setBusy(false) }
 }
 
-async function deleteVoice() {
-  const id = $('speechVoice').value
+async function deleteVoice(id) {
   if (!id || !await askConfirm('刪除保存的聲音？', { desc: `「${id}」會從這台電腦移除。`, confirmText: '刪除', danger: true })) return
   await call('removeVoice', { id })
   for (const [speaker, voice] of speakerVoices) if (voice === id) speakerVoices.delete(speaker)
+  if (selectedVoice === id) selectedVoice = ''
   await refreshVoices()
+  saveDraft()
 }
 
-// ── 串流試聽 ──
+// ── 邊生成邊播放（speech-stream.js） ──
 
-function stopStream() {
-  for (const node of playing) { try { node.stop() } catch { /* 已播放完 */ } }
-  playing.clear()
-  pcmTail = null
-  playAt = 0
-}
+function stopStream() { live?.stop() }
 
 function onChunk(chunk) {
-  if (chunk.reqId !== requestId) return
-  if (!streaming || !audioContext) return
-  const data = Uint8Array.from(atob(chunk.pcmBase64), (c) => c.charCodeAt(0))
-  const joined = new Uint8Array(data.length + (pcmTail === null ? 0 : 1))
-  if (pcmTail !== null) joined[0] = pcmTail
-  joined.set(data, pcmTail === null ? 0 : 1)
-  pcmTail = joined.length % 2 ? joined[joined.length - 1] : null
-  const length = Math.floor(joined.length / 2)
-  if (!length) return
-  const buffer = audioContext.createBuffer(1, length, chunk.sampleRate)
-  const view = new DataView(joined.buffer)
-  const samples = buffer.getChannelData(0)
-  for (let i = 0; i < length; i++) samples[i] = view.getInt16(i * 2, true) / 32768
-  const node = audioContext.createBufferSource()
-  node.buffer = buffer
-  node.connect(audioContext.destination)
-  node.onended = () => playing.delete(node)
-  playing.add(node)
-  playAt = Math.max(playAt, audioContext.currentTime + 0.15)
-  node.start(playAt)
-  playAt += buffer.duration
+  if (chunk.reqId !== requestId || !streaming) return
+  live.push(chunk.pcmBase64, chunk.sampleRate)
 }
 
 // ── 生成 ──
 
-/** 一句的請求內容。字幕角色指定了保存的聲音，就用那個聲音克隆（語氣指導照樣保留描述）。 */
+/** 一句的請求內容。字幕角色指定了保存的聲音，就用那個聲音（描述聲音改成克隆，語氣指導照樣保留語氣）。 */
 function payload({ text, speaker, seed }) {
   const assigned = speaker ? speakerVoices.get(speaker) : ''
+  const mode = currentMode()
   const itemMode = assigned && mode === 'design' ? 'clone' : mode
   const values = {
-    reqId: requestId, mode: itemMode, text: applyPronunciations(text, pronunciations),
-    instruction: (itemMode === 'design' || itemMode === 'direction') ? $('speechInstruction').value.trim() : '',
+    reqId: requestId, mode: itemMode, text: pronounce.apply(text),
+    instruction: itemMode === 'design' ? $('speechInstruction').value.trim() : itemMode === 'direction' ? $('speechTone').value.trim() : '',
     cfgScale: Number($('speechCfg').value), seed: seed ?? Number($('speechSeed').value),
     temperature: Number($('speechTemperature').value), topK: Number($('speechTopK').value)
   }
   if (itemMode !== 'design') {
-    values.voiceId = assigned || $('speechVoice').value
+    values.voiceId = assigned || selectedVoice
     if (!values.voiceId) { values.refAudioId = reference?.audioId; values.refText = $('speechRefText').value.trim() }
   }
   if (itemMode === 'convert') { values.sourceAudioId = source?.audioId; values.keepAcoustic = Number($('speechAcoustic').value) }
@@ -241,47 +285,46 @@ function payload({ text, speaker, seed }) {
 }
 
 function voiceLabel() {
-  if (mode === 'design') return ''
-  return $('speechVoice').value || reference?.name || ''
+  if (currentMode() === 'design') return PRESETS.find((preset) => preset[presetLang] === $('speechInstruction').value.trim())?.name || ''
+  return selectedVoice || reference?.name || ''
 }
 
+/** 讀檔、錄音、保存聲音時：稿子與聲音欄位先鎖住；分頁與版本清單不受影響。 */
 function setBusy(busy) {
-  document.querySelectorAll('#speechForm input, #speechForm textarea, #speechForm select, #speechForm button, .speech-mode').forEach((el) => { el.disabled = busy })
+  inputBusy = busy && !savingVoice
+  document.querySelectorAll('#speechEditor :is(input, textarea, button), #speechVoicePanel :is(input, textarea, select, button)').forEach((el) => { el.disabled = busy })
   referenceInput?.setDisabled(busy)
   sourceInput?.setDisabled(busy)
   dock?.setBusy(busy)
-  $('speechCancel').hidden = !busy
+  if (busy) { $('speechGenerate').textContent = savingVoice ? '保存聲音中…' : '處理錄音中…'; $('speechGenerate').disabled = true }
+  $('speechCancel').hidden = !savingVoice && !job
   $('speechCancel').disabled = false
-  $('speechGenerate').disabled = busy || serviceBusy || !installed
-  if (busy) $('speechGenerate').textContent = '生成中…'
   if (!busy) {
-    updateVoice()
-    // 只還原「依模式停用」的欄位，不重跑 setMode（那會把使用者調過的 Temperature 蓋回預設）
-    for (const id of ['speechTopP', 'speechRepetition', 'speechSplit', 'speechMaxTokens']) $(id).disabled = mode === 'convert'
-    document.querySelectorAll('.speech-script-mode').forEach((button) => { button.disabled = mode === 'convert' && button.dataset.script !== 'whole' })
-    paintGenerateLabel()
+    inputBusy = false
+    paint()
     paintJob()
+    syncCustomSelects()
   }
 }
 
-/** 排隊生成期間：稿子與設定照樣能改，只鎖住會動到進行中工作的東西（參考音、保存聲音、版本區）。 */
+/** 排隊生成期間：稿子與設定照樣能改，只鎖住會動到進行中工作的東西（參考音、聲音清單、版本區）。 */
 function paintJob() {
   if (!job) return
   referenceInput?.setDisabled(true)
   sourceInput?.setDisabled(true)
   dock?.setBusy(true)
-  $('speechSaveVoice').disabled = true
-  $('speechDeleteVoice').disabled = true
+  paintVoices()
   $('speechCancel').hidden = false
   $('speechCancel').disabled = false
-  $('speechGenerate').disabled = !installed
-  paintGenerateLabel()
+  paintGenerate()
 }
 
 /** 把目前畫面上的設定拍成一個工作，排隊時改設定不會影響已排的。 */
 function snapshot(items, { placement, title, redoSeed }) {
-  return { placement, title, convert: mode === 'convert', stream: mode !== 'convert' && $('speechStream').checked,
-    modeName: MODE_NAMES[mode], voice: voiceLabel(),
+  if (cloud()) return { cloud: cloudSnapshot(), placement, title, items: items.map((item) => ({ ...item, text: pronounce.apply(item.text) })) }
+  const convert = currentMode() === 'convert'
+  return { placement, title, convert, stream: !convert && $('speechStream').checked,
+    modeName: MODE_NAMES[currentMode()], voice: voiceLabel(),
     items: items.map((item) => item.reuse ? item : { ...item, request: payload({ text: item.text, speaker: item.speaker, seed: redoSeed }) }) }
 }
 
@@ -290,15 +333,34 @@ async function enqueue(task) {
   if (job) { paintJob(); return }
   job = true
   stopped = false
+  stopStream() // 新的生成取代上一段還在播的；排隊中的接著上一個播
   $('speechError').hidden = true
   paintJob()
   try {
-    while (queue.length && !stopped) await runJob(queue.shift())
+    while (queue.length && !stopped) {
+      const next = queue.shift()
+      await (next.cloud ? runCloudJob(next) : runJob(next))
+    }
   } finally {
     queue.length = 0
     job = false
-    stopStream()
+    dock.setProgress(null)
     setBusy(false)
+  }
+}
+
+async function finishTake(parts, { placement, title, mode, voice }, failure, total) {
+  try {
+    const usable = parts.length && (!failure || parts.some((p) => p.resultId || p.pcm))
+    if (usable) {
+      const take = await call('saveTake', { parts, placement, title, mode, voice })
+      await dock.refresh(take.id)
+      const kept = parts.length < total ? `，保留了完成的 ${parts.length} 句` : ''
+      $('speechProgress').textContent = failure || stopped ? `已停止${kept}。` : `${formatTime(take.duration)} · 24 kHz · 已存成新版本`
+    } else $('speechProgress').textContent = failure ? '生成已停止。' : ''
+    if (failure && !stopped) showError(failure)
+  } catch (error) {
+    showError(error)
   }
 }
 
@@ -312,75 +374,97 @@ async function runJob({ items, placement, title, convert, stream, modeName, voic
   let done = 0
   let failure = null
   dock.pause()
-  stopStream()
   streaming = stream
+  dock.setProgress(fresh > 1 ? 0 : -1)
   try {
-    if (stream) {
-      audioContext ||= new AudioContext()
-      await audioContext.resume()
-    }
+    if (stream) await live.begin()
     $('speechProgress').textContent = '正在準備模型…首次載入需要一點時間。'
     for (const item of items) {
       if (stopped) break
       const meta = { text: item.text, speaker: item.speaker || '', at: item.at, gap: item.gap }
       if (item.reuse) { parts.push({ ...item.reuse, ...meta }); continue }
       requestId = crypto.randomUUID()
+      live.sentence()
       done++
       $('speechProgress').textContent = fresh > 1 ? `正在生成第 ${done} / ${fresh} 句…` : '正在生成…'
       let result = await call('generate', { ...item.request, reqId: requestId })
       // 短句講完又冒出聲音＝模型沒停好在亂念，換種子重來（長稿本來就可能有長停頓，不判）
       for (let retry = 0; result.runaway && !convert && item.text.length <= 200 && retry < 2 && !stopped; retry++) {
+        if (stream) live.rewind()
         result = await call('generate', { ...item.request, reqId: requestId, seed: Math.floor(Math.random() * 2147483647) })
       }
       parts.push({ resultId: result.resultId, ...meta })
+      if (stream) live.endSentence(item.gap || 0)
+      if (fresh > 1) dock.setProgress(done / fresh)
     }
   } catch (error) {
     failure = error
-  } finally { requestId = ''; streaming = false }
-  try {
-    const usable = parts.length && (!failure || parts.some((p) => p.resultId))
-    if (usable) {
-      const take = await call('saveTake', { parts, placement, title, mode: modeName, voice })
-      await dock.refresh(take.id)
-      // 結果區在稿子下面，做完捲過去讓人馬上看到（減少動態時直接跳）
-      $('speechDockBody').scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-      const kept = parts.length < items.length ? `，保留了完成的 ${parts.length} 句` : ''
-      $('speechProgress').textContent = failure || stopped ? `已停止${kept}。` : `${formatTime(take.duration)} · 24 kHz · 已存成新版本`
-    } else $('speechProgress').textContent = failure ? '生成已停止。' : ''
-    if (failure && !stopped) showError(failure)
-  } catch (error) {
-    showError(error)
   } finally {
-    stopStream()
-    paintJob()
+    requestId = ''
+    // 生成完不切掉串流：已經排好的聲音會播完（取消時 cancel 已經停掉）
+    if (streaming) live.end()
+    streaming = false
   }
+  await finishTake(parts, { placement, title, mode: modeName, voice }, failure, items.length)
+  paintJob()
+}
+
+async function runCloudJob({ cloud: request, items, placement, title }) {
+  const text = items[0].text
+  let failure = null
+  const parts = []
+  dock.pause()
+  dock.setProgress(-1)
+  requestId = crypto.randomUUID()
+  jobCloud = true
+  $('speechProgress').textContent = `正在用 ${request.modelId} 生成…`
+  try {
+    parts.push({ pcm: await generateCloud({ request, text, requestId }), text, gap: 0 })
+  } catch (error) { failure = error }
+  finally { requestId = ''; jobCloud = false }
+  await finishTake(parts, { placement, title, mode: '雲端', voice: request.voice }, failure, 1)
+  paintJob()
 }
 
 function currentItems() {
-  if (mode === 'convert') return [{ text: $('speechText').value.trim(), gap: 0 }]
-  if (script === 'subtitle') {
+  const now = view()
+  if (now === 'convert') {
+    if (!source) throw new Error('請先選擇要變聲的錄音。')
+    if (!selectedVoice && !reference) throw new Error('請在右邊選一個目標聲音，或錄一段新的。')
+    return [{ text: $('speechText').value.trim(), gap: 0 }]
+  }
+  if (!cloud() && kind() === 'mine' && !selectedVoice && !reference && !(now === 'subtitle' && speakerVoices.size)) {
+    throw new Error('請在右邊選一個保存的聲音，或錄一段新的。')
+  }
+  if (now === 'subtitle') {
     if (!subtitle) throw new Error('請先匯入字幕檔。')
     return subtitle.cues.map((cue) => ({ text: cue.text, speaker: cue.speaker, at: cue.start, gap: 0 }))
   }
   const text = $('speechText').value.trim()
   if (!text) throw new Error('請先寫下想說的話。')
-  return script === 'sentences' ? splitSentences(text) : [{ text, gap: 0 }]
+  if (cloud() && text.length > CLOUD_MAX_CHARS) throw new Error(`雲端一次最多 ${CLOUD_MAX_CHARS} 字，請縮短或改用本機。`)
+  return now === 'sentences' ? splitSentences(text) : [{ text, gap: 0 }]
 }
 
 async function generate(event) {
-  event.preventDefault()
-  if (job && stopped) return
-  let items
-  try { items = currentItems() } catch (error) { showError(error); return }
-  const title = script === 'subtitle' ? subtitle.name : (items[0]?.text || MODE_NAMES[mode]).slice(0, 40)
+  event?.preventDefault()
+  if ((job && stopped) || $('speechGenerate').disabled) return
+  let task
+  try {
+    const items = currentItems()
+    const title = view() === 'subtitle' ? subtitle.name : (items[0]?.text || MODE_NAMES[currentMode()]).slice(0, 40)
+    task = snapshot(items, { placement: view() === 'subtitle' ? 'cue' : 'sequence', title })
+  } catch (error) { showError(error); return }
+  $('speechError').hidden = true
   if (job) $('speechProgress').textContent = `已加入排隊，前面還有 ${queue.length + 1} 個。`
-  await enqueue(snapshot(items, { placement: script === 'subtitle' ? 'cue' : 'sequence', title }))
+  await enqueue(task)
 }
 
 /** 只重做某一句：其他句沿用原版本，換個隨機種子避免念出一模一樣的結果。 */
 async function redo(take, index, text) {
   if (job) return
   if (!text) { showError(new Error('這句不能是空的。')); return }
+  if (cloud()) { showError(new Error('單句重做只支援本機生成，請先切回本機。')); return }
   const items = take.segments.map((segment, i) => ({ text: i === index ? text : segment.text, speaker: segment.speaker, at: segment.at, gap: segment.gap,
     reuse: i === index ? null : { takeId: take.id, index: i } }))
   await enqueue(snapshot(items, { placement: take.placement, title: take.title, redoSeed: Math.floor(Math.random() * 2147483647) }))
@@ -388,25 +472,34 @@ async function redo(take, index, text) {
 
 // ── 聲音範本 ──
 
+function paintPresets() {
+  const value = $('speechInstruction').value.trim()
+  document.querySelectorAll('.speech-preset-use').forEach((button) => {
+    button.setAttribute('aria-pressed', String(PRESETS[Number(button.dataset.index)][presetLang] === value))
+  })
+}
+
 function usePreset(preset) {
   $('speechInstruction').value = preset[presetLang]
+  paintPresets()
+  saveDraft()
 }
 
 /** 試聽＝套用範本後用一句固定台詞生成（跟正式生成同一套參數，聽到的就是會得到的聲音）。 */
 async function previewPreset(preset) {
   usePreset(preset)
-  // 跟生成按鈕同一個開關：模型沒裝、服務被別人占用時不送
-  if ($('speechGenerate').disabled || (job && stopped)) return
+  if (cloud() || $('speechGenerate').disabled || (job && stopped)) return
   if (job) $('speechProgress').textContent = `已加入排隊，前面還有 ${queue.length + 1} 個。`
   await enqueue(snapshot([{ text: PRESET_SAMPLE[presetLang], gap: 0 }], { placement: 'sequence', title: `試聽 · ${preset.name}` }))
 }
 
 function renderPresets() {
-  $('speechPresetList').replaceChildren(...PRESETS.map((preset) => {
+  $('speechPresetList').replaceChildren(...PRESETS.map((preset, index) => {
     const row = document.createElement('li')
     const use = document.createElement('button')
     use.type = 'button'
     use.className = 'speech-preset-use'
+    use.dataset.index = String(index)
     use.textContent = preset.name
     use.title = preset[presetLang]
     use.addEventListener('click', () => usePreset(preset))
@@ -419,6 +512,7 @@ function renderPresets() {
     row.append(use, listen)
     return row
   }))
+  paintPresets()
 }
 
 async function cancel() {
@@ -426,7 +520,8 @@ async function cancel() {
   stopped = true
   queue.length = 0
   stopStream()
-  await call('cancel', savingVoice ? {} : { reqId: requestId })
+  if (jobCloud) await cancelCloud(requestId)
+  else await call('cancel', savingVoice ? {} : { reqId: requestId })
 }
 
 // ── 字幕 ──
@@ -445,13 +540,16 @@ function renderCues() {
     row.querySelector('.seg-text').textContent = cue.text
     return row
   }))
-  renderSpeakers()
-  updateCount()
+  paint()
 }
 
 function renderSpeakers() {
   const named = subtitle?.speakers.filter(Boolean) || []
-  $('speechSpeakers').hidden = script !== 'subtitle' || !named.length
+  const hidden = view() !== 'subtitle' || !named.length
+  $('speechSpeakers').hidden = hidden
+  const signature = JSON.stringify([named, savedVoices.map((voice) => voice.id)])
+  if (hidden || $('speechSpeakerList').dataset.signature === signature) return
+  $('speechSpeakerList').dataset.signature = signature
   $('speechSpeakerList').replaceChildren(...named.map((speaker) => {
     const row = document.createElement('li')
     const label = document.createElement('span')
@@ -482,75 +580,67 @@ async function importSubtitle() {
     const parsed = parseSubtitles(file.name, await file.text())
     subtitle = { ...parsed, name: file.name }
     speakerVoices.clear()
+    $('speechSpeakerList').dataset.signature = ''
     $('speechError').hidden = true
     renderCues()
   } catch (error) { showError(error) }
 }
 
-// ── 讀音字典 ──
+// ── 草稿：稿子與聲音設定自動保存，重開 App 接著寫 ──
 
-function renderPronunciations() {
-  $('speechPronounceCount').textContent = String(pronunciations.length)
-  $('speechPronounceCount').hidden = !pronunciations.length
-  $('speechPronounceList').replaceChildren(...pronunciations.map((item, index) => {
-    const row = document.createElement('li')
-    row.innerHTML = `<span class="pron-word"></span><span aria-hidden="true">→</span><span class="pron-sound"></span><button type="button" class="btn-icon">${svgIcon('trash')}</button>`
-    row.querySelector('.pron-word').textContent = item.word
-    row.querySelector('.pron-sound').textContent = item.sound
-    const remove = row.querySelector('button')
-    remove.setAttribute('aria-label', `移除「${item.word}」的讀音`)
-    remove.addEventListener('click', () => { pronunciations = pronunciations.filter((_, i) => i !== index); void savePronunciations() })
-    return row
-  }))
+function draft() {
+  return { text: $('speechText').value, instruction: $('speechInstruction').value, tone: $('speechTone').value,
+    engine, script, voiceKind, voice: selectedVoice, presetLang, stream: $('speechStream').checked,
+    cloudModel: cloudModelKey(), cloudVoice: $('cloudSpeechVoice').value, cloudSpeed: Number($('cloudSpeechSpeed').value),
+    params: Object.fromEntries(PARAMS.map((id) => [id, Number($(id).value)])) }
 }
 
-async function savePronunciations() {
-  renderPronunciations()
-  try { await electronAPI.store.set('speechPronunciations', pronunciations) } catch (error) { showError(error) }
+function saveDraft(now = false) {
+  clearTimeout(draftTimer)
+  const write = () => electronAPI.store?.set('speechDraft', draft()).catch((error) => console.error('[speech] 草稿保存失敗:', error))
+  if (now) void write()
+  else draftTimer = setTimeout(write, 600)
 }
 
-function addPronunciation() {
-  const word = $('speechPronounceWord').value.trim()
-  const sound = $('speechPronounceSound').value.trim()
-  if (!word || !sound) { showError(new Error('原字和念法都要填。')); return }
-  pronunciations = [...pronunciations.filter((item) => item.word !== word), { word, sound }]
-  $('speechPronounceWord').value = ''
-  $('speechPronounceSound').value = ''
-  void savePronunciations()
-  $('speechPronounceWord').focus()
-}
-
-function togglePronounce() {
-  const panel = $('speechPronounce')
-  const text = $('speechText')
-  const selected = text.value.slice(text.selectionStart, text.selectionEnd).trim()
-  if (selected && selected.length <= 50) { panel.hidden = false; $('speechPronounceWord').value = selected; $('speechPronounceSound').focus() }
-  else panel.hidden = !panel.hidden
-  $('speechPronounceBtn').setAttribute('aria-expanded', String(!panel.hidden))
+async function loadDraft() {
+  let value = null
+  try { value = await electronAPI.store.get('speechDraft', null) } catch (error) { console.error('[speech] 草稿讀取失敗:', error) }
+  if (!value || typeof value !== 'object') { $('speechInstruction').value = PRESETS[0].zh; return '' }
+  $('speechText').value = value.text || ''
+  $('speechInstruction').value = value.instruction ?? PRESETS[0].zh
+  $('speechTone').value = value.tone || ''
+  engine = value.engine === 'cloud' ? 'cloud' : 'local'
+  script = ['whole', 'sentences', 'subtitle', 'convert'].includes(value.script) ? value.script : 'whole'
+  voiceKind = value.voiceKind === 'mine' ? 'mine' : 'describe'
+  selectedVoice = value.voice || ''
+  presetLang = value.presetLang === 'en' ? 'en' : 'zh'
+  $('speechStream').checked = value.stream !== false
+  if (value.cloudVoice) $('cloudSpeechVoice').value = value.cloudVoice
+  if (Number.isFinite(value.cloudSpeed)) $('cloudSpeechSpeed').value = String(value.cloudSpeed)
+  for (const id of PARAMS) if (Number.isFinite(value.params?.[id])) $(id).value = String(value.params[id])
+  return value.cloudModel || ''
 }
 
 // ── 初始化 ──
 
-function action(id, fn) {
-  $(id).addEventListener('click', async () => {
-    $('speechError').hidden = true
-    $(id).disabled = true
-    try { await fn() } catch (error) { showError(error) }
-    finally { $(id).disabled = false; updateVoice() }
-  })
+function action(button, fn) {
+  button.disabled = true
+  $('speechError').hidden = true
+  Promise.resolve().then(fn).catch(showError).finally(() => { button.disabled = false; paint() })
 }
 
-function radioKeys(selector, onPick) {
-  document.querySelectorAll(selector).forEach((button) => {
-    button.addEventListener('keydown', (event) => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-      event.preventDefault()
-      const buttons = [...document.querySelectorAll(selector)].filter((b) => !b.disabled)
-      const i = buttons.indexOf(button)
-      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (i + (event.key === 'ArrowLeft' ? -1 : 1) + buttons.length) % buttons.length
-      onPick(buttons[next])
-      buttons[next].focus()
-    })
+/** 單選群組的方向鍵（事件委派，動態產生的清單也適用）。 */
+function radioKeys(container, selector, onPick) {
+  container.addEventListener('keydown', (event) => {
+    const button = event.target.closest(selector)
+    if (!button || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const buttons = [...container.querySelectorAll(selector)].filter((b) => !b.disabled)
+    const i = buttons.indexOf(button)
+    const back = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (i + (back ? -1 : 1) + buttons.length) % buttons.length
+    onPick(buttons[next])
+    buttons[next].focus()
   })
 }
 
@@ -563,6 +653,8 @@ function initInputs() {
     onBusy: busy, onChange(audio) {
       reference = audio
       if (!audio) return
+      selectedVoice = ''
+      renderVoices()
       $('speechRefText').value = audio.transcript || ''
       $('speechProgress').textContent = audio.transcript ? '已自動填入逐字稿，檢查一下再生成。' : '沒辨識出逐字稿，請手動填寫錄音內容。'
     } })
@@ -571,50 +663,42 @@ function initInputs() {
   $('page-speech').addEventListener('speech-error', (event) => showError(event.detail))
 }
 
-async function loadPronunciations() {
-  try {
-    const value = await electronAPI.store.get('speechPronunciations', [])
-    pronunciations = Array.isArray(value) ? value.filter((item) => item?.word && item?.sound) : []
-  } catch (error) { console.error('[speech] 讀音字典讀取失敗:', error); pronunciations = [] }
-  renderPronunciations()
-}
-
-function init() {
-  initCloudSpeech()
-  const backend = $('speechBackend')
-  const applyBackend = (button) => {
-    const cloud = button.dataset.backend === 'cloud'
-    backend.querySelectorAll('button').forEach((b) => { b.setAttribute('aria-checked', String(b === button)); b.tabIndex = b === button ? 0 : -1 })
-    $('speechLocalPanel').hidden = cloud
-    $('speechCloudPanel').hidden = !cloud
-    // 切換鈕跟著搬到目前面板的標題列右邊
-    $(cloud ? 'speechCloudPanel' : 'speechLocalPanel').querySelector('.speech-head').append(backend)
-    if (cloud) void refreshCloudSpeech()
-  }
-  backend.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => applyBackend(button)))
-  radioKeys('.speech-backend button', applyBackend)
-  applyBackend(backend.querySelector('[aria-checked="true"]'))
-  document.addEventListener('settings-changed', () => void refreshCloudSpeech())
-  initialized = true
-  initInputs()
-  dock = createTakeDock({ call, onRedo: redo, onError: showError })
-  // 播放列黏在底部會蓋住內容：捲動（含 scrollIntoView、Tab 聚焦）時把它的高度讓出來
-  const scroller = $('page-speech').closest('.content')
-  if (scroller) new ResizeObserver(([entry]) => { scroller.style.scrollPaddingBottom = `${Math.ceil(entry.borderBoxSize[0].blockSize) + 16}px` }).observe(document.querySelector('.speech-dock'))
-  $('speechForm').addEventListener('submit', generate)
-  $('speechModelsBtn').addEventListener('click', () => switchPage('hfmodels', 'recommend'))
-  document.querySelectorAll('.speech-mode').forEach((button) => {
-    button.addEventListener('click', () => { setMode(button.dataset.mode); if (!job) setBusy(false) })
+function initControls() {
+  const form = $('speechForm')
+  form.addEventListener('submit', generate)
+  // Ctrl+Enter 生成；單行欄位按 Enter 不要誤觸送出
+  form.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return
+    if (event.ctrlKey || event.metaKey) { event.preventDefault(); void generate() }
+    else if (event.target.matches('input')) event.preventDefault()
   })
-  radioKeys('.speech-mode', (button) => setMode(button.dataset.mode))
-  document.querySelectorAll('.speech-script-mode').forEach((button) => button.addEventListener('click', () => { scriptBeforeConvert = ''; setScript(button.dataset.script) }))
-  radioKeys('.speech-script-mode', (button) => setScript(button.dataset.script))
-  $('speechText').addEventListener('input', updateCount)
-  renderPresets()
+  // 直接綁在稿子上：程式插入文字送的 input 事件不一定會冒泡
+  $('speechText').addEventListener('input', () => { updateCount(); saveDraft() })
+  form.addEventListener('input', (event) => {
+    if (event.target.id === 'speechTone') { form.dataset.mode = currentMode(); paintGenerate() }
+    if (event.target.id === 'speechInstruction') paintPresets()
+    saveDraft()
+  })
+  form.addEventListener('change', () => saveDraft())
+  for (const [container, selector, onPick] of [
+    [document.querySelector('.speech-script-modes'), '.speech-script-mode', (b) => setScript(b.dataset.script)],
+    [$('speechBackend'), 'button', (b) => setEngine(b.dataset.backend)],
+    [$('speechVoiceKind'), 'button', (b) => setVoiceKind(b.dataset.kind)],
+    [$('speechVoiceList'), '.speech-voice-pick', (b) => { selectedVoice = b.dataset.voice; paintVoices(); saveDraft() }]
+  ]) {
+    container.addEventListener('click', (event) => { const button = event.target.closest(selector); if (button && !button.disabled) onPick(button) })
+    radioKeys(container, selector, onPick)
+  }
+  $('speechVoiceList').addEventListener('click', (event) => {
+    const remove = event.target.closest('.voice-delete')
+    if (remove) action(remove, () => deleteVoice(remove.dataset.remove))
+  })
+  $('speechModelsBtn').addEventListener('click', () => switchPage('hfmodels', 'recommend'))
   document.querySelectorAll('.speech-preset-lang button').forEach((button) => button.addEventListener('click', () => {
     presetLang = button.dataset.lang
     document.querySelectorAll('.speech-preset-lang button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)))
     renderPresets()
+    saveDraft()
   }))
   // 標記選單：點外面或按 Esc 收起
   document.addEventListener('pointerdown', (event) => { if (!$('speechEvents').contains(event.target)) $('speechEvents').open = false })
@@ -625,19 +709,23 @@ function init() {
     const text = $('speechText')
     if (text.value.length - (text.selectionEnd - text.selectionStart) + button.dataset.event.length > text.maxLength) return
     text.setRangeText(button.dataset.event, text.selectionStart, text.selectionEnd, 'end')
-    text.dispatchEvent(new Event('input'))
+    text.dispatchEvent(new Event('input', { bubbles: true }))
     text.focus()
   }))
-  $('speechVoice').addEventListener('change', updateVoice)
   $('speechPlayer').addEventListener('play', stopStream)
   $('speechImportSubtitle').addEventListener('click', () => $('speechSubtitleFile').click())
   $('speechSubtitleFile').addEventListener('change', importSubtitle)
-  $('speechPronounceBtn').addEventListener('click', togglePronounce)
-  $('speechPronounceAdd').addEventListener('click', addPronunciation)
-  $('speechPronounceSound').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); addPronunciation() } })
-  action('speechSaveVoice', saveVoice)
-  action('speechDeleteVoice', deleteVoice)
-  action('speechCancel', cancel)
+  $('speechSaveVoice').addEventListener('click', () => action($('speechSaveVoice'), saveVoice))
+  $('speechCancel').addEventListener('click', () => action($('speechCancel'), cancel))
+}
+
+async function init() {
+  initCloudSpeech({ onStatus: paint })
+  initInputs()
+  pronounce = createPronounce({ onError: showError })
+  dock = createTakeDock({ call, onRedo: redo, onError: showError })
+  live = createStream({ onChange: (on) => dock.setLive(on ? live : null) })
+  initControls()
   electronAPI.breeze?.onChunk(onChunk)
   electronAPI.breeze?.onStatus(paintStatus)
   electronAPI.breeze?.onProgress((data) => {
@@ -646,16 +734,22 @@ function init() {
     $('speechProgress').textContent = `${prefix} · ${Number(data.seconds || 0).toFixed(1)} 秒`
   })
   window.addEventListener('beforeunload', () => {
-    stopStream(); dock.dispose(); referenceInput.dispose(); sourceInput.dispose(); void audioContext?.close()
+    if (draftTimer) saveDraft(true)
+    live.close(); dock.dispose(); referenceInput.dispose(); sourceInput.dispose()
   })
-  setMode('design')
-  setScript('whole')
-  void loadPronunciations()
+  const cloudModel = await loadDraft()
+  renderPresets()
+  document.querySelectorAll('.speech-preset-lang button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === presetLang)))
+  renderVoices()
+  paint()
+  await Promise.all([pronounce.load(), refreshCloudSpeech(cloudModel)])
 }
 
+let starting = null
 export async function refreshSpeechPage() {
-  if (!initialized) init()
-  await refreshCloudSpeech()
+  if (starting) void refreshCloudSpeech()
+  else starting = init()
+  await starting
   try {
     paintStatus(await call('status'))
     if (!job) await dock.refresh()

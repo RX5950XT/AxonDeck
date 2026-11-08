@@ -6,6 +6,7 @@ const path = require('node:path')
 const vm = require('node:vm')
 
 function createHarness() {
+  let pipelineStop = { promise: Promise.resolve() }
   const loaded = { asr: false, llm: false }, unloads = { asr: 0, llm: 0 }
   const model = kind => ({
     warm: async () => { loaded[kind] = true; return { warnings: [] } },
@@ -27,6 +28,7 @@ function createHarness() {
   let closed
   const context = {
     console, setTimeout, Float32Array, syncCustomSelects() {}, refreshLiveHistory() {}, markSttRecording() {}, newTranscriptId: () => 'live-test',
+    createCaptionPipeline: () => ({ stop: () => pipelineStop.promise }), cleanIpcError: e => e.message,
     getSettings: async () => ({}), readScope: async () => ({ asr: 'local:asr', llm: 'local:llm' }),
     parseAsrValue: () => ({ engine: 'local', modelKey: 'asr' }), parseLlmValue: () => ({ mode: 'local', modelKey: 'llm' }),
     resolveTranslateModelKey: () => 'llm', showToast: message => { throw new Error(message) },
@@ -47,9 +49,16 @@ function createHarness() {
   vm.createContext(context)
   vm.runInContext(`${source}\nstartPcmCapture = async () => {};
     this.api = { startCapture, stopCapture, prewarmEngine, cooldownEngine, initLiveCaption,
-      processing: value => { isProcessing = value }, state: () => ({ isCapturing, isStopping }) }`, context)
+      state: () => ({ isCapturing, isStopping }) }`, context)
   context.api.initLiveCaption()
-  return { api: context.api, engine, loaded, unloads, closeWindow: () => closed(), settingsChanged: () => events.get('settings-changed')() }
+  return {
+    api: context.api, engine, loaded, unloads, closeWindow: () => closed(), settingsChanged: () => events.get('settings-changed')(),
+    holdStop: () => {
+      let release
+      pipelineStop = { promise: new Promise(resolve => { release = resolve }) }
+      return release
+    }
+  }
 }
 
 async function main() {
@@ -65,11 +74,11 @@ async function main() {
   assert.deepEqual(h.unloads, { asr: 0, llm: 0 })
   console.log('PASS 字幕開啟時持續保留本地 ASR 與翻譯模型')
 
-  h.api.processing(true)
+  const release = h.holdStop()
   const stopping = h.api.stopCapture()
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(h.engine.status().users.live, true, '停止時先等進行中的辨識完成')
-  h.api.processing(false)
+  release()
   await stopping
   assert.equal(h.engine.status().users.live, false)
   assert.deepEqual(h.loaded, { asr: false, llm: false })

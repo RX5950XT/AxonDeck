@@ -1,6 +1,17 @@
 /**
- * 文字轉語音的稿子處理（純函式，不碰 DOM）：分句、字幕解析、讀音字典。
+ * 文字轉語音的稿子處理（純函式，不碰 DOM）：聲音範本、分句、字幕解析、讀音字典。
  */
+
+// 聲音設計範本（女聲）。中文描述用簡體：官方範例和表情標籤都是簡體
+export const PRESETS = [
+  { name: '溫柔知性', zh: '温柔知性的年轻女性，声音清澈柔和，语速适中，像在耐心地向朋友解释一件事。', en: 'A gentle, articulate young woman with a clear, soft voice, speaking at a moderate pace as if patiently explaining something to a friend.' },
+  { name: '活潑少女', zh: '活泼开朗的少女，声音明亮甜美，音调偏高，语速稍快，充满朝气和笑意。', en: 'A cheerful, bubbly teenage girl with a bright, sweet, high-pitched voice, speaking a little fast, full of energy and smiles.' },
+  { name: '新聞主播', zh: '专业的女新闻主播，声音沉稳清晰，咬字标准，语调平稳有力，正式而可信。', en: 'A professional female news anchor with a steady, crisp voice, precise diction and a confident, even tone. Formal and trustworthy.' },
+  { name: '睡前故事', zh: '温暖的年轻妈妈在讲睡前故事，声音轻柔缓慢，带着气声，安静而放松。', en: 'A warm young mother telling a bedtime story, speaking softly and slowly with a slightly breathy, calm and soothing voice.' },
+  { name: '親切客服', zh: '亲切有礼的女客服，声音甜美干净，语气热情友善，节奏轻快但不急躁。', en: 'A polite, friendly female customer service agent with a sweet, clean voice, warm and welcoming, upbeat but never rushed.' },
+  { name: '成熟沉穩', zh: '成熟沉稳的中年女性，声音低沉有磁性，语速偏慢，从容而有说服力。', en: 'A mature, composed middle-aged woman with a low, rich and resonant voice, speaking slowly with calm confidence.' }
+]
+export const PRESET_SAMPLE = { zh: '你好，很高興認識你。今天天氣真好，要不要一起出去走走？', en: 'Hi there, it is so nice to meet you. The weather is lovely today, shall we go for a walk?' }
 
 const SENTENCE_GAP = 0.3
 const PARAGRAPH_GAP = 0.7

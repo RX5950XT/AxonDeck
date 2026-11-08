@@ -147,10 +147,12 @@ native/
 - PDF 環境：`pdfruntime` 固定 uv／Python 3.12.12／PaddlePaddle 3.3.1／PaddleOCR 3.7.0／PyMuPDF 1.28.2；`pdfruntimegpu` 換 paddlepaddle-gpu cu129。套件照 `requirements-*.txt` `--require-hashes` 安裝，`rankedIndexes` 量 3MB 挑最快鏡像；裝完 `prune`；Python 一律帶 `isolatedEnv`。GPU 版面偵測 4.3→0.09 秒／頁。
 
 ### 文字轉語音（Breeze-TTS-2）
-- `breeze-tts/{index,protocol,takes,audio-clean,ipc}.js` → `speech-page.js`＋`speech-{script,takes,audio-input,wave}.js`。模型 `breezetts2q8`＋固定 v0.1.0 `breezeruntime`，SHA-256 驗證；不進 llama router。NVIDIA ≥8GB＋Vulkan 用 GPU。首次生成或保存聲音才載模型。
+- `breeze-tts/{index,protocol,takes,audio-clean,ipc}.js` → `speech-page.js`＋`speech-{script,takes,audio-input,wave,pronounce,stream}.js`＋`cloud-speech.js`。模型 `breezetts2q8`＋固定 v0.1.0 `breezeruntime`，SHA-256 驗證；不進 llama router。NVIDIA ≥8GB＋Vulkan 用 GPU。首次生成或保存聲音才載模型。
 - Breeze 只聽 main 指定的 loopback 隨機埠；參考音由 main 選檔（非 WAV 先 ffmpeg 轉 24kHz 單聲道），renderer 只拿 token。選參考音後用檔案轉錄的 ASR 自動填逐字稿。收藏聲音在 `userData/breeze-tts/voices`。
 - 進階預設照官方：重複懲罰 1.1、每段 600 字、每段上限 750 幀（防失控，不是總長）。
-- 版面：左稿子、右設定（模式→聲音→進階）、底部黏著播放列；聲音設計有女聲範本（▶ 用固定台詞實際生成）。每次生成存版本 `userData/breeze-tts/takes`（最多 50 版），記每句位置，重做單句只生成那一句。
+- 版面：整頁不捲動（窄於 900 或矮於 640 才改捲動、播放列黏底）。左稿子（整段／逐句／字幕配音／變聲＋標記、讀音、Ctrl+Enter 生成），右側只放聲音設定，底部是生成結果：播放列（波形、匯出）上方一個抽屜，用「版本」「分句」兩顆鈕切換（預設分句）。沒有四個模式分頁：用文字描述＝design；用錄音的聲音＝clone，填了語氣＝direction；變聲＝convert（強制用錄音的聲音）。聲音設計有女聲範本（▶ 用固定台詞實際生成），全新草稿預設套第一個範本。
+- 草稿 `speechDraft`（稿子、聲音設定、進階參數、本機／雲端）自動保存，main 用 `speech-draft.js` 校驗。雲端 TTS 共用同一份稿子：renderer 把 MP3 解成 24 kHz 單聲道 PCM，`saveTake` 收 `{ pcm }` 存成版本（雲端不再有獨立的 MP3 存檔）。每次生成存版本 `userData/breeze-tts/takes`（最多 50 版），記每句位置，重做單句只生成那一句。
+- 邊生成邊播放在 `speech-stream.js`：先攢 0.35 秒才開播，同一句中途播空就把緩衝拉長（×1.6，最多 3 秒），換句之間的等待不算；句間照 `gap` 補靜音；runaway 重做時 `rewind` 丟掉那句重排；生成完不切掉，播完才結束。串流中播放列的播放鍵改成暫停／繼續串流（`dock.setLive`）。單元測試 `scripts/test-speech-stream.js`。
 - 存版本前每句過 `audio-clean.js`：裁頭尾靜音、拉到 -20 dBFS、10ms 淡入淡出；偵測 `runaway`（講完又出聲）自動換種子重做最多兩次。參考音先 `cleanReference`。
 - 生成可排隊（`snapshot`＋`enqueue`），排隊中參考音與版本區鎖住；停止清空佇列。逐句／字幕由 renderer 依序呼叫 `generate`，main 暫存 PCM（上限 256MB）。讀音字典 `speechPronunciations`。
 - 驗證：`test-breeze-tts.js`、`test-breeze-audio-clean.js`、`test-speech-script.js`、`AXONDECK_DEV=1 node scripts/e2e-speech-cdp.js`（用 `AXONDECK_DEV_URL` 指專屬埠）。模型與輸出限研究、非商用。
@@ -163,6 +165,8 @@ native/
 ### 語音轉文字
 - 檔案轉錄／錄音／字幕各一張功能卡；錄音 `recAudioSource`（預設 mic）、字幕 `liveAudioSource`（預設 system），都可 mic／system／both，共用 `recording-audio.js` 混音。
 - 轉錄與字幕共用模型（`fileAsr`／`fileLlm`，開機 `alignSharedStt` 抄到 live）；語音輸入各自選（`dictationAsr`／`dictationLlm`）。值格式 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
+- 即時字幕流程在 `live-pipeline.js`：講話中每次多聽一點就重新辨識整句（同一行就地更新、`interim` 標記），停頓才定稿；定稿才進逐字稿、當下一句前文。語言交給模型自動偵測（`autoDetect`），`lang` 只決定轉繁體。前文只有雲端吃得進去（OpenRouter 要包在 `provider.options`）。雲端音訊秒數約 3 倍。
+- 字幕紀錄用閱讀視窗 `#sttReader`；轉錄紀錄仍在清單內展開。
 - 即時字幕按開始後持有 `live` 引擎到停止／關窗；待機預熱切頁可釋放。語音輸入：右 Alt → 錄音 → ASR → 字典 → LLM 整理 → 插入；檔案轉錄 ffmpeg 串流切段，雲端 429／逾時／5xx 同段重試。
 
 ### 系統監控

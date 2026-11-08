@@ -8,6 +8,8 @@ const { s2twp, shouldS2twpSource } = require('./opencc')
 const DEFAULT_ASR_API_URL = 'https://openrouter.ai/api/v1'
 const DEFAULT_ASR_MODEL = 'openai/whisper-1'
 const REQUEST_TIMEOUT_MS = 55000
+/** Whisper 前文上限約 224 token，中文大約這麼多字 */
+const MAX_PROMPT_CHARS = 200
 const MAX_AUDIO_BYTES = 24 * 1024 * 1024
 /** 檔案轉錄一段失敗後再試的次數；逾時每次已經等滿客戶端時限，少試兩次 */
 const CLOUD_RETRY_ATTEMPTS = 5
@@ -347,8 +349,24 @@ function classifyHttpError(status, modelId = '') {
 }
 
 /**
+ * 前文讓模型認得專有名詞、接上用字（實測「節點清和性」→「節點親和性」、Pot→POD）。
+ * OpenRouter 不收最上層的 prompt（文件寫明會被忽略），要包在負責的那一家底下；
+ * 其他家照 OpenAI 的欄位名送。
+ * @param {string} base
+ * @param {unknown} prompt
+ * @returns {object}
+ */
+function promptField(base, prompt) {
+  if (typeof prompt !== 'string') return {}
+  const text = prompt.trim().slice(-MAX_PROMPT_CHARS)
+  if (!text) return {}
+  if (!/^https:\/\/openrouter\.ai(\/|$)/.test(base)) return { prompt: text }
+  return { provider: { options: { groq: { prompt: text }, openai: { prompt: text } } } }
+}
+
+/**
  * 呼叫 /audio/transcriptions
- * @param {{ buffer: Buffer, format: string, language?: string, store: object }} opts
+ * @param {{ buffer: Buffer, format: string, language?: string, detectLanguage?: boolean, prompt?: string, store: object }} opts
  * @returns {Promise<string>}
  */
 async function transcribeAudio(opts) {
@@ -373,8 +391,10 @@ async function transcribeAudio(opts) {
       format: format || 'wav'
     }
   }
-  const lang = toWhisperLang(language)
+  // language 同時決定輸出要不要轉繁體；detectLanguage 時只拿來轉繁體，語言讓模型自己聽
+  const lang = opts.detectLanguage ? undefined : toWhisperLang(language)
   if (lang) body.language = lang
+  Object.assign(body, promptField(base, opts.prompt))
 
   const requested = Number(opts.timeoutMs)
   const timeoutMs = Number.isFinite(requested) && requested >= 1000 && requested <= 180000
@@ -448,6 +468,9 @@ async function transcribeSamples(req, store, scope) {
     buffer: wav,
     format: 'wav',
     language: req?.lang,
+    detectLanguage: req?.autoDetect === true,
+    prompt: req?.prompt,
+    timeoutMs: req?.timeoutMs,
     store,
     scope
   })

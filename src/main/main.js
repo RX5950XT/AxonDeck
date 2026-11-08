@@ -291,6 +291,8 @@ const STORE_ALLOWLIST = new Set([
   'translateGlossaryBuiltin',
   // 文字轉語音的讀音字典：[{ word, sound }]
   'speechPronunciations',
+  // 文字轉語音頁的草稿：稿子與聲音設定（speech-draft.js 校驗）
+  'speechDraft',
   'captionDisplayMode',
   'screenTranslateDisplayMode',
   'asrEngine',
@@ -1362,6 +1364,12 @@ ipcMain.handle('store:set', async (event, key, value) => {
   // ttsVoices 深度校驗（五語 + allowlist shortName）
   if (key === 'ttsVoices') {
     store.set(key, sanitizeTtsVoices(value))
+    return true
+  }
+  if (key === 'speechDraft') {
+    const clean = require('./speech-draft').sanitizeSpeechDraft(value)
+    if (clean) store.set(key, clean)
+    else store.delete(key)
     return true
   }
   if (key === 'speechPronunciations') {
@@ -2737,6 +2745,11 @@ app.on('web-contents-created', (_event, contents) => {
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
   if (contents.getType() === 'webview') {
+    // 內嵌網頁的反白跟 App 一致。user 來源＋!important 才蓋得過網站自己寫的 ::selection
+    contents.on('dom-ready', () => {
+      contents.insertCSS('::selection { background: rgba(120, 163, 181, 0.35) !important; }', { cssOrigin: 'user' })
+        .catch((error) => console.warn('[webview] 反白樣式注入失敗:', error?.message))
+    })
     contents.on('before-mouse-event', (_e, input) => {
       if (input.type !== 'mouseUp' || (input.button !== 'back' && input.button !== 'forward')) return
       const back = input.button === 'back'

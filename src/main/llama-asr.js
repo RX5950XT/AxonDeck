@@ -31,7 +31,8 @@ async function transcribeModel(key, req) {
   form.append('model', key)
   form.append('file', new Blob([float32ToWav(samples, rate)], { type: 'audio/wav' }), 'audio.wav')
   form.append('response_format', 'json')
-  const lang = toAsrLang(req?.lang)
+  // lang 同時決定輸出要不要轉繁體；autoDetect 時只拿來轉繁體，語言讓模型自己聽
+  const lang = req?.autoDetect ? undefined : toAsrLang(req?.lang)
   if (lang) form.append('language', lang)
   let res
   try {

@@ -47,7 +47,7 @@ class Cdp {
     })
     this.ws.addEventListener('message', ({ data }) => {
       const message = JSON.parse(data)
-      if (message.method === 'Runtime.exceptionThrown') this.exceptions.push(message.params.exceptionDetails.text)
+      if (message.method === 'Runtime.exceptionThrown') this.exceptions.push(`${message.params.exceptionDetails.text} ${message.params.exceptionDetails.exception?.description || ''}`)
       const pending = this.pending.get(message.id)
       if (!pending) return
       this.pending.delete(message.id)
@@ -115,6 +115,20 @@ async function fill(cdp, values) {
   await cdp.eval(`Object.entries(${JSON.stringify(values)}).forEach(([id,value])=> {
     const el=document.getElementById(id); el.value=String(value); el.dispatchEvent(new Event('input',{bubbles:true}));
   })`)
+}
+
+/** 新版沒有四個模式分頁：由「生成方式」與「聲音從哪裡來＋語氣」組合出來。 */
+async function setMode(cdp, mode, script = 'whole') {
+  if (mode === 'convert') return cdp.click('.speech-script-mode[data-script="convert"]')
+  if (await cdp.eval(`speechForm.dataset.script==='convert'`)) await cdp.click(`.speech-script-mode[data-script="${script}"]`)
+  await cdp.click(`#speechVoiceKind [data-kind="${mode === 'design' ? 'describe' : 'mine'}"]`)
+  await cdp.eval(`speechTone.value=${JSON.stringify(mode === 'direction' ? '慢慢說，語氣認真。' : '')}; speechTone.dispatchEvent(new Event('input',{bubbles:true}))`)
+}
+const pickedVoice = `document.querySelector('.speech-voice-pick[aria-checked="true"]')?.dataset.voice`
+const takeRows = `document.getElementById('speechTakes').children`
+// 播放列上方的抽屜：打開版本清單；關掉時切回分句（預設的樣子）
+async function showTakes(cdp, open) {
+  await cdp.eval(`(() => { const on = speechTakesToggle.getAttribute('aria-expanded')==='true'; if (${open} && !on) speechTakesToggle.click(); if (!${open} && on) speechSegToggle.click() })()`)
 }
 
 async function installFixture(main) {
@@ -196,7 +210,7 @@ async function realScriptGate(cdp, inspector) {
     console.log(`真 Q8 ${label}: ${((Date.now() - started) / 1000).toFixed(1)} 秒；${await cdp.eval('speechProgress.textContent')}`)
     return (await takes())[0]
   }
-  await cdp.click('.speech-mode[data-mode="design"]')
+  await setMode(cdp, 'design')
   await cdp.click('.speech-script-mode[data-script="sentences"]')
   await fill(cdp, { speechText: '今天早上下了一場小雨。空氣變得很清新，路邊的樹葉閃閃發亮。\n下午我們去公園散步吧！', speechInstruction: '溫暖清晰的年輕女性聲音，語速自然。', speechSeed: 42 })
   const sentences = await run('逐句生成', () => cdp.click('#speechGenerate'))
@@ -205,7 +219,6 @@ async function realScriptGate(cdp, inspector) {
   check('逐句 WAV 長度等於版本長度', Math.abs(wavSeconds(sentenceFile) - sentences.duration) < 0.01)
   const original = sentences.segments.map((seg) => seg.length)
   const redone = await run('單句重做', async () => {
-    await cdp.eval(`document.querySelector('.speech-seg-box').open=true`)
     await cdp.click('#speechSegments li:nth-child(2) .seg-edit')
     await cdp.eval(`document.querySelector('#speechSegments li:nth-child(2) .seg-input').value='空氣變得很清新，連小鳥都開始唱歌了。'`)
     await cdp.click('#speechSegments li:nth-child(2) .seg-redo')
@@ -249,7 +262,7 @@ async function realModelGate(cdp, inspector) {
   await cdp.click('.nav-tab[data-page="chat"]')
   await cdp.click('.nav-tab[data-page="speech"]')
   await waitFor(() => cdp.eval(`!speechGenerate.disabled && speechInstallNotice.offsetHeight===0`), '真 Q8 就緒')
-  await cdp.click('.speech-mode[data-mode="design"]')
+  await setMode(cdp, 'design')
   const refText = '今天的天氣很好，歡迎使用文字轉語音。'
   await fill(cdp, { speechText:refText, speechInstruction:'清晰自然的年輕女性聲音。', speechSeed:42 })
   for (const mode of ['design', 'clone']) {
@@ -257,13 +270,14 @@ async function realModelGate(cdp, inspector) {
       await cdp.click('#speechExport')
       await waitFor(() => cdp.eval(`speechProgress.textContent==='WAV 已匯出。'`), '真 WAV 匯出')
       check('真實 saveAudio IPC 寫出有效 WAV', fs.readFileSync(exported).subarray(0, 4).toString() === 'RIFF')
-      await cdp.click('.speech-mode[data-mode="clone"]')
+      await setMode(cdp, 'clone')
+      await cdp.click('.speech-voice-pick[data-voice=""]')
       await cdp.click('#speechPickReference')
       await waitFor(() => cdp.eval(`speechReferenceName.textContent.includes('qa-real-design.wav')`), '真參考錄音')
       await fill(cdp, { speechRefText:refText, speechVoiceName:'qa_real_voice' })
       await cdp.click('#speechSaveVoice')
-      await waitFor(() => cdp.eval(`speechVoice.value==='qa_real_voice' || !speechError.hidden`), '真聲音保存', 180000)
-      check('真實 saveVoice IPC 建立聲音收藏', await cdp.eval(`speechVoice.value==='qa_real_voice'`) && fs.existsSync(path.join(USER_DATA,'breeze-tts/voices/qa_real_voice.breeze')))
+      await waitFor(() => cdp.eval(`${pickedVoice}==='qa_real_voice' || !speechError.hidden`), '真聲音保存', 180000)
+      check('真實 saveVoice IPC 建立聲音收藏', await cdp.eval(`${pickedVoice}==='qa_real_voice'`) && fs.existsSync(path.join(USER_DATA,'breeze-tts/voices/qa_real_voice.breeze')))
       await fill(cdp, { speechText:'你好，這是保存聲音的測試。' })
     }
     const previous = await cdp.eval(`({src:speechPlayer.src,streams:window.__speechStreams})`)
@@ -330,7 +344,7 @@ async function main() {
     const navCount = require('./lib/nav-pages').NAV_PAGES.length
     check(`導航有文字轉語音，全部 ${navCount} 頁`, await cdp.eval(`document.querySelectorAll('.nav-tab[data-page]').length===${navCount} && !!document.querySelector('.nav-tab[data-page="speech"]')`))
     await cdp.click('.nav-tab[data-page="speech"]')
-    await waitFor(() => cdp.eval(`document.getElementById('speechModelStatus').textContent==='尚未下載'`), '未下載狀態')
+    await waitFor(() => cdp.eval(`document.getElementById('speechModelStatus').textContent.includes('尚未下載')`), '未下載狀態')
     const tags = ['[笑]', '(laugh)', '[叹气]', '(sigh)', '[咳嗽]', '(cough)', '[清嗓子]', '(clears throat)', '[低语]', '(whispering)', '[倒抽气]', '(gasp)', '[紧张地轻笑]', '(nervous chuckle)', '[打哈欠]', '(yawn)', '[耳语]', '(whispers)']
     check('九類 18 個中英文標記齊全且無重複', await cdp.eval(`JSON.stringify([...speechEvents.querySelectorAll('[data-event]')].map(el=>el.dataset.event))===${JSON.stringify(JSON.stringify(tags))}`))
     check('每類都有相鄰中英按鈕，沒有重複標題或語言前綴', await cdp.eval(`speechEvents.querySelectorAll('.speech-event-group').length===9 && [...speechEvents.querySelectorAll('.speech-event-group')].every(el=>{const buttons=[...el.children];return buttons.length===2&&buttons.every(b=>b.matches('button[data-event]'))&&buttons[0].dataset.event.startsWith('[')&&buttons[1].dataset.event.startsWith('(')}) && !/中文|English|加入聲音|延伸語氣/.test(speechEvents.textContent)`))
@@ -342,7 +356,7 @@ async function main() {
     }
     await cdp.eval(`speechText.value='';speechText.dispatchEvent(new Event('input'))`)
     check('未下載提示可見，生成被停用', await visible(cdp, 'speechInstallNotice') && await cdp.eval(`document.getElementById('speechGenerate').disabled`))
-    check('沒有版本時不顯示空播放器', !(await visible(cdp, 'speechDockBody')))
+    check('沒有版本時播放列只留一行提示', await cdp.eval(`document.querySelector('.speech-dock').hasAttribute('data-empty') && speechPlay.offsetHeight===0 && speechWave.offsetHeight===0`))
     const missing = await cdp.eval(`window.electronAPI.breeze.generate({reqId:'qa-uninstalled',mode:'design',text:'你好',instruction:'溫暖清晰'})`)
     check('真正 IPC 拒絕未下載模型', missing?.ok === false && missing.error.code === 'NOT_INSTALLED')
     const invalid = await cdp.eval(`window.electronAPI.breeze.generate({reqId:'qa-invalid',mode:'invalid'})`)
@@ -357,23 +371,26 @@ async function main() {
     await cdp.click('.nav-tab[data-page="speech"]')
     const streamVisibility = []
     for (const mode of ['design', 'clone', 'direction', 'convert']) {
-      await cdp.click(`.speech-mode[data-mode="${mode}"]`)
-      const state = await cdp.eval(`({reference:speechReference.offsetHeight>0,source:speechSource.offsetHeight>0,instruction:speechInstructionGroup.offsetHeight>0,events:speechEvents.offsetHeight>0,stream:speechStreamLabel.offsetHeight>0,scripts:[...document.querySelectorAll('.speech-script-mode')].filter(b=>!b.disabled).length})`)
+      await setMode(cdp, mode)
+      const state = await cdp.eval(`({reference:speechReference.offsetHeight>0,source:speechSource.offsetHeight>0,describe:speechDescribe.offsetHeight>0,tone:speechToneGroup.offsetHeight>0,events:speechEvents.offsetHeight>0,stream:speechStreamLabel.offsetHeight>0,describeLocked:document.querySelector('#speechVoiceKind [data-kind="describe"]').disabled,mode:speechForm.dataset.mode})`)
       streamVisibility.push(state.stream === (mode !== 'convert'))
-      check(`${mode} 對應欄位有真實尺寸`, state.reference === (mode !== 'design') && state.source === (mode === 'convert') && state.instruction === ['design', 'direction'].includes(mode) && state.events === (mode !== 'convert'))
-      check(`${mode} 生成方式：變聲只能整段`, state.scripts === (mode === 'convert' ? 1 : 3))
-      check(`${mode} 只顯示需要的台詞說明`, await cdp.eval(`speechTextHint.hidden===${mode !== 'convert'} && speechTextHint.textContent.includes(${JSON.stringify(mode === 'convert' ? '變聲需要原錄音' : '(English description)')})`))
+      check(`${mode} 對應欄位有真實尺寸`, state.mode === mode && state.reference === (mode !== 'design') && state.source === (mode === 'convert') && state.describe === (mode === 'design') && state.tone === ['clone', 'direction'].includes(mode) && state.events === (mode !== 'convert'))
+      check(`${mode} 變聲只能用錄音的聲音`, state.describeLocked === (mode === 'convert'))
+      check(`${mode} 只顯示需要的台詞說明`, await cdp.eval(`speechTextHint.hidden===${mode !== 'convert'} && (${mode !== 'convert'} || speechTextHint.textContent.includes('變聲需要原錄音'))`))
       check(`${mode} 進階欄位只保留適用項目`, await cdp.eval(`['speechTopP','speechRepetition','speechSplit','speechMaxTokens'].every(id=>{const input=document.getElementById(id);return input.disabled===${mode === 'convert'} && input.closest('label').hidden===${mode === 'convert'}})`))
     }
     check('三種語音模式顯示串流，變聲收合串流選項', streamVisibility.every(Boolean))
     check('變聲先選原錄音再填選填逐字稿', await cdp.eval(`speechSource.getBoundingClientRect().bottom<=speechText.getBoundingClientRect().top`))
-    await cdp.key('End', 'End', 35)
-    check('鍵盤切換同步變聲操作文字與面板名稱', await cdp.eval(`speechGenerate.textContent==='開始變聲' && speechForm.getAttribute('aria-labelledby')===document.activeElement.id && document.activeElement.getAttribute('aria-controls')==='speechForm'`))
+    check('變聲的生成鈕寫開始變聲', await cdp.eval(`speechGenerate.textContent==='開始變聲'`))
     await cdp.key('Home', 'Home', 36)
-    check('Home 鍵切到聲音設計且只留一個 Tab 位置', await cdp.eval(`document.activeElement.dataset.mode==='design' && [...document.querySelectorAll('.speech-mode')].filter(el=>el.tabIndex===0).length===1`))
+    check('Home 鍵切到整段且只留一個 Tab 位置', await cdp.eval(`document.activeElement.dataset.script==='whole' && speechForm.dataset.script==='whole' && [...document.querySelectorAll('.speech-script-mode')].filter(el=>el.tabIndex===0).length===1`))
     await cdp.key('ArrowRight', 'ArrowRight', 39)
-    check('方向鍵切到語音克隆', await cdp.eval(`document.activeElement.dataset.mode==='clone' && document.activeElement.getAttribute('aria-selected')==='true'`))
+    check('方向鍵切到逐句', await cdp.eval(`document.activeElement.dataset.script==='sentences' && document.activeElement.getAttribute('aria-checked')==='true'`))
     check('鍵盤切回同步生成按鈕文字', await cdp.eval(`speechGenerate.textContent==='生成語音'`))
+    await cdp.click('.speech-script-mode[data-script="whole"]')
+    await cdp.click('#speechBackend [data-backend="cloud"]')
+    check('切到雲端：沒有雲端模型時提示前往設定、生成停用、只有整段', await cdp.eval(`speechCloudVoice.offsetHeight>0 && cloudSpeechEmpty.offsetHeight>0 && speechGenerate.disabled && document.querySelector('.speech-script-modes').offsetHeight===0 && speechCount.textContent.endsWith('/ 4096')`))
+    await cdp.click('#speechBackend [data-backend="local"]')
     await cdp.eval(`(() => {
       const Base=window.AudioContext; window.__speechStreams=0;
       window.AudioContext=class extends Base {
@@ -387,6 +404,7 @@ async function main() {
     await waitFor(() => cdp.eval(`!speechGenerate.disabled`), '已安裝 fixture')
 
     // ── 參考音：選檔、波形、裁切、錄音 ──
+    await setMode(cdp, 'clone')
     await cdp.click('#speechPickReference')
     await waitFor(() => cdp.eval(`speechReferenceName.textContent.includes('qa-reference.wav')`), '參考音訊')
     check('選參考音自動填入逐字稿', await cdp.eval(`speechRefText.value==='自動辨識的參考內容'`))
@@ -407,39 +425,49 @@ async function main() {
 
     await fill(cdp, {speechRefText:'測試參考音訊', speechVoiceName:'q'.repeat(64), speechText:'你好，測試聲音。', speechInstruction:'溫暖自然'})
     await cdp.click('#speechSaveVoice')
-    await waitFor(() => cdp.eval(`speechVoice.value==='${'q'.repeat(64)}'`), '保存聲音')
-    check('聲音保存後顯示收藏並收合錄音欄', await cdp.eval(`speechNewReference.offsetHeight===0 && !speechDeleteVoice.disabled`))
+    await waitFor(() => cdp.eval(`${pickedVoice}==='${'q'.repeat(64)}'`), '保存聲音')
+    check('聲音保存後選取收藏並收合錄音欄', await cdp.eval(`speechNewReference.offsetHeight===0 && !document.querySelector('.voice-delete').disabled`))
     check('64 字聲音名稱完整換行且無溢出', await cdp.eval(`(() => {
-      const trigger=speechVoice.parentElement.querySelector('.custom-select-trigger');
-      return trigger.offsetHeight>0 && getComputedStyle(trigger).textOverflow!=='ellipsis' && trigger.scrollWidth<=trigger.clientWidth+1;
+      const name=document.querySelector('.speech-voice-pick[aria-checked="true"] .voice-name');
+      return name.offsetHeight>0 && name.scrollWidth<=name.clientWidth+1 && speechVoiceList.scrollWidth<=speechVoiceList.clientWidth+1;
     })()`))
 
     // ── 四種模式整段生成，每次都留成版本 ──
     for (const mode of ['design', 'clone', 'direction', 'convert']) {
       const before = await inspector.eval(`global.__speechQA.takes.length`)
-      await cdp.click(`.speech-mode[data-mode="${mode}"]`)
+      await setMode(cdp, mode)
       if (mode === 'convert') { await cdp.click('#speechPickSource'); await waitFor(() => cdp.eval(`speechSourceName.textContent.includes('qa-source.wav')`), '原錄音') }
       await cdp.click('#speechGenerate')
-      await waitFor(async () => (await inspector.eval(`global.__speechQA.takes.length`)) > before && cdp.eval(`!speechGenerate.disabled && !speechDockBody.hidden`), `生成 ${mode}`)
+      await waitFor(async () => (await inspector.eval(`global.__speechQA.takes.length`)) > before && cdp.eval(`!speechGenerate.disabled && !document.querySelector('.speech-dock').hasAttribute('data-empty')`), `生成 ${mode}`)
       const request = await inspector.eval(`global.__speechQA.requests.at(-1)`)
       check(`fixture ${mode} 表單完整送到真正 IPC`, request.mode === mode && request.text === '你好，測試聲音。' && request.temperature === (mode === 'convert' ? 0.3 : 0.9) && (mode === 'design' || request.voiceId === 'q'.repeat(64)) && (mode !== 'convert' || request.sourceAudioId === 'qa-source-qa-source.wav' && request.topP === undefined))
     }
     await waitFor(() => cdp.eval(`speechPlayer.readyState>=2`), 'WAV 解碼')
     check('生成結果真的可由 audio 解碼', await cdp.eval(`Number.isFinite(speechPlayer.duration) && speechPlayer.duration>0 && !speechPlayer.error`))
     check('三種語音模式 PCM 排入串流播放，變聲等待完整結果', await cdp.eval(`window.__speechStreams===3`))
-    check('每次生成都多一個版本，最新的在最上面', await cdp.eval(`speechTakes.options.length===4 && speechTakes.selectedIndex===0 && speechTakes.options[0].textContent.startsWith('版本 4')`))
+    check('每次生成都多一個版本，最新的在最上面', await cdp.eval(`${takeRows}.length===4 && ${takeRows}[0].classList.contains('current') && ${takeRows}[0].querySelector('.take-meta').textContent.startsWith('版本 4 ·') && speechTakeCount.textContent==='4'`))
     await cdp.click('#speechPlay')
     await waitFor(() => cdp.eval(`!speechPlayer.paused || speechPlayer.ended`), '播放')
     check('播放鍵控制隱藏的 audio', await cdp.eval(`speechPlayer.currentTime>0 || !speechPlayer.paused`))
     await cdp.click('#speechExport')
     await waitFor(() => cdp.eval(`speechProgress.textContent==='WAV 已匯出。'`), '匯出結果')
     check('匯出送出目前版本 ID', await inspector.eval(`global.__speechQA.exports.at(-1).takeId===global.__speechQA.takes[0].id`))
-    await cdp.eval(`speechTakes.value=speechTakes.options[2].value; speechTakes.dispatchEvent(new Event('change'))`)
-    await waitFor(() => cdp.eval(`speechResultTitle.textContent.length>0 && speechTakes.selectedIndex===2`), '切換版本')
-    check('切換版本載入對應音檔', await cdp.eval(`speechTakes.value`) === await inspector.eval(`global.__speechQA.takes[2].id`))
+    check('版本鈕在播放列上，右側沒有版本分頁', await cdp.eval(`!speechTakesToggle.hidden && speechTakeBox.hidden && !document.querySelector('.speech-side [role="tab"]')`))
+    await showTakes(cdp, true)
+    check('版本清單在播放列上方的抽屜', await cdp.eval(`speechTakeBox.offsetHeight>0 && speechTakeBox.getBoundingClientRect().bottom<=speechPlay.getBoundingClientRect().top && speechTakesToggle.getAttribute('aria-expanded')==='true'`))
+    await cdp.click('#speechTakes li:nth-child(3) .take-pick')
+    await waitFor(() => cdp.eval(`${takeRows}[2].classList.contains('current')`), '切換版本')
+    check('切換版本載入對應音檔', await cdp.eval(`document.querySelector('#speechTakes .current').dataset.id`) === await inspector.eval(`global.__speechQA.takes[2].id`))
+    await cdp.key('ArrowUp', 'ArrowUp', 38)
+    await waitFor(() => cdp.eval(`${takeRows}[1].classList.contains('current')`), '上鍵切版本')
+    check('版本清單上下鍵切換', true)
+    await cdp.click('#speechTakes li:nth-child(2) .take-play')
+    await waitFor(() => cdp.eval(`!speechPlayer.paused || speechPlayer.ended`), '版本列播放')
+    check('版本列的播放鍵直接從頭播', true)
+    await showTakes(cdp, false)
 
     // ── 讀音字典 ──
-    await cdp.click('.speech-mode[data-mode="design"]')
+    await setMode(cdp, 'design')
     await cdp.eval(`speechText.value='重慶很重要';speechText.dispatchEvent(new Event('input'));speechText.setSelectionRange(0,2)`)
     await cdp.click('#speechPronounceBtn')
     check('選取文字按讀音直接帶入原字', await cdp.eval(`!speechPronounce.hidden && speechPronounceWord.value==='重慶'`))
@@ -463,8 +491,10 @@ async function main() {
     await waitFor(() => cdp.eval(`!speechGenerate.disabled && speechSegments.children.length===3`), '逐句生成')
     check('逐句生成送出三次請求', (await inspector.eval(`global.__speechQA.requests.length`)) === count + 3)
     check('版本帶三句與段落停頓', JSON.stringify(await inspector.eval(`global.__speechQA.saved.parts.map(p=>p.gap)`)) === JSON.stringify([0.3, 0.7, 0]))
-    check('分句清單預設收合在播放列裡', await cdp.eval(`!document.querySelector('.speech-seg-box').open && document.querySelector('.speech-seg-box > summary').offsetHeight>0`))
-    await cdp.click('.speech-seg-box > summary')
+    check('分句清單預設展開在播放列上方', await cdp.eval(`speechSegBox.offsetHeight>0 && speechSegCount.textContent==='3' && speechSegBox.getBoundingClientRect().bottom<=speechPlay.getBoundingClientRect().top`))
+    await cdp.click('#speechSegToggle')
+    check('分句按鈕可以收合', await cdp.eval(`speechSegBox.offsetHeight===0 && speechSegToggle.getAttribute('aria-expanded')==='false'`))
+    await cdp.click('#speechSegToggle')
     check('分句清單可見並有試聽、修改、重做', await cdp.eval(`[...speechSegments.children].every(row=>row.querySelector('.seg-play')&&row.querySelector('.seg-edit')&&row.querySelector('.seg-redo')) && speechSegments.offsetHeight>0`))
     const takeId = await inspector.eval(`global.__speechQA.takes[0].id`)
     await cdp.click('#speechSegments li:nth-child(2) .seg-edit')
@@ -476,7 +506,7 @@ async function main() {
     const redoParts = await inspector.eval(`global.__speechQA.saved.parts`)
     check('重做只送一次請求、換隨機種子、用修改後文字', (await inspector.eval(`global.__speechQA.requests.length`)) === count + 1 && redoRequest.seed !== 42 && redoRequest.text === '第二句改過了。')
     check('其他句沿用原版本', redoParts[0].takeId === takeId && redoParts[0].index === 0 && redoParts[2].takeId === takeId && redoParts[2].index === 2 && redoParts[1].resultId)
-    check('重做後顯示新版本與新文字', await cdp.eval(`speechSegments.children[1].querySelector('.seg-text').textContent==='第二句改過了。' && speechTakes.selectedIndex===0`))
+    check('重做後顯示新版本與新文字', await cdp.eval(`speechSegments.children[1].querySelector('.seg-text').textContent==='第二句改過了。' && ${takeRows}[0].classList.contains('current')`))
 
     // ── 停止時保留已完成的句子 ──
     await inspector.eval(`global.__speechQA.behavior='pendingSecond'; global.__speechQA.requests.length=0`)
@@ -512,19 +542,30 @@ async function main() {
     await cdp.click('.speech-script-mode[data-script="whole"]')
 
     // ── 刪除版本與聲音 ──
-    const takesBefore = await cdp.eval(`speechTakes.options.length`)
-    await cdp.click('#speechDeleteTake')
+    const takesBefore = await cdp.eval(`${takeRows}.length`)
+    await showTakes(cdp, true)
+    await cdp.click('#speechTakes li:first-child .take-delete')
     await waitFor(() => cdp.eval(`!!document.querySelector('dialog.app-dialog[open]')`), '版本刪除確認')
     await cdp.click('dialog.app-dialog[open] .btn-danger')
-    await waitFor(() => cdp.eval(`speechTakes.options.length===${takesBefore - 1}`), '版本刪除')
-    check('刪除版本後自動切到最新的另一版', await cdp.eval(`speechTakes.selectedIndex===0 && !speechDockBody.hidden`))
-    await cdp.click('.speech-mode[data-mode="clone"]')
-    await cdp.click('#speechDeleteVoice')
+    await waitFor(() => cdp.eval(`${takeRows}.length===${takesBefore - 1}`), '版本刪除')
+    check('刪除版本後自動切到最新的另一版', await cdp.eval(`${takeRows}[0].classList.contains('current') && !document.querySelector('.speech-dock').hasAttribute('data-empty')`))
+    await showTakes(cdp, false)
+    await setMode(cdp, 'clone')
+    await cdp.click('.voice-delete')
     await waitFor(() => cdp.eval(`!!document.querySelector('dialog.app-dialog[open]')`), '聲音刪除確認')
     await cdp.click('dialog.app-dialog[open] .btn-danger')
-    await waitFor(() => cdp.eval(`speechVoice.options.length===1`), '聲音刪除')
-    check('聲音刪除後還原新參考錄音', await cdp.eval(`speechNewReference.offsetHeight>0 && speechDeleteVoice.disabled`))
-    await cdp.click('.speech-mode[data-mode="design"]')
+    await waitFor(() => cdp.eval(`speechVoiceList.children.length===1`), '聲音刪除')
+    check('聲音刪除後還原新參考錄音', await cdp.eval(`speechNewReference.offsetHeight>0 && !document.querySelector('.voice-delete')`))
+    await setMode(cdp, 'design')
+    await cdp.eval(`speechText.value='Ctrl Enter 測試';speechText.dispatchEvent(new Event('input',{bubbles:true}));speechText.focus()`)
+    count = await inspector.eval(`global.__speechQA.requests.length`)
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 2 })
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 2 })
+    await waitFor(async () => (await inspector.eval(`global.__speechQA.requests.length`)) > count && cdp.eval(`!speechGenerate.disabled && speechProgress.textContent.includes('新版本')`), 'Ctrl+Enter 生成')
+    check('Ctrl+Enter 生成目前台詞', (await inspector.eval(`global.__speechQA.requests.at(-1).text`)) === 'Ctrl Enter 測試')
+    await sleep(800)
+    const saved = await cdp.eval(`window.electronAPI.store.get('speechDraft')`)
+    check('稿子與聲音設定自動存成草稿', saved?.text === 'Ctrl Enter 測試' && saved.voiceKind === 'describe' && saved.engine === 'local' && saved.params?.speechSeed === 42)
     await cdp.eval(`speechText.value='你好，測試聲音。';speechText.dispatchEvent(new Event('input'))`)
     await inspector.eval(`global.__speechQA.behavior='pending'`)
     await cdp.click('#speechGenerate')
@@ -540,9 +581,9 @@ async function main() {
     await waitFor(() => cdp.eval(`speechError.textContent.includes('測試：請重新選擇錄音')`), 'main 錯誤')
     check('main 結構化錯誤可見，表單可重試', await cdp.eval(`speechError.offsetHeight>0 && !speechGenerate.disabled`))
     if (REAL) await realModelGate(cdp, inspector)
-    await cdp.click('.speech-mode[data-mode="design"]')
+    await setMode(cdp, 'design')
     await cdp.click('.speech-script-mode[data-script="sentences"]')
-    await cdp.eval(`speechError.hidden=true; speechTakes.value=speechTakes.options[0].value; speechTakes.dispatchEvent(new Event('change'))`)
+    await cdp.eval(`speechError.hidden=true`)
     for (const width of [1440, 1000, 760, 640]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 1100, deviceScaleFactor: 1, mobile: false })
       for (const theme of ['dark', 'light']) {
@@ -550,24 +591,24 @@ async function main() {
           document.querySelectorAll('#page-speech,.main-content,.content').forEach(el=>el.scrollTop=0); document.documentElement.scrollTop=0; document.body.scrollTop=0; speechEvents.open=true;`)
         await sleep(100)
         const geometry = await cdp.eval(`({overflow:document.querySelector('.speech-workbench').scrollWidth>document.querySelector('.speech-workbench').clientWidth+1,columns:getComputedStyle(speechForm).gridTemplateColumns.split(' ').length,color:getComputedStyle(speechText).color,background:getComputedStyle(speechText).backgroundColor,dock:document.querySelector('.speech-dock').scrollWidth<=document.querySelector('.speech-dock').clientWidth+1})`)
-        check(`${width}px ${theme} 欄位無溢出，顏色有值`, !geometry.overflow && geometry.dock && geometry.color !== geometry.background && (width > 760 || geometry.columns === 1))
+        check(`${width}px ${theme} 欄位無溢出，顏色有值`, !geometry.overflow && geometry.dock && geometry.color !== geometry.background && (width > 900 || geometry.columns === 1))
+        if (width > 900) check(`${width}px ${theme} 整頁不捲動，稿子與播放列都在一屏內`, await cdp.eval(`(() => { const c=document.querySelector('.content'); return c.scrollHeight<=c.clientHeight+1 && document.querySelector('.speech-dock').getBoundingClientRect().bottom<=innerHeight && speechText.offsetHeight>300 })()`))
         check(`${width}px ${theme} 標記分組無溢出且按鈕可點`, await cdp.eval(`speechEvents.scrollWidth<=speechEvents.clientWidth+1 && [...speechEvents.querySelectorAll('.speech-event-group,button')].every(el=>el.scrollWidth<=el.clientWidth+1) && [...speechEvents.querySelectorAll('button')].every(el=>el.getBoundingClientRect().height>=43)`))
         check(`${width}px ${theme} 中英文保持成對同列`, await cdp.eval(`[...speechEvents.querySelectorAll('.speech-event-group')].every(el=>Math.abs(el.children[0].getBoundingClientRect().top-el.children[1].getBoundingClientRect().top)<1)`))
         check(`${width}px ${theme} 分句列沒有溢出`, await cdp.eval(`[...speechSegments.children].every(row=>row.scrollWidth<=row.clientWidth+1)`))
         for (const mode of ['design', 'clone', 'direction', 'convert']) {
-          await cdp.click(`.speech-mode[data-mode="${mode}"]`)
-          await waitFor(() => cdp.eval(`[...document.querySelectorAll('.speech-mode')].every(el=>el.getAnimations().length===0)`), '選單切換完成')
+          await setMode(cdp, mode, 'sentences')
           const menu = await cdp.eval(`(() => {
-            const tabs=[...document.querySelectorAll('.speech-mode')], selected=tabs.find(el=>el.getAttribute('aria-selected')==='true');
-            const fits=tabs.every(el=>el.scrollWidth<=el.clientWidth+1 && el.offsetHeight>=44 && el.querySelector('.speech-mode-description'));
-            const order=${JSON.stringify(mode)}==='direction' ? speechReference.getBoundingClientRect().bottom<=speechInstructionGroup.getBoundingClientRect().top : true;
-            return {fits,order,mode:selected.dataset.mode,background:getComputedStyle(selected).backgroundColor,otherBackground:getComputedStyle(tabs.find(el=>el!==selected)).backgroundColor};
+            const fits=[...document.querySelectorAll('.speech-switch button, .speech-drawer-btn')].filter(el=>el.offsetHeight>0).every(el=>el.scrollWidth<=el.clientWidth+1);
+            const side=document.querySelector('.speech-side'); const sideFits=side.scrollWidth<=side.clientWidth+1;
+            const order=${JSON.stringify(mode)}==='direction' ? speechVoiceList.getBoundingClientRect().bottom<=speechToneGroup.getBoundingClientRect().top : true;
+            return {fits,sideFits,order,mode:speechForm.dataset.mode};
           })()`)
-          assert(menu.fits && menu.order && menu.mode===mode && menu.background!==menu.otherBackground, JSON.stringify(menu))
-          check(`${width}px ${theme} ${mode} 選單與欄位順序清楚`, true)
+          assert(menu.fits && menu.sideFits && menu.order && menu.mode===mode, JSON.stringify(menu))
+          check(`${width}px ${theme} ${mode} 切換鈕與欄位順序清楚`, true)
         }
-        await cdp.click('.speech-mode[data-mode="design"]')
-        check(`${width}px ${theme} 離開變聲還原逐句模式`, await cdp.eval(`speechForm.dataset.script==='sentences'`))
+        await setMode(cdp, 'design', 'sentences')
+        check(`${width}px ${theme} 離開變聲回到逐句`, await cdp.eval(`speechForm.dataset.script==='sentences'`))
         if (SHOTS) {
           await inspector.eval(`${hostWindow}.showInactive()`)
           const shot = await cdp.send('Page.captureScreenshot', { format:'png', captureBeyondViewport:false })
@@ -576,9 +617,21 @@ async function main() {
           await sleep(150)
           const dockShot = await cdp.send('Page.captureScreenshot', { format:'png', captureBeyondViewport:false })
           fs.writeFileSync(path.join(SHOTS, `speech-${width}-${theme}-dock.png`), Buffer.from(dockShot.data, 'base64'))
+          if (width === 1440) {
+            // 另外兩個樣子：右側用錄音的聲音、底部版本清單
+            await setMode(cdp, 'direction', 'sentences')
+            const voiceShot = await cdp.send('Page.captureScreenshot', { format:'png', captureBeyondViewport:false })
+            fs.writeFileSync(path.join(SHOTS, `speech-${width}-${theme}-voice.png`), Buffer.from(voiceShot.data, 'base64'))
+            await showTakes(cdp, true)
+            const takesShot = await cdp.send('Page.captureScreenshot', { format:'png', captureBeyondViewport:false })
+            fs.writeFileSync(path.join(SHOTS, `speech-${width}-${theme}-takes.png`), Buffer.from(takesShot.data, 'base64'))
+            await showTakes(cdp, false)
+            await setMode(cdp, 'design', 'sentences')
+          }
         }
       }
     }
+    if (cdp.exceptions.length) console.error(cdp.exceptions)
     check('整個流程沒有未處理例外', cdp.exceptions.length === 0)
     console.log(`ALL PASS — ${passed} passed; ${REAL ? '含真 Q8 design / saved-voice clone／逐句／重做／字幕。' : 'UI fixture，不代表模型推論。'}${SHOTS ? ` 截圖：${SHOTS}` : ''}`)
   } finally {

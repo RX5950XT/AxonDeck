@@ -504,8 +504,8 @@ async function saveAudio(options = {}) {
 }
 
 /**
- * 把這次生成（或重做）的各句合成一個新版本。parts 每項是剛生成的 resultId，
- * 或沿用舊版本的某一句 { takeId, index }。
+ * 把這次生成（或重做）的各句合成一個新版本。parts 每項是剛生成的 resultId、
+ * 沿用舊版本的某一句 { takeId, index }，或雲端語音解好的 { pcm }。
  */
 async function saveTake(options = {}) {
   if (!Array.isArray(options.parts)) throw fail('INVALID_INPUT', '沒有可以合併的語音')
@@ -518,6 +518,10 @@ async function saveTake(options = {}) {
       pcm = results.get(part.resultId)
       if (!pcm) throw fail('AUDIO_MISSING', '語音結果已失效，請重新生成')
       used.push(part.resultId)
+    } else if (part.pcm instanceof Uint8Array) {
+      // 雲端語音：renderer 已把 MP3 解成 24 kHz 單聲道 16-bit
+      if (!part.pcm.length || part.pcm.length % 2 || part.pcm.length > MAX_RESULT_BYTES) throw fail('INVALID_INPUT', '語音資料格式不符')
+      pcm = Buffer.from(part.pcm.buffer, part.pcm.byteOffset, part.pcm.length)
     } else pcm = await takes.segmentPcm(part.takeId, part.index)
     parts.push({ pcm, text: part.text, speaker: part.speaker, at: part.at, gap: part.gap })
   }

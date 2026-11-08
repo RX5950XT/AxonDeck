@@ -1,11 +1,8 @@
 'use strict'
 
-const { randomUUID } = require('crypto')
-const fs = require('../raw-fs').promises
 const MAX_BYTES = 24 * 1024 * 1024
 let store = null
 let active = null
-let result = null
 
 function fail(code, message) {
   const error = new Error(message)
@@ -72,9 +69,8 @@ async function generate(options) {
     }
     const audio = await readAudio(response)
     if (job.controller.signal.aborted) fail('CANCELED', '已取消語音生成')
-    result = { id: randomUUID(), audio }
-    // renderer 的 CSP 不收 data: 音訊，跟 Breeze 一樣回 base64 讓它轉 blob:
-    return { resultId: result.id, audioBase64: audio.toString('base64'), mimeType: 'audio/mpeg' }
+    // renderer 解碼後存成文字轉語音頁的版本，這裡不留副本
+    return { audioBase64: audio.toString('base64'), mimeType: 'audio/mpeg' }
   } catch (error) {
     if (job.controller.signal.aborted) fail(job.canceled ? 'CANCELED' : 'TIMEOUT', job.canceled ? '已取消語音生成' : '語音生成逾時，請縮短文字後重試')
     if (error.userMessage) throw error
@@ -90,17 +86,6 @@ function cancel(options) {
   return { canceled: true }
 }
 
-async function saveAudio(options) {
-  if (!options || typeof options.resultId !== 'string' || options.resultId !== result?.id) fail('RESULT', '這段音訊已失效，請重新生成')
-  const audio = result.audio
-  const { dialog, BrowserWindow } = require('electron')
-  const choice = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow() || undefined,
-    { title: '儲存語音', defaultPath: '雲端語音.mp3', filters: [{ name: 'MP3 音訊', extensions: ['mp3'] }] })
-  if (choice.canceled || !choice.filePath) return { saved: false }
-  try { await fs.writeFile(choice.filePath, audio) } catch { fail('SAVE', '音訊儲存失敗，請選擇其他位置') }
-  return { saved: true }
-}
+function shutdown() { active?.controller.abort() }
 
-function shutdown() { active?.controller.abort(); result = null }
-
-module.exports = { setStore, status, generate, cancel, saveAudio, shutdown }
+module.exports = { setStore, status, generate, cancel, shutdown }

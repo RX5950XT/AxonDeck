@@ -144,6 +144,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 ### ASR／語音輸入／錄音
 - `asr-select.js` 是本地 ASR 唯一選擇點；`model-scope.js` 是三子分頁模型唯一解析點。本地 GPU ASR 只能走 llama-server 且要帶 `--device`；三支 ASR 都套 `s2twp`。
 - 焦點在自己視窗時不走剪貼簿（`insertIntoOwnWindow`）；自動化測試一律把 `insert` 換成 stub。右 Alt 只能用低階鍵盤 hook；HUD `focusable: false`＋`showInactive()`；`await` rAF 一定配逾時（視窗被遮住 rAF 不跑）。
+- 字幕的 `lang` 是翻譯目標，不可當辨識語言送（實測 1.2 秒英文被聽成「今天我們會說」）；中途結果失敗不算錯、不佔連續失敗；字幕視窗更新只能就地改字（換節點會清掉使用者的選取）。
 - 整理：失敗退回原文；字典送前送後各套一次、單趟掃描；本地逐段結果用空行接不用 `joinSegments`。錄音與字幕邊錄邊 append，不在 renderer 累積；檔名只收 `rec-<13 位毫秒>.webm`／`live-<13 位毫秒>`。
 
 ### CC Proxy／AGY反代
@@ -198,7 +199,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 | AGY | `test-agy-mappers.js` `e2e-agy.js` `e2e-agy-cdp.js` `probe-agy-upstream.js` |
 | 用量／額度 | `test-code-usage.js` `test-usage.js` `test-claude-auth.js` `e2e-usage-cdp.js`；`probe-usage-native-parity.js` |
 | 系統監控 | `test-sysmon*.js` `e2e-sysmon-cdp.js` `e2e-sysmon-disk-cdp.js` `cargo test` |
-| 語音／ASR | `test-dictation.js` `e2e-dictation.js` `test-stt-archive.js` `e2e-stt-cdp.js` `e2e-recorder-cdp.js` |
+| 語音／ASR | `test-dictation.js` `e2e-dictation.js` `test-stt-archive.js` `test-live-pipeline.js` `test-vad.js` `e2e-stt-cdp.js` `e2e-stt-compact-cdp.js` `e2e-recorder-cdp.js`；真模型 `probe-live-asr.js` |
 | Local SI／TTS | `test-hfmodels.js` `e2e-hfmodels.js` `probe-hf-router.js`；`test-breeze-tts.js` `e2e-speech-cdp.js` |
 | 原生媒體 | `test-media-player.js` `cargo test --bin axondeck-media` `probe-native-media.js` `probe-media-packaged.js` |
 | 跨模組 | `test-error-hygiene.js` `test-ipc-invoke.js` `test-updater.js` `test-temp-hygiene.js` `test-safe-rm.js` `e2e-cdp-smoke.js` `e2e-visual-cdp.js` |

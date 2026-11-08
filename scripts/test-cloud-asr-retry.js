@@ -268,7 +268,44 @@ async function testFileJobKeepsFinishedChunks() {
   console.log('PASS 重試盡了保留已完成的段；取消不把半成品當成成功')
 }
 
+/** 即時字幕：語言讓模型自己聽（目標語言只拿來轉繁體）；前文要放在各家吃得到的位置 */
+async function testLiveRequestBody() {
+  const bodies = []
+  const realFetch = global.fetch
+  global.fetch = async (_url, req) => {
+    bodies.push(JSON.parse(req.body))
+    return { ok: true, status: 200, text: async () => JSON.stringify({ text: '公园散步' }) }
+  }
+  const store = (apiUrl) => ({
+    get: (key, fallback) => (key === 'asrClouds' ? [{ id: 'a', name: 'a', apiUrl, apiKey: 'k', models: ['m'] }] : fallback)
+  })
+  try {
+    const openrouter = store('https://openrouter.ai/api/v1')
+    const samples = new Float32Array(160)
+    const text = await cloud.transcribeSamples({ samples, lang: 'zh-TW', autoDetect: true, prompt: '上一句' }, openrouter)
+    assert.equal(text, '公園散步', '自動偵測時仍要轉繁體')
+    assert.equal(bodies[0].language, undefined)
+    assert.equal(bodies[0].prompt, undefined, 'OpenRouter 不收最上層的 prompt')
+    assert.equal(bodies[0].provider.options.groq.prompt, '上一句')
+
+    await cloud.transcribeSamples({ samples, lang: 'zh-TW' }, openrouter)
+    assert.equal(bodies[1].language, 'zh', '語音輸入沿用原本行為')
+    assert.equal(bodies[1].provider, undefined)
+
+    await cloud.transcribeSamples({ samples, lang: 'en', prompt: 'x'.repeat(500) }, store('https://example.com/v1'))
+    assert.equal(bodies[2].prompt.length, 200, '其他家放最上層，且有長度上限')
+    assert.equal(bodies[2].provider, undefined)
+
+    await cloud.transcribeSamples({ samples, lang: 'en', prompt: 123 }, openrouter)
+    assert.equal(bodies[3].provider, undefined, '不是字串就不送')
+  } finally {
+    global.fetch = realFetch
+  }
+  console.log('PASS 字幕請求：語言自動偵測、前文放對位置')
+}
+
 async function main() {
+  await testLiveRequestBody()
   await testDelayMath()
   await testRetryLoop()
   await testLiveHttp()

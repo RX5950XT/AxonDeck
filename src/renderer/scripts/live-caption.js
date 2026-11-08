@@ -1,14 +1,13 @@
 /**
  * AxonDeck - 即時字幕功能
  *
- * - 音訊：AudioContext(16kHz) 直接取 PCM → VAD 在停頓處切句 → ASR
- * - ASR 與翻譯管線分離
- * - openBatch 累積 → seal → translatePump
+ * - 音訊：AudioContext(16kHz) 直接取 PCM → VAD 在停頓處切句
+ * - 辨識與翻譯在 `live-pipeline.js`：邊聽邊重新辨識，講完才定稿
  * - 開始時 engine.acquire 預熱模型；停止時 release 卸載
- * - 雙語／僅翻譯顯示模式
  */
 
 import { createVad } from './vad.js'
+import { createCaptionPipeline } from './live-pipeline.js'
 import {
   showToast,
   getSettings,
@@ -43,7 +42,6 @@ let settings = null
 let liveAsrEngine = 'local'
 /** 雲端 ASR 時用的是哪一顆模型（顯示用） */
 let liveAsrModelId = ''
-let consecutiveFailures = 0
 let engineAcquired = false
 /** 進入分頁時背景預熱所持有的引擎 owner（與 engineAcquired 互斥：擷取開始即轉交） */
 let prewarmed = false
@@ -59,45 +57,27 @@ let audioGraph = null
 /** @type {ReturnType<typeof createVad> | null} */
 let vad = null
 
-/** @type {Float32Array[]} 已切好、等待 ASR 的語句 */
-let pendingUtterances = []
-let isProcessing = false
+/** @type {ReturnType<typeof createCaptionPipeline> | null} 這一場字幕的辨識與翻譯 */
+let pipeline = null
 let isStarting = false
 
-/** @type {{ source: string, translation: string }[]} 原文/譯文成對，避免單邊過濾錯位 */
-let history = []
-const MAX_HISTORY_COUNT = 10
-const CONTEXT_SEGMENTS = 2
-const CONTEXT_MAX_CHARS = 320
-const MIN_TRANSLATE_CHARS = 2
-const MAX_BATCH_SEGMENTS = 2
-const MAX_BATCH_CHARS = 120
-const MAX_TRANSLATE_QUEUE = 5
-
-let targetLanguage = 'zh-TW'
-/** 這一場字幕寫進紀錄用的 id；沒在擷取時是空字串（晚到的結果不寫） */
-let transcriptId = ''
 /** 音源：system＝系統 loopback；mic＝麥克風；both＝合併成一條音訊軌 */
 let liveSource = 'system'
 /** @type {Promise<void>} */
 let liveSourceReady = Promise.resolve()
 
-let sessionEpoch = 0
-let batchSeq = 0
-
-/** @type {{ id: string, sources: string[], epoch: number } | null} */
-let openBatch = null
-/** @type {{ id: string, sources: string[], epoch: number }[]} */
-let translateQueue = []
-let isTranslating = false
-
 /** sherpa 要 16kHz mono；AudioContext 直接開在這個取樣率就不必自己重採樣 */
 const TARGET_SAMPLE_RATE = 16000
 /** ScriptProcessor 緩衝大小（必須是 2 的冪）：2048 @16kHz = 128ms */
 const FRAME_SIZE = 2048
-const MAX_PENDING_UTTERANCES = 2
-/** 送進 ASR 的最短語句（VAD 已擋過一次，這是防呆） */
-const MIN_UTTERANCE_SAMPLES = TARGET_SAMPLE_RATE / 4
+/** 講話時已經先顯示了，句尾可以等久一點：斷句少，模型一次聽到的上下文多 */
+const VAD_HANGOVER_MS = 480
+/** 連續講話的上限；音訊越長每次重新辨識越慢，且雲端要整段上傳 */
+const VAD_MAX_UTTERANCE_MS = 12000
+/** 超過上限時在最後這段裡找最安靜的地方切，不切在字中間 */
+const VAD_SOFT_CUT_MS = 3000
+/** 比這句目前最大聲小這麼多就算停頓：背景音樂沒停也切得出句子 */
+const VAD_RELATIVE_OFF = 0.12
 
 /**
  * 初始化即時字幕功能
@@ -277,7 +257,7 @@ async function startCapture() {
     await liveSourceReady
     const source = liveSource
     settings = await getSettings()
-    targetLanguage = liveLanguage.value
+    const targetLanguage = liveLanguage.value
     const needsTranslationBackend = targetLanguage !== 'auto'
 
     // 跟檔案轉錄共用同一份選擇（store 的 live 鍵已跟 file 對齊）
@@ -345,9 +325,7 @@ async function startCapture() {
       prewarmed = false // 擷取接手引擎所有權；卸載改由 stopCapture 負責
 
       isCapturing = true
-      consecutiveFailures = 0
-      resetTranslateState()
-      transcriptId = newTranscriptId()
+      pipeline = createSessionPipeline(asrChoice.engine, llmChoice.mode, targetLanguage)
       setError(null)
       updateUI()
 
@@ -356,6 +334,8 @@ async function startCapture() {
     } catch (error) {
       console.error('開始擷取失敗:', error)
       await stopPcmCapture()
+      await pipeline?.stop()
+      pipeline = null
       // 只釋放本次擷取取得的引擎；保留背景 prewarm（取消權限不應拆掉預熱）
       if (engineAcquired) {
         await electronAPI.engine.release('live').catch(() => {})
@@ -378,13 +358,30 @@ async function startCapture() {
   }
 }
 
-function resetTranslateState() {
-  sessionEpoch++
-  batchSeq = 0
-  openBatch = null
-  translateQueue = []
-  isTranslating = false
-  history = []
+/**
+ * @param {'local'|'cloud'} asrEngine
+ * @param {string} llmMode
+ * @param {string} targetLanguage
+ */
+function createSessionPipeline(asrEngine, llmMode, targetLanguage) {
+  const transcriptId = newTranscriptId()
+  return createCaptionPipeline({
+    asrEngine,
+    llmEngine: llmMode === 'cloud' ? 'cloud' : 'local',
+    targetLanguage,
+    hangoverSamples: (VAD_HANGOVER_MS * TARGET_SAMPLE_RATE) / 1000,
+    // 模型由 main 讀 store 決定（asrEngine ＋ asrModelKey），renderer 不指定
+    transcribe: (req) => electronAPI.localAsr.transcribe(req),
+    translate: (text, lang, opts) => electronAPI.translate(text, lang, opts),
+    show: (payload) => electronAPI.subtitle.update(payload),
+    log: (key, source, translation) => logTranscript(transcriptId, key, source, translation),
+    onError: setError,
+    onFatal: () => {
+      showToast('連續轉錄失敗，已停止字幕', 'error')
+      stopCapture()
+    },
+    errorText: cleanIpcError
+  })
 }
 
 /**
@@ -413,14 +410,21 @@ async function startPcmCapture(stream) {
   processor.connect(mute)
   mute.connect(audioCtx.destination)
 
-  vad = createVad({ sampleRate: audioCtx.sampleRate })
+  vad = createVad({
+    sampleRate: audioCtx.sampleRate,
+    hangoverMs: VAD_HANGOVER_MS,
+    maxUtteranceMs: VAD_MAX_UTTERANCE_MS,
+    softCutMs: VAD_SOFT_CUT_MS,
+    relativeOff: VAD_RELATIVE_OFF
+  })
   processor.onaudioprocess = (event) => {
-    if (!isCapturing || !vad) return
+    if (!isCapturing || !vad || !pipeline) return
     // inputBuffer 由 Chromium 重用；VAD 會保留 frame，必須複製。
     const frame = new Float32Array(event.inputBuffer.getChannelData(0))
     const result = vad.push(frame)
     levelFill.style.width = Math.min(100, result.level * 400) + '%'
-    if (result.utterance) enqueueUtterance(result.utterance)
+    if (result.utterance) pipeline.pushUtterance(result.utterance, vad.speaking)
+    else pipeline.onSpeech(vad)
   }
 
   audioGraph = { source, processor, mute }
@@ -448,244 +452,6 @@ async function stopPcmCapture() {
 }
 
 /**
- * ASR 正在跑時最多保留兩句，若再塞入則丟最舊的未處理句，避免字幕越積越慢。
- * @param {Float32Array} samples
- */
-function enqueueUtterance(samples) {
-  if (!(samples instanceof Float32Array) || samples.length < MIN_UTTERANCE_SAMPLES) return
-  applySampleGain(samples)
-  pendingUtterances.push(samples)
-  while (pendingUtterances.length > MAX_PENDING_UTTERANCES) pendingUtterances.shift()
-  pumpQueue()
-}
-
-async function pumpQueue() {
-  if (isProcessing || pendingUtterances.length === 0) return
-  isProcessing = true
-  const samples = pendingUtterances.shift()
-  try {
-    await transcribeUtterance(samples)
-    consecutiveFailures = 0
-    setError(null)
-  } catch (error) {
-    console.error('處理語句失敗:', error)
-    consecutiveFailures++
-    setError(cleanIpcError(error))
-    if (consecutiveFailures >= 3) {
-      showToast('連續轉錄失敗，已停止字幕', 'error')
-      stopCapture()
-      return
-    }
-  } finally {
-    isProcessing = false
-  }
-  pumpQueue()
-}
-
-/**
- * 低音量來源最多補 8×；VAD 在補增益前判斷，數位靜音不會被放大成語音。
- * @param {Float32Array} samples
- */
-function applySampleGain(samples) {
-  let peak = 0
-  for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]))
-  if (peak >= 0.3 || peak === 0) return
-  const gain = Math.min(0.9 / peak, 8)
-  for (let i = 0; i < samples.length; i++) samples[i] *= gain
-}
-
-/**
- * @param {Float32Array} samples
- */
-async function transcribeUtterance(samples) {
-  const epoch = sessionEpoch
-  // 模型由 main 讀 store 決定（asrEngine ＋ asrModelKey），renderer 不指定
-  const sourceText = (await electronAPI.localAsr.transcribe({
-    samples,
-    sampleRate: TARGET_SAMPLE_RATE,
-    lang: targetLanguage
-  }) || '').trim()
-
-  // 停止／重開後才 resolve 的 stale ASR 結果不得再進管線（否則觸發翻譯並幽靈重載已卸載的 LLM）
-  if (!isCapturing || epoch !== sessionEpoch || !sourceText) return
-
-  if (isRepetitionLoop(sourceText)) {
-    console.log('[過濾] 重複循環輸出:', sourceText.slice(0, 30))
-    return
-  }
-
-  // 非語言性片段會讓小翻譯模型改走對話模式，進翻譯管線前丟棄。
-  if (!hasLinguisticContent(sourceText)) {
-    console.log('[過濾] 無語言內容:', JSON.stringify(sourceText.slice(0, 20)))
-    return
-  }
-
-  handleAsrResult(sourceText)
-}
-
-/**
- * @param {string} sourceText
- */
-function handleAsrResult(sourceText) {
-  const shouldTranslate =
-    targetLanguage !== 'auto' &&
-    hasLinguisticContent(sourceText) &&
-    needsTranslation(sourceText, targetLanguage)
-
-  if (!shouldTranslate) {
-    if (openBatch) {
-      sealOpenBatch()
-      pumpTranslate() // 必呼叫，避免佇列卡住
-    }
-    const id = nextBatchId()
-    upsertSubtitle(id, sourceText, '')
-    // 不 pushPair(原文,原文)：identity 前文會教 0.8B 模型「原樣輸出」，下一段日文被整段複誦（雙語變兩行日文）
-
-    if (
-      targetLanguage !== 'auto' &&
-      !needsTranslation(sourceText, targetLanguage)
-    ) {
-      console.log('[略過翻譯] 偵測已是目標語:', sourceText.slice(0, 40))
-    }
-    return
-  }
-
-  if (!openBatch) {
-    openBatch = { id: nextBatchId(), sources: [sourceText], epoch: sessionEpoch }
-  } else {
-    openBatch.sources.push(sourceText)
-  }
-
-  upsertSubtitle(openBatch.id, openBatch.sources.join(' '), '')
-
-  const joined = openBatch.sources.join(' ')
-  const shouldSeal =
-    openBatch.sources.length >= MAX_BATCH_SEGMENTS ||
-    joined.length >= MAX_BATCH_CHARS ||
-    !isTranslating
-
-  if (shouldSeal) sealOpenBatch()
-  pumpTranslate()
-}
-
-function nextBatchId() {
-  batchSeq += 1
-  return `b-${sessionEpoch}-${batchSeq}`
-}
-
-function sealOpenBatch() {
-  if (!openBatch || openBatch.sources.length === 0) {
-    openBatch = null
-    return
-  }
-  translateQueue.push(openBatch)
-  openBatch = null
-  // 翻譯跟不上時丟最舊的未處理批次，避免佇列與延遲無限增長（原文已即時上屏）
-  while (translateQueue.length > MAX_TRANSLATE_QUEUE) translateQueue.shift()
-}
-
-async function pumpTranslate() {
-  if (isTranslating || translateQueue.length === 0) return
-  isTranslating = true
-
-  const batch = translateQueue.shift()
-  const epoch = batch.epoch
-  const joinedSource = batch.sources.join(' ').trim()
-
-  try {
-    if (epoch !== sessionEpoch || !joinedSource) return
-
-    const context = buildTranslateContext(joinedSource)
-    const translated = (await electronAPI.translate(joinedSource, targetLanguage, {
-      previousSource: context.previousSource,
-      previousTranslation: context.previousTranslation,
-      mode: 'live',
-      scope: 'live'
-    }) || '').trim()
-
-    if (epoch !== sessionEpoch) return
-
-    if (translated && translated !== joinedSource) {
-      upsertSubtitle(batch.id, joinedSource, translated)
-      pushPair(joinedSource, translated)
-    } else {
-      // 空白或模型複誦原文（echo）：顯示原文、不把 identity 譯文寫進 history（否則會持續教模型複誦）
-      if (!translated) setError('翻譯回傳空白，顯示原文')
-      pushPair(joinedSource, '')
-    }
-  } catch (error) {
-    if (epoch !== sessionEpoch) return
-    setError(`翻譯失敗，顯示原文：${cleanIpcError(error)}`)
-    pushPair(joinedSource, '')
-  } finally {
-    // 舊 session 的翻譯晚回時不得清掉新 session 的鎖或觸發其 pump
-    if (epoch === sessionEpoch) {
-      isTranslating = false
-      if (openBatch && openBatch.sources.length > 0) {
-        sealOpenBatch()
-      }
-      pumpTranslate()
-    }
-  }
-}
-
-function upsertSubtitle(id, source, translation) {
-  electronAPI.subtitle.update({
-    id,
-    source,
-    translation,
-    action: 'upsert'
-  })
-  logTranscript(transcriptId, id, source, translation)
-}
-
-function pushPair(source, translation) {
-  history.push({ source, translation })
-  if (history.length > MAX_HISTORY_COUNT) history.shift()
-}
-
-function buildTranslateContext(currentBatchSource) {
-  // 只取有譯文、且非當前批次的成對前文，原文/譯文永遠對齊
-  const usable = history
-    .filter(h => h.translation && h.source !== currentBatchSource)
-    .slice(-CONTEXT_SEGMENTS)
-  return {
-    previousSource: trimContext(usable.map(h => h.source).join(' ')),
-    previousTranslation: trimContext(usable.map(h => h.translation).join(' '))
-  }
-}
-
-function trimContext(text) {
-  const t = (text || '').trim()
-  if (t.length <= CONTEXT_MAX_CHARS) return t
-  return t.slice(-CONTEXT_MAX_CHARS)
-}
-
-function isRepetitionLoop(text) {
-  return /(.{1,6}?)(?:[，,、。.\s]*\1){7,}/.test(text)
-}
-
-/**
- * 是否含足夠語言性字元（字母／漢字／假名／諺文）。
- * 純符號、♪音樂、數字、標點、零寬/格式字元不算——這類片段會讓小翻譯模型改用對話模式。
- * @param {string} text
- */
-function hasLinguisticContent(text) {
-  return text.replace(/[^\p{L}]/gu, '').length >= MIN_TRANSLATE_CHARS
-}
-
-function needsTranslation(text, targetLang) {
-  const cjkCount = (text.match(/[一-鿿]/g) || []).length
-  const cjkRatio = cjkCount / Math.max(1, text.length)
-  // 有假名/諺文即為日/韓文，即使漢字比例高也需翻成中文
-  if (targetLang.startsWith('zh')) return /[ぁ-ヿ가-힯]/.test(text) || cjkRatio < 0.3
-  if (targetLang === 'en') return cjkRatio > 0.1 || /[ぁ-ヿ가-힯]/.test(text)
-  if (targetLang === 'ja') return !/[ぁ-ヿ]/.test(text)
-  if (targetLang === 'ko') return !/[가-힯]/.test(text)
-  return true
-}
-
-/**
  * @param {{closeWindow?: boolean}} options
  */
 async function stopCapture({ closeWindow = true } = {}) {
@@ -693,18 +459,14 @@ async function stopCapture({ closeWindow = true } = {}) {
   isStopping = true
   isCapturing = false
   updateUI()
-  transcriptId = ''
-  resetTranslateState()
-  pendingUtterances = []
   await stopPcmCapture()
 
   await closeCaptureStream()
 
   // 等 in-flight ASR 結束再 release，配合 main 側 loadEnabled 避免幽靈重載
-  const waitStart = Date.now()
-  while (isProcessing && Date.now() - waitStart < 15000) {
-    await new Promise((r) => setTimeout(r, 50))
-  }
+  const finished = pipeline
+  pipeline = null
+  await finished?.stop()
 
   if (engineAcquired) {
     try {
@@ -738,11 +500,14 @@ function updateUI() {
   statusText.textContent = isCapturing ? '擷取中' : isStarting ? '準備中…' : '未啟動'
 
   if (isCapturing) {
-    liveEngine.textContent = liveAsrEngine === 'cloud'
-      ? `· 雲端 ASR${liveAsrModelId ? `（${liveAsrModelId}）` : ''}`
-      : '· 本地 Qwen3-ASR'
+    // 狀態列跟按鈕、音源擠在同一條，完整模型名放 tooltip
+    liveEngine.textContent = liveAsrEngine === 'cloud' ? '· 雲端' : '· 本地'
+    liveEngine.title = liveAsrEngine === 'cloud'
+      ? `雲端 ASR${liveAsrModelId ? `（${liveAsrModelId}）` : ''}`
+      : '本地 Qwen3-ASR'
   } else {
     liveEngine.textContent = ''
+    liveEngine.title = ''
     levelFill.style.width = '0%'
   }
 }

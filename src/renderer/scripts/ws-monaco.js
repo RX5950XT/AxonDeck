@@ -97,8 +97,11 @@ function configure(monaco) {
   // 背景給全透明（`#00000000`）讓底下的玻璃面板透出來——
   // 寫死顏色的話深／淺主題一切換就會看到一塊突兀的方塊。
   const shared = { 'editor.background': '#00000000', 'editorGutter.background': '#00000000' }
-  monaco.editor.defineTheme('axondeck-dark', { base: 'vs-dark', inherit: true, rules: [], colors: shared })
-  monaco.editor.defineTheme('axondeck-light', { base: 'vs', inherit: true, rules: [], colors: shared })
+  // 反白跟 App 其他地方同一個半透明色（themes.css 的 --selection-bg）
+  const dark = { ...shared, 'editor.selectionBackground': '#78a3b559', 'editor.inactiveSelectionBackground': '#78a3b533' }
+  const light = { ...shared, 'editor.selectionBackground': '#3d6a7d40', 'editor.inactiveSelectionBackground': '#3d6a7d26' }
+  monaco.editor.defineTheme('axondeck-dark', { base: 'vs-dark', inherit: true, rules: [], colors: dark })
+  monaco.editor.defineTheme('axondeck-light', { base: 'vs', inherit: true, rules: [], colors: light })
   applyTheme(monaco)
   // 主題是改 <html> 的 data-theme，沒有事件可以聽——盯著那個屬性就好
   new MutationObserver(() => applyTheme(monaco))

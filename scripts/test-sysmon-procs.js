@@ -22,7 +22,7 @@ assert.equal(metrics.mergeProcesses([p, { ...p, pid: 13, exePath: 'C:\\demo.exe'
 
 const source = fs.readFileSync('src/renderer/scripts/sysmon-procs.js', 'utf8').replace(/^export /gm, '')
 const context = vm.createContext({ btoa })
-vm.runInContext(source + '\nthis.api = { normalizeOrder, moveColumn, processTotals, networkRate, safeIcon, sortProcessRows, createProcessTable };', context)
+vm.runInContext(source + '\nthis.api = { normalizeOrder, moveColumn, processTotals, networkRate, ioRate, safeIcon, sortProcessRows, createProcessTable };', context)
 const { api } = context
 assert.equal(api.normalizeOrder(['cpu', 'name', 'cpu', 'bad'])[0], 'name')
 assert.equal(new Set(api.normalizeOrder(['cpu', 'cpu'])).size, 9)
@@ -39,11 +39,12 @@ const totals = api.processTotals({
   disks: [{ name: '0 C:', busy: 12 }, { name: '1 D:', busy: 45 }],
   nets: [{ rx: 125000, tx: 0, linkSpeed: 1000000000 }],
   gpuAdapterUtil: { card: 33 }, gpu: { cards: [{ memoryTotal: 200, memoryUsed: 50 }] },
-  processes: [{ count: 2, threads: 8 }]
+  processes: [{ count: 2, threads: 8, diskRead: 1048576, diskWrite: 524288 }]
 })
 assert.equal(totals.cpu, '23%')
 assert.equal(totals.memory, '25%')
-assert.equal(totals.diskTotal, '45%')
+assert.equal(totals.diskTotal, '1.5 MB/s')
+assert.equal(api.ioRate(1000), '—')
 assert.equal(totals.network, '0.1%')
 assert.equal(totals.gpu, '33%')
 assert.equal(totals.gpuMemory, '25%')

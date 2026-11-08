@@ -244,11 +244,8 @@ async function main() {
         board: text('board'),
         system: text('system'),
         network: text('network'),
-        storage: [
-          text('storage'),
-          ...[...document.querySelectorAll('#sysmonBlocks [data-block^="disk-"]')].map((el) => el.textContent || '')
-        ].join('\\n'),
-        diskCards: document.querySelectorAll('#sysmonBlocks [data-block^="disk-"]').length,
+        storage: text('storage'),
+        diskCards: document.querySelectorAll('#sysmonBlocks [data-block="storage"] .sysmon-device').length,
         memory: text('memory'),
         cpu: text('cpu'),
         monitors: text('monitors'),
@@ -265,7 +262,7 @@ async function main() {
       /Windows/.test(extra.system) && extra.system.includes('音效裝置'), extra.system.slice(0, 160))
     ok('網路區塊有網路介面卡明細', extra.network.includes('網路介面卡'), extra.network.slice(0, 160))
     ok('儲存區塊有實體磁碟與磁碟區明細',
-      // 兩顆以上時實體磁碟明細在各自的卡上，總表不再列一次
+      // 兩顆以上時實體磁碟明細在卡內各自那一段，總表不再列一次
       (extra.diskCards >= 2 || extra.storage.includes('實體磁碟')) && extra.storage.includes('磁碟區'), extra.storage.slice(0, 160))
     ok('同性質的長清單都收在可展開的子項裡', extra.subs >= 4, String(extra.subs))
     // 後補的硬體資訊（都要真的有值，不能只是多一列破折號）
@@ -285,7 +282,7 @@ async function main() {
     ok('CPU 有 L2／L3 快取', /L2 快取\s*\d/.test(flat(extra.cpu)) && /L3 快取\s*\d/.test(flat(extra.cpu)), flat(extra.cpu).slice(0, 240))
     ok('記憶體有通道數與分頁檔', /通道\s*\d+\s*通道/.test(flat(extra.memory)) && extra.memory.includes('分頁檔'), flat(extra.memory).slice(-260))
     ok('儲存有硬體總容量與磁碟區可用', extra.storage.includes('硬體總容量') && extra.storage.includes('磁碟區可用'), flat(extra.storage).slice(0, 240))
-    ok('兩顆以上實體碟時每顆一卡', extra.diskCards === 0 || extra.diskCards >= 2, String(extra.diskCards))
+    ok('兩顆以上實體碟時收在同一張卡、每顆一段',extra.diskCards === 0 || extra.diskCards >= 2, String(extra.diskCards))
     ok('網路有子網路遮罩與主要連線', /子網路遮罩\s*\d/.test(flat(extra.network)) && extra.network.includes('主要連線'), flat(extra.network).slice(-260))
     ok('主機板有 SMBIOS 版本與擴充插槽', /SMBIOS 版本\s*\d/.test(flat(extra.board)) && extra.board.includes('擴充插槽'), flat(extra.board).slice(-260))
     ok('主機板有 USB 控制器子項', extra.board.includes('USB 控制器'), extra.board.slice(0, 240))
@@ -316,7 +313,7 @@ async function main() {
     // 溫度這幾格要等下一輪，重抓一次文字才問得到。
     await sleep(2500)
     const st = flat(await cdp.eval(`[
-      ...document.querySelectorAll('#sysmonBlocks [data-block="storage"], #sysmonBlocks [data-block^="disk-"]')
+      ...document.querySelectorAll('#sysmonBlocks [data-block="storage"]')
     ].map((el) => el.textContent || '').join(' ')`))
     if (!hasNvme) {
       console.log('  SKIP 這台沒有 NVMe，跳過 SMART 的 UI 斷言')

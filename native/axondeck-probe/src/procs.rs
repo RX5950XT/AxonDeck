@@ -22,6 +22,8 @@ pub struct Proc {
     pub cpu_100ns: i64,
     pub create_time: i64,
     pub working_set: u64,
+    /// 私有工作集（工作管理員「記憶體」欄）：工作集含共用頁，同名多開加總會重複算
+    pub private_working_set: u64,
     pub private_bytes: u64,
     pub threads: u32,
     pub handles: u32,
@@ -97,6 +99,7 @@ fn parse(buf: &[u8]) -> Vec<Proc> {
             cpu_100ns: rd::<i64>(e, 0x28) + rd::<i64>(e, 0x30),
             create_time: rd(e, 0x20),
             working_set: rd::<usize>(e, 0x90) as u64,
+            private_working_set: rd::<i64>(e, 0x08) as u64,
             private_bytes: rd::<usize>(e, 0xC8) as u64,
             threads: rd(e, 0x04),
             handles: rd(e, 0x60),
@@ -123,6 +126,7 @@ mod tests {
         let me = list.iter().find(|p| p.pid == std::process::id()).expect("自己要在清單裡");
         assert!(me.perf_name().starts_with("axondeck_probe"), "{}", me.image);
         assert!(me.threads >= 1 && me.working_set > 0);
+        assert!(me.private_working_set > 0 && me.private_working_set <= me.working_set);
         assert_eq!(list.iter().find(|p| p.pid == 4).map(|p| p.perf_name()).as_deref(), Some("System"));
     }
 }

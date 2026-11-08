@@ -4,7 +4,8 @@ const COLUMNS = [
   { key: 'pid', label: 'PID', width: '70px' },
   { key: 'cpu', label: 'CPU', width: '72px' },
   { key: 'memory', label: '記憶體', width: '90px' },
-  { key: 'diskTotal', label: '磁碟', width: '96px' },
+  // 程序的讀寫計數含檔案快取命中、管道與裝置 I/O，不等於實體磁碟，所以叫 I/O 不叫磁碟
+  { key: 'diskTotal', label: 'I/O', width: '96px' },
   { key: 'network', label: '網路', width: '96px' },
   { key: 'gpu', label: 'GPU', width: '66px' },
   { key: 'gpuMemory', label: 'VRAM', width: '88px' },
@@ -42,6 +43,16 @@ export function networkRate(value) {
   return value >= 125000 ? `${(value * 8 / 1e6).toFixed(1)} Mbps` : `${(value / 1024).toFixed(value < 1024 ? 0 : 1)} KB/s`
 }
 
+/** 位元組／秒 → 表頭用的總速率；不到 1 KB/s 當閒置 */
+export function ioRate(value) {
+  if (!Number.isFinite(value) || value < 1024) return '—'
+  const units = ['KB/s', 'MB/s', 'GB/s']
+  let n = value / 1024
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1 }
+  return `${n >= 100 ? n.toFixed(0) : n.toFixed(1)} ${units[i]}`
+}
+
 const pct = (value) => Number.isFinite(value) ? `${value > 0 && value < 1 ? value.toFixed(1) : Math.round(value)}%` : '—'
 const maximum = (values) => values.length ? Math.max(...values) : null
 
@@ -55,7 +66,7 @@ export function processTotals(s = {}) {
   return {
     cpu: pct(ready ? s.cpu?.total : null),
     memory: pct(s.memory && s.totalMemory > 0 ? (1 - s.memory.available / s.totalMemory) * 100 : null),
-    diskTotal: pct(ready ? maximum((s.disks || []).map((d) => d.busy).filter(Number.isFinite)) : null),
+    diskTotal: ready ? ioRate((s.processes || []).reduce((n, p) => n + (p.diskRead || 0) + (p.diskWrite || 0), 0)) : '—',
     network: pct(ready && linksKnown ? nets.reduce((n, x) => n + x.rx + x.tx, 0) * 800 / nets.reduce((n, x) => n + x.linkSpeed, 0) : null),
     gpu: pct(ready ? maximum(gpus) : null),
     gpuMemory: pct(vramKnown ? cards.reduce((n, c) => n + c.memoryUsed, 0) / cards.reduce((n, c) => n + c.memoryTotal, 0) * 100 : null),

@@ -86,9 +86,9 @@ fn proc_rows(buf: &mut Vec<u8>, paths: &mut HashMap<u32, (i64, String)>, s: &mut
         let path = &paths[&p.pid].1;
         let started = crate::util::filetime_epoch_ms(p.create_time);
         let _ = writeln!(
-            s, "P|{}|{}|{}|{ts}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            s, "P|{}|{}|{}|{ts}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             p.pid, esc(&p.perf_name()), p.cpu_100ns, p.working_set, p.private_bytes, p.threads,
-            p.io_read, p.io_write, p.handles, p.parent, esc(path), started,
+            p.io_read, p.io_write, p.handles, p.parent, esc(path), started, p.private_working_set,
         );
     }
     paths.retain(|pid, _| alive.contains(pid));

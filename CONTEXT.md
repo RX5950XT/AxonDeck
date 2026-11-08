@@ -133,7 +133,7 @@ native/
 - 子分頁：執行環境（本機模型、推薦 `#hf-recommend`、啟動、硬體、引擎、圖片影像 API）／探索。推薦有 ASR 兩顆、LinguaForge 0.8B、Index-Translate 2B、Unlimited-OCR-2 Q8、PP-DocLayoutV3、Breeze-TTS-2 Q8、Miroxen 模型；舊 Qwen3.5 key 遷移到 Index。
 - llama.cpp 固定 b11913，官方 Vulkan／CUDA 13.4 包解完再疊 `llama-b11913-unlimited-ocr2-win-x64.zip`（只換 llama.dll／mtmd.dll，放在 HF `RX5950XT/Unlimited-OCR-2-GGUF` 的 `llama.cpp-bin/`；來源是該 repo 的 patch，在本機 `Unlimited-OCR-2-GGUF` 專案用 `build-overlay.cmd` 重編）；記號檔 `axondeck-unlimited-ocr2.txt` 沒有就算未安裝。
 - 推論一律 llama-server router；推薦模型以絕對路徑寫 preset 不複製。NVIDIA ≥8GB（門檻 8184 MiB）用 GPU，否則 CPU。預設 ASR ctx 4096、翻譯 ctx 8192，KV q8_0＋flash attention，`cache-ram = 512`；顯存以 nvidia-smi 為準。
-- 進 Local SI 自動補建議執行環境；探索下載後排隊 fit＋bench。探索只列文字生成模型（`archs.js`＝llama.cpp `LLM_ARCH_NAMES` 扣掉非文字，升級 llama 要重抄，`test-hf-archs.js` 擋）。探索一次 100 筆，可篩 Dense／MoE 與總參數上限（`hub.js` 的 `repoParams`／`repoIsMoe`；`MOE_ARCHS` 是讀檔頭 expert_count 確認過的整族 MoE 架構，新架構要補）。推論區「顯卡上的模型」＝router 載著且 presets 排在 GPU 的＋Breeze／Miroxen／PDF 版面（只看已載入的模組）。
+- 執行環境分頁：容器寬 ≥1120px 時左欄（啟動、本機模型、推薦）右欄（推論、圖片影像 API、log），窄時疊一欄。進 Local SI 自動補建議執行環境；探索下載後排隊 fit＋bench。探索只列文字生成模型（`archs.js`＝llama.cpp `LLM_ARCH_NAMES` 扣掉非文字，升級 llama 要重抄，`test-hf-archs.js` 擋）。探索一次 100 筆，可篩 Dense／MoE 與總參數上限（`hub.js` 的 `repoParams`／`repoIsMoe`；`MOE_ARCHS` 是讀檔頭 expert_count 確認過的整族 MoE 架構，新架構要補）。推論區「顯卡上的模型」＝router 載著且 presets 排在 GPU 的＋Breeze／Miroxen／PDF 版面（只看已載入的模組）。
 - ASR 0.6B／1.7B 都是 Q8_0 GGUF，經 `asr-select` 走共用 router。本地翻譯經 `local-llm-router.js`；關 App 要連只由翻譯載入的 router 一起收。
 - 本機預覽 `dev-sandbox.js --packed --with-chats` 用 `%APPDATA%/axondeck-dev`，models／hf-models 接回正式資料。
 
@@ -170,8 +170,8 @@ native/
 - 即時字幕按開始後持有 `live` 引擎到停止／關窗；待機預熱切頁可釋放。語音輸入：右 Alt → 錄音 → ASR → 字典 → LLM 整理 → 插入；檔案轉錄 ffmpeg 串流切段，雲端 429／逾時／5xx 同段重試。
 
 ### 系統監控
-- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；提權感測器 sidecar 走排程工作。總覽卡片依面板寬一／二／三欄（container query 掛在 `#sysmon-overview` 與各卡，不掛在有下拉選單的分頁）。效能與壓力測試同一分頁，即時儀表只有 `sysmon-oc.js` 那份。
-- 處理程序：`sysmon-procs.js` 管圖示與欄序；網路欄用感測器 sidecar 的 Kernel-Network ETW，未啟用顯示「—」。磁碟空間：`disk-tree` 平行掃＋treemap。
+- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；提權感測器 sidecar 走排程工作。總覽卡片依面板寬一／二／三欄，展開的卡佔滿整列、收起的卡以 dense 併排成儀表，頂排有「全部收起／展開」；多顆硬碟／多張顯示卡各收成一張卡（`devices` 欄位，展開後每個裝置一段，`mergeGpuBlocks`／`describeStorage`）（container query 掛在 `#sysmon-overview` 與各卡，不掛在有下拉選單的分頁）。系統監控與 Local SI 都沒有頁首，子分頁就是頂排。效能與壓力測試同一分頁，即時儀表只有 `sysmon-oc.js` 那份。
+- 處理程序：記憶體欄是私有工作集（P 行第 15 欄，Rust 讀 `SYSTEM_PROCESS_INFORMATION` 0x08、ps1 讀 `WorkingSetPrivate`；工作集加總會重複算共用頁）；「I/O」欄是程序讀寫計數（含快取與管道，不是實體磁碟），表頭為總速率。`sysmon-procs.js` 管圖示與欄序；網路欄用感測器 sidecar 的 Kernel-Network ETW，未啟用顯示「—」。磁碟空間：`disk-tree` 平行掃＋treemap。
 
 ### 設定頁
 - 六區全部自動儲存。雲端模型只有一份 `cloudProviders`（`cloud-providers.js`），每顆模型帶用途（`cloud-model-types.mjs`：chat／image／asr／tts…），寫入時投影回 `chatProviders` 與 `asrClouds`。全新設定預設一組空的 OpenRouter；AGY 啟動時 `syncAntigravity` 自動加入。

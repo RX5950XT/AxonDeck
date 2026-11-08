@@ -1113,14 +1113,6 @@
           <!-- HF模型：在 Hugging Face 上搜模型 → 下載 → 一鍵載入 → 直接在聊天用 -->
           <section id="page-hfmodels" class="page">
             <div class="hf-shell">
-              <header class="page-header page-header-row">
-                <div class="page-header-text">
-                  <p class="hf-eyebrow">本機大型語言模型</p>
-                  <h1>Local SI</h1>
-                  <p class="page-desc">搜尋 Hugging Face 的 GGUF 模型，下載後一鍵載入聊天。</p>
-                </div>
-              </header>
-
               <p id="hfError" class="live-error hidden" role="alert"></p>
 
               <div class="subtabs" id="hfSubtabs" role="tablist" aria-label="本機模型">
@@ -1168,9 +1160,13 @@
                 </section>
               </div>
 
-              <!-- 執行環境：啟動列、圖片影像 API、本機模型（含資料夾）、推薦模型、推論（含占用）、log -->
+              <!--
+                執行環境：寬畫面左邊是「要用哪顆模型」（啟動列、本機模型、推薦模型），
+                右邊是「機器現在怎樣」（推論占用與執行環境、圖片影像 API、log）；窄畫面疊成一欄。
+              -->
               <div class="subtab-panel active" id="hf-runtime" data-subtab="runtime" role="tabpanel">
                 <div class="hf-runtime-layout">
+                  <div class="hf-runtime-col hf-runtime-main">
                   <section class="hf-panel hf-run" aria-label="啟動與載入">
                     <div class="hf-run-main">
                       <button type="button" id="hfRuntimeToggle" class="btn btn-primary"
@@ -1187,16 +1183,6 @@
                     <p class="setting-hint" id="hfServerHint">聊天頁的本機模型會自動連這裡（有金鑰保護，外部程式用不了）。</p>
                     <dl class="hf-specs hidden" id="hfServerSpecs"></dl>
                     <dl class="hf-specs hidden" id="hfUsageSpecs"></dl>
-                  </section>
-
-                  <!-- Miroxen 的 API／區網（工作台內嵌時不顯示自己的 API 分頁，改在這裡） -->
-                  <section class="hf-panel hidden" id="hfMiroxenApi" aria-label="圖片影像 API">
-                    <div class="hf-section-head">
-                      <h2>圖片影像 API（Miroxen）</h2>
-                      <label class="hf-check"><input type="checkbox" id="hfMiroxenLan"> 允許區網其他裝置連線</label>
-                    </div>
-                    <div id="hfMiroxenApiRows"></div>
-                    <p class="setting-hint" id="hfMiroxenApiHint"></p>
                   </section>
 
                   <section class="hf-panel" aria-label="本機模型">
@@ -1231,6 +1217,9 @@
                     <div id="modelList" class="model-list" aria-live="polite"></div>
                   </section>
 
+                  </div>
+
+                  <div class="hf-runtime-col hf-runtime-side">
                   <section class="hf-panel" aria-label="推論">
                     <h2>推論</h2>
                     <div class="hf-infer-grid">
@@ -1275,12 +1264,23 @@
                     </div>
                   </section>
 
+                  <!-- Miroxen 的 API／區網（工作台內嵌時不顯示自己的 API 分頁，改在這裡） -->
+                  <section class="hf-panel hidden" id="hfMiroxenApi" aria-label="圖片影像 API">
+                    <div class="hf-section-head">
+                      <h2>圖片影像 API（Miroxen）</h2>
+                      <label class="hf-check"><input type="checkbox" id="hfMiroxenLan"> 允許區網其他裝置連線</label>
+                    </div>
+                    <div id="hfMiroxenApiRows"></div>
+                    <p class="setting-hint" id="hfMiroxenApiHint"></p>
+                  </section>
+
                   <section class="hf-panel" aria-label="llama-server log">
                     <details class="hf-log">
                       <summary>llama-server log</summary>
                       <pre id="hfServerLog">還沒有 log。</pre>
                     </details>
                   </section>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1289,13 +1289,24 @@
           <!-- 系統監控 -->
           <section id="page-sysmon" class="page">
             <div class="sysmon-shell">
-              <header class="sysmon-header">
-                <div class="sysmon-heading">
-                  <p class="sysmon-eyebrow">本機硬體與資源</p>
-                  <h1>系統監控</h1>
-                  <p class="page-desc">即時負載、溫度與風扇</p>
-                </div>
+              <!-- 頂排：左子分頁、右操作（全部收起只在總覽出現） -->
+              <div class="sysmon-topbar">
+                <nav class="sysmon-tabs" id="sysmonTabs" role="tablist" aria-label="系統監控子分頁">
+                  <button type="button" class="sysmon-tab active" data-subtab="overview" role="tab"
+                    aria-selected="true" aria-controls="sysmon-overview">總覽</button>
+                  <button type="button" class="sysmon-tab" data-subtab="screentime" role="tab"
+                    aria-selected="false" aria-controls="sysmon-screentime">使用時長</button>
+                  <button type="button" class="sysmon-tab" data-subtab="processes" role="tab"
+                    aria-selected="false" aria-controls="sysmon-processes">處理程序</button>
+                  <button type="button" class="sysmon-tab" data-subtab="fans" role="tab"
+                    aria-selected="false" aria-controls="sysmon-fans">風扇控制</button>
+                  <button type="button" class="sysmon-tab" data-subtab="oc" role="tab"
+                    aria-selected="false" aria-controls="sysmon-oc">效能與壓力測試</button>
+                  <button type="button" class="sysmon-tab" data-subtab="disk" role="tab"
+                    aria-selected="false" aria-controls="sysmon-disk">磁碟空間</button>
+                </nav>
                 <div class="sysmon-actions" role="group" aria-label="系統監控操作">
+                  <button type="button" id="sysmonToggleAll" class="btn btn-secondary btn-sm">全部收起</button>
                   <label class="sysmon-interval">
                     <span>更新頻率</span>
                     <select id="sysmonInterval" class="select" aria-label="取樣間隔">
@@ -1305,7 +1316,7 @@
                     </select>
                   </label>
                 </div>
-              </header>
+              </div>
 
               <p id="sysmonError" class="live-error hidden" role="alert"></p>
               <!-- 完整感測器一律進頁自動啟用；只有被擋下來時才需要那顆重試鈕 -->
@@ -1322,25 +1333,10 @@
                 </button>
               </p>
 
-              <nav class="sysmon-tabs" id="sysmonTabs" role="tablist" aria-label="系統監控子分頁">
-                <button type="button" class="sysmon-tab active" data-subtab="overview" role="tab"
-                  aria-selected="true" aria-controls="sysmon-overview">總覽</button>
-                <button type="button" class="sysmon-tab" data-subtab="screentime" role="tab"
-                  aria-selected="false" aria-controls="sysmon-screentime">使用時長</button>
-                <button type="button" class="sysmon-tab" data-subtab="processes" role="tab"
-                  aria-selected="false" aria-controls="sysmon-processes">處理程序</button>
-                <button type="button" class="sysmon-tab" data-subtab="fans" role="tab"
-                  aria-selected="false" aria-controls="sysmon-fans">風扇控制</button>
-                <button type="button" class="sysmon-tab" data-subtab="oc" role="tab"
-                  aria-selected="false" aria-controls="sysmon-oc">效能與壓力測試</button>
-                <button type="button" class="sysmon-tab" data-subtab="disk" role="tab"
-                  aria-selected="false" aria-controls="sysmon-disk">磁碟空間</button>
-              </nav>
-
               <!--
                 總覽：即時負載與硬體規格合在同一頁，漸進式揭露。
-                收起時每一塊只有「大數字＋進度條＋歷史曲線」，展開才出現視覺化明細、
-                規格表與感測器讀數；同性質的長清單（每核心、每條記憶體、每顆碟）再包一層摺疊。
+                收起時每一塊只有「大數字＋進度條＋關鍵讀數」，併排成儀表；展開的那塊佔滿整列，
+                才出現視覺化明細、規格表與感測器讀數；同性質的長清單（每核心、每條記憶體、每顆碟）再包一層摺疊。
               -->
               <div id="sysmon-overview" class="sysmon-panel active" role="tabpanel">
                 <div id="sysmonBlocks" class="sysmon-blocks"></div>
@@ -1411,6 +1407,7 @@
                 </div>
                 <p id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></p>
                 <p id="sysmonNetworkNote" class="sysmon-detail sysmon-proc-note">欄名顯示整機占用；拖曳或用 Alt＋方向鍵調換欄位，名稱固定在第一欄。</p>
+                <p class="sysmon-detail sysmon-proc-note">記憶體欄是私有工作集（跟工作管理員同一個數字，不含共用的 DLL 頁）。I/O 欄是程序自己的讀寫量，含快取命中與管道，不等於實體磁碟；表頭是全部加總。</p>
                 <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 

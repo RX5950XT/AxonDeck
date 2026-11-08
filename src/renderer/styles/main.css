@@ -9244,28 +9244,13 @@ h6.md-h { font-size: 14px; }
   margin: 0 auto;
 }
 
-.sysmon-header {
+/* 頂排：子分頁靠左、操作靠右；放不下時操作整組換到下一行靠右 */
+.sysmon-topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px 16px;
   flex-wrap: wrap;
-}
-
-.sysmon-heading { min-width: 0; }
-
-.sysmon-eyebrow {
-  margin-bottom: 4px;
-  color: var(--text-tertiary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.sysmon-header h1 {
-  margin-bottom: 6px;
-  font-size: 26px;
-  font-weight: 700;
 }
 
 .sysmon-actions {
@@ -9273,7 +9258,10 @@ h6.md-h { font-size: 14px; }
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
+
+.sysmon-actions > .btn[hidden] { display: none; }
 
 .sysmon-interval {
   display: inline-flex;
@@ -10012,15 +10000,18 @@ h6.md-h { font-size: 14px; }
    視覺化明細、規格表與感測器讀數。同性質的長清單再包一層 <details>。
    ------------------------------------------------------------------ */
 
+/* 收起的卡併排成儀表；展開的卡佔滿整列（規格表與感測器有整排寬度可攤，
+   也不會讓並排的另一張留下一大塊空白）。dense 讓收起的卡補進展開卡留下的空格。 */
 .sysmon-blocks {
   display: grid;
   grid-template-columns: 1fr;
+  grid-auto-flow: row dense;
   gap: 10px;
 }
 
 @container sysmon-overview (min-width: 820px) {
   .sysmon-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sysmon-block[data-span="2"] { grid-column: 1 / -1; }
+  .sysmon-block.is-open { grid-column: 1 / -1; }
 }
 
 @container sysmon-overview (min-width: 1700px) {
@@ -10333,6 +10324,51 @@ h6.md-h { font-size: 14px; }
 .sysmon-sub[open] > summary::before { transform: rotate(45deg); }
 .sysmon-sub > summary:hover { color: var(--text-primary); }
 .sysmon-sub .sysmon-spec-grid { padding: 8px 0 4px 16px; }
+
+/* 同類合併的卡（多顆硬碟、多張顯示卡）：每個裝置一段，寬的時候並排 */
+.sysmon-devices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 10px;
+}
+
+.sysmon-device {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.sysmon-device-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.sysmon-device-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.sysmon-device-title strong {
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.sysmon-device-title span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.sysmon-device-title span:empty { display: none; }
 
 /* ── 效能與壓力測試的即時儀表（外框由 .oc-dash-group 提供，這裡不再套卡片）── */
 
@@ -12537,9 +12573,50 @@ h6.md-h { font-size: 14px; }
   line-height: 1.3;
 }
 
-#stt-dictation .dict-hero-main .setting-hint {
-  margin: 6px 0 0 56px;
+/* 語音輸入卡收成兩排：開關＋說明＋狀態一排，三個下拉一排 */
+#stt-dictation .dict-hero {
+  padding: 12px 16px;
 }
+
+#stt-dictation .dict-hero-top {
+  align-items: center;
+  gap: 8px 20px;
+}
+
+#stt-dictation .dict-hero-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+#stt-dictation .dict-hero-main .setting-hint {
+  margin: 0;
+}
+
+#stt-dictation .dict-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 260px;
+}
+
+#stt-dictation .dict-status { white-space: nowrap; }
+
+#stt-dictation .dict-state .level-meter {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+#stt-dictation .dict-options {
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+#stt-dictation .dict-options .option-group { gap: 4px; }
+
+#stt-dictation .dict-options .option-group label { font-size: 12px; }
 
 .dict-hero kbd {
   padding: 1px 6px;
@@ -13286,23 +13363,29 @@ h6.md-h { font-size: 14px; }
   flex-direction: column;
   gap: 16px;
   width: 100%;
-  max-width: 1080px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
-.hf-eyebrow {
-  margin: 0 0 2px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
+/* 執行環境：窄時一欄（左欄內容在前），寬時左主右側欄，兩欄各自往下長 */
+#hf-runtime { container: hf-runtime / inline-size; }
 
-.hf-runtime-layout {
+.hf-runtime-layout,
+.hf-runtime-col {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+}
+
+@container hf-runtime (min-width: 1120px) {
+  .hf-runtime-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(360px, 1fr);
+    align-items: start;
+  }
+  /* 側欄夠窄，推論的「占用｜執行環境」改上下疊 */
+  .hf-runtime-side .hf-infer-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 }
 
 .hf-run-main {

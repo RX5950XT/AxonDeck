@@ -507,7 +507,7 @@ function diskTempOf(idx, pdisk, sensors, liveTemps) {
 }
 
 /**
- * 儲存區塊。一顆碟維持一張總卡；兩顆以上改成總覽 + 每碟一卡（跟 GPU 同一套 span）。
+ * 儲存區塊。一顆碟維持一張總卡；兩顆以上改成總覽 + 每碟一卡。
  * 虛擬磁區（Google Drive 那種）不進容量總計。
  * @param {any} s
  * @param {any} inv
@@ -604,7 +604,7 @@ function describeStorage(s, inv, sensors) {
       ['累計寫入量', totalWritten ? fmtBytes(totalWritten) : DASH]
     ],
     groups: [
-      // 多顆硬碟時每顆有自己的卡，這份清單只在單顆時列
+      // 多顆硬碟時每顆在卡內有自己的一段，這份清單只在單顆時列
       !many && {
         title: '實體磁碟',
         rows: pdisks.map((d) => [d.name, [
@@ -638,36 +638,28 @@ function describeStorage(s, inv, sensors) {
     ].filter((g) => g && g.rows.length)
   }
 
-  const blocks = [summary]
-  if (!many) return blocks
+  if (!many) return [summary]
 
-  for (const p of pdisks) {
+  // 多顆硬碟收在同一張「儲存」卡：標題列是合計，展開後每顆一段
+  const devices = pdisks.map((p) => {
     const row = diskRows.find((d) => d.idx === p.id)
     const sm = smart.find((x) => x.id === p.id)
     const ownVols = realVols.filter((v) => v.diskId === p.id)
-    const rate = row ? row.read + row.write : 0
     const temp = row ? row.temp : diskTempOf(p.id, p, sensors, liveTemps)
     const used = ownVols.reduce((n, v) => n + (v.size - v.free), 0)
     const size = ownVols.reduce((n, v) => n + v.size, 0) || p.size
-    blocks.push({
-      id: `disk-${p.id}`,
-      span: 1,
+    return {
+      key: `disk-${p.id}`,
       title: p.name,
-      accent: 'var(--accent-hover)',
       sub: [
         p.mediaType, p.busType, fmtBytes(p.size),
         p.isBoot ? '開機碟' : ''
       ].filter(Boolean).join(' · ') || '實體磁碟',
-      value: null,
-      valueText: rate >= 1024 ? fmtRate(rate) : '閒置',
-      spark: { key: `disk-${p.id}`, value: rate, max: 0 },
+      // 讀寫速率在上面「各硬碟讀寫速率」的長條
       stats: [
-        ['讀取', fmtRate(row?.read || 0)],
-        ['寫入', fmtRate(row?.write || 0)],
         ['溫度', temp != null ? `${temp.toFixed(0)} °C` : DASH],
         ['健康', sm ? (HEALTH_TEXT[sm.health?.level] || DASH) : (p.health === 'Healthy' ? '健康' : (p.health || DASH))]
       ],
-      // 讀寫、溫度已在標題列；型號、匯流排、容量在標題與副標
       viz: size ? {
         kind: 'meters',
         label: '容量',
@@ -681,9 +673,9 @@ function describeStorage(s, inv, sensors) {
         ['位置', p.location || DASH]
       ],
       groups: [
-        sm ? { title: `S.M.A.R.T.｜${p.name}`, rows: smartRows(sm) } : null,
+        sm ? { title: 'S.M.A.R.T.', rows: smartRows(sm) } : null,
         sm && sm.attributes.length ? {
-          title: `S.M.A.R.T. 屬性｜${p.name}`,
+          title: 'S.M.A.R.T. 屬性',
           rows: sm.attributes.map((a) => [
             `${a.id} ${a.name}`,
             `目前 ${a.current} · 最差 ${a.worst}${a.threshold > 0 ? ` · 門檻 ${a.threshold}` : ''} · 原始值 ${fmtNum(a.raw)}`
@@ -691,9 +683,55 @@ function describeStorage(s, inv, sensors) {
         } : null,
         volumeGroup(ownVols, '磁碟區')
       ].filter((g) => g && g.rows.length)
-    })
-  }
-  return blocks
+    }
+  })
+  // 各顆的磁碟區已在自己那段；總表只留找不到所屬硬碟的
+  const orphanVols = realVols.filter((v) => !pdisks.some((p) => p.id === v.diskId))
+  return [{
+    ...summary,
+    groups: [volumeGroup(orphanVols, '磁碟區'), volumeGroup(virtVols, '虛擬／雲端磁碟區')]
+      .filter((g) => g && g.rows.length),
+    devices
+  }]
+}
+
+/**
+ * 兩張以上顯示卡收成同一張「GPU」卡：標題列放最忙那張的使用率與合計，
+ * 展開後每張一段（原本各自那張卡的讀數、規格與感測器原封不動）。
+ * @param {any[]} list 每張顯示卡各自的區塊描述
+ * @param {any[]} nvCards nvidia-smi 的讀數（溫度／功耗／VRAM 只有這條有）
+ */
+function mergeGpuBlocks(list, nvCards) {
+  if (list.length < 2) return list
+  const busiest = Math.max(...list.map((d) => d.value || 0))
+  const temps = nvCards.map((g) => g.temperature).filter((t) => t != null)
+  const powers = nvCards.map((g) => g.power).filter((w) => w != null)
+  const vramUsed = nvCards.reduce((n, g) => n + (g.memoryUsed || 0), 0) * 1048576
+  return [{
+    id: 'gpu',
+    title: 'GPU',
+    accent: 'var(--success)',
+    sub: list.map((d) => d.sub).join('、'),
+    value: busiest,
+    valueText: `${Math.round(busiest)}%`,
+    spark: { key: 'gpu', value: busiest, max: 100 },
+    stats: [
+      ['最高溫度', temps.length ? `${Math.max(...temps)} °C` : DASH],
+      ['總功耗', powers.length ? `${powers.reduce((n, w) => n + w, 0).toFixed(0)} W` : DASH],
+      ['VRAM', vramUsed ? fmtBytes(vramUsed) : DASH],
+      ['顯示卡', `${list.length} 張`]
+    ],
+    viz: {
+      kind: 'meters',
+      label: '各顯示卡使用率',
+      items: list.map((d) => ({ label: d.sub, value: d.value || 0, max: 100, text: d.valueText }))
+    },
+    specs: [],
+    groups: [],
+    devices: list.map((d) => ({
+      key: d.id, title: d.sub, sub: '', stats: d.stats, viz: d.viz, specs: d.specs, groups: d.groups
+    }))
+  }]
 }
 
 /**
@@ -719,7 +757,6 @@ function describeBlocks(s, inv) {
     const cpuCount = (inv?.cpus || []).length
     out.push({
       id: 'cpu',
-      span: 2,
       title: 'CPU',
       accent: 'var(--accent-primary)',
       sub: cpu ? `${cpu.name} · ${cpu.cores} 核心 / ${cpu.threads} 執行緒` : '偵測中…',
@@ -879,10 +916,7 @@ function describeBlocks(s, inv) {
     return null
   }
 
-  const pushGpu = (desc) => {
-    gpuBlocks.push(desc)
-    out.push(desc)
-  }
+  const pushGpu = (desc) => gpuBlocks.push(desc)
 
   if (nvCards.length) {
     nvCards.forEach((g, i) => {
@@ -990,6 +1024,7 @@ function describeBlocks(s, inv) {
       groups: sensorGroups(sensors, isGpuType, 'GPU ')
     })
   }
+  out.push(...mergeGpuBlocks(gpuBlocks, nvCards))
 
   // ── 儲存 ───────────────────────────────────────────────────────
   out.push(...describeStorage(s, inv, sensors))
@@ -1295,6 +1330,24 @@ function toggleBlock(id) {
   renderBlocks()
 }
 
+/** 有任何一塊展開就全部收起（變成一眼看完的儀表），否則全部展開 */
+function toggleAllBlocks() {
+  const anyOpen = [...blocks.keys()].some(isOpen)
+  for (const id of blocks.keys()) {
+    if (anyOpen) closedBlocks.add(id)
+    else closedBlocks.delete(id)
+  }
+  saveClosedBlocks()
+  renderBlocks()
+}
+
+function syncToggleAll() {
+  const btn = $('sysmonToggleAll')
+  if (!btn) return
+  const anyOpen = [...blocks.keys()].some(isOpen)
+  btn.textContent = anyOpen ? '全部收起' : '全部展開'
+}
+
 /** @param {any} desc */
 function ensureBlock(desc) {
   const host = $('sysmonBlocks')
@@ -1305,7 +1358,6 @@ function ensureBlock(desc) {
   const el = document.createElement('section')
   el.className = 'sysmon-block'
   el.dataset.block = desc.id
-  el.dataset.span = String(desc.span || 1)
   if (desc.accent) el.style.setProperty('--block-accent', desc.accent)
 
   const head = document.createElement('button')
@@ -1384,17 +1436,25 @@ function setStats(b, pairs) {
   }
 }
 
-/** 內文的「結構」指紋。變了才重建 DOM，沒變就只寫值。 */
-function bodySignature(desc) {
-  const viz = desc.viz
-    ? `${desc.viz.kind}:${(desc.viz.values || desc.viz.items || []).length}`
+/** 一段內容（區塊本身或卡內的一個裝置）的結構指紋 */
+function partSignature(part) {
+  const viz = part.viz
+    ? `${part.viz.kind}:${(part.viz.values || part.viz.items || []).length}`
     : '-'
-  const specs = desc.specs.map(([k]) => k).join(',')
-  const groups = desc.groups
+  const specs = part.specs.map(([k]) => k).join(',')
+  const groups = part.groups
     .filter((g) => g.rows.length)
     .map((g) => `${g.title}#${g.rows.map(([k]) => k).join(',')}`)
     .join(';')
   return `${viz}|${specs}|${groups}`
+}
+
+/** 內文的「結構」指紋。變了才重建 DOM，沒變就只寫值。 */
+function bodySignature(desc) {
+  const devices = (desc.devices || [])
+    .map((d) => `${d.key}[${d.stats.map(([k]) => k).join(',')}]${partSignature(d)}`)
+    .join('/')
+  return `${partSignature(desc)}~${devices}`
 }
 
 /** @param {any} viz @param {any[]} slots */
@@ -1490,61 +1550,121 @@ function buildSpecList(rows, slots) {
   return dl
 }
 
-/** @param {any} b @param {any} desc */
-function buildBody(b, desc) {
-  b.body.textContent = ''
-  b.slots = { viz: [], specs: [], groups: [] }
-
-  if (desc.viz) b.body.appendChild(buildViz(desc.viz, b.slots.viz))
-
-  if (desc.specs.length) {
-    b.body.appendChild(buildSpecList(desc.specs, b.slots.specs))
-  }
+/**
+ * 視覺化＋規格表＋可展開的子清單，畫進 host。區塊本身和卡內每個裝置共用。
+ * @param {HTMLElement} host @param {any} part @param {string} keyPrefix 子清單開關記憶的前綴
+ */
+function buildPart(host, part, keyPrefix) {
+  const slots = { viz: [], specs: [], groups: [] }
+  if (part.viz) host.appendChild(buildViz(part.viz, slots.viz))
+  if (part.specs.length) host.appendChild(buildSpecList(part.specs, slots.specs))
 
   // 收起的子清單排成一排膠囊，展開的那個自己佔滿一列
   const subs = document.createElement('div')
   subs.className = 'sysmon-subs'
-  for (const group of desc.groups) {
+  for (const group of part.groups) {
     if (!group.rows.length) continue
     const det = document.createElement('details')
     det.className = 'sysmon-sub'
-    const key = `${desc.id}/${group.title}`
+    const key = `${keyPrefix}/${group.title}`
     det.open = openSubs.has(key)
     const summary = document.createElement('summary')
     summary.textContent = `${group.title}（${group.rows.length}）`
     /** @type {HTMLElement[]} */
-    const slots = []
-    det.append(summary, buildSpecList(group.rows, slots))
+    const rowSlots = []
+    det.append(summary, buildSpecList(group.rows, rowSlots))
     det.addEventListener('toggle', () => {
       if (det.open) openSubs.add(key)
       else openSubs.delete(key)
       saveOpenSubs()
     })
     subs.appendChild(det)
-    b.slots.groups.push(slots)
+    slots.groups.push(rowSlots)
   }
-  if (subs.childElementCount) b.body.appendChild(subs)
+  if (subs.childElementCount) host.appendChild(subs)
+  return slots
+}
+
+/** 同類卡（儲存、GPU）裡的一個裝置：名稱＋幾個讀數一列，下面是它自己的明細 */
+function buildDevice(dev, keyPrefix) {
+  const sec = document.createElement('section')
+  sec.className = 'sysmon-device'
+  const head = document.createElement('header')
+  head.className = 'sysmon-device-head'
+  const title = document.createElement('span')
+  title.className = 'sysmon-device-title'
+  const name = document.createElement('strong')
+  const sub = document.createElement('span')
+  title.append(name, sub)
+  const stats = document.createElement('span')
+  stats.className = 'sysmon-block-stats'
+  const statSlots = dev.stats.map(([label]) => {
+    const cell = document.createElement('span')
+    cell.className = 'sysmon-stat'
+    const v = document.createElement('b')
+    const l = document.createElement('i')
+    l.textContent = label
+    cell.append(v, l)
+    stats.appendChild(cell)
+    return v
+  })
+  head.append(title, stats)
+  sec.appendChild(head)
+  const slots = buildPart(sec, dev, `${keyPrefix}/${dev.key}`)
+  return { sec, slots: { ...slots, name, sub, stats: statSlots } }
+}
+
+/** @param {any} b @param {any} desc */
+function buildBody(b, desc) {
+  b.body.textContent = ''
+  b.slots = buildPart(b.body, desc, desc.id)
+  b.deviceSlots = []
+  if (!desc.devices?.length) return
+  const wrap = document.createElement('div')
+  wrap.className = 'sysmon-devices'
+  for (const dev of desc.devices) {
+    const built = buildDevice(dev, desc.id)
+    wrap.appendChild(built.sec)
+    b.deviceSlots.push(built.slots)
+  }
+  b.body.appendChild(wrap)
+}
+
+/** @param {any} part @param {any} slots */
+function updatePart(part, slots) {
+  if (part.viz) updateViz(part.viz, slots.viz)
+  part.specs.forEach(([, text], i) => {
+    const node = slots.specs[i]
+    if (node) node.textContent = text
+  })
+  let gi = 0
+  for (const group of part.groups) {
+    if (!group.rows.length) continue
+    const rowSlots = slots.groups[gi]
+    gi += 1
+    if (!rowSlots) continue
+    group.rows.forEach(([, text], i) => {
+      const node = rowSlots[i]
+      if (node) node.textContent = text
+    })
+  }
 }
 
 /** @param {any} b @param {any} desc */
 function updateBody(b, desc) {
   if (!b.slots) return
-  if (desc.viz) updateViz(desc.viz, b.slots.viz)
-  desc.specs.forEach(([, text], i) => {
-    const node = b.slots.specs[i]
-    if (node) node.textContent = text
-  })
-  let gi = 0
-  for (const group of desc.groups) {
-    if (!group.rows.length) continue
-    const slots = b.slots.groups[gi]
-    gi += 1
-    if (!slots) continue
-    group.rows.forEach(([, text], i) => {
-      const node = slots[i]
-      if (node) node.textContent = text
+  updatePart(desc, b.slots)
+  ;(desc.devices || []).forEach((dev, i) => {
+    const d = b.deviceSlots[i]
+    if (!d) return
+    d.name.textContent = dev.title
+    d.name.title = dev.title
+    d.sub.textContent = dev.sub
+    dev.stats.forEach(([, text], j) => {
+      if (d.stats[j]) d.stats[j].textContent = text
     })
-  }
+    updatePart(dev, d)
+  })
 }
 
 function renderBlocks() {
@@ -1559,7 +1679,6 @@ function renderBlocks() {
     // 順序可能變（第二張顯示卡是晚一點才被偵測到的），但只有真的不對位才動 DOM
     if (host.children[index] !== b.el) host.insertBefore(b.el, host.children[index] || null)
 
-    b.el.dataset.span = String(desc.span || 1)
     b.name.textContent = desc.title
     b.name.title = desc.title
     b.sub.textContent = desc.sub
@@ -1604,6 +1723,7 @@ function renderBlocks() {
     b.el.remove()
     blocks.delete(id)
   }
+  syncToggleAll()
 }
 
 // ===== 進程表 =====
@@ -2354,6 +2474,8 @@ function switchSubtab(name) {
   for (const panel of document.querySelectorAll('#page-sysmon .sysmon-panel')) {
     panel.classList.toggle('active', panel.id === `sysmon-${name}`)
   }
+  const toggleAll = $('sysmonToggleAll')
+  if (toggleAll) toggleAll.hidden = name !== 'overview'
   if (name === 'processes') {
     renderHead()
     rebuildRows()
@@ -2445,6 +2567,8 @@ export function initSysmonPage() {
     if (body) body.scrollTop = 0
     rebuildRows()
   })
+
+  $('sysmonToggleAll')?.addEventListener('click', toggleAllBlocks)
 
   $('sysmonKillBtn')?.addEventListener('click', () => askKill(true))
   $('sysmonKillConfirm')?.addEventListener('click', doKill)

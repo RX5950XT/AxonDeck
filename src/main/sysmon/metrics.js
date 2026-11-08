@@ -523,7 +523,8 @@ function parseTick(rows) {
           handles: num(f[10]),
           parentPid: num(f[11]),
           exePath: f[12] || '',
-          startedAt: num(f[13])
+          startedAt: num(f[13]),
+          privateWorkingSet: num(f[14])
         })
         break
       default:
@@ -611,7 +612,9 @@ function diffSamples(prev, curr, logicalCores) {
       pid: p.pid,
       name: cleanProcName(p.name),
       cpu: Math.max(0, Math.min(100, cpu)),
-      memory: p.memory,
+      // 跟工作管理員一樣用私有工作集：工作集含共用 DLL 頁，同名多開加總會重複算好幾倍。
+      // 舊版 probe 沒有這欄（0）才退回工作集
+      memory: p.privateWorkingSet > 0 ? p.privateWorkingSet : p.memory,
       privateMemory: p.privateMemory,
       threads: p.threads,
       handles: p.handles,

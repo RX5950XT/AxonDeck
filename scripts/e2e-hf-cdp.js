@@ -270,7 +270,7 @@ async function main() {
     assert(JSON.stringify(recommend.keys) === JSON.stringify(['miroxenqwenturbo', 'miroxenqwen', 'miroxenh3', 'miroxenh3turbo', 'breezetts2q8', 'qwen3asr', 'qwen3asrgpu', 'linguaforge08q4', 'indextranslate2b', 'unlimitedocr2q8', 'ppdoclayoutv3']), '推薦列出圖片影像、語音生成、ASR、翻譯與兩顆 PDF 辨識模型', JSON.stringify(recommend))
     assert(recommend.labels.every((label) => label && !/[（(](?:CPU|GPU)[）)]/.test(label)), '推薦模型名稱沒有 CPU／GPU 標籤')
     assert(recommend.actions && !recommend.legacySettings, '模型操作常駐且設定頁已移除本地模型')
-    assert(JSON.stringify(recommend.groups) === JSON.stringify(['圖片影像生成（Miroxen，需 NVIDIA）', '語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']), '推薦分組不混進執行環境')
+    assert(JSON.stringify(recommend.groups) === JSON.stringify(['圖片影像生成（Miroxen，需 NVIDIA）', '語音生成', '語音辨識', '翻譯', '文件辨識（PDF／螢幕翻譯）']), '推薦分組不混進執行環境')
     assert(recommend.inRuntime && recommend.running === 0, '推薦模型併在執行環境裡，隔離環境沒有模型標成運行中', JSON.stringify(recommend))
     const hardware = await cdp.eval('window.electronAPI.hfmodels.hardware()')
     assert(hardware.data?.autoRuntime === false, '隔離測試不會自動下載大型執行環境')

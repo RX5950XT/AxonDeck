@@ -197,13 +197,13 @@ async function testRetryBudgetSurvivesRepaint() {
   })
   const key = 'C:\\pics\\b.mp4:2000:f'
   const h = gridHost([iconEl('C:\\pics\\b.mp4', key)])
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = 0; i < 12; i += 1) {
     repaintHost(env, h, [iconEl('C:\\pics\\b.mp4', key)])
     await flush()
     await flush()
   }
-  // 1 次初問＋3 次重試；重畫不能把預算歸零，否則 pending 的影片／PDF 永遠停不下來
-  assert.equal(calls, 4, `重試預算要跨重畫共用，實際要了 ${calls} 次`)
+  // 1 次初問＋7 次重試；重畫不能把預算歸零，否則 pending 的影片／PDF 永遠停不下來
+  assert.equal(calls, 8, `重試預算要跨重畫共用，實際要了 ${calls} 次`)
   assert.equal(env.timers.length, 0, '預算用完就停，不再排重試')
 }
 

@@ -79,7 +79,7 @@ async function main() {
     ok('缺值回預設', store.sanitizeTile(undefined) === store.DEFAULT_TILE)
     ok('字串也回預設', store.sanitizeTile('大') === store.DEFAULT_TILE)
     ok('怪值靠回最近的一級', store.sanitizeTile(200) === 180, String(store.sanitizeTile(200)))
-    ok('超大值夾在最大級', store.sanitizeTile(99999) === 256, String(store.sanitizeTile(99999)))
+    ok('超大值夾在最大級', store.sanitizeTile(99999) === 512, String(store.sanitizeTile(99999)))
     ok('負數也夾得住', store.sanitizeTile(-5) === 48, String(store.sanitizeTile(-5)))
   }
 

@@ -4,6 +4,13 @@
 
 ## 進行中
 
+### 媒體縮圖變快、大檔也有圖；未知副檔名不再跳 Windows 選程式
+- [x] 影片／音樂封面改用內建 mpv，殼層做不出的圖片退回 magick；結果存磁碟快取（`explorer/media-thumbs.js`）
+- [x] 縮圖上限與方格放大到 512（級距照顯示倍率挑），捲動前先載、產生中持續重試
+- [x] 沒有關聯的副檔名：文字開自家編輯器，其他顯示 App 內訊息（`mediaPlayer.openSystem`）
+- [x] 驗證：lint、`test-explorer*`、`test-media-player`、`probe-explorer-media-thumbs.js`、打包版 CDP
+- Review：`probe-explorer-shell.js` 5 項失敗、`probe-explorer-icon-fallback-cdp.js` 的 `.txt` 圖示失敗都是既有問題（改動前同樣失敗／已安裝的 v1.73.0 同樣失敗）。螢幕外視窗有時 `document.hidden` 為 true，首次開啟的「捲到底」只在 hidden=false 那輪驗到。未驗：NAS 上的檔案、真實右鍵「開啟檔案」。
+
 ### Local SI／系統監控拿掉頁首、版面重構、處理程序數字校正
 - [x] 拿掉兩頁的頁首（小標＋大標＋說明）；系統監控「更新頻率」移到子分頁那一排
 - [x] 系統監控總覽：展開的卡佔滿整列、收起的卡併排成儀表；加「全部收起／展開」

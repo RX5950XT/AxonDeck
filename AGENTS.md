@@ -120,6 +120,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 點一下就重畫的清單不能靠容器上的 `dblclick`（舊列被換掉，事件傳不到容器）：在 click 裡認 `event.detail === 2`。回歸要用真滑鼠（`Input.dispatchMouseEvent`），合成的 dblclick 永遠綠。
 - 虛擬清單：`paintList()` 前先記 `scrollTop`（一般清單／方格也要擺回）；同資料夾重讀（監看、操作後）帶 `keepScroll`，否則檔案一直變大（WinRAR 壓縮中）會不停跳回頂端（`probe-explorer-watch-scroll-cdp.js`）；框選與就地改名期間不准重畫；捲到已載入頁也要重畫；稀疏陣列先 `.filter(Boolean)`。
 - 拖到別的程式只有 `webContents.startDrag`（跟 HTML5 DnD 不能並存，CDP 不可呼叫它）；`dropEffect` 一律 `setDropEffect`。
+- 判斷「有沒有程式接手」不能只查 `open` 指令：`.lnk` 靠殼層、`.iso` 預設動詞是掛載、`.sln` 走 DDE，只查 open 會誤攔 500 多種（`Thumbnails.AssociationOf` 寧可判成有）。mpv 是 GUI 程式，PowerShell `&` 不會等它，量時間要用 node；要帶 `--cover-art-auto=no`（否則同資料夾的 cover.jpg 會被當封面）與 `--image-display-duration=0`（否則封面停 5 秒）。
 - Ctrl+滾輪要 `{ passive: false }`；縮圖快取鍵帶尺寸；影片縮圖抓完要放掉 `<video>`（不然檔案被鎖）；插拔裝置靠 `hookWindowMessage(0x0219)`，不輪詢。
 
 ### 終端機
@@ -193,7 +194,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 |---|---|
 | AI 頁／聊天 | `test-ai-web.js` `test-chat-sidebar.js` `test-markdown.js` `e2e-chat.js` `e2e-chat-cdp.js` |
 | 工作區 | `test-workspace*.js` `e2e-workspace-cdp.js`；Monaco／大檔 `probe-workspace-perf.js` `probe-workspace-bigfile.js`；編輯視窗大檔 `probe-editor-bigfile.js`；超大檔分段 `test-big-text.js` |
-| 檔案總管 | `test-explorer*.js` `e2e-explorer-cdp.js` `e2e-explorer-dual-cdp.js` `probe-explorer-shell.js` `probe-explorer-uffs.js` |
+| 檔案總管 | `test-explorer*.js` `e2e-explorer-cdp.js` `e2e-explorer-dual-cdp.js` `probe-explorer-shell.js` `probe-explorer-uffs.js` `probe-explorer-media-thumbs.js` |
 | 終端機 | `test-terminal*.js` `test-term-agent.js` `test-claude-hooks.js` `e2e-terminal-cdp.js`；宿主 `probe-terminal-restart.js` `probe-terminal-host-version.js`；IME `probe-terminal-ime.js` |
 | CC Proxy／閘道 | `test-ccswitch*.js` `e2e-ccswitch-cdp.js`；真上游 `probe-ccswitch-*.js` |
 | AGY | `test-agy-mappers.js` `e2e-agy.js` `e2e-agy-cdp.js` `probe-agy-upstream.js` |

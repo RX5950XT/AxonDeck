@@ -66,7 +66,7 @@ function toPng(icon) {
   if (!icon || !icon.bgra || !icon.w || !icon.h) return ''
   const width = icon.w | 0
   const height = icon.h | 0
-  if (width < 1 || height < 1 || width > 256 || height > 256) return ''
+  if (width < 1 || height < 1 || width > 512 || height > 512) return ''
   let buffer
   try {
     buffer = Buffer.from(icon.bgra, 'base64')
@@ -261,7 +261,7 @@ async function thumbOf(full, size, folderPreview = false) {
   const s = await ensure()
   if (!s || !full) return { url: '' }
   const px = Number(size)
-  const edge = Number.isInteger(px) && px >= 16 ? Math.min(px, 256) : 96
+  const edge = Number.isInteger(px) && px >= 16 ? Math.min(px, 512) : 96
   try {
     const result = await s.send({ op: 'thumb', path: full, size: edge, ...(folderPreview ? { folderPreview: true } : {}) })
     // 逾時不等於沒有縮圖（NAS 上的影片常要好幾秒）：標 pending 讓 renderer 晚點再問，不要把類型圖示當成最終結果快取起來
@@ -285,6 +285,33 @@ async function thumbOf(full, size, folderPreview = false) {
   } catch {
     return { url: '' }
   }
+}
+
+/**
+ * 同步標記（Google Drive 綠勾／雲朵）：自家快取的縮圖不經過殼層，標記另外問。沒有回空字串。
+ * @param {string} full
+ * @param {number} size
+ * @returns {Promise<string>}
+ */
+async function badgeOf(full, size) {
+  const s = await ensure()
+  if (!s || !full) return ''
+  const result = await s.send({ op: 'badge', path: full, size })
+  return result.ok && result.data ? toPng(result.data.overlay) : ''
+}
+
+/**
+ * 這個副檔名雙擊會怎樣：有預設程式／只有候選／沒人接手。sidecar 不在或問不到回 null（呼叫端照舊交給 Windows）。
+ * @param {string} ext 含點（`.foo`），沒有副檔名給空字串
+ * @returns {Promise<'default'|'choices'|'none'|null>}
+ */
+async function associationOf(ext) {
+  if (!ext) return 'none'
+  const s = await ensure()
+  if (!s) return null
+  const result = await s.send({ op: 'assoc', ext })
+  const state = result.ok ? result.data?.state : ''
+  return state === 'default' || state === 'choices' || state === 'none' ? state : null
 }
 
 /**
@@ -329,6 +356,8 @@ module.exports = {
   iconInfoOf,
   genericIconOf,
   thumbOf,
+  badgeOf,
+  associationOf,
   attrsOf,
   propsOf,
   hwndOf

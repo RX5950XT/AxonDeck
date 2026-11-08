@@ -29,6 +29,7 @@ const zip = require('./zip')
 const mtp = require('./mtp')
 const fileDetails = require('./details')
 const mediaPlayer = require('../media-player')
+const mediaThumbs = require('./media-thumbs')
 
 /** 壓縮檔／手機裡的檔案要先複製到暫存才讀得到詳細資訊，只做這個大小以下（手機影片動輒幾 GB） */
 const DETAILS_COPY_LIMIT = 64 * 1024 * 1024
@@ -380,7 +381,7 @@ async function openPath(target) {
   // 是捷徑就開捷徑本身，啟動參數、起始位置、以系統管理員執行這些設定才不會被跳過
   // 專案裡的 .bat／.cmd 由 App 自己跑：腳本開的瀏覽器改開在那個專案（script-launch.js）
   if (await require('../script-launch').launchScript(resolved.path)) return true
-  const err = await mediaPlayer.openMedia(resolved.path) || await mediaPlayer.openEditor(resolved.path) ? '' : await shell.openPath(full)
+  const err = await mediaPlayer.openMedia(resolved.path) || await mediaPlayer.openEditor(resolved.path) ? '' : await mediaPlayer.openSystem(full, resolved.path)
   if (err) throw paths.fail('OPEN_FAILED', '打不開')
   return true
 }
@@ -436,6 +437,31 @@ async function folderThumb(full, size) {
   return { ...thumb, previews, ...(previews.some(item => item.pending) ? { pending: true } : {}) }
 }
 
+/**
+ * 自家快取（mpv／magick）→ 殼層。回 `done` 就是最終的圖；其餘是類型圖示要帶的狀態。
+ * @returns {Promise<{ done?: object, interim: object, pendingThumb?: object }>}
+ */
+async function fileThumb(file, size) {
+  const made = await mediaThumbs.find(file, size)
+  if (made?.url) {
+    const edge = mediaThumbs.edgeOf(size)
+    const overlay = await shellExt.badgeOf(file, Math.round(edge / 2)).catch(() => '')
+    return { done: { url: made.url, ...(overlay ? { overlay } : {}) }, interim: {} }
+  }
+  if (made?.none) return { interim: {} }
+  if (made?.working) return { interim: { pending: true } }
+  const thumb = await shellExt.thumbOf(file, size)
+  // 真縮圖即使內容是 App logo 也要保留；暫時圖改問類型圖示，避免把 logo／空白圖放大。
+  if (thumb.url && thumb.pending !== true) return { done: { ...thumb }, interim: {} }
+  const overlay = thumb.overlay ? { overlay: thumb.overlay } : {}
+  // 殼層給不出真縮圖的媒體（大 TIFF、PSD…）交給 magick，下一次重試就拿得到
+  const queued = await mediaThumbs.generate(file, size)
+  if (queued || thumb.pending === true) {
+    return { interim: { ...overlay, pending: true }, ...(thumb.url ? { pendingThumb: thumb } : {}) }
+  }
+  return { interim: overlay }
+}
+
 async function fileIcon(target, opts) {
   const full = paths.resolveExisting(target)
   const resolved = resolveLocal(full)
@@ -445,16 +471,10 @@ async function fileIcon(target, opts) {
   if (wantThumb) {
     try {
       if (resolved.dir) return await folderThumb(resolved.path, opts.size)
-      const thumb = await shellExt.thumbOf(resolved.path, opts.size)
-      if (thumb && thumb.url) {
-        interim = { ...(thumb.overlay ? { overlay: thumb.overlay } : {}) }
-        // 真縮圖即使內容是 App logo 也要保留；暫時圖改問類型圖示，避免把 logo／空白圖放大。
-        if (thumb.pending !== true) return { ...thumb }
-        pendingThumb = thumb
-        interim = { ...interim, pending: true }
-      } else if (thumb && thumb.pending === true) {
-        interim = { pending: true }
-      }
+      const step = await fileThumb(resolved.path, opts.size)
+      if (step.done) return step.done
+      interim = step.interim
+      pendingThumb = step.pendingThumb
     } catch (error) {
       console.error('[explorer] 殼層縮圖失敗:', error?.message || error)
     }
@@ -467,7 +487,7 @@ async function fileIcon(target, opts) {
       const valid = !sameIcon(baseUrl, generic)
         && await usableIcon(baseUrl, resolved.path, shellExt.iconOf, 'shell')
       if (!valid) return { fallback: true, ...(overlay ? { overlay } : {}), ...interim }
-      const edge = Number.isInteger(opts?.size) && opts.size >= 16 ? Math.min(opts.size, 256) : 96
+      const edge = Number.isInteger(opts?.size) && opts.size >= 16 ? Math.min(opts.size, 512) : 96
       const readThumb = async target => (await shellExt.thumbOf(target, edge))?.url || ''
       const large = pendingThumb && await usableIcon(pendingThumb.url, resolved.path, readThumb, `thumb:${edge}`)
       return { url: large ? pendingThumb.url : url, ...interim }

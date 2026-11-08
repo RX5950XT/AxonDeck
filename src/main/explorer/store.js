@@ -17,7 +17,7 @@ const SORT_KEYS = new Set(['name', 'date', 'size', 'type'])
  * 方格檢視的圖示邊長（px）。Ctrl+滾輪一次跳一級，像檔案總管的
  * 小圖示→中圖示→大圖示→特大圖示。renderer 也認同一份（`explorer-page.js`）。
  */
-const TILE_SIZES = [48, 64, 96, 128, 180, 256]
+const TILE_SIZES = [48, 64, 96, 128, 180, 256, 360, 512]
 const DEFAULT_TILE = 96
 const RECYCLE_CWD = 'recyclebin'
 const THIS_PC = 'thispc'

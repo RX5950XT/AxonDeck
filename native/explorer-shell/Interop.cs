@@ -314,6 +314,9 @@ namespace AxonDeckShell
         public static extern IntPtr SHGetFileInfoW([MarshalAs(UnmanagedType.LPWStr)] string path, uint attributes,
             ref SHFILEINFOW info, uint cbSize, uint flags);
 
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
+        public static extern int AssocQueryStringW(int flags, int str, string assoc, string extra, System.Text.StringBuilder result, ref uint length);
+
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         public static extern int SHCreateItemFromParsingName([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr bindCtx,
             ref Guid riid, out IntPtr ppv);

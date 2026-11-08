@@ -46,7 +46,7 @@ import {
 const SEARCH_DEBOUNCE_MS = 180
 /** 虛擬位置：Windows 那樣的「本機」首頁（跟 recyclebin 同一種，不是真路徑）。 */
 const THIS_PC = 'thispc'
-const TILE_SIZES = [48, 64, 96, 128, 180, 256]
+const TILE_SIZES = [48, 64, 96, 128, 180, 256, 360, 512]
 const DEFAULT_TILE = 96
 const BROWSE_PAGE_SIZE = typeof BROWSE_PAGE_SIZE_IMPORT === 'number' ? BROWSE_PAGE_SIZE_IMPORT : 500
 

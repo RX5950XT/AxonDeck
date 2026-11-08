@@ -48,10 +48,11 @@ function overlay(theme) {
 /**
  * 開一個檔案。不是編輯器接手的格式回 false（呼叫端照舊交給系統）。
  * @param {unknown} file 外部輸入（命令列、檔案頁），這裡再驗一次
+ * @param {{ force?: boolean }} [opts] force＝呼叫端已確認是沒有程式接手的文字檔
  * @returns {Promise<boolean>}
  */
-async function open(file) {
-  if (!isEditable(file)) return false
+async function open(file, opts = {}) {
+  if (typeof file !== 'string' || (opts.force !== true && !isEditable(file))) return false
   if (!path.isAbsolute(file) || file.includes('\0')) throw fail('BAD_PATH', '路徑不合法')
   const full = path.resolve(file)
   const stat = await fsp.stat(full).catch(() => null)
@@ -199,8 +200,9 @@ async function openLink(entry, link) {
   try { target = decodeURIComponent(target) } catch { throw fail('BAD_LINK', '連結不合法') }
   if (!target || /^[a-z][a-z0-9+.-]*:|^[\\/]/i.test(target)) throw fail('BAD_LINK', '這種連結只能從工作區或檔案頁開')
   const full = path.resolve(path.dirname(entry.file), target)
-  if (!isEditable(full)) throw fail('UNSUPPORTED', '這種檔案請到檔案頁開')
-  await open(full)
+  const unknownText = !isEditable(full) && await require('./media-player').isUnknownText(full)
+  if (!isEditable(full) && !unknownText) throw fail('UNSUPPORTED', '這種檔案請到檔案頁開')
+  await open(full, { force: unknownText })
 }
 
 function registerIpc() {

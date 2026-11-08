@@ -25,7 +25,7 @@ function fail(message) {
 }
 function setThemeGetter(getter) { theme = getter }
 function setEditorOpener(opener) { editorOpener = opener }
-const openEditor = (file) => editorOpener(file)
+const openEditor = (file, opts) => editorOpener(file, opts)
 async function initializedMarker(file, expected = ASSOCIATION_MARKER) {
   let handle
   try {
@@ -99,8 +99,43 @@ async function openMedia(file, options = {}) {
   })
   return true
 }
+/** 開頭 64KB 看起來是文字嗎：跟編輯器的 `decode` 同一個判斷（NUL＝二進位），再擋控制字元很多的。 */
+async function looksLikeText(file) {
+  let handle
+  try {
+    handle = await fs.open(file, 'r')
+    const buffer = Buffer.alloc(64 * 1024)
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+    const head = buffer.subarray(0, bytesRead)
+    if (head[0] === 0xff && head[1] === 0xfe) return true
+    if (head.includes(0)) return false
+    const control = head.reduce((count, byte) => count + (byte < 9 || (byte > 13 && byte < 32 && byte !== 27) ? 1 : 0), 0)
+    return control <= bytesRead * 0.02
+  } catch {
+    return false
+  } finally { if (handle) await handle.close() }
+}
+const associationOf = (file) => require('./explorer/shell').associationOf(path.extname(file))
+/** Windows 沒有預設程式、但內容是文字（`.foo`、沒有副檔名的 LICENSE…）。 */
+async function isUnknownText(file) {
+  const state = await associationOf(file)
+  return (state === 'none' || state === 'choices') && await looksLikeText(file)
+}
+/**
+ * 交給 Windows 開；沒有預設程式時它只會跳「要用什麼開啟」，所以先攔下來：文字開自家編輯器。
+ * 二進位檔有候選程式才讓 Windows 問（那個清單有用），完全沒人接手就回 App 內的訊息。
+ * @param {string} target 實際要開的路徑（捷徑就是捷徑本身，啟動參數才不會被跳過）
+ * @param {string} [real] 判斷關聯與內容用的真實檔案
+ */
+async function openSystem(target, real = target) {
+  const state = await associationOf(real)
+  if (state !== 'none' && state !== 'choices') return shell.openPath(target)
+  if (await looksLikeText(real) && await editorOpener(real, { force: true })) return ''
+  if (state === 'choices') return shell.openPath(target)
+  throw Object.assign(fail('沒有程式能開這種檔案，它也不是文字檔。要指定程式請用右鍵選單的「開啟檔案」。'), { code: 'NO_APP' })
+}
 /** 與 shell.openPath 的回傳方式相同；所有開檔入口共用這條分流（媒體→播放器、文字→編輯器）。 */
 async function openPath(file) {
-  return await openMedia(file) || await openEditor(file) ? '' : shell.openPath(file)
+  return await openMedia(file) || await openEditor(file) ? '' : openSystem(file)
 }
-module.exports = { mediaKind, openMedia, openEditor, openPath, setThemeGetter, setEditorOpener, initializeAssociations }
+module.exports = { mediaKind, openMedia, openEditor, openSystem, isUnknownText, openPath, setThemeGetter, setEditorOpener, initializeAssociations }

@@ -203,7 +203,7 @@ console.log('\n[E] UFFS pattern 消毒')
       { 'c:\\a': { view: 'list', tile: 999, sort: 'bogus' } }
     )
     ok('資料夾檢視：只改那一筆、其他保留', merged['c:\\b'].view === 'list' && merged['c:\\a'].view === 'list')
-    ok('資料夾檢視：壞值收成合法值', merged['c:\\a'].tile === 256 && merged['c:\\a'].sort === 'name')
+    ok('資料夾檢視：壞值收成合法值', merged['c:\\a'].tile === 512 && merged['c:\\a'].sort === 'name')
     ok('資料夾檢視：改過的排到最後', Object.keys(merged).at(-1) === 'c:\\a')
     const many = {}
     for (let i = 0; i < storeMod.MAX_FOLDER_VIEWS; i++) many[`c:\\${i}`] = { view: 'list' }
@@ -1113,8 +1113,8 @@ console.log('\n[S7] 縮圖 pending 會延遲重取，暫時的圖不進快取')
       timers.shift().fn()
       await tick()
     }
-    ok('(c) 最多重試 3 次就停', calls === 4, `calls=${calls}`)
-    ok('退避是 400／800／1600', delays.join(',') === '400,800,1600', delays.join(','))
+    ok('(c) 最多重試 7 次就停', calls === 8, `calls=${calls}`)
+    ok('退避從 400 倍增到 25600', delays.join(',') === '400,800,1600,3200,6400,12800,25600', delays.join(','))
     ok('停了之後沒有再排隊', timers.length === 0, `timers=${timers.length}`)
   }
 

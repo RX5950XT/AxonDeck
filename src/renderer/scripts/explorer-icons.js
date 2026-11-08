@@ -27,10 +27,11 @@ let queue = []
 let running = 0
 
 const THUMB_SIZE = 96
-/** 殼層給得出的最大邊長（`shell.js` 的 `thumbOf` 也夾在這） */
-const THUMB_MAX = 256
+/** 實際要的畫素跳到下一級：滾一格不用整批重問，最大一級跟 `shell.js` 的 `thumbOf` 同一個上限 */
+const THUMB_LEVELS = [128, 256, 512]
 const RETRY_MS = 400
-const MAX_RETRY = 3
+// 0.4、0.8…25.6 秒，加起來約 50 秒：背景的 magick 最慢要這麼久（一億畫素 PNG 約 20 秒）
+const MAX_RETRY = 7
 // 預算用完後多久才給新的（殼層現生中的縮圖晚一點再問，不要整批重問）。
 const RETRY_COOLDOWN_MS = 30_000
 
@@ -85,7 +86,9 @@ export function paintDefaultFileIcon(el, entry) {
 function thumbSize(host) {
   const raw = Number.parseInt(host?.dataset?.tile ?? '', 10)
   if (!Number.isFinite(raw) || raw < 16) return THUMB_SIZE
-  return Math.min(THUMB_MAX, raw)
+  // 150% 顯示比例下 180px 的格子其實有 270 個畫素
+  const pixels = raw * (window.devicePixelRatio || 1)
+  return THUMB_LEVELS.find((level) => pixels <= level) || THUMB_LEVELS[THUMB_LEVELS.length - 1]
 }
 
 /**
@@ -236,7 +239,8 @@ export function paintFileIcons(host, readIcon) {
       }
     }
     pump()
-  }, { root: host })
+    // 上下多載一段：捲到的時候圖已經好了
+  }, { root: host, rootMargin: '400px 0px' })
   for (const el of host.querySelectorAll('.ex-row-icon[data-path]')) {
     const key = cacheKey(el, wantThumb(host, el), thumbSize(host))
     const cached = cache.get(key)
@@ -275,7 +279,7 @@ function pump() {
     inflight.set(job.key, hosts)
     running++
     void loadIcon(el, job.host, pane.readIcon, job.size).then((result) => {
-      if (!result?.ok || (!result.data?.folder && !result.data?.fallback && !/^data:image\/png;base64,/.test(result.data?.url))) return
+      if (!result?.ok || (!result.data?.folder && !result.data?.fallback && !/^data:image\/(?:png|jpeg|webp);base64,/.test(result.data?.url))) return
       if (result.data.pending === true) {
         paintCurrent(hosts, job.key, result.data)
         interimShown.set(job.key, result.data)
@@ -337,6 +341,7 @@ function showIcon(el, data) {
   if (el.firstElementChild?.src === src && badgeSrc === overlay && (el.dataset.previewKey || '[]') === previewKey) return
   el.dataset.previewKey = previewKey
   const image = document.createElement('img')
+  image.decoding = 'async'
   image.src = src
   image.alt = ''
   image.draggable = false

@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.69.0**（2026-10-29）。
+AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.74.0**（2026-11-09）。
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -110,7 +110,9 @@ native/
 - Office 預覽：原始版面＝`workspace:convertOffice` 用 Office COM（沒有才 LibreOffice）轉 PDF 交 pdf.js，快取 `userData/office-preview`；簡易檢視＝`ws-office*.js` 自己解 zip。檔案樹的圖片／音訊／影片開 `vi-media` 分頁，解不了編碼才開原生播放器。
 
 ### 檔案頁與原生媒體播放器
-- 分頁、雙欄、首頁「本機」（插拔即時更新）、清單／方格（Ctrl+滾輪 48～256px）、每資料夾記自己的檢視（`explorer.json` 的 `folderViews`）。
+- 分頁、雙欄、首頁「本機」（插拔即時更新）、清單／方格（Ctrl+滾輪 48～512px）、每資料夾記自己的檢視（`explorer.json` 的 `folderViews`）。
+- 媒體縮圖（`explorer/media-thumbs.js`）：影片與音樂封面用內建 mpv（10% 處取一格），圖片先問殼層、做不出才用 magick；結果存 `<userData>/thumb-cache`（鍵含路徑、大小、修改時間、尺寸，上限 512 MB），解不開的記 `.none`。縮圖級距 128／256／512，依方格大小×顯示倍率挑。
+- 開檔沒有預設程式（`shell.associationOf`＝`choices`／`none`，`mediaPlayer.openSystem`）：文字開自家編輯器；二進位有候選才讓 Windows 問，沒人接手回 App 內訊息 `NO_APP`。
 - 刪除進回收筒、Ctrl+Z 復原、撞名可改名／略過／覆蓋；殼層 sidecar 給原生右鍵、真縮圖、內容視窗、詳細資訊、MTP、手機清單（`devices`）。
 - 超過 300 項的資料夾改 Rust `list-dir`；資料夾大小（`folderSizes`）由 `dir-sizes.js` 背景用 `dir-size` 逐個算（單個上限 20 秒）。
 - UFFS 進頁只準備授權，搜尋時才載索引，保留到 App 結束。

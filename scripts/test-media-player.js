@@ -50,6 +50,7 @@ async function main() {
         writeFile: async (file, value) => { storedFiles.set(file, String(value)) }
       } }
       if (name === 'electron') return { shell: { openPath: async (file) => { calls.push({ system: file }); return '' } } }
+      if (name === './explorer/shell') return { associationOf: async () => 'default' }
       if (name === 'child_process') return { spawn: (exe, args, options) => {
         calls.push({ exe, args, options }); const child = new EventEmitter(); child.unref = () => {}
         const init = args.includes('--initialize')

@@ -99,7 +99,7 @@ namespace AxonDeckShell
                 using (JsonDocument doc = JsonDocument.Parse(line))
                 {
                     string op = Str(doc.RootElement, "op");
-                    return op == "thumb" || op == "icon" || op == "genericIcon" || op == "extractIcon";
+                    return op == "thumb" || op == "icon" || op == "genericIcon" || op == "extractIcon" || op == "badge" || op == "assoc";
                 }
             }
             catch (JsonException)
@@ -135,6 +135,8 @@ namespace AxonDeckShell
                         case "extractIcon": return Ok(id, w => WriteImage(w, "icon", Overlays.ExtractFile(Str(root, "path"), Num(root, "index", 0))));
                         case "genericIcon": return Ok(id, w => WriteImage(w, "icon", Overlays.IconOf(".axondeck-unregistered-file-type", true)));
                         case "thumb": return Ok(id, w => Thumb(root, w));
+                        case "badge": return Ok(id, w => WriteImage(w, "overlay", Overlays.BadgeOf(Str(root, "path"), false, Math.Clamp(Num(root, "size", 48), 16, 256))));
+                        case "assoc": return Ok(id, w => w.WriteString("state", Thumbnails.AssociationOf(Str(root, "ext"))));
                         case "attrs": return Ok(id, w => Attributes.Write(Str(root, "dir"), w));
                         case "props": return Ok(id, w => Properties.Write(root, w));
                         case "menu": return Ok(id, w => Menu(root, w));

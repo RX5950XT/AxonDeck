@@ -180,7 +180,7 @@ const mediaPlayer = require('./media-player')
 mediaPlayer.setThemeGetter(() => store?.get('theme') || 'dark')
 const editorWindow = require('./editor-window')
 const browserWindow = require('./browser-window')
-mediaPlayer.setEditorOpener((file) => editorWindow.open(file))
+mediaPlayer.setEditorOpener((file, opts) => editorWindow.open(file, opts))
 editorWindow.registerIpc()
 /** 正在執行 before-quit 卸載 */
 let isQuitting = false

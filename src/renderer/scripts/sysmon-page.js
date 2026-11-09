@@ -16,6 +16,7 @@ import { showOcPanel, hideOcPanel, onOcSample } from './sysmon-oc.js'
 import { showScreentimePanel, hideScreentimePanel } from './sysmon-screentime.js'
 import { showDiskPanel, hideDiskPanel } from './sysmon-disk.js'
 import { createProcessTable, sortProcessRows, isProcessSortKey } from './sysmon-procs.js'
+import { createSectionToc } from './sysmon-toc.js'
 
 const HISTORY = 120
 const state = {
@@ -160,52 +161,21 @@ function drawSpark(canvas, values, max) {
 // ===== 硬體區塊（總覽 ⊕ 硬體資訊）=====
 
 /**
- * 一個區塊 = 一種硬體。收起時只有「大數字＋進度條＋歷史曲線＋兩三個關鍵讀數」，
- * 展開才長出視覺化明細、規格表與感測器讀數；同性質的長清單（每核心溫度、每條記憶體、
- * 每顆碟）再包一層 `<details>`。這就是使用者要的漸進式揭露：一眼看得懂，想深究再點。
+ * 一個區塊 = 一種硬體。側欄一列只有「名稱＋主要讀數＋型號＋進度條」，
+ * 選到的那種才顯示視覺化明細、規格表與感測器讀數，所有段落全部攤開，靠右側目錄跳轉。
  *
- * 效能上這樣做也划算：沒展開的區塊每輪只更新四五個 `textContent`，
- * 展開的才走 viz／規格／感測器那幾百格。
+ * 效能上這樣做也划算：沒選到的區塊每輪只更新四五個 `textContent`，
+ * 選到的才走 viz／規格／感測器那幾百格。
  */
 
 /**
- * 收起了哪些區塊。**記的是「收起」不是「展開」**：預設就要看到完整資訊，
- * 空集合＝全部展開，使用者收掉的才存起來。這是純畫面狀態（不是設定），
- * 所以放 localStorage 而不是 electron-store：它不改變任何行為，
- * 也不值得占一個 IPC allowlist 的名額。
+ * 總覽側欄選到哪一種硬體。純畫面狀態（不是設定），所以放 localStorage 而不是 electron-store：
+ * 它不改變任何行為，也不值得占一個 IPC allowlist 的名額。空字串＝還沒選過，顯示第一種。
  */
-const CLOSED_KEY = 'voiceink.sysmon.closed'
-const closedBlocks = new Set(loadClosedBlocks())
-
-function loadClosedBlocks() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')
-    return Array.isArray(raw) ? raw.filter((v) => typeof v === 'string') : []
-  } catch { return [] }
-}
-
-function saveClosedBlocks() {
-  try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...closedBlocks])) } catch { /* 存不了就算了 */ }
-}
-
-/** @param {string} id */
-const isOpen = (id) => !closedBlocks.has(id)
-
-/**
- * 區塊裡的長清單（S.M.A.R.T.、磁碟區、感測器…）跟區塊相反：**預設收起**，點開的才記。
- * 全部攤開時一顆硬碟就吃掉快一千像素高，總覽等於要捲六千多像素才看得完。
- */
-const OPEN_SUBS_KEY = 'voiceink.sysmon.openSubs'
-const openSubs = new Set((() => {
-  try {
-    const raw = JSON.parse(localStorage.getItem(OPEN_SUBS_KEY) || '[]')
-    return Array.isArray(raw) ? raw.filter((v) => typeof v === 'string') : []
-  } catch { return [] }
-})())
-
-function saveOpenSubs() {
-  try { localStorage.setItem(OPEN_SUBS_KEY, JSON.stringify([...openSubs])) } catch { /* 存不了就算了 */ }
-}
+const SELECTED_BLOCK_KEY = 'voiceink.sysmon.block'
+let selectedBlock = (() => {
+  try { return localStorage.getItem(SELECTED_BLOCK_KEY) || '' } catch { return '' }
+})()
 
 const DASH = '—'
 
@@ -1323,29 +1293,46 @@ function describeBlocks(s, inv) {
 /** 建一次、之後只改文字；每輪重建 DOM 是這一頁最容易卡的地方 */
 const blocks = new Map()
 
-function toggleBlock(id) {
-  if (closedBlocks.has(id)) closedBlocks.delete(id)
-  else closedBlocks.add(id)
-  saveClosedBlocks()
-  renderBlocks()
+/** @type {ReturnType<typeof createSectionToc> | null} */
+let sectionToc = null
+/** 目錄目前畫的是哪一份清單，換了才重畫 */
+let tocShown = null
+
+/** 標題列黏在頂端時占掉的高度；窄視窗不黏就是 0 */
+function stickyHeroInset() {
+  const hero = document.querySelector('.sysmon-block.is-open .sysmon-block-hero')
+  return hero && getComputedStyle(hero).position === 'sticky' ? hero.offsetHeight + 8 : 0
 }
 
-/** 有任何一塊展開就全部收起（變成一眼看完的儀表），否則全部展開 */
-function toggleAllBlocks() {
-  const anyOpen = [...blocks.keys()].some(isOpen)
-  for (const id of blocks.keys()) {
-    if (anyOpen) closedBlocks.add(id)
-    else closedBlocks.delete(id)
-  }
-  saveClosedBlocks()
+function selectBlock(id) {
+  selectedBlock = id
+  try { localStorage.setItem(SELECTED_BLOCK_KEY, id) } catch { /* 存不了就算了 */ }
   renderBlocks()
+  // 上一種硬體可能捲得很深，新的要從頭看
+  $('sysmonBlocks')?.closest('.content')?.scrollTo({ top: 0 })
 }
 
-function syncToggleAll() {
-  const btn = $('sysmonToggleAll')
-  if (!btn) return
-  const anyOpen = [...blocks.keys()].some(isOpen)
-  btn.textContent = anyOpen ? '全部收起' : '全部展開'
+/** 側欄的一列：名稱＋主要讀數＋型號＋進度條 */
+function createRailItem(id) {
+  const item = document.createElement('button')
+  item.type = 'button'
+  item.className = 'settings-nav-item sysmon-rail-item'
+  item.dataset.blockTarget = id
+  const top = document.createElement('span')
+  top.className = 'sysmon-rail-top'
+  const name = document.createElement('strong')
+  const value = document.createElement('span')
+  value.className = 'sysmon-rail-value'
+  top.append(name, value)
+  const sub = document.createElement('span')
+  sub.className = 'sysmon-block-sub'
+  const gauge = document.createElement('span')
+  gauge.className = 'sysmon-gauge'
+  const fill = document.createElement('i')
+  gauge.appendChild(fill)
+  item.append(top, sub, gauge)
+  item.addEventListener('click', () => selectBlock(id))
+  return { item, name, value, sub, gauge, fill }
 }
 
 /** @param {any} desc */
@@ -1360,14 +1347,8 @@ function ensureBlock(desc) {
   el.dataset.block = desc.id
   if (desc.accent) el.style.setProperty('--block-accent', desc.accent)
 
-  const head = document.createElement('button')
-  head.type = 'button'
+  const head = document.createElement('div')
   head.className = 'sysmon-block-head'
-  head.setAttribute('aria-expanded', 'false')
-
-  const chevron = document.createElement('span')
-  chevron.className = 'sysmon-chevron'
-  chevron.setAttribute('aria-hidden', 'true')
 
   const title = document.createElement('span')
   title.className = 'sysmon-block-title'
@@ -1386,23 +1367,30 @@ function ensureBlock(desc) {
   const value = document.createElement('span')
   value.className = 'sysmon-block-value'
 
-  head.append(chevron, title, stats, spark, value)
+  head.append(title, stats, spark, value)
 
   const gauge = document.createElement('div')
   gauge.className = 'sysmon-gauge'
   const gaugeFill = document.createElement('i')
   gauge.appendChild(gaugeFill)
 
+  const hero = document.createElement('div')
+  hero.className = 'sysmon-block-hero'
+  hero.append(head, gauge)
+
   const body = document.createElement('div')
   body.className = 'sysmon-block-body'
   body.hidden = true
 
-  el.append(head, gauge, body)
+  el.append(hero, body)
   host.appendChild(el)
-  head.addEventListener('click', () => toggleBlock(desc.id))
+
+  const rail = createRailItem(desc.id)
+  if (desc.accent) rail.item.style.setProperty('--block-accent', desc.accent)
+  $('sysmonRail')?.appendChild(rail.item)
 
   b = {
-    el, head, name, sub, stats, spark, value, gauge, gaugeFill, body,
+    el, head, name, sub, stats, spark, value, gauge, gaugeFill, body, rail,
     statFields: new Map(), sig: '', slots: null
   }
   blocks.set(desc.id, b)
@@ -1452,7 +1440,7 @@ function partSignature(part) {
 /** 內文的「結構」指紋。變了才重建 DOM，沒變就只寫值。 */
 function bodySignature(desc) {
   const devices = (desc.devices || [])
-    .map((d) => `${d.key}[${d.stats.map(([k]) => k).join(',')}]${partSignature(d)}`)
+    .map((d) => `${d.key}:${d.title}[${d.stats.map(([k]) => k).join(',')}]${partSignature(d)}`)
     .join('/')
   return `${partSignature(desc)}~${devices}`
 }
@@ -1461,11 +1449,6 @@ function bodySignature(desc) {
 function buildViz(viz, slots) {
   const wrap = document.createElement('div')
   wrap.className = `sysmon-viz sysmon-viz-${viz.kind}`
-  if (viz.label) {
-    const cap = document.createElement('h3')
-    cap.textContent = viz.label
-    wrap.appendChild(cap)
-  }
   const grid = document.createElement('div')
   grid.className = 'sysmon-viz-grid'
   wrap.appendChild(grid)
@@ -1550,43 +1533,43 @@ function buildSpecList(rows, slots) {
   return dl
 }
 
-/**
- * 視覺化＋規格表＋可展開的子清單，畫進 host。區塊本身和卡內每個裝置共用。
- * @param {HTMLElement} host @param {any} part @param {string} keyPrefix 子清單開關記憶的前綴
- */
-function buildPart(host, part, keyPrefix) {
-  const slots = { viz: [], specs: [], groups: [] }
-  if (part.viz) host.appendChild(buildViz(part.viz, slots.viz))
-  if (part.specs.length) host.appendChild(buildSpecList(part.specs, slots.specs))
+/** 一段明細：標題＋內容，同時登記進目錄 */
+function buildSection(host, title, count, content, toc, level) {
+  const sec = document.createElement('section')
+  sec.className = 'sysmon-section'
+  const heading = document.createElement('h3')
+  heading.textContent = title
+  if (count) {
+    const num = document.createElement('span')
+    num.textContent = String(count)
+    heading.appendChild(num)
+  }
+  sec.append(heading, content)
+  host.appendChild(sec)
+  toc.push({ label: title, level, el: sec })
+}
 
-  // 收起的子清單排成一排膠囊，展開的那個自己佔滿一列
-  const subs = document.createElement('div')
-  subs.className = 'sysmon-subs'
+/**
+ * 視覺化＋規格表＋各子清單，全部攤開畫進 host。區塊本身和卡內每個裝置共用。
+ * @param {HTMLElement} host @param {any} part
+ * @param {Array<{ label: string, level: number, el: HTMLElement }>} toc @param {number} level
+ */
+function buildPart(host, part, toc, level) {
+  const slots = { viz: [], specs: [], groups: [] }
+  if (part.viz) buildSection(host, part.viz.label || '即時狀態', 0, buildViz(part.viz, slots.viz), toc, level)
+  if (part.specs.length) buildSection(host, '規格', 0, buildSpecList(part.specs, slots.specs), toc, level)
   for (const group of part.groups) {
     if (!group.rows.length) continue
-    const det = document.createElement('details')
-    det.className = 'sysmon-sub'
-    const key = `${keyPrefix}/${group.title}`
-    det.open = openSubs.has(key)
-    const summary = document.createElement('summary')
-    summary.textContent = `${group.title}（${group.rows.length}）`
     /** @type {HTMLElement[]} */
     const rowSlots = []
-    det.append(summary, buildSpecList(group.rows, rowSlots))
-    det.addEventListener('toggle', () => {
-      if (det.open) openSubs.add(key)
-      else openSubs.delete(key)
-      saveOpenSubs()
-    })
-    subs.appendChild(det)
+    buildSection(host, group.title, group.rows.length, buildSpecList(group.rows, rowSlots), toc, level)
     slots.groups.push(rowSlots)
   }
-  if (subs.childElementCount) host.appendChild(subs)
   return slots
 }
 
 /** 同類卡（儲存、GPU）裡的一個裝置：名稱＋幾個讀數一列，下面是它自己的明細 */
-function buildDevice(dev, keyPrefix) {
+function buildDevice(dev, toc) {
   const sec = document.createElement('section')
   sec.className = 'sysmon-device'
   const head = document.createElement('header')
@@ -1610,24 +1593,22 @@ function buildDevice(dev, keyPrefix) {
   })
   head.append(title, stats)
   sec.appendChild(head)
-  const slots = buildPart(sec, dev, `${keyPrefix}/${dev.key}`)
+  toc.push({ label: dev.title, level: 1, el: sec })
+  const slots = buildPart(sec, dev, toc, 2)
   return { sec, slots: { ...slots, name, sub, stats: statSlots } }
 }
 
 /** @param {any} b @param {any} desc */
 function buildBody(b, desc) {
   b.body.textContent = ''
-  b.slots = buildPart(b.body, desc, desc.id)
+  b.toc = []
+  b.slots = buildPart(b.body, desc, b.toc, 1)
   b.deviceSlots = []
-  if (!desc.devices?.length) return
-  const wrap = document.createElement('div')
-  wrap.className = 'sysmon-devices'
-  for (const dev of desc.devices) {
-    const built = buildDevice(dev, desc.id)
-    wrap.appendChild(built.sec)
+  for (const dev of desc.devices || []) {
+    const built = buildDevice(dev, b.toc)
+    b.body.appendChild(built.sec)
     b.deviceSlots.push(built.slots)
   }
-  b.body.appendChild(wrap)
 }
 
 /** @param {any} part @param {any} slots */
@@ -1672,12 +1653,16 @@ function renderBlocks() {
   const host = $('sysmonBlocks')
   if (!s || !host) return
   const descs = describeBlocks(s, state.inventory)
+  // 還沒選過，或選到的硬體這輪不見了（例如顯示卡晚一點才偵測到）：先顯示第一種，但不蓋掉記住的選擇
+  const shownBlock = descs.some((desc) => desc.id === selectedBlock) ? selectedBlock : descs[0]?.id
 
   descs.forEach((desc, index) => {
     const b = ensureBlock(desc)
     if (!b) return
     // 順序可能變（第二張顯示卡是晚一點才被偵測到的），但只有真的不對位才動 DOM
     if (host.children[index] !== b.el) host.insertBefore(b.el, host.children[index] || null)
+    const rail = $('sysmonRail')
+    if (rail && rail.children[index] !== b.rail.item) rail.insertBefore(b.rail.item, rail.children[index] || null)
 
     b.name.textContent = desc.title
     b.name.title = desc.title
@@ -1686,14 +1671,22 @@ function renderBlocks() {
     b.sub.title = desc.sub
     b.value.textContent = desc.valueText
     setStats(b, desc.stats)
+    b.rail.name.textContent = desc.title
+    b.rail.value.textContent = desc.valueText
+    b.rail.sub.textContent = desc.sub
+    b.rail.item.title = desc.sub ? `${desc.title}：${desc.sub}` : desc.title
 
     if (desc.value == null) {
       b.gauge.hidden = true
+      b.rail.gauge.hidden = true
     } else {
       b.gauge.hidden = false
+      b.rail.gauge.hidden = false
       const pct = Math.max(0, Math.min(100, desc.value))
-      b.gaugeFill.style.width = `${pct}%`
-      b.gaugeFill.classList.toggle('is-hot', pct >= 85)
+      for (const fill of [b.gaugeFill, b.rail.fill]) {
+        fill.style.width = `${pct}%`
+        fill.classList.toggle('is-hot', pct >= 85)
+      }
     }
 
     if (desc.spark) {
@@ -1703,8 +1696,10 @@ function renderBlocks() {
       b.spark.hidden = true
     }
 
-    const open = isOpen(desc.id)
-    b.head.setAttribute('aria-expanded', open ? 'true' : 'false')
+    const open = desc.id === shownBlock
+    b.rail.item.classList.toggle('active', open)
+    if (open) b.rail.item.setAttribute('aria-current', 'true')
+    else b.rail.item.removeAttribute('aria-current')
     b.el.classList.toggle('is-open', open)
     b.body.hidden = !open
     if (!open) return
@@ -1721,9 +1716,14 @@ function renderBlocks() {
   for (const [id, b] of blocks) {
     if (ids.has(id)) continue
     b.el.remove()
+    b.rail.item.remove()
     blocks.delete(id)
   }
-  syncToggleAll()
+  const shownToc = blocks.get(shownBlock)?.toc
+  if (shownToc && shownToc !== tocShown) {
+    tocShown = shownToc
+    sectionToc?.set(shownToc)
+  }
 }
 
 // ===== 進程表 =====
@@ -2474,8 +2474,6 @@ function switchSubtab(name) {
   for (const panel of document.querySelectorAll('#page-sysmon .sysmon-panel')) {
     panel.classList.toggle('active', panel.id === `sysmon-${name}`)
   }
-  const toggleAll = $('sysmonToggleAll')
-  if (toggleAll) toggleAll.hidden = name !== 'overview'
   if (name === 'processes') {
     renderHead()
     rebuildRows()
@@ -2547,6 +2545,8 @@ function onSample(sample) {
 }
 
 export function initSysmonPage() {
+  const tocNav = $('sysmonToc')
+  if (tocNav) sectionToc = createSectionToc(tocNav, stickyHeroInset)
   if (state.inited) return
   state.inited = true
 
@@ -2568,7 +2568,6 @@ export function initSysmonPage() {
     rebuildRows()
   })
 
-  $('sysmonToggleAll')?.addEventListener('click', toggleAllBlocks)
 
   $('sysmonKillBtn')?.addEventListener('click', () => askKill(true))
   $('sysmonKillConfirm')?.addEventListener('click', doKill)

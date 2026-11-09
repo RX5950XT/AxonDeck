@@ -1289,7 +1289,7 @@
           <!-- 系統監控 -->
           <section id="page-sysmon" class="page">
             <div class="sysmon-shell">
-              <!-- 頂排：左子分頁、右操作（全部收起只在總覽出現） -->
+              <!-- 頂排：左子分頁、右操作 -->
               <div class="sysmon-topbar">
                 <nav class="sysmon-tabs" id="sysmonTabs" role="tablist" aria-label="系統監控子分頁">
                   <button type="button" class="sysmon-tab active" data-subtab="overview" role="tab"
@@ -1306,7 +1306,6 @@
                     aria-selected="false" aria-controls="sysmon-disk">磁碟空間</button>
                 </nav>
                 <div class="sysmon-actions" role="group" aria-label="系統監控操作">
-                  <button type="button" id="sysmonToggleAll" class="btn btn-secondary btn-sm">全部收起</button>
                   <label class="sysmon-interval">
                     <span>更新頻率</span>
                     <select id="sysmonInterval" class="select" aria-label="取樣間隔">
@@ -1334,12 +1333,15 @@
               </p>
 
               <!--
-                總覽：即時負載與硬體規格合在同一頁，漸進式揭露。
-                收起時每一塊只有「大數字＋進度條＋關鍵讀數」，併排成儀表；展開的那塊佔滿整列，
-                才出現視覺化明細、規格表與感測器讀數；同性質的長清單（每核心、每條記憶體、每顆碟）再包一層摺疊。
+                總覽：左側欄列出每種硬體（名稱＋主要讀數＋進度條），一眼看完負載；
+                中間是選到的那一種，所有段落全部攤開；右側目錄可直接跳到某一段。
               -->
               <div id="sysmon-overview" class="sysmon-panel active" role="tabpanel">
-                <div id="sysmonBlocks" class="sysmon-blocks"></div>
+                <div class="sysmon-overview-layout">
+                  <nav id="sysmonRail" class="settings-nav sysmon-rail" aria-label="硬體"></nav>
+                  <div id="sysmonBlocks" class="sysmon-blocks"></div>
+                  <nav id="sysmonToc" class="settings-nav sysmon-toc" aria-label="本頁目錄"></nav>
+                </div>
               </div>
 
               <!-- 使用時長：Tai 相容的應用／網站累積時長 -->

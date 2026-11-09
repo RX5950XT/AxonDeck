@@ -7533,7 +7533,8 @@ h6.md-h { font-size: 14px; }
 .settings-nav,
 .settings-card,
 .settings-footer,
-.sysmon-block,
+.sysmon-block-hero,
+.sysmon-section,
 .sysmon-table,
 .hf-panel,
 .ex-sidebar,
@@ -9261,8 +9262,6 @@ h6.md-h { font-size: 14px; }
   margin-left: auto;
 }
 
-.sysmon-actions > .btn[hidden] { display: none; }
-
 .sysmon-interval {
   display: inline-flex;
   align-items: center;
@@ -9991,32 +9990,118 @@ h6.md-h { font-size: 14px; }
 .sysmon-panel { display: none; }
 .sysmon-panel.active { display: block; }
 
-/* 總覽的欄數跟著面板寬度走（不看視窗寬度）。只掛在總覽：
-   container 會變成 position: fixed 的基準，其他分頁有下拉選單不能掛 */
-#sysmon-overview { container: sysmon-overview / inline-size; }
-
-/* ── 總覽區塊（漸進式揭露）──────────────────────────────────────
-   收起 = 標題 + 三四個關鍵讀數 + 歷史曲線 + 一條進度條；展開才長出
-   視覺化明細、規格表與感測器讀數。同性質的長清單再包一層 <details>。
+/* ── 總覽：左側欄列硬體、中間全部攤開、右側目錄跳段落 ─────────────
+   側欄一列 = 名稱 + 主要讀數 + 型號 + 進度條；中間頂端是黏住的即時讀數，下面每段一張卡。
+   三欄都黏在 .content 這個捲動區的頂端，內容再長也不用捲回去切換。
    ------------------------------------------------------------------ */
 
-/* 收起的卡併排成儀表；展開的卡佔滿整列（規格表與感測器有整排寬度可攤，
-   也不會讓並排的另一張留下一大塊空白）。dense 讓收起的卡補進展開卡留下的空格。 */
+.sysmon-overview-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+/* 黏住的位置會被 .content 的 28px 上內距往下推，top 要扣回來才貼得到頂；
+   扣掉頁首高度，項目多到放不下就自己捲 */
+.sysmon-rail,
+.sysmon-toc {
+  position: sticky;
+  top: -20px;
+  max-height: calc(100vh - 80px);
+}
+
+.sysmon-toc { width: 176px; }
+
+.sysmon-toc-item {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.sysmon-toc-item.is-sub { padding-left: 18px; }
+.sysmon-toc-item:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.sysmon-toc-item.active {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sysmon-toc-item:focus-visible {
+  outline: 2px solid var(--focus-ring-color, var(--accent-primary));
+  outline-offset: -2px;
+}
+
+/* 中間欄會被擠到看不清楚，先收目錄 */
+@media (max-width: 1100px) {
+  .sysmon-toc { display: none; }
+}
+
+.settings-nav-item.sysmon-rail-item {
+  flex-direction: column;
+  align-items: stretch;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 9px 10px;
+}
+
+.sysmon-rail-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sysmon-rail-top > strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sysmon-rail-value {
+  flex: 0 0 auto;
+  color: var(--block-accent, var(--accent-primary));
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sysmon-rail-item .sysmon-gauge {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+/* 沒有百分比的硬體也留著這一格，每列才等高 */
+.sysmon-rail-item .sysmon-gauge[hidden] { visibility: hidden; }
+
 .sysmon-blocks {
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-auto-flow: row dense;
-  gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
-@container sysmon-overview (min-width: 820px) {
-  .sysmon-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sysmon-block.is-open { grid-column: 1 / -1; }
+/* 窄視窗：側欄跟設定頁一樣變成頂部橫排 */
+@media (max-width: 640px) {
+  .sysmon-overview-layout { flex-direction: column; align-items: stretch; }
+  .sysmon-rail { position: static; max-height: none; }
+  .settings-nav-item.sysmon-rail-item { width: 156px; white-space: normal; }
 }
 
-@container sysmon-overview (min-width: 1700px) {
-  .sysmon-blocks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+.sysmon-block:not(.is-open) { display: none; }
 
 .sysmon-block {
   container: sysmon-block / inline-size;
@@ -10024,8 +10109,19 @@ h6.md-h { font-size: 14px; }
   --spark-line: var(--block-accent);
   --spark-fill: color-mix(in srgb, var(--block-accent) 18%, transparent);
   min-width: 0;
+}
+
+/* 捲到下面也看得到這種硬體現在的讀數；貼齊捲動區頂端，上方才不會露出捲過去的內容 */
+.sysmon-block-hero {
+  position: sticky;
+  top: -28px;
+  z-index: 2;
   overflow: hidden;
-  outline: 1px solid color-mix(in srgb, var(--block-accent) 20%, transparent);
+}
+
+/* 窄視窗高度也不夠，不佔畫面 */
+@media (max-width: 640px) {
+  .sysmon-block-hero { position: static; }
 }
 
 .sysmon-block-head {
@@ -10037,29 +10133,7 @@ h6.md-h { font-size: 14px; }
   border: 0;
   background: transparent;
   color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.16s ease;
 }
-
-.sysmon-block-head:hover { background: var(--surface-hover); }
-
-.sysmon-block-head:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: -2px;
-}
-
-.sysmon-chevron {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-right: 2px solid var(--text-tertiary);
-  border-bottom: 2px solid var(--text-tertiary);
-  transform: rotate(-45deg);
-  transition: transform 0.2s var(--ease-out);
-}
-
-.sysmon-block.is-open .sysmon-chevron { transform: rotate(45deg); }
 
 .sysmon-block-title {
   display: flex;
@@ -10069,7 +10143,7 @@ h6.md-h { font-size: 14px; }
   min-width: 0;
 }
 
-/* 標題列固定單行：長型號折成兩行會讓並排的兩塊高低不一，全名在 title */
+/* 標題列固定單行，全名在 title */
 .sysmon-block-title strong {
   overflow: hidden;
   font-size: 15px;
@@ -10153,9 +10227,8 @@ h6.md-h { font-size: 14px; }
 .sysmon-block-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 14px 14px;
-  border-top: 1px solid var(--border-light);
+  gap: 10px;
+  padding-top: 10px;
 }
 
 /* 這行不能省：作者寫的 display 會壓過瀏覽器內建的 [hidden]{display:none}，
@@ -10164,13 +10237,23 @@ h6.md-h { font-size: 14px; }
 
 /* ── 區塊內的視覺化（每執行緒長條、容量與溫度計）───────────────── */
 
-.sysmon-viz h3 {
-  margin-bottom: 8px;
-  color: var(--text-tertiary);
-  font-size: 11px;
+.sysmon-section { padding: 12px 14px 14px; }
+
+.sysmon-section > h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+}
+
+.sysmon-section > h3 > span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .sysmon-viz-grid { display: grid; gap: 6px 18px; }
@@ -10278,68 +10361,13 @@ h6.md-h { font-size: 14px; }
   line-height: 1.45;
 }
 
-.sysmon-subs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-light);
-}
-
-.sysmon-sub { min-width: 0; }
-.sysmon-sub[open] { flex-basis: 100%; }
-
-.sysmon-sub > summary {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  list-style: none;
-  cursor: pointer;
-}
-
-.sysmon-sub[open] > summary {
-  border-color: transparent;
-  background: var(--surface-subtle);
-}
-
-.sysmon-sub > summary::-webkit-details-marker { display: none; }
-
-.sysmon-sub > summary::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 8px;
-  border-right: 2px solid var(--text-tertiary);
-  border-bottom: 2px solid var(--text-tertiary);
-  transform: rotate(-45deg);
-  transition: transform 0.2s var(--ease-out);
-}
-
-.sysmon-sub[open] > summary::before { transform: rotate(45deg); }
-.sysmon-sub > summary:hover { color: var(--text-primary); }
-.sysmon-sub .sysmon-spec-grid { padding: 8px 0 4px 16px; }
-
-/* 同類合併的卡（多顆硬碟、多張顯示卡）：每個裝置一段，寬的時候並排 */
-.sysmon-devices {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
-  gap: 10px;
-}
-
+/* 同類合併（多顆硬碟、多張顯示卡）：每個裝置一個小標題，底下是它自己的幾段 */
 .sysmon-device {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  padding: 10px 12px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
+  padding-top: 8px;
 }
 
 .sysmon-device-head {
@@ -10358,7 +10386,7 @@ h6.md-h { font-size: 14px; }
 }
 
 .sysmon-device-title strong {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
@@ -10657,7 +10685,7 @@ h6.md-h { font-size: 14px; }
   /* 處理程序保持全部欄位可見；窄版由表格水平捲動。 */
 }
 
-/* 標題列排法看卡片自己的寬度：半寬卡在 900 寬的視窗裡跟全寬卡在手機寬一樣窄 */
+/* 標題列排法看卡片自己的寬度（旁邊有側欄，不能看視窗寬度） */
 @container sysmon-block (max-width: 780px) {
   /* 先犧牲歷史曲線：關鍵讀數比趨勢重要，而且它本來就只是輔助 */
   .sysmon-block-spark { display: none; }
@@ -10671,7 +10699,6 @@ h6.md-h { font-size: 14px; }
     order: 3;
     width: 100%;
     gap: 20px;
-    padding-left: 21px;
   }
   .sysmon-stat { align-items: flex-start; }
   .sysmon-block-value { min-width: 0; }
@@ -10684,8 +10711,6 @@ h6.md-h { font-size: 14px; }
 @media (prefers-reduced-motion: reduce) {
   .sysmon-track > b,
   .sysmon-gauge > i,
-  .sysmon-chevron,
-  .sysmon-sub > summary::before,
   .sysmon-tab,
   .sysmon-th,
   .stime-col i { transition-duration: 0.01ms; }

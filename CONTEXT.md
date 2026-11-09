@@ -172,7 +172,7 @@ native/
 - 即時字幕按開始後持有 `live` 引擎到停止／關窗；待機預熱切頁可釋放。語音輸入：右 Alt → 錄音 → ASR → 字典 → LLM 整理 → 插入；檔案轉錄 ffmpeg 串流切段，雲端 429／逾時／5xx 同段重試。
 
 ### 系統監控
-- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；提權感測器 sidecar 走排程工作。總覽卡片依面板寬一／二／三欄，展開的卡佔滿整列、收起的卡以 dense 併排成儀表，頂排有「全部收起／展開」；多顆硬碟／多張顯示卡各收成一張卡（`devices` 欄位，展開後每個裝置一段，`mergeGpuBlocks`／`describeStorage`）（container query 掛在 `#sysmon-overview` 與各卡，不掛在有下拉選單的分頁）。系統監控與 Local SI 都沒有頁首，子分頁就是頂排。效能與壓力測試同一分頁，即時儀表只有 `sysmon-oc.js` 那份。
+- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；提權感測器 sidecar 走排程工作。總覽是左側欄列硬體（`#sysmonRail`：名稱＋主要讀數＋型號＋進度條，共用 `.settings-nav`），中間只顯示選到的那一種、所有段落全部攤開（頂端即時讀數黏住），右側 `#sysmonToc` 目錄跳段落並標出讀到哪（`sysmon-toc.js`），選擇記在 localStorage；多顆硬碟／多張顯示卡各收成一張卡（`devices` 欄位，展開後每個裝置一段，`mergeGpuBlocks`／`describeStorage`）（container query 掛在各卡，不掛在有下拉選單的分頁）。系統監控與 Local SI 都沒有頁首，子分頁就是頂排。效能與壓力測試同一分頁，即時儀表只有 `sysmon-oc.js` 那份。
 - 處理程序：記憶體欄是私有工作集（P 行第 15 欄，Rust 讀 `SYSTEM_PROCESS_INFORMATION` 0x08、ps1 讀 `WorkingSetPrivate`；工作集加總會重複算共用頁）；「I/O」欄是程序讀寫計數（含快取與管道，不是實體磁碟），表頭為總速率。`sysmon-procs.js` 管圖示與欄序；網路欄用感測器 sidecar 的 Kernel-Network ETW，未啟用顯示「—」。磁碟空間：`disk-tree` 平行掃＋treemap。
 
 ### 設定頁

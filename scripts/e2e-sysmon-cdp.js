@@ -180,7 +180,7 @@ async function main() {
         stats: c.querySelectorAll('.sysmon-stat').length,
         spark: Boolean(c.querySelector('canvas.sysmon-block-spark')),
         bodyHidden: c.querySelector('.sysmon-block-body').hidden,
-        expanded: c.querySelector('.sysmon-block-head').getAttribute('aria-expanded')
+        open: c.classList.contains('is-open')
       }))
     })()`)
     ok('打包版的 probe.ps1 跑得起來（有硬體區塊）', blocks.length >= 6, JSON.stringify(blocks.map((b) => b.id)))
@@ -192,41 +192,48 @@ async function main() {
       ['storage', 'network', 'board', 'system'].every((id) => blocks.some((b) => b.id === id)),
       JSON.stringify(blocks.map((b) => b.id)))
     ok('每個區塊都有關鍵讀數', blocks.every((b) => b.stats > 0))
-    // 進頁預設就是完整資訊：沒按過任何東西的狀態下每一塊都要是展開的
-    ok('預設全部展開', blocks.every((b) => b.expanded === 'true' && !b.bodyHidden),
-      JSON.stringify(blocks.map((b) => [b.id, b.expanded])))
-
-    // 漸進式揭露：收起時內文不進 DOM 佈局，展開才長出視覺化與規格
-    const collapsed = await cdp.eval(`(() => {
-      document.querySelector('[data-block="cpu"] .sysmon-block-head').click()
-      const cpu = document.querySelector('[data-block="cpu"]')
+    // 側欄：每種硬體一列，右邊只顯示選到的那一種；沒選過就是第一種
+    ok('預設只顯示第一種硬體', blocks[0].open && !blocks[0].bodyHidden && blocks.slice(1).every((b) => !b.open && b.bodyHidden),
+      JSON.stringify(blocks.map((b) => [b.id, b.open])))
+    const rail = await cdp.eval(`(() => {
+      const items = [...document.querySelectorAll('#sysmonRail .sysmon-rail-item')]
       return {
-        hidden: cpu.querySelector('.sysmon-block-body').hidden,
-        // 只看 .hidden 屬性抓不到真正的坑：作者寫的 display 會壓過瀏覽器內建的
-        // [hidden]{display:none}，屬性明明是 true 但畫面上照樣展開著（實際出貨過）
-        height: cpu.querySelector('.sysmon-block-body').offsetHeight,
-        expanded: cpu.querySelector('.sysmon-block-head').getAttribute('aria-expanded'),
-        gauge: Boolean(cpu.querySelector('.sysmon-gauge > i').style.width)
+        ids: items.map((i) => i.dataset.blockTarget),
+        active: items.filter((i) => i.classList.contains('active')).map((i) => i.dataset.blockTarget),
+        cpuValue: items.find((i) => i.dataset.blockTarget === 'cpu')?.querySelector('.sysmon-rail-value')?.textContent || '',
+        cpuGauge: Boolean(items.find((i) => i.dataset.blockTarget === 'cpu')?.querySelector('.sysmon-gauge > i')?.style.width)
       }
     })()`)
-    ok('收起時內文是 hidden', collapsed.hidden && collapsed.expanded === 'false', JSON.stringify(collapsed))
-    ok('收起時內文真的不佔版面', collapsed.height === 0, `offsetHeight=${collapsed.height}`)
-    ok('收起時仍有進度條這個視覺摘要', collapsed.gauge)
+    ok('側欄跟區塊同一批硬體、同一個順序', JSON.stringify(rail.ids) === JSON.stringify(blocks.map((b) => b.id)), JSON.stringify(rail.ids))
+    ok('側欄只標一個選中', rail.active.length === 1 && rail.active[0] === blocks[0].id, JSON.stringify(rail.active))
+    ok('側欄有主要讀數與進度條', rail.cpuValue.endsWith('%') && rail.cpuGauge, JSON.stringify(rail))
+
+    const switched = await cdp.eval(`(() => {
+      document.querySelector('#sysmonRail [data-block-target="memory"]').click()
+      const mem = document.querySelector('[data-block="memory"]')
+      const cpu = document.querySelector('[data-block="cpu"]')
+      return {
+        memHeight: mem.querySelector('.sysmon-block-body').offsetHeight,
+        cpuHeight: cpu.offsetHeight,
+        current: document.querySelector('#sysmonRail [aria-current="true"]')?.dataset.blockTarget
+      }
+    })()`)
+    ok('點側欄後右邊換成那種硬體', switched.memHeight > 0 && switched.current === 'memory', JSON.stringify(switched))
+    // 只看 .hidden 屬性抓不到真正的坑：作者寫的 display 會壓過瀏覽器內建的 [hidden]（實際出貨過）
+    ok('沒選到的硬體真的不佔版面', switched.cpuHeight === 0, `offsetHeight=${switched.cpuHeight}`)
 
     const expanded = await cdp.eval(`(() => {
-      document.querySelector('[data-block="cpu"] .sysmon-block-head').click()
+      document.querySelector('#sysmonRail [data-block-target="cpu"]').click()
       const cpu = document.querySelector('[data-block="cpu"]')
       return {
         hidden: cpu.querySelector('.sysmon-block-body').hidden,
         height: cpu.querySelector('.sysmon-block-body').offsetHeight,
-        expanded: cpu.querySelector('.sysmon-block-head').getAttribute('aria-expanded'),
         cores: cpu.querySelectorAll('.sysmon-corecell').length,
-        specs: cpu.querySelectorAll('.sysmon-block-body > .sysmon-spec-grid dd').length,
-        subs: cpu.querySelectorAll('details.sysmon-sub').length
+        specs: cpu.querySelectorAll('.sysmon-block-body .sysmon-spec-grid dd').length
       }
     })()`)
-    ok('展開後內文出現', !expanded.hidden && expanded.expanded === 'true' && expanded.height > 0, JSON.stringify(expanded))
-    ok('CPU 展開後有每執行緒長條', expanded.cores > 1, String(expanded.cores))
+    ok('選到後內文出現', !expanded.hidden && expanded.height > 0, JSON.stringify(expanded))
+    ok('CPU 有每執行緒長條', expanded.cores > 1, String(expanded.cores))
 
     // 靜態清單是取樣器的第二個框，機器忙時會晚一點到——等它，不要寫死 sleep
     await waitFor(
@@ -238,7 +245,8 @@ async function main() {
 
     // 補上的硬體資訊：主機板／顯示器／網路卡／音效這幾塊以前完全沒有
     const extra = await cdp.eval(`(() => {
-      document.querySelectorAll('.sysmon-block-head[aria-expanded="false"]').forEach((h) => h.click())
+      // 明細選到才建：每種硬體都點過一次（textContent 不看可不可見）
+      document.querySelectorAll('#sysmonRail .sysmon-rail-item').forEach((i) => i.click())
       const text = (id) => document.querySelector('[data-block="' + id + '"]')?.textContent || ''
       return {
         board: text('board'),
@@ -249,12 +257,13 @@ async function main() {
         memory: text('memory'),
         cpu: text('cpu'),
         monitors: text('monitors'),
-        subs: document.querySelectorAll('#sysmonBlocks details.sysmon-sub').length,
-        cpuSpecs: document.querySelectorAll('[data-block="cpu"] > .sysmon-block-body > .sysmon-spec-grid dd').length
+        sections: document.querySelectorAll('#sysmonBlocks .sysmon-section').length,
+        collapsible: document.querySelectorAll('#sysmonBlocks details').length,
+        cpuSpecs: document.querySelectorAll('[data-block="cpu"] .sysmon-block-body .sysmon-spec-grid dd').length
       }
     })()`)
     // 規格表要等靜態清單到齊；在那之前 describeBlocks 只給得出即時數值
-    ok('CPU 展開後有完整規格表', extra.cpuSpecs >= 10, String(extra.cpuSpecs))
+    ok('CPU 有完整規格表', extra.cpuSpecs >= 10, String(extra.cpuSpecs))
     ok('主機板區塊有 BIOS 版本與日期',
       extra.board.includes('BIOS 版本') && extra.board.includes('BIOS 日期'), extra.board.slice(0, 160))
     // 作業系統名稱在副標（規格表不再重抄一次）
@@ -264,7 +273,38 @@ async function main() {
     ok('儲存區塊有實體磁碟與磁碟區明細',
       // 兩顆以上時實體磁碟明細在卡內各自那一段，總表不再列一次
       (extra.diskCards >= 2 || extra.storage.includes('實體磁碟')) && extra.storage.includes('磁碟區'), extra.storage.slice(0, 160))
-    ok('同性質的長清單都收在可展開的子項裡', extra.subs >= 4, String(extra.subs))
+    ok('每種硬體的段落全部攤開、沒有摺疊', extra.sections >= 4 && extra.collapsible === 0, JSON.stringify([extra.sections, extra.collapsible]))
+
+    // 右側目錄：段落一一對應、點了真的跳到、捲動時跟著標
+    const toc = await cdp.eval(`(async () => {
+      const content = document.querySelector('.content')
+      const nextFrame = () => new Promise((r) => setTimeout(r, 120))
+      document.querySelector('#sysmonRail [data-block-target="system"]').click()
+      await nextFrame()
+      const items = [...document.querySelectorAll('#sysmonToc .sysmon-toc-item')]
+      const sections = document.querySelectorAll('[data-block="system"] .sysmon-section')
+      const heroBottom = () => document.querySelector('[data-block="system"] .sysmon-block-hero').getBoundingClientRect().bottom
+      const pick = items[Math.floor(items.length / 2)]
+      const index = items.indexOf(pick)
+      pick.click()
+      await nextFrame()
+      const top = sections[index].getBoundingClientRect().top
+      const jumped = { heroGap: top - heroBottom(), active: pick.classList.contains('active'), scrollTop: content.scrollTop, canScroll: content.scrollHeight > content.clientHeight }
+      // --hidden 的視窗不出影格，scroll 事件與 rAF 都不會跑，要手動補上才測得到
+      const raf = window.requestAnimationFrame
+      window.requestAnimationFrame = (cb) => setTimeout(cb, 0)
+      content.dispatchEvent(new Event('wheel'))
+      content.scrollTo({ top: 0 })
+      content.dispatchEvent(new Event('scroll'))
+      await nextFrame()
+      await nextFrame()
+      window.requestAnimationFrame = raf
+      return { items: items.length, sections: sections.length, jumped, firstActive: items[0].classList.contains('active'), activeCount: items.filter((i) => i.classList.contains('active')).length }
+    })()`)
+    ok('目錄跟段落一一對應', toc.items === toc.sections && toc.items >= 2, JSON.stringify(toc))
+    ok('點目錄會標成目前段落', toc.jumped.active, JSON.stringify(toc.jumped))
+    ok('點目錄會捲到該段，且不被黏住的標題蓋住', !toc.jumped.canScroll || (toc.jumped.scrollTop > 0 && toc.jumped.heroGap >= 0), JSON.stringify(toc.jumped))
+    ok('捲回頂端後標回第一段，且只標一個', toc.firstActive && toc.activeCount === 1, JSON.stringify(toc))
     // 後補的硬體資訊（都要真的有值，不能只是多一列破折號）
     ok('CPU 規格有 L1 快取', /L1 快取\s*\d/.test(extra.cpu.replace(/\s+/g, ' ')), extra.cpu.slice(0, 200))
     ok('記憶體有插槽總數與主機板上限',
@@ -341,25 +381,29 @@ async function main() {
 
     // 規格值一律完整顯示：被 ellipsis 截掉的那筆等於沒有資料（實際出貨過，
     // 裝置 ID／序號那種長字串沒有空白可斷，一定要 overflow-wrap 才折得下去）
-    await cdp.eval(`document.querySelectorAll('#sysmonBlocks details.sysmon-sub').forEach((d) => { d.open = true })`)
     await sleep(1200)
     const clipped = await cdp.eval(`(() => {
       const sel = '#sysmonBlocks .sysmon-spec-grid dd, #sysmonBlocks .sysmon-spec-grid dt,'
         + ' #sysmonBlocks .sysmon-metercell > i'
       const bad = []
-      for (const el of document.querySelectorAll(sel)) {
-        if (el.scrollWidth > el.clientWidth + 1) bad.push(el.textContent.slice(0, 40))
+      // 隱藏的元素量起來都是 0，要逐種硬體選到才量得到
+      for (const item of document.querySelectorAll('#sysmonRail .sysmon-rail-item')) {
+        item.click()
+        for (const el of document.querySelectorAll(sel)) {
+          if (el.scrollWidth > el.clientWidth + 1) bad.push(el.textContent.slice(0, 40))
+        }
       }
+      document.querySelector('#sysmonRail [data-block-target="cpu"]').click()
       return { count: bad.length, sample: bad.slice(0, 5) }
     })()`)
     ok('沒有任何欄位被截成「…」', clipped.count === 0, JSON.stringify(clipped.sample))
 
-    // 展開狀態要記得住（重畫每 1～2 秒一次，記不住的話會自己彈回去）
+    // 選擇要記得住（重畫每 1～2 秒一次，記不住的話會自己彈回去）
     await sleep(2500)
     const stillOpen = await cdp.eval(
-      `document.querySelector('[data-block="cpu"] .sysmon-block-head').getAttribute('aria-expanded')`
+      `document.querySelector('[data-block="cpu"]').classList.contains('is-open')`
     )
-    ok('下一輪取樣不會把展開狀態洗掉', stillOpen === 'true', String(stillOpen))
+    ok('下一輪取樣不會把選擇洗掉', stillOpen === true, String(stillOpen))
 
     // ── 進程表：虛擬捲動 ────────────────────────────────────────
     await cdp.eval(`document.querySelector('.sysmon-tab[data-subtab="processes"]').click()`)

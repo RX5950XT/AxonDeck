@@ -108,6 +108,10 @@ function stageRuntime(root, execPath = process.execPath) {
   const { name, version, ptyRoot, native } = runtimeName(execPath)
   const dir = path.join(root, name)
   if (!fs.existsSync(path.join(dir, 'ready'))) {
+    // 正式資料夾都是從暫存整包改名過來、一出生就有 ready；沒有 ready 的是被清到一半的殘骸
+    // （例：別版 App 收舊 runtime 時檔案刪了、資料夾刪不掉）。不先拿掉，下面的 rename 會撞到它
+    // 而永遠失敗，終端機就再也開不起來。
+    if (fs.existsSync(dir)) require('../safe-rm').removeTreeSync(dir)
     const staging = fs.mkdtempSync(path.join(root, 'runtime-building-'))
     try {
       fs.mkdirSync(path.join(staging, 'opencode'))
@@ -155,8 +159,13 @@ function pruneRuntimes(root, keep) {
   for (const name of fs.readdirSync(root)) {
     if (!name.startsWith('runtime-') || name === keep) continue
     const dir = path.join(root, name)
-    // 沒有 ready 的是別人正在建立或建到一半的，交給下一次收。
-    if (!fs.existsSync(path.join(dir, 'ready'))) continue
+    if (!fs.existsSync(path.join(dir, 'ready'))) {
+      // runtime-building-* 可能是別人正在建立的，不能動；其他沒有 ready 的是收到一半的殘骸
+      if (!name.startsWith('runtime-building-')) {
+        try { require('../safe-rm').removeTreeSync(dir) } catch { /* 被鎖住，下一次再收 */ }
+      }
+      continue
+    }
     try {
       const exe = ['AxonDeckTerminalHost.exe', LEGACY_HOST_EXE].map(file => path.join(dir, file)).find(file => fs.existsSync(file))
       if (!exe) continue

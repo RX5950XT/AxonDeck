@@ -153,7 +153,7 @@ async function main() {
     // ── 分頁 ────────────────────────────────────────────────────
     const nav = await cdp.eval(`(() => {
       const tabs = [...document.querySelectorAll('.nav-tab')].map((t) => t.dataset.page)
-      return { tabs, hasPage: Boolean(document.getElementById('page-sysmon')) }
+      return { tabs }
     })()`)
     ok('nav 有系統監控分頁', nav.tabs.includes('sysmon'), JSON.stringify(nav.tabs))
     // 只固定相對位置（在翻譯之後、設定之前）；中間有沒有別的分頁不是這支要管的
@@ -161,7 +161,6 @@ async function main() {
     ok('系統監控排在翻譯之後、設定之前',
       nav.tabs.indexOf('translate') < nav.tabs.indexOf('sysmon') &&
       nav.tabs.indexOf('sysmon') < nav.tabs.indexOf('settings'), nav.tabs.join(','))
-    ok('page-sysmon 存在', nav.hasPage)
 
     await cdp.eval(`document.querySelector('[data-page="sysmon"]').click()`)
     ok('切過去之後是 active',

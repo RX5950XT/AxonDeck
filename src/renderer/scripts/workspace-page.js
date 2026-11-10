@@ -635,7 +635,7 @@ async function renderPanel(project = currentProject(), seq = projectSeq) {
   if (!project || !isCurrentProject(project, seq)) return
   if (panel === 'files') await renderFilesPanel(project, seq)
   else if (panel === 'git') await renderGit(project, seq)
-  else await renderAgents(project, seq)
+  else await renderAgents()
 }
 
 /**
@@ -1743,12 +1743,13 @@ async function runSearch() {
   const input = /** @type {HTMLInputElement | null} */ (el.searchInput)
   if (!isCurrentProject(project, projectToken) || !input || !el.searchResults) return
   const query = input.value.trim()
+  // 先換世代：字刪到不足兩個時，還在路上的舊搜尋也要作廢
+  const seq = searchSeq + 1
+  searchSeq = seq
   if (query.length < 2) {
     el.searchResults.replaceChildren()
     return
   }
-  const seq = searchSeq + 1
-  searchSeq = seq
   el.searchResults.replaceChildren(note('搜尋中…'))
   let found
   try {

@@ -2254,7 +2254,6 @@ registerExplorerIpc({
   service: {
     bootstrap: (...args) => loadExplorer().bootstrap(...args),
     saveState: (...args) => loadExplorer().saveState(...args),
-    listPlaces: (...args) => loadExplorer().listPlaces(...args),
     savePlaces: (...args) => loadExplorer().savePlaces(...args),
     addPlace: (...args) => loadExplorer().addPlace(...args),
     removePlace: (...args) => loadExplorer().removePlace(...args),
@@ -2280,8 +2279,6 @@ registerExplorerIpc({
     restoreEntry: (...args) => loadExplorer().restoreEntry(...args),
     purgeEntry: (...args) => loadExplorer().purgeEntry(...args),
     emptyRecycle: (...args) => loadExplorer().emptyRecycle(...args),
-    copyEntry: (...args) => loadExplorer().copyEntry(...args),
-    moveEntry: (...args) => loadExplorer().moveEntry(...args),
     openPath: (...args) => loadExplorer().openPath(...args),
     fileIcon: (...args) => loadExplorer().fileIcon(...args),
     startDrag: (...args) => loadExplorer().startDrag(...args),
@@ -2337,7 +2334,6 @@ registerHfModelsIpc({
     setToken: (...args) => loadHfModels().setToken(...args),
     tokenStatus: (...args) => loadHfModels().tokenStatus(...args),
     hardwareInfo: (...args) => loadHfModels().hardwareInfo(...args),
-    runtimeReady: (...args) => loadHfModels().runtimeReady(...args),
     runtimeStatus: (...args) => loadHfModels().runtimeStatus(...args),
     // router 起停都要同步「聊天看得到哪幾顆」，不然選單會停在上一輪的狀態
     startRuntime: async (...args) => {
@@ -2355,7 +2351,6 @@ registerHfModelsIpc({
     applyPresets: (...args) => { assertModelWorkIdle(); return loadHfModels().applyPresets(...args) },
     loadModel: (...args) => loadHfModels().loadModel(...args),
     unloadModel: (...args) => { assertModelWorkIdle(); return loadHfModels().unloadModel(...args) },
-    refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
   },
   isMainSender: assertMainWindowSender
@@ -2597,8 +2592,7 @@ registerCodeUsageIpc({
   service: {
     stats: (...args) => loadCodeUsage().stats(...args),
     sync: (...args) => loadCodeUsage().sync(...args),
-    savePrices: (...args) => loadCodeUsage().savePrices(...args),
-    reset: (...args) => loadCodeUsage().reset(...args)
+    savePrices: (...args) => loadCodeUsage().savePrices(...args)
   },
   isMainSender: assertMainWindowSender
 })
@@ -3027,11 +3021,12 @@ app.on('before-quit', (e) => {
     ? Promise.resolve(screentimeMod.shutdown()).catch((err) => console.error('[screentime] shutdown failed:', err))
     : Promise.resolve()
   // 低階鍵盤 hook 有自己的執行緒，不收掉會擋住程序真的結束
-  if (dictationMod) dictationMod.shutdown()
+  // 這兩個是同步呼叫：丟例外會讓下面的 app.exit 走不到，程序變殭屍
+  try { if (dictationMod) dictationMod.shutdown() } catch (err) { console.error('[dictation] shutdown failed:', err) }
   // llama.cpp router：它自己會帶走底下跑模型的子程序，但沒人收它就會留一台在背景吃顯存
   // 翻譯可能先載入共用 router，此時 Local SI 頁還沒載入，也必須收掉它。
   const hfService = hfModelsMod || require.cache[require.resolve('./hfmodels')]?.exports
-  if (hfService) hfService.shutdown()
+  try { if (hfService) hfService.shutdown() } catch (err) { console.error('[hfmodels] shutdown failed:', err) }
   // 指示器是 alwaysOnTop 的獨立視窗：留著就會浮在桌面上關不掉
   dictationHud.close()
   // 反代先關：留著監聽的 socket 會讓下次啟動撞到 EADDRINUSE

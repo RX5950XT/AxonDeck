@@ -183,5 +183,5 @@ async function generateForChat(cfg, prompt, refs, signal) {
 
 module.exports = {
   generateForChat,
-  IMAGES_TIMEOUT_MS, resolveOptions, chatFields, shouldFallback, referenceNames, toDataUrls, parseImagesResponse, generate
+  IMAGES_TIMEOUT_MS, resolveOptions, chatFields, shouldFallback, referenceNames, generate
 }

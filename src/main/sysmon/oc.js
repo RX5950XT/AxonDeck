@@ -160,6 +160,8 @@ function sanitizeVf(raw) {
 function sanitizeCpu(raw, factory = {}) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const freqRaw = Number(src.freqMhz)
+  // 感測器還沒回報核心數時（啟動當下）沿用存檔的長度，不然 8 核以上的每核設定會被截掉
+  const coreCount = factory.coreCount || Math.max(src.cores?.length || 0, src.freqCores?.length || 0) || 8
   return {
     pptW: withFactory(src.pptW, factory.pptW, PPT_MIN, PPT_MAX),
     tdcA: withFactory(src.tdcA, factory.tdcA, CURRENT_MIN, CURRENT_MAX),
@@ -170,8 +172,8 @@ function sanitizeCpu(raw, factory = {}) {
     tctlC: clamp(src.tctlC == null ? 90 : src.tctlC, TCTL_MIN, TCTL_MAX),
     voltMv: sanitizeCpuVolt(src.voltMv),
     socMv: sanitizeSoc(src.socMv),
-    cores: sanitizeCores(src.cores, factory.coreCount || src.coreCount || 8),
-    freqCores: sanitizeFreqCores(src.freqCores, factory.coreCount || src.coreCount || 8)
+    cores: sanitizeCores(src.cores, coreCount),
+    freqCores: sanitizeFreqCores(src.freqCores, coreCount)
   }
 }
 
@@ -324,7 +326,7 @@ function createOcEngine(deps = {}) {
       pptW: live.cpu.factoryPpt || live.cpu.pptW || 0,
       tdcA: live.cpu.factoryTdc || live.cpu.tdcA || 0,
       edcA: live.cpu.factoryEdc || live.cpu.edcA || 0,
-      coreCount: live.cpu.coreCount || 8
+      coreCount: live.cpu.coreCount || 0
     }
   }
 

@@ -440,7 +440,7 @@ async function main() {
         modelItems.withRow === modelItems.count &&
         modelItems.withName === modelItems.count &&
         modelItems.noPerRowTag === true &&
-        JSON.stringify(modelItems.groups) === JSON.stringify(['圖片影像生成（Miroxen，需 NVIDIA）', '語音生成', '語音辨識', '翻譯', 'PDF 文件辨識']) &&
+        JSON.stringify(modelItems.groups) === JSON.stringify(['圖片影像生成（Miroxen，需 NVIDIA）', '語音生成', '語音辨識', '翻譯', '文件辨識（PDF／螢幕翻譯）']) &&
         modelItems.withSize === modelItems.count &&
         modelItems.withButton === modelItems.count &&
         modelItems.withProgress === modelItems.count &&

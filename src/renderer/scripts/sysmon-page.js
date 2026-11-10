@@ -2545,10 +2545,11 @@ function onSample(sample) {
 }
 
 export function initSysmonPage() {
-  const tocNav = $('sysmonToc')
-  if (tocNav) sectionToc = createSectionToc(tocNav, stickyHeroInset)
   if (state.inited) return
   state.inited = true
+  // 目錄會在捲動區掛監聽，只能建一次（這個函式每次進頁都會被叫到）
+  const tocNav = $('sysmonToc')
+  if (tocNav) sectionToc = createSectionToc(tocNav, stickyHeroInset)
 
   $('sysmonTabs')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.sysmon-tab')

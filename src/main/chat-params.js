@@ -120,7 +120,7 @@ function sanitizeImageOptions(raw) {
 }
 
 module.exports = {
-  sanitize, toRequestFields, NUMBER_SPECS,
+  sanitize, toRequestFields,
   THINK_LEVELS, sanitizeThinking, thinkingFields,
-  ASPECT_RATIOS, IMAGE_RESOLUTIONS, sanitizeImageOptions
+  ASPECT_RATIOS, sanitizeImageOptions
 }

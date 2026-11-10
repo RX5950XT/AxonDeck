@@ -76,7 +76,6 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('hfmodels:autoTune', (event, id) => invoke(event, () => service.autoTune(str(id))))
 
   // ---- 執行環境 ----
-  ipcMain.handle('hfmodels:runtimeReady', (event) => invoke(event, () => service.runtimeReady()))
   ipcMain.handle('hfmodels:runtimeStatus', (event) => invoke(event, () => service.runtimeStatus()))
   ipcMain.handle('hfmodels:startRuntime', (event) => invoke(event, () => service.startRuntime()))
   ipcMain.handle('hfmodels:stopRuntime', (event) => invoke(event, () => service.stopRuntime()))
@@ -91,7 +90,6 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('hfmodels:unloadModel', (event, id) => (
     invoke(event, () => service.unloadModel(str(id)))
   ))
-  ipcMain.handle('hfmodels:refreshModels', (event) => invoke(event, () => service.refreshModels()))
   // 儀表板：GPU／用量／端點／log；金鑰不出 main
   ipcMain.handle('hfmodels:dashboard', (event) => invoke(event, () => service.dashboard()))
 }

@@ -126,7 +126,7 @@ async function handleCompletion(req, res, adapter) {
     collector = mapper.createCollector(model || mapped)
 
     const controller = new AbortController()
-    req.on('close', () => {
+    res.on('close', () => {
       if (!res.writableEnded) controller.abort()
     })
 
@@ -250,7 +250,7 @@ async function handleImages(req, res) {
       generationConfig: { responseModalities: ['IMAGE'], ...(aspectRatio ? { imageConfig: { aspectRatio } } : {}) }
     }
     const controller = new AbortController()
-    req.on('close', () => { if (!res.writableEnded) controller.abort() })
+    res.on('close', () => { if (!res.writableEnded) controller.abort() })
 
     const count = Math.min(MAX_IMAGES, Math.max(1, Math.floor(Number(body.n)) || 1))
     const data = []
@@ -367,7 +367,7 @@ function start(next) {
     instance.keepAliveTimeout = 75_000
 
     instance.once('error', (error) => {
-      server = null
+      if (server === instance) server = null
       resolve({ ok: false, error: error?.code === 'EADDRINUSE' ? 'PORT_IN_USE' : 'LISTEN_FAILED' })
     })
     instance.listen(settings.port, HOST, () => {

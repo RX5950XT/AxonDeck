@@ -63,6 +63,19 @@
 - [x] 掃描表格：逐格換字／整張重排；OCR preset 開 `special`（表格標籤）；`other`（表格標題、資料來源）也翻
 - Review（後續）：CUDA 實測每頁 5.5～7 秒（之前 25 秒是錯的）、Vulkan 約 15 秒；不切塊模式會讀錯字不採用。表格用 OmniDocBench 8 張表驗：6 張逐格、2 張整張重排。
 
+### 深度讀碼找 bug（2026-11-10，5 個子代理唯讀回報、主代理複核後修）
+- [x] main：`app-installer` 掃描中重整回 undefined；`agy/server` 斷線不中止上游（改聽 `res` close）；`agy`／`ccswitch` 閘道並行 start 清掉別人的 server；`stt-archive` 單檔讀失敗拖垮清單；`local-llm` router 被停後仍用舊 session；結束流程兩個同步 shutdown 包 try；`oc.js` 啟動時把第 9 核以後的每核設定截掉；兩處 `fs.watch` 沒接 error；`zip.js` 並行解同一檔互搶 `.part`
+- [x] renderer：轉錄中可換檔；sysmon 目錄每次進頁重建；`renderAgents(project, seq)` 參數對不上；專案搜尋過期結果覆蓋；diff 尾端多一列；即時字幕開始失敗沒關字幕窗；語音輸入等麥克風時取消無效；右欄搜尋 `searching` 卡住；ccswitch 切家時舊資料覆蓋；刪 `runAutoTuneFromDialog` 死碼
+- 沒修（要取捨）：`terminal/store` 離線磁碟的 cwd 被改成家目錄；`explorer/fs` `listCache` 過期不清；`oc.resetNow` 送不出去仍清 dirty；`moveEntry` 複製後刪來源失敗留兩份；`screentime/observer` 子程序死掉不重啟；`translate-page` 連按跑兩輪；`quota-bar` 失敗 5 秒重試；`ws-ide` 後備編輯器右括號
+- 驗證：lint 通過、單元測試 169/169；沒重新打包、沒跑 e2e
+- 沒讀到：約 50 個檔（`usage/` 大半、`agy`／`ccswitch`／`hfmodels`／`codeusage` 部分、`sysmon-*` 與 `workspace-page`／`ws-tabs` 的部分段落）
+
+### 全專案檢查與死碼清理（2026-11-10）
+- [x] 拆 6 條沒有畫面在叫的 IPC（`explorer:listPlaces／copyEntry／moveEntry`、`hfmodels:runtimeReady／refreshModels`、`codeusage:reset`）：preload、白名單、handler、包裝一起拿掉
+- [x] 11 個只在自己檔案裡用的名字不再 export；`main.css` 刪 7 個沒人用的 class（88 行）
+- [x] 修三支過期的 e2e：`e2e-sysmon-cdp`（在別頁找 page-sysmon）、`e2e-visual-cdp`（控制項分散在兩個 renderer、思考鈕改用 `is-active`）、`e2e-cdp-smoke`（分組改名沒同步）
+- Review：lint、單元 169/169、`cargo check`、`electron:pack`、打包版 `e2e-cdp-smoke` 22/22、`e2e-visual-cdp` 49 項、`e2e-sysmon-cdp` 118/118、`e2e-explorer-cdp`、`e2e-hf-cdp` 52 項全過。未驗：.NET sidecar 沒重建、其餘 60 支 e2e 與 probe 沒跑。
+
 ## 待辦／未解
 
 ### 需要真帳號或真硬體才驗得了
@@ -91,7 +104,6 @@
 ### 未確認的問題
 - [ ] 終端機「突然全空白」未重現，根因未確認（`fitAndSync` 切回一定重畫已補）。
 - [ ] `probe-asr-key-cdp.js` 初始化回報 `Promise was collected`，未進入斷言。
-- [ ] `test-screentime.js` 需要已不存在的 Tai `data.db`，在這台跑不起來。
 
 ### 決定不做（記錄理由）
 - 58 支 CDP client 全面收斂與 Playwright 遷移：現有腳本可用，重寫風險大於收益；只修真的有害的重複（收程序順序、nav 清單）。

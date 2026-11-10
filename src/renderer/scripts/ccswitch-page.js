@@ -1082,7 +1082,9 @@ async function reloadMcp() {
     const supported = mcpHomeList.some((row) => row.id === home)
     document.getElementById('ccMcpPanel')?.classList.toggle('hidden', !supported)
     if (!supported) return
-    const data = await call(electronAPI.ccswitch.listMcp(home), '讀取 MCP 清單失敗')
+    const asked = home
+    const data = await call(electronAPI.ccswitch.listMcp(asked), '讀取 MCP 清單失敗')
+    if (asked !== home) return // 等待期間已切到別家，這份作廢
     mcpServers = Array.isArray(data?.servers) ? data.servers : []
     const pathEl = document.getElementById('ccMcpPath')
     if (pathEl) pathEl.textContent = `設定檔：${data?.path || ''}`
@@ -1294,10 +1296,12 @@ async function reloadSkillsPage() {
       if (!skillHomeList.some((row) => row.id === home)) home = 'claude'
       renderHomes()
     }
+    const asked = home
     const [skills, files] = await Promise.all([
-      call(electronAPI.ccswitch.listSkills(home), '讀取 skills 失敗'),
-      call(electronAPI.ccswitch.memoryFiles(home), '讀取記憶檔清單失敗')
+      call(electronAPI.ccswitch.listSkills(asked), '讀取 skills 失敗'),
+      call(electronAPI.ccswitch.memoryFiles(asked), '讀取記憶檔清單失敗')
     ])
+    if (asked !== home) return // 等待期間已切到別家，這份作廢
     skillList = Array.isArray(skills?.skills) ? skills.skills : []
     skillDir = typeof skills?.dir === 'string' ? skills.dir : ''
     const pathEl = document.getElementById('ccSkillPath')

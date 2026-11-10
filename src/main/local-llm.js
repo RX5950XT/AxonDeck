@@ -208,8 +208,8 @@ async function getSession(keyOverride) {
   const intentGpu = await resolveWantGpu()
   const label = MODELS[key]?.label || key
 
-  // 同意圖已載入（含 CUDA→CPU fallback）
-  if (resources?.session && resources.key === key && resources.intentGpu === intentGpu) {
+  // 同意圖已載入（含 CUDA→CPU fallback）；router 被使用者停掉後舊 session 已失效，要走下面重載
+  if (resources?.session && resources.key === key && resources.intentGpu === intentGpu && require('./hfmodels').endpoint()) {
     return resources.session
   }
 

@@ -149,6 +149,8 @@ function start(emitter) {
     for (const name of stale) release(name.slice(0, -3))
     const scan = () => scanRequests(requests)
     const fsWatcher = fs.watch(requests, () => scan())
+    // 資料夾被刪／被鎖時 watcher 會丟 error；沒人接就是主程序未處理例外，靠下面的輪詢兜底
+    fsWatcher.on('error', () => {})
     const timer = setInterval(scan, 5000)
     timer.unref?.()
     watcher = { close() { fsWatcher.close(); clearInterval(timer) } }

@@ -16,7 +16,6 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
 
   ipcMain.handle('explorer:bootstrap', (event) => invoke(event, () => service.bootstrap()))
   ipcMain.handle('explorer:saveState', (event, patch) => invoke(event, () => service.saveState(patch)))
-  ipcMain.handle('explorer:listPlaces', (event) => invoke(event, () => service.listPlaces()))
   ipcMain.handle('explorer:savePlaces', (event, list) => invoke(event, () => service.savePlaces(list)))
   ipcMain.handle('explorer:addPlace', (event, spec) => invoke(event, () => service.addPlace(spec)))
   ipcMain.handle('explorer:removePlace', (event, id) => invoke(event, () => service.removePlace(id)))
@@ -54,12 +53,6 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('explorer:restoreEntry', (event, key) => invoke(event, () => service.restoreEntry(key)))
   ipcMain.handle('explorer:purgeEntry', (event, key) => invoke(event, () => service.purgeEntry(key)))
   ipcMain.handle('explorer:emptyRecycle', (event) => invoke(event, () => service.emptyRecycle()))
-  ipcMain.handle('explorer:copyEntry', (event, fromPath, toDir) => (
-    invoke(event, () => service.copyEntry(fromPath, toDir))
-  ))
-  ipcMain.handle('explorer:moveEntry', (event, fromPath, toDir) => (
-    invoke(event, () => service.moveEntry(fromPath, toDir))
-  ))
   ipcMain.handle('explorer:openPath', (event, target) => invoke(event, () => service.openPath(target)))
   ipcMain.handle('explorer:fileIcon', (event, target, opts) => invoke(event, () => service.fileIcon(target, opts)))
   // sender 要自己傳：拖放是「哪個 webContents 發起的」才算數

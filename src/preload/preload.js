@@ -627,9 +627,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 掃描本機 session 記錄（第一次很久，之後只讀新增的部分） */
     sync: () => ipcRenderer.invoke('codeusage:sync'),
     /** @param {Record<string, { input: number, output: number }>} prices 每 1M token 的美金價 */
-    savePrices: (prices) => ipcRenderer.invoke('codeusage:savePrices', prices),
-    /** 清掉游標與統計，下次從頭掃 */
-    reset: () => ipcRenderer.invoke('codeusage:reset')
+    savePrices: (prices) => ipcRenderer.invoke('codeusage:savePrices', prices)
   },
 
   // ===== 系統監控 =====
@@ -736,7 +734,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** HF Token 只寫不讀：回的是 { hasToken } */
     setToken: (token) => ipcRenderer.invoke('hfmodels:setToken', token),
     tokenStatus: () => ipcRenderer.invoke('hfmodels:tokenStatus'),
-    runtimeReady: () => ipcRenderer.invoke('hfmodels:runtimeReady'),
     /** 只回 { running, port }——金鑰留在 main */
     runtimeStatus: () => ipcRenderer.invoke('hfmodels:runtimeStatus'),
     startRuntime: () => ipcRenderer.invoke('hfmodels:startRuntime'),
@@ -746,7 +743,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     applyPresets: () => ipcRenderer.invoke('hfmodels:applyPresets'),
     loadModel: (id) => ipcRenderer.invoke('hfmodels:loadModel', id),
     unloadModel: (id) => ipcRenderer.invoke('hfmodels:unloadModel', id),
-    refreshModels: () => ipcRenderer.invoke('hfmodels:refreshModels'),
     /** 儀表板：GPU／用量／本機端點／log（沒有 api key） */
     dashboard: () => ipcRenderer.invoke('hfmodels:dashboard'),
     /** @param {(payload: { type: string, [k: string]: any }) => void} callback 下載進度等事件 */
@@ -903,7 +899,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   explorer: {
     bootstrap: () => ipcRenderer.invoke('explorer:bootstrap'),
     saveState: (patch) => ipcRenderer.invoke('explorer:saveState', patch),
-    listPlaces: () => ipcRenderer.invoke('explorer:listPlaces'),
     savePlaces: (list) => ipcRenderer.invoke('explorer:savePlaces', list),
     addPlace: (spec) => ipcRenderer.invoke('explorer:addPlace', spec),
     removePlace: (id) => ipcRenderer.invoke('explorer:removePlace', id),
@@ -935,8 +930,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     restoreEntry: (key) => ipcRenderer.invoke('explorer:restoreEntry', key),
     purgeEntry: (key) => ipcRenderer.invoke('explorer:purgeEntry', key),
     emptyRecycle: () => ipcRenderer.invoke('explorer:emptyRecycle'),
-    copyEntry: (fromPath, toDir) => ipcRenderer.invoke('explorer:copyEntry', fromPath, toDir),
-    moveEntry: (fromPath, toDir) => ipcRenderer.invoke('explorer:moveEntry', fromPath, toDir),
     openPath: (target) => ipcRenderer.invoke('explorer:openPath', target),
     fileIcon: (target, opts) => ipcRenderer.invoke('explorer:fileIcon', target, opts),
     /** 把選取的檔案交給 Windows 的原生拖放（拖進瀏覽器上傳框、桌面）。

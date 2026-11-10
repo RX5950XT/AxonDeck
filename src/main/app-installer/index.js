@@ -42,7 +42,7 @@ function createInstaller({ cacheDir, notify = () => {}, list = winget.list, run 
         installedKeys: installed.filter((row) => catalogFor(row)?.key === entry.key).map((row) => row.key) })) }
   }
   async function refresh() {
-    if (scan) return scan
+    if (scan) { await scan; return snapshot() }
     scanError = ''
     scan = (async () => {
       const [rows, entries, available] = await Promise.all([list(), records(), Promise.all([...new Set(CATALOG.map((entry) => entry.direct).filter(Boolean))].map(async (kind) => {

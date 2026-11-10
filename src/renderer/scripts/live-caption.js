@@ -336,6 +336,8 @@ async function startCapture() {
       await stopPcmCapture()
       await pipeline?.stop()
       pipeline = null
+      // 字幕視窗可能已經開了（收音才失敗），不關會留一個空視窗浮在桌面上
+      await electronAPI.subtitle.close().catch(() => {})
       // 只釋放本次擷取取得的引擎；保留背景 prewarm（取消權限不應拆掉預熱）
       if (engineAcquired) {
         await electronAPI.engine.release('live').catch(() => {})

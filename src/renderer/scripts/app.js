@@ -347,7 +347,6 @@ export const electronAPI = window.electronAPI || {
   explorer: {
     bootstrap: async () => ({ lastPath: '', view: 'list', places: [], drives: [] }),
     saveState: async () => ({ lastPath: '', view: 'list' }),
-    listPlaces: async () => [],
     listDrives: async () => [],
     listDir: async () => ({ path: '', entries: [], truncated: false }),
     preview: async () => ({ path: '', image: '', tooLarge: false, size: 0 }),

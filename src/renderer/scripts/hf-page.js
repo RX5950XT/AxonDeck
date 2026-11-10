@@ -843,17 +843,6 @@ async function runFit() {
   if (fresh) { editing = fresh; renderArgsPreview(fresh.args) }
 }
 
-async function runAutoTuneFromDialog() {
-  if (!editing) return
-  const button = /** @type {HTMLButtonElement} */ ($('hfAutoTuneBtn'))
-  const status = $('hfTuneStatus')
-  if (status) status.textContent = '量記憶體＋實測速度…（好幾分鐘）'
-  const id = editing.id
-  await runAutoTune(id, button)
-  const fresh = libraryRows.find((m) => m.id === id)
-  if (fresh) { editing = fresh; renderArgsPreview(fresh.args) }
-}
-
 async function runTune() {
   if (!editing) return
   const status = $('hfTuneStatus')
@@ -1179,7 +1168,6 @@ export function start() {
     $('hfParamsCancelBtn')?.addEventListener('click', closeParams)
     $('hfParamsResetBtn')?.addEventListener('click', resetParams)
     $('hfAutoInstallBtn')?.addEventListener('click', autoInstallRuntime)
-    $('hfAutoTuneBtn')?.addEventListener('click', runAutoTuneFromDialog)
     $('hfFitBtn')?.addEventListener('click', runFit)
     $('hfTuneBtn')?.addEventListener('click', runTune)
     unsubscribe = electronAPI.hfmodels.onEvent(onEvent)

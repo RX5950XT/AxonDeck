@@ -327,8 +327,6 @@ const removeEntry = (target, opts) => (mtp.isMtp(target) ? mtp.remove(target) : 
 const restoreEntry = (key) => files.restoreEntry(key)
 const purgeEntry = (key) => files.purgeEntry(key)
 const emptyRecycle = () => files.emptyRecycle()
-const copyEntry = (fromPath, toDir) => files.copyEntry(fromPath, toDir)
-const moveEntry = (fromPath, toDir) => files.moveEntry(fromPath, toDir)
 const uffsStatus = () => uffs.status()
 const uffsSearch = (pattern, filters) => uffs.search(pattern, filters)
 const uffsCancel = () => {
@@ -826,7 +824,6 @@ module.exports = {
   configure,
   bootstrap,
   saveState,
-  listPlaces,
   savePlaces,
   addPlace,
   removePlace,
@@ -851,8 +848,6 @@ module.exports = {
   restoreEntry,
   purgeEntry,
   emptyRecycle,
-  copyEntry,
-  moveEntry,
   openPath,
   fileIcon,
   startDrag,

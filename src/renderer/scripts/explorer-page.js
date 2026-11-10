@@ -710,6 +710,7 @@ function bindOnce() {
     secondPane.search = ''
     secondPane.hits = []
     secondPane.searchSeq += 1
+    secondPane.searching = false
     saveSecondPaneState()
     paintSecondPane()
   })
@@ -1500,6 +1501,7 @@ function setSecondScope(mode) {
   }
   secondPane.hits = []
   secondPane.searchSeq += 1
+  secondPane.searching = false
   saveSecondPaneState()
   paintSecondPane()
   if (secondPane.searchMode === 'global' && secondPane.search.trim()) scheduleSecondSearch()
@@ -1512,6 +1514,7 @@ function scheduleSecondSearch() {
   if (!query) {
     secondPane.hits = []
     secondPane.searchSeq += 1
+    secondPane.searching = false
     if (hint) hint.textContent = ''
     paintSecondPane()
     return
@@ -1931,6 +1934,7 @@ async function secondNavigate(dirPath) {
     secondPane.search = ''
     secondPane.hits = []
     secondPane.searchSeq += 1
+    secondPane.searching = false
   }
   await loadSecond(dirPath)
 }

@@ -1,12 +1,14 @@
 /**
- * 網頁版 AI 對話（ChatGPT／Gemini／Claude／Grok）存在 chats.json 的 `web: { site, url, title }`。
+ * 網頁版 AI 對話（ChatGPT／Gemini／Claude／Grok／DeepSeek／Meta AI）存在 chats.json 的 `web: { site, url, title }`。
  * 這裡只管把關：網址只收該站自己的網域，登入／OAuth 轉址與授權碼不當成對話記錄保存。
  */
 const SITES = Object.freeze({
   chatgpt: { name: 'ChatGPT', home: 'https://chatgpt.com/' },
   gemini: { name: 'Gemini', home: 'https://gemini.google.com/app' },
   claude: { name: 'Claude', home: 'https://claude.ai/new' },
-  grok: { name: 'Grok', home: 'https://grok.com/' }
+  grok: { name: 'Grok', home: 'https://grok.com/' },
+  deepseek: { name: 'DeepSeek', home: 'https://chat.deepseek.com/' },
+  meta: { name: 'Meta AI', home: 'https://www.meta.ai/' }
 })
 
 /** 真正的對話頁（首頁、登入、Cloudflare 驗證頁的分頁標題都不拿來當對話標題） */
@@ -14,7 +16,9 @@ const CHAT_PATHS = Object.freeze({
   chatgpt: /^\/(g\/[^/]+\/)?c\/[\w-]+/,
   gemini: /^\/app\/[\w-]+/,
   claude: /^\/chat\/[\w-]+/,
-  grok: /^\/(c|chat)\/[\w-]+/
+  grok: /^\/(c|chat)\/[\w-]+/,
+  deepseek: /^\/a\/chat\/s\/[\w-]+/,
+  meta: /^\/(c|prompt|chat)\/[\w-]+/
 })
 
 function isSite(site) {
@@ -118,7 +122,8 @@ function installGoogleLoginFix(ses) {
 const LOGIN_POPUPS = new Map([
   ['accounts.google.com', /^\//], ['appleid.apple.com', /^\//], ['login.microsoftonline.com', /^\//],
   ['login.live.com', /^\//], ['auth.openai.com', /^\//], ['accounts.x.ai', /^\//],
-  ['x.com', /^\/i\/(oauth2|flow\/login)/], ['api.x.com', /^\/oauth/], ['github.com', /^\/login/]
+  ['x.com', /^\/i\/(oauth2|flow\/login)/], ['auth.meta.com', /^\//],
+  ['www.facebook.com', /^\/(login|dialog\/oauth)/], ['www.instagram.com', /^\/(accounts\/login|oauth)/], ['api.x.com', /^\/oauth/], ['github.com', /^\/login/]
 ])
 
 // 第三方網站常先開自己的 /login/google、/oauth/authorize 再轉去 Google；路徑某一段是這些字就當登入頁

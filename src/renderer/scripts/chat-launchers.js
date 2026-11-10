@@ -13,6 +13,8 @@ const LAUNCHERS = Object.freeze([
   { id: 'gemini', label: 'Gemini', selector: '.ai-web-btn[data-ai-web="gemini"]' },
   { id: 'claude', label: 'Claude', selector: '.ai-web-btn[data-ai-web="claude"]' },
   { id: 'grok', label: 'Grok', selector: '.ai-web-btn[data-ai-web="grok"]' },
+  { id: 'deepseek', label: 'DeepSeek', selector: '.ai-web-btn[data-ai-web="deepseek"]' },
+  { id: 'meta', label: 'Meta AI', selector: '.ai-web-btn[data-ai-web="meta"]' },
   { id: 'arena', label: 'Arena', selector: '#chatArenaBtn' },
   { id: 'telegram', label: 'Telegram', selector: '#chatTelegramBtn' }
 ])

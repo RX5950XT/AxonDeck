@@ -327,7 +327,7 @@ function withoutTrailingAssistant(messages) {
 
 /**
  * @param {string} [folderId] 從資料夾選單開的就放進那個資料夾
- * @param {string} [site] chatgpt／gemini／claude／grok＝新增網頁版 AI 對話
+ * @param {string} [site] chatgpt／gemini／claude／grok／deepseek／meta＝新增網頁版 AI 對話
  */
 async function handleNew(folderId = '', site = '') {
   if (site) {

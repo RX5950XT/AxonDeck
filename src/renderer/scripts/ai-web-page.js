@@ -1,7 +1,7 @@
 import { electronAPI, setChatPaneMode } from './app.js'
 
 /**
- * 網頁版 AI 對話（ChatGPT／Gemini／Claude／Grok）：官方網頁放進 <webview>（比照 Telegram 頁）。
+ * 網頁版 AI 對話（ChatGPT／Gemini／Claude／Grok／DeepSeek／Meta AI）：官方網頁放進 <webview>（比照 Telegram 頁）。
  *
  * - 每一則就是側欄裡的一個對話（chats.json 的 `web`），跟 Local 一樣能多開、改名、搬資料夾。
  * - 同一家共用 `persist:ai-<site>` 登入分區：登入一次，該家每一則都是登入狀態。
@@ -16,6 +16,8 @@ const HOMES = /** @type {Record<string, string>} */ ({
   gemini: 'https://gemini.google.com/app',
   claude: 'https://claude.ai/new',
   grok: 'https://grok.com/',
+  deepseek: 'https://chat.deepseek.com/',
+  meta: 'https://www.meta.ai/',
   arena: 'https://llm-arena-opal.vercel.app/'
 })
 // Arena 只有一個（不像四家網頁版每按一次多一則）、不進對話清單，網址與標題不存

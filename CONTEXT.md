@@ -4,7 +4,7 @@
 
 ## 概況
 
-AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.75.1**（2026-11-10）。
+AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.76.0**（2026-11-10）。
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -73,11 +73,12 @@ native/
 ## 各模組現況
 
 ### SI 頁：聊天、網頁版 AI、內建瀏覽器
-- Chat 側欄第一排五顆新增鈕（Local＋四家網頁版）、資料夾鈕在搜尋框旁、Arena（`openArena`，id `__arena`，不進 chats.json）釘在清單上方。對話與資料夾右鍵走 `chat-menu.js`。
+- Chat 側欄新增鈕：Local＋六家網頁版（ChatGPT／Gemini／Claude／Grok／DeepSeek／Meta AI，站點表在 `ai-web.js` 的 `SITES`／`CHAT_PATHS`）＋Arena＋Telegram，入口可勾選隱藏（`chat-launchers.js`，存 localStorage `chatLaunchersHidden`）。資料夾鈕在搜尋框旁、Arena（`openArena`，id `__arena`，不進 chats.json）釘在清單上方。對話與資料夾右鍵走 `chat-menu.js`。
 - Local 對話：思考強度 8 檔（`chatThinking`）；生圖模型換成比例／解析度選單（`chatImageOptions`，auto 從提示詞猜），沒附圖時拿上一張生成圖當參考；圖片右上下載鈕（`chat:saveImage`）。不同對話可同時回應。
 - 網頁版對話存 `chats.json` 的 `web: { site, url, title }`；分區 `persist:ai-<site>`，工作區瀏覽器 `persist:wsbrowser` 套同一套 `setupSession`（UA 偽裝 Chrome、`ai-web-shim.js`、`Sec-CH-UA`、權限只給剪貼簿／全螢幕／麥克風）。
 - Cloudflare：Grok 用 `grok-clearance.js` 借 Edge／Chrome 拿 `cf_clearance`；其他分區 `installChallengeFallback` 看到 `cf-mitigated: challenge` 就把該分頁改回 Electron 原 UA 重載。另有「無套件相容視窗」（`persist:wsbrowser-clean`）。
 - 閒置釋放（`sleepIdleAiWeb`）：切走超過 1 小時的網頁版對話整顆 webview 拿掉，點回照網址重建；有打到一半的字、還在生成（找停止鈕）、往上翻著、正在出聲的不收。回歸 `test-ai-web-sleep.js`。
+- 生成狀態：`pollAiWebStatus` 每 2 秒看開著的 webview 有沒有停止鈕，側欄顯示回應中／已完成（未讀）；沒開過、App 重開後的對話沒有狀態，按鈕標籤改版就抓不到。
 - 順暢度：`installRenderBoost` 對 ChatGPT／Gemini／Grok 的訊息節點插 `content-visibility:auto`（選擇器改版就失效，退回原樣）。
 - 外連開在哪：Agent 模式 → 專案瀏覽器分頁；對話／網頁版 AI → 右側 `chat-browser.js`；Browser 模式與 SI 以外 → Browser 模式新分頁（`browser-page.js`，分頁與群組存 localStorage `browserTabs`，垂直分頁可拖曳分組）。空白分頁開 Infinity New Tab（`NEWTAB_URL`）。
 - 分頁右鍵「彈出獨立視窗」走 `browser-window.js`：main 自建 WebContentsView，首次載入前還原整串歷史（webview 搬不了視窗）。
@@ -137,7 +138,6 @@ native/
 - 推論一律 llama-server router；推薦模型以絕對路徑寫 preset 不複製。NVIDIA ≥8GB（門檻 8184 MiB）用 GPU，否則 CPU。預設 ASR ctx 4096、翻譯 ctx 8192，KV q8_0＋flash attention，`cache-ram = 512`；顯存以 nvidia-smi 為準。
 - 執行環境分頁：容器寬 ≥1120px 時左欄（啟動、本機模型、推薦）右欄（推論、圖片影像 API、log），窄時疊一欄。進 Local SI 自動補建議執行環境；探索下載後排隊 fit＋bench。探索只列文字生成模型（`archs.js`＝llama.cpp `LLM_ARCH_NAMES` 扣掉非文字，升級 llama 要重抄，`test-hf-archs.js` 擋）。探索一次 100 筆，可篩 Dense／MoE 與總參數上限（`hub.js` 的 `repoParams`／`repoIsMoe`；`MOE_ARCHS` 是讀檔頭 expert_count 確認過的整族 MoE 架構，新架構要補）。推論區「顯卡上的模型」＝router 載著且 presets 排在 GPU 的＋Breeze／Miroxen／PDF 版面（只看已載入的模組）。
 - ASR 0.6B／1.7B 都是 Q8_0 GGUF，經 `asr-select` 走共用 router。本地翻譯經 `local-llm-router.js`；關 App 要連只由翻譯載入的 router 一起收。
-- 本機預覽 `dev-sandbox.js --packed --with-chats` 用 `%APPDATA%/axondeck-dev`，models／hf-models 接回正式資料。
 
 ### 翻譯
 - 一般翻譯切頁仍繼續，保留 `translate` 引擎，完成／失敗／停止才釋放。LinguaForge 約 2000 字一段、清單標記先剝再貼回。Edge TTS 的 `node-edge-tts` 固定 1.2.11（舊服務 403）。
@@ -180,10 +180,7 @@ native/
 - 安裝（`app-installer/`）：WinGet 用 node-pty 跑讀進度；同時 3 筆、MSI 互撞重試；失敗依序改管理員靜默→原廠安裝畫面；`SELF_UPDATERS`（iCUE、gcloud）；Google App 走官方 stub 並驗簽章。`inventory.js` 依安裝實例定位，移除程式不存在時可「清除失效紀錄」（先備份）。
 - 更新：手動「重新啟動並安裝」顯示進度；結束 App 時靜默；關機登出不裝。`electron:build` 走 `pack-preview.js --release`（lint→磁碟根 NSIS→驗 asar／`app-update.yml`／latest.yml→同步回 dist）。
 
-### 網頁版 AI 狀態
-- 只看開著的 webview 有沒有停止鈕（`pollAiWebStatus`，2 秒）：側欄顯示回應中／已完成（未讀）；沒開過、App 重開後的對話沒有狀態。按鈕標籤改版就抓不到。
-
-### Telegram
+### Telegram（SI 頁內）
 - 不是導覽頁：入口在 Chat 側欄，住在 AI 頁主區（`#telegramMain`）。Telegram、Arena 右鍵開獨立視窗（`POPUP_ONLY`，各一份 renderer）：主區那份先卸載、視窗照存檔開；收回（關閉或最小化）就整份收掉，下次點回主區重開。Arena 會重新載入。
 - 各格同時載；用 `opacity:0`＋`position:absolute` 藏（display:none 會丟圖塊，`parkPane`）。每 20 秒探各格，卡住 60 秒或當掉就依序重載；當機記到 `userData/crash.log`。
 - 記住的聊天室（`dataset.src`→`telegramPanes`）只在看得到（`pageVisible`、`paneVisible` 且 `!document.hidden`）時更新；載入後 15 秒內（`SETTLE_MS`）回列表不算使用者去的，穩定後還在列表也不蓋掉，只標 `bounced` 不再重載。切回發現網址被改：先 about:blank 再整頁載回。
@@ -204,11 +201,15 @@ native/
 | `breeze-tts/`／`miroxen/`／`browser-extensions/` | 聲音與版本／生成輸出／擴充功能 |
 | `terminal-host/`／`claude-hook/`／`clipboard-images/`／`terminal-bg/` | 終端機宿主、Claude hook、貼上截圖、桌布 |
 
-## 已知取捨與未做
+## 已知取捨與限制（實作如此，不是 bug；待辦見 todo）
 
 - 使用者決定維持：不全面拿掉毛玻璃（ClearType 彩邊）、Telegram 不共用程序、不改 Tauri、CDP 腳本不全面改寫成 Playwright。
-- 轉換閘道只有 Codex 對真上游驗過，其餘 mock；HF 沒跑過大模型、CUDA 執行環境沒實際安裝驗過。
-- 網頁版 AI：Grok 登入、Claude 的 Google 登入只驗到登入頁；Edge cookie 是 app-bound 加密，不做匯入。
+- 驗證覆蓋：轉換閘道只有 Codex 對真上游驗過，其餘 mock；HF 沒跑過大模型、CUDA 執行環境沒實際安裝驗過；Grok 登入、Claude 的 Google 登入只驗到登入頁。
+- 網頁版 AI：Edge cookie 是 app-bound 加密，不做匯入。
 - 原生媒體：格式白名單不代表每種變種都驗過；DRM、MIDI 不支援；CUE 不分軌。
-- PDF／圖片翻譯：複雜背景與數學排版仍要人核對。終端機對話導覽：Grok 沒有原生輪次跳轉；Antigravity 依賴本機 `altScreenMode: never`。
-- Codex npm launcher 的 `--no-daemon` 本機修正會被 npm 更新覆蓋。`probe-dictation-live.js` 需要前景焦點。
+- PDF／圖片翻譯：複雜背景與數學排版仍要人核對；文字放不下、位置不可靠時保留原文並列警告。
+- 終端機對話導覽：緩衝區上限 50000 列；Grok 沒有原生輪次跳轉；OpenCode 回答沒有節點 ID，同一提問內用第一行唯一吻合；Antigravity 依賴本機 `altScreenMode: never`。
+- AI 紀錄：Antigravity CLI 部分工具結果非明文；多個同工具終端機同時產生對話、無法判定歸屬時不接。
+- 文字轉語音：變聲是上游實驗功能；官方模型與本機輸出限研究及非商用。
+- 系統監控網路欄：未提權時 ETW／TCP EStats 回 Access denied，顯示「—」。
+- Codex npm launcher 的 `--no-daemon` 本機修正會被 npm 更新覆蓋；`probe-dictation-live.js` 需要前景焦點；安裝檔 NotSigned。

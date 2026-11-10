@@ -6,7 +6,7 @@
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
-nav 九頁（可拖曳排序）：SI（`data-page="chat"`：Local 對話、網頁版 AI、Telegram、專案工作區、終端機同一頁）｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。CC Proxy 頁已拆掉：供應商與用量統計是額度條（AI 頁主區最下面，Browser 模式不顯示）的抽屜、MCP 與 Skills 是專案分頁（右側欄第四顆）；本機 Port 與 App 資源佔用也是額度條的抽屜、AGY 反代與 CLI 版本在設定頁。EdgeTTS 跟翻譯頁的模型按鈕同一排，展開浮在內容上。
+導覽九頁（可拖曳排序，清單以 `scripts/lib/nav-pages.js` 為準）：SI（`chat`）｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。各頁內容與入口位置見 CONTEXT。
 
 ## 指令
 
@@ -76,7 +76,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 更新：`disableDifferentialDownload` 必須開（GitHub 逐段序列下載慢 36 倍）；`nsis.artifactName` 不能改回預設；`.exe` 走 `update-mirrors.js` 鏡像、`latest.yml` 只從 GitHub 讀。回歸 `test-updater.js`。
 - 手動「重新啟動並安裝」不可改回 `/S`（兩三分鐘沒畫面，使用者重開機會把 App 弄沒）；結束 App 時的 `installOnQuit` 保留靜默；Windows 關機／登出不開安裝程式。`installOnQuit()` 要在 `app.exit(0)` 前一行。
 - `app.setAppUserModelId('com.voiceink.app')` 要在搶鎖前；改 AUMID 會讓開機自啟動值變孤兒（`migrateLoginItemName`）。更新後捷徑變白紙由 `installer.nsh` 的 `customInstall` 重寫。
-- v1.40 由 VoiceInk 改名 AxonDeck。刻意留舊名（改了升級會斷）：`com.voiceink.app`（NSIS 解除安裝 GUID、捷徑 AUMID、開機自啟動值名）、userData 已有 `%APPDATA%oiceink` 就沿用（設定裡存絕對路徑）、媒體 ProgID `VoiceInk.Media.*`（UserChoice 雜湊綁 ProgID）。GitHub repo 已改名 AxonDeck，舊網址（含舊版 App 的 `releases.atom`／`latest.yml`）靠 GitHub 自動轉址——**永遠不要再建名為 VoiceInk 的 repo**，否則轉址失效、舊版收不到更新。其餘舊名殘留由各模組啟動時清掉（Claude hooks、更新快取、工作列釘選、感測器排程、媒體登錄檔）。
+- v1.40 由 VoiceInk 改名 AxonDeck。刻意留舊名（改了升級會斷）：`com.voiceink.app`（NSIS 解除安裝 GUID、捷徑 AUMID、開機自啟動值名）、userData 已有 `%APPDATA%\voiceink` 就沿用（設定裡存絕對路徑）、媒體 ProgID `VoiceInk.Media.*`（UserChoice 雜湊綁 ProgID）。GitHub repo 已改名 AxonDeck，舊網址（含舊版 App 的 `releases.atom`／`latest.yml`）靠 GitHub 自動轉址——**永遠不要再建名為 VoiceInk 的 repo**，否則轉址失效、舊版收不到更新。其餘舊名殘留由各模組啟動時清掉（Claude hooks、更新快取、工作列釘選、感測器排程、媒體登錄檔）。
 
 ### 啟動與常駐
 - `whenReady` 立刻建窗不 await store；重模組第一次用到才 require。不可關 `setBackgroundThrottling`（`document.hidden` 會恆 false）。

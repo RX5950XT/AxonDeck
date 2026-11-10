@@ -14,6 +14,22 @@
 ; （症狀是 dist 只剩 `.nsis.7z`，連 `win-unpacked` 都被收走，而且錯誤訊息在很上面）。
 ; 路徑當字面值傳進 macro 就好——NSIS 的 macro 參數本來就是純文字替換。
 
+; ── 直接執行安裝檔（不是 App 內更新）也保留捷徑，不要「刪掉再建」 ──
+; electron-builder 只要開了 allowToChangeInstallationDirectory，非 --updated 的安裝就不走 keepShortcuts：
+; 舊版解除安裝程式先把開始功能表／桌面捷徑刪掉，新版再 CreateShortCut 一份新的。
+; Windows 的開始功能表清單偶爾只處理「刪除」、漏掉「新增」，AxonDeck 就從開始功能表消失
+; （2026-11-10 手動裝 1.76.1 實際發生過）。捷徑原地覆寫則一直都正常（App 內更新走的就是這條）。
+;
+; 這個旗標只剩兩個地方在看：assistedInstaller.nsh 決定要不要顯示「選安裝位置」頁（installer.nsi 的
+; 第 40 行就展開完了），和 setIsTryToKeepShortcuts（之後才展開）。customHeader 剛好插在兩者之間，
+; 在這裡拿掉它＝選位置頁照樣有、捷徑改成保留。
+; 使用者真的換了安裝位置時，新位置還沒有 AxonDeck.exe，electron-builder 自己會退回「刪掉再建」，捷徑不會指錯。
+!macro customHeader
+  !ifdef allowToChangeInstallationDirectory
+    !undef allowToChangeInstallationDirectory
+  !endif
+!macroend
+
 !macro axonDeckRefreshShortcut link
   ${if} ${FileExists} "${link}"
     CreateShortCut "${link}" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
@@ -35,6 +51,21 @@
       nsExec::ExecToLog '"$INSTDIR\resources\media\axondeck-media.exe" --editor --initialize'
     ${endIf}
     Pop $0
+  ${endIf}
+  ; 保留捷徑之後 electron-builder 不會補建缺的捷徑；手動重裝本來就是使用者「修復」的方法，缺的補回來
+  ; （App 內更新不補：使用者刪掉的不要自己長回來）
+  ${ifNot} ${isUpdated}
+    ${ifNot} ${FileExists} "$newStartMenuLink"
+      CreateShortCut "$newStartMenuLink" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
+      ClearErrors
+      WinShell::SetLnkAUMI "$newStartMenuLink" "${APP_ID}"
+    ${endIf}
+    ${ifNot} ${isNoDesktopShortcut}
+    ${andIfNot} ${FileExists} "$newDesktopLink"
+      CreateShortCut "$newDesktopLink" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
+      ClearErrors
+      WinShell::SetLnkAUMI "$newDesktopLink" "${APP_ID}"
+    ${endIf}
   ${endIf}
   !insertmacro axonDeckRefreshShortcut "$newStartMenuLink"
   !insertmacro axonDeckRefreshShortcut "$newDesktopLink"

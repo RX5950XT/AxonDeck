@@ -97,6 +97,11 @@ function createSensorBridge(deps = {}) {
   let retries = 0
   // 驅動被系統擋下不會自己好：不自動重拉（每次重拉都是一次提權啟動），等使用者按啟用
   let driverBlocked = false
+  /**
+   * 這次 App 執行期間連上過一次。之後的失敗都當成暫時的（上一顆還沒放開驅動、
+   * schtasks 在忙時逾時），要繼續重試——否則一次失敗就永遠停在離線，只能重開 App。
+   */
+  let everOn = false
   /** 同一時間只允許一個啟動流程，避免風扇在 starting 狀態錯過接管。 */
   let pendingEnable = null
   let pendingResolve = null
@@ -157,7 +162,7 @@ function createSensorBridge(deps = {}) {
     if (payload && payload.error) {
       // sidecar 自己知道驅動載不起來時會回這個
       state = 'blocked'
-      if (payload.error === 'driver') driverBlocked = true
+      if (payload.error === 'driver' && !everOn) driverBlocked = true
       message = payload.error === 'driver'
         ? '系統擋下了讀取感測器所需的核心驅動（常見原因：已開啟「記憶體完整性」，或防毒把驅動隔離）。CPU 與主機板溫度會維持空白，其餘數值不受影響。'
         : '感測器讀取失敗，其餘數值不受影響。'
@@ -184,6 +189,7 @@ function createSensorBridge(deps = {}) {
       oc = payload.o && typeof payload.o === 'object' ? payload.o : null
       lastAt = Date.now()
       state = 'on'
+      everOn = true
       if (connectedAt && Date.now() - connectedAt > stableMs) retries = 0
       armHealth()
       // 缺 PawnIO 的說明要留著：它講的是「還有一半拿不到、以及怎麼補」
@@ -319,6 +325,8 @@ function createSensorBridge(deps = {}) {
             // 沒有排程工作就到此為止：開機時不彈 UAC。使用者一開系統監控頁，
             // 那邊會自動走 elevate 那條（並順手把排程工作裝起來，之後就永遠靜默）。
             settle('off', '')
+            // 斷線後的重拉：排程工作這次沒拉起來（schtasks 逾時之類）不代表之後都不行
+            if (everOn) scheduleReconnect('感測器重新連線失敗，稍後再試…')
             return
           }
 

@@ -68,7 +68,8 @@
 - [x] renderer：轉錄中可換檔；sysmon 目錄每次進頁重建；`renderAgents(project, seq)` 參數對不上；專案搜尋過期結果覆蓋；diff 尾端多一列；即時字幕開始失敗沒關字幕窗；語音輸入等麥克風時取消無效；右欄搜尋 `searching` 卡住；ccswitch 切家時舊資料覆蓋；刪 `runAutoTuneFromDialog` 死碼
 - [x] 第二批（原本先擱著的）：`terminal/store` 暫時不在的 cwd 照原樣保留、開 shell 時才退回家目錄（測試同步改）；`explorer/fs` `listCache` 寫入時清過期；`oc.resetNow` 送不出去就留 applied／dirty 並回報；`moveEntry` 同磁碟被鎖直接失敗、跨磁碟刪不掉來源回 `MOVE_PARTIAL`；`screentime/observer` 意外結束退避重啟（2s→60s）；`translate-page` 起跑加同步旗標；`quota-bar` 記 `lastAttemptAt`；`ws-ide` 後備編輯器跨過右括號
 - [x] 補讀（兩個子代理，約 50 檔）：`ccswitch/mcp` 改一台會把 `~/.claude.json` 其他台不認得的欄位洗掉 → 只動目標那一台；`anthropic-stream` `input_tokens` 扣掉快取讀取（上游含、Anthropic 不含，測試同步改）；`agy/openai` 平行工具結果併進同一回合；`screentime/categories` `ide`／`x.com` 補左邊界；工作區整組暫存改逐個送（搶 `index.lock`）；還原分頁時失效檔案不跳錯誤提示；切專案又點回來時作廢進行中的切換；Monaco 首次載入期間切 diff 分頁不畫錯內容
-- 沒修：`edge-tts` 試聽打斷朗讀（判斷是設計）；`gateway/convert.toChatRequest` 沒帶 `stream_options.include_usage`（沒實測各家上游，怕嚴格的上游拒收）；MCP 停用再啟用仍會掉我們不認得的欄位（停用清單存的是清洗過的版本）
+- [x] 收尾：`gateway/convert.toChatRequest` 帶 `stream_options.include_usage`；MCP 開關搬原始設定、停用清單也只動目標那一台（`test-ccswitch` 補「停用再啟用不掉 oauth／timeout」）
+- 沒修：`edge-tts` 試聽打斷朗讀（判斷是設計）
 - 驗證：lint 通過、單元測試 169/169、`electron:pack` 成功、打包版 `e2e-cdp-smoke` 22/22、`e2e-explorer-cdp` 全過、`e2e-sysmon-cdp` 118/118
 
 ### 全專案檢查與死碼清理（2026-11-10）

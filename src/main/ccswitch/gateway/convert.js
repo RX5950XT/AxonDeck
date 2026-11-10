@@ -303,7 +303,8 @@ function toChatRequest(body, model) {
     }
   }
 
-  const request = { model, messages, stream: true }
+  // 有些 OpenAI 相容上游（例如 Ollama）不帶這個就不在串流結尾送用量，Claude Code 會以為上下文永遠是 0
+  const request = { model, messages, stream: true, stream_options: { include_usage: true } }
   const functions = toolsToFunctions(body?.tools)
   if (functions.length) {
     request.tools = functions.map((fn) => ({ type: 'function', function: fn }))

@@ -821,12 +821,15 @@ console.log('\n[G] MCP')
   fs.writeFileSync(claudeJson, JSON.stringify({
     numStartups: 42,
     projects: { '/some/path': { history: [1, 2, 3] } },
-    mcpServers: { existing: { type: 'stdio', command: 'python', args: ['a.py'] } }
+    mcpServers: {
+      existing: { type: 'stdio', command: 'python', args: ['a.py'] },
+      remote: { type: 'http', url: 'https://mcp.example', oauth: { clientId: 'abc' }, timeout: 30000 }
+    }
   }, null, 2))
 
   const runMcp = async () => {
     let listed = await mcp.list()
-    ok('讀得到現有伺服器', listed.servers.length === 1 && listed.servers[0].id === 'existing')
+    ok('讀得到現有伺服器', listed.servers.length === 2 && listed.servers.some((s) => s.id === 'existing'))
 
     await mcp.upsert('ctx7', { type: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }, true)
     const root = JSON.parse(fs.readFileSync(claudeJson, 'utf8'))
@@ -834,6 +837,12 @@ console.log('\n[G] MCP')
     ok('projects 沒被動到', root.projects['/some/path'].history.length === 3)
     ok('新伺服器寫進去了', Boolean(root.mcpServers.ctx7))
     ok('原有伺服器還在', Boolean(root.mcpServers.existing))
+    ok('改別台不洗掉這台不認得的欄位', root.mcpServers.remote?.oauth?.clientId === 'abc' && root.mcpServers.remote.timeout === 30000)
+
+    await mcp.toggle('remote', false)
+    await mcp.toggle('remote', true)
+    const roundTrip = JSON.parse(fs.readFileSync(claudeJson, 'utf8')).mcpServers.remote
+    ok('停用再啟用，不認得的欄位還在', roundTrip?.oauth?.clientId === 'abc' && roundTrip.timeout === 30000, JSON.stringify(roundTrip))
 
     await mcp.toggle('existing', false)
     const afterDisable = JSON.parse(fs.readFileSync(claudeJson, 'utf8'))

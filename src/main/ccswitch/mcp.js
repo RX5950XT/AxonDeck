@@ -241,12 +241,21 @@ async function readDisabled() {
   return sanitizeMap(store.get('disabledMcp', {}))
 }
 
+/** 停用清單的原始內容（沒清洗過）；寫回只動目標那一台，理由同 writeLive */
+function rawMap(raw) {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {}
+}
+
 /**
- * @param {Record<string, Record<string, unknown>>} map
+ * @param {string} id
+ * @param {Record<string, unknown> | null} spec null＝拿掉這一台
  */
-async function writeDisabled(map) {
+async function writeDisabled(id, spec) {
   if (!getStore) return
   const store = await getStore()
+  const map = rawMap(store.get('disabledMcp', {}))
+  if (spec) map[id] = spec
+  else delete map[id]
   store.set('disabledMcp', map)
 }
 
@@ -274,11 +283,13 @@ async function list() {
  * @param {object} rawSpec
  * @param {boolean} enabled
  */
-async function upsert(rawId, rawSpec, enabled = true) {
+async function upsert(rawId, rawSpec, enabled = true, original = null) {
   const id = sanitizeId(rawId)
-  const spec = sanitizeSpec(rawSpec)
+  const checked = sanitizeSpec(rawSpec)
+  // 開關（toggle）時搬的是原始設定：清洗過的版本只拿來驗證，寫回用原本那份，
+  // 不然停用再啟用，我們不認得的欄位（oauth、timeout…）就沒了
+  const spec = original ? { ...original } : checked
   const live = readLive()
-  const disabled = await readDisabled()
 
   if (enabled) {
     if (!(id in live) && Object.keys(live).length >= MAX_SERVERS) {
@@ -289,11 +300,10 @@ async function upsert(rawId, rawSpec, enabled = true) {
     }
     // 先寫進 live 再從停用清單拿掉：live 寫失敗時設定還留在停用清單
     writeLive(id, wrapForWindows(spec))
-    delete disabled[id]
-    await writeDisabled(disabled)
+    await writeDisabled(id, null)
   } else {
     if (id in live) writeLive(id, null)
-    await writeDisabled({ ...disabled, [id]: spec })
+    await writeDisabled(id, spec)
   }
   return { id, enabled }
 }
@@ -314,7 +324,11 @@ async function toggle(rawId, enabled) {
     error.userMessage = '找不到這台 MCP 伺服器'
     throw error
   }
-  return upsert(id, spec, Boolean(enabled))
+  const store = getStore ? await getStore() : null
+  const original = live[id]
+    ? rawMap(readClaudeJson().mcpServers)[id]
+    : rawMap(store?.get('disabledMcp', {}))[id]
+  return upsert(id, spec, Boolean(enabled), original && typeof original === 'object' ? original : null)
 }
 
 /**
@@ -325,10 +339,7 @@ async function remove(rawId) {
   const live = readLive()
   if (id in live) writeLive(id, null)
   const disabled = await readDisabled()
-  if (id in disabled) {
-    delete disabled[id]
-    await writeDisabled(disabled)
-  }
+  if (id in disabled) await writeDisabled(id, null)
   return true
 }
 

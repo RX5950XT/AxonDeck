@@ -553,6 +553,7 @@ function isBarVisible() {
 async function runSync({ manual = false } = {}) {
   if (syncing) return
   syncing = true
+  lastAttemptAt = Date.now()
   const button = byId('quotaSyncBtn')
   button?.setAttribute('aria-busy', 'true')
   renderLastSync()
@@ -570,8 +571,11 @@ async function runSync({ manual = false } = {}) {
   }
 }
 
+/** 上次「試著」同步的時間：整個同步失敗時 lastSyncedAt 不會動，只看它會變成每 5 秒重打一次 */
+let lastAttemptAt = 0
+
 function isStale() {
-  const last = Number(state?.lastSyncedAt) || 0
+  const last = Math.max(Number(state?.lastSyncedAt) || 0, lastAttemptAt)
   return Date.now() - last >= AUTO_SYNC_MS
 }
 

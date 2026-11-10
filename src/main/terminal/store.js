@@ -241,7 +241,9 @@ function sanitizeAll(raw) {
     seen.add(id)
     const shell = normalizeShell(item.shell)
     const preset = normalizePreset(item.preset)
-    const cwd = normalizeCwd(item.cwd)
+    // 存檔裡的目錄照原樣留著：暫時不在（隨身碟沒插、NAS 離線）就改成家目錄的話，
+    // 下一次整份寫回會把它永久洗掉。真的要開 shell 時才由 pty 退回家目錄。
+    const cwd = typeof item.cwd === 'string' && path.isAbsolute(item.cwd) ? path.resolve(item.cwd) : normalizeCwd(item.cwd)
     const row = {
       id,
       title: normalizeTitle(item.title, defaultTitle(preset, cwd)),

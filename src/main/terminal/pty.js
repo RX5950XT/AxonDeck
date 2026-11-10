@@ -213,7 +213,7 @@ function spawnSession(meta, cols, rows, editor, editorDir) {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: meta.cwd,
+      cwd: store.normalizeCwd(meta.cwd),
       env: shellEnvironment(editor, editorDir, meta.id, meta.preset, meta.agentHome)
     })
 

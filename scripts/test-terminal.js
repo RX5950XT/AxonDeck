@@ -234,12 +234,15 @@ console.log('\n[terminals.json 正規化]')
     { id: 'a', title: 'one', shell: 'pwsh', preset: 'claude', cwd: ROOT, createdAt: 1 },
     { id: 'a', title: '重複 id 要丟掉' },
     { title: '沒有 id 要丟掉' },
-    { id: 'b', shell: 'evil', preset: 'evil', cwd: 'Z:\\nope' }
+    { id: 'b', shell: 'evil', preset: 'evil', cwd: 'nope' },
+    { id: 'c', cwd: 'Z:\\nope' }
   ]
   const out = store.sanitizeAll(raw)
-  ok('丟掉壞的、留下好的', out.length === 2, JSON.stringify(out.map((x) => x.id)))
+  ok('丟掉壞的、留下好的', out.length === 3, JSON.stringify(out.map((x) => x.id)))
   ok('重複 id 只留第一筆', out[0].title === 'one')
   ok('壞掉的 shell／preset／cwd 都被收斂', out[1].preset === 'shell' && out[1].cwd === os.homedir())
+  // 隨身碟沒插／NAS 離線：存檔裡的目錄要原樣留著，不然下次整份寫回就永久變成家目錄
+  ok('暫時不在的絕對路徑照原樣保留', out[2].cwd === 'Z:\\nope', out[2].cwd)
   ok('非陣列回空陣列', store.sanitizeAll('nope').length === 0)
 
   const many = Array.from({ length: store.MAX_SESSIONS + 10 }, (_, i) => ({ id: `s${i}`, cwd: ROOT }))

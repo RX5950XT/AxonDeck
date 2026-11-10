@@ -137,6 +137,13 @@ async function call(promise, fallbackMessage) {
   throw new Error(result?.error?.message || fallbackMessage)
 }
 
+/** 還原上次的分頁用：檔案已被刪掉是預期中的事，失敗只丟例外、不跳錯誤提示 */
+async function quietCall(promise) {
+  const result = await promise
+  if (result && result.ok) return result.data
+  throw new Error(result?.error?.message || '')
+}
+
 /**
  * @param {string} value
  * @returns {string}
@@ -2497,6 +2504,8 @@ async function paintDiffBody(tab) {
     monacoTried = true
     monaco = await loadMonaco()
     monacoFailed = !monaco
+    // 等載入期間已經切到別的分頁：共用的 diff 區現在是它的，不可以把這一份畫上去
+    if (findTab(activeId) !== tab) return
   }
   if (!monaco || findTab(activeId) !== tab) {
     fallback()
@@ -3411,7 +3420,7 @@ async function restoreProjectTabs(proj, generation) {
         }
       } else if (item.kind === 'editor' && item.relPath) {
         try {
-          const file = await call(electronAPI.workspace.readFile(proj.id, item.relPath), '')
+          const file = await quietCall(electronAPI.workspace.readFile(proj.id, item.relPath))
           if (generation !== projectSwitch) return
           if (file.nativeMedia && !item.dirty) continue
           const hasDraft = typeof item.draftContent === 'string'
@@ -3452,7 +3461,7 @@ async function restoreProjectTabs(proj, generation) {
         }
       } else if (item.kind === 'diff' && item.relPath) {
         try {
-          const diffData = await call(electronAPI.workspace.gitDiff(proj.id, item.relPath, item.staged), '')
+          const diffData = await quietCall(electronAPI.workspace.gitDiff(proj.id, item.relPath, item.staged))
           if (generation !== projectSwitch) return
           tabs.push({
             id: item.id,
@@ -3481,7 +3490,7 @@ async function restoreProjectTabs(proj, generation) {
         tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: proj.id })
       } else if (item.kind === 'ai-session' && item.sessionRow) {
         try {
-          const detail = await call(electronAPI.workspace.agentSessionDetail(proj.id, item.sessionRow.agent, item.sessionRow.id), '')
+          const detail = await quietCall(electronAPI.workspace.agentSessionDetail(proj.id, item.sessionRow.agent, item.sessionRow.id))
           if (generation !== projectSwitch) return
           tabs.push({
             id: item.id,
@@ -3507,15 +3516,25 @@ async function restoreProjectTabs(proj, generation) {
   }
 }
 
+/** 有幾次切換正卡在「存目前專案的分頁」這一步（project 還沒換過去） */
+let switchingAway = 0
+
 /**
  * @param {{ id: string, name: string, path: string } | null} next
  */
 export async function setActiveProject(next) {
-  if (project?.id === next?.id) return true
+  if (project?.id === next?.id) {
+    // 正要切去別的專案（還在存分頁）時又點回原本這個：把那次切換作廢，不然分頁區會換過去、側欄卻留在這裡
+    if (switchingAway) projectSwitch += 1
+    return true
+  }
   const generation = ++projectSwitch
   window.clearTimeout(persistTimer)
   if (project?.id) {
-    if (await persistTabsNow() === false) return false
+    switchingAway += 1
+    let saved
+    try { saved = await persistTabsNow() } finally { switchingAway -= 1 }
+    if (saved === false) return false
   }
   if (generation !== projectSwitch) return false
   const hadProject = Boolean(project?.id)

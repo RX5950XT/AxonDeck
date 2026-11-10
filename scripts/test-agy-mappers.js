@@ -689,7 +689,7 @@ test('非串流回應：thinking 在前、usage 帶快取讀取數', () => {
   const response = anthropic.toResponse(collector)
   assert.strictEqual(response.content[0].type, 'thinking')
   assert.strictEqual(response.content[1].text, '答')
-  assert.strictEqual(response.usage.input_tokens, 9)
+  assert.strictEqual(response.usage.input_tokens, 6) // 9 含快取讀取的 3，Anthropic 的 input_tokens 不含
   assert.strictEqual(response.usage.cache_read_input_tokens, 3)
 })
 

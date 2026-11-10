@@ -212,12 +212,19 @@ function readClaudeJson() {
 }
 
 /**
- * 只換掉 mcpServers，其他欄位（專案歷史、各種旗標）原樣寫回。
- * @param {Record<string, Record<string, unknown>>} servers
+ * 只動 mcpServers 裡的這一台，其他欄位（專案歷史、各種旗標）與其他台都原樣寫回。
+ * 不可以拿 readLive() 的結果整份蓋回去：那是清洗過的版本，別台我們不認得的欄位
+ * （oauth、headersHelper、timeout…）會被洗掉。
+ * @param {string} id
+ * @param {Record<string, unknown> | null} spec null＝拿掉這一台
  */
-function writeLive(servers) {
+function writeLive(id, spec) {
   const file = claudeSettings.claudeJsonPath()
   const root = readClaudeJson()
+  const raw = root.mcpServers
+  const servers = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {}
+  if (spec) servers[id] = spec
+  else delete servers[id]
   claudeSettings.backupFile(file, 'claude-json')
   claudeSettings.writeJsonFile(file, { ...root, mcpServers: servers })
 }
@@ -281,15 +288,11 @@ async function upsert(rawId, rawSpec, enabled = true) {
       throw error
     }
     // 先寫進 live 再從停用清單拿掉：live 寫失敗時設定還留在停用清單
-    writeLive({ ...live, [id]: wrapForWindows(spec) })
+    writeLive(id, wrapForWindows(spec))
     delete disabled[id]
     await writeDisabled(disabled)
   } else {
-    if (id in live) {
-      const next = { ...live }
-      delete next[id]
-      writeLive(next)
-    }
+    if (id in live) writeLive(id, null)
     await writeDisabled({ ...disabled, [id]: spec })
   }
   return { id, enabled }
@@ -320,11 +323,7 @@ async function toggle(rawId, enabled) {
 async function remove(rawId) {
   const id = sanitizeId(rawId)
   const live = readLive()
-  if (id in live) {
-    const next = { ...live }
-    delete next[id]
-    writeLive(next)
-  }
+  if (id in live) writeLive(id, null)
   const disabled = await readDisabled()
   if (id in disabled) {
     delete disabled[id]

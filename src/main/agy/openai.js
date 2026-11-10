@@ -107,10 +107,11 @@ function messagesToContents(messages) {
       const text = typeof message.content === 'string'
         ? message.content
         : JSON.stringify(message.content ?? '')
-      contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name, response: { content: text }, ...(id ? { id } : {}) } }]
-      })
+      const part = { functionResponse: { name, response: { content: text }, ...(id ? { id } : {}) } }
+      // 平行工具呼叫的結果要放在同一個回合：拆成好幾個 user 回合，上游會因為數量對不上而拒絕
+      const last = contents[contents.length - 1]
+      if (last?.role === 'user' && last.parts.every((p) => p.functionResponse)) last.parts.push(part)
+      else contents.push({ role: 'user', parts: [part] })
       continue
     }
 

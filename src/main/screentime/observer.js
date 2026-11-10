@@ -9,6 +9,9 @@ const { spawn } = require('child_process')
 const path = require('path')
 const { probeCommand } = require('../native-probe')
 
+const RESTART_MIN_MS = 2000
+const RESTART_MAX_MS = 60_000
+
 function resolveScript(baseDir = __dirname) {
   const script = path.join(baseDir, 'observer.ps1')
   const asarSegment = `${path.sep}app.asar${path.sep}`
@@ -24,8 +27,14 @@ function createObserver(deps = {}) {
   /** @type {import('child_process').ChildProcess | null} */
   let child = null
   let buf = ''
+  /** 呼叫端要它跑著（start 之後、stop 之前） */
+  let wanted = false
+  /** @type {NodeJS.Timeout | null} */
+  let restartTimer = null
+  let restartMs = RESTART_MIN_MS
 
   function start() {
+    wanted = true
     if (child) return
     buf = ''
     try {
@@ -42,7 +51,15 @@ function createObserver(deps = {}) {
     proc.stderr.resume()
     proc.stdin.on('error', failed)
     proc.on('error', failed)
-    proc.on('exit', () => { if (child === proc) child = null })
+    proc.on('exit', () => {
+      if (child !== proc) return
+      child = null
+      // 沒人叫它停卻自己死了：不重啟的話使用時長會從此靜靜停掉，直到重開 App
+      if (!wanted) return
+      restartTimer = setTimeout(() => { restartTimer = null; if (wanted) start() }, restartMs)
+      restartTimer.unref?.()
+      restartMs = Math.min(restartMs * 2, RESTART_MAX_MS)
+    })
   }
 
   function onData(chunk) {
@@ -54,6 +71,7 @@ function createObserver(deps = {}) {
       if (line.startsWith('{')) {
         try {
           const row = JSON.parse(line)
+          restartMs = RESTART_MIN_MS // 有在正常吐資料，下次意外結束從最短的等待重來
           onTick({
             name: String(row.name || row.Name || ''),
             path: String(row.path || row.Path || ''),
@@ -67,6 +85,8 @@ function createObserver(deps = {}) {
   }
 
   function stop() {
+    wanted = false
+    if (restartTimer) { clearTimeout(restartTimer); restartTimer = null }
     const proc = child
     child = null
     if (!proc) return

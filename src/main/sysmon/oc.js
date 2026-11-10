@@ -368,8 +368,7 @@ function createOcEngine(deps = {}) {
       return
     }
     panic = true
-    lastError = '過熱或讀不到溫度，已還原出廠'
-    resetNow()
+    if (resetNow()) lastError = '過熱或讀不到溫度，已還原出廠'
   }
 
   function startTimer() {
@@ -387,10 +386,17 @@ function createOcEngine(deps = {}) {
   }
 
   function resetNow() {
-    sensors?.send?.('X')
+    const sent = sensors?.send?.('X')
+    // 還原指令沒送出去（感測器離線）而硬體上可能還留著調整：不可以當成已還原。
+    // 留著 applied／dirty，計時器下一輪會再試；這次沒還原成功，下次啟動也還會提醒。
+    if (!sent && (applied || config.dirty)) {
+      lastError = '還原指令沒送出去（感測器離線），調整可能還留在硬體上'
+      return false
+    }
     applied = false
     stopTimer()
     clearDirty()
+    return true
   }
 
   function snapshot() {
@@ -534,8 +540,7 @@ function createOcEngine(deps = {}) {
       lastError = ''
       panic = false
       // 已經照提示按了「還原出廠」，「上次可能沒還原」那句就該收起來
-      dirtyLastRun = false
-      resetNow()
+      dirtyLastRun = !resetNow()
       return snapshot()
     },
 

@@ -2580,10 +2580,12 @@ function gitGroup(files, side, project, host, ambiguous) {
     btn.title = bulk.title
     btn.addEventListener('click', async () => {
       btn.disabled = true
-      // 一個一個送：main 的 stage/unstage 只吃單一相對路徑，而且失敗的那個不該
-      // 把整組拖下水（`allSettled` 不是 `all`）
-      const results = await Promise.allSettled(files.map((file) => bulk.run(project.id, file.path)))
-      const failed = results.filter((r) => r.status === 'rejected' || !r.value?.ok).length
+      // 一個一個送：main 的 stage/unstage 只吃單一相對路徑，而且失敗的那個不該把整組拖下水
+      // 要排隊不能同時送：N 個 git 一起搶 `.git/index.lock`，會有幾個直接失敗
+      let failed = 0
+      for (const file of files) {
+        try { if (!(await bulk.run(project.id, file.path))?.ok) failed += 1 } catch { failed += 1 }
+      }
       if (failed) showToast(`${failed} 個檔案沒處理成功`, 'error')
       void renderGit()
     })

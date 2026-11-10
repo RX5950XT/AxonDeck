@@ -208,7 +208,7 @@ console.log('\n[C] Responses 串流 → Anthropic SSE')
   const response = convert.toResponse(collector)
   ok('非串流回應帶 tool_use', response.content.some((b) => b.type === 'tool_use' && b.input.path === 'a.txt'))
   ok('非串流回應帶 cache 讀取量', response.usage.cache_read_input_tokens === 40)
-  ok('非串流回應 input_tokens 正確', response.usage.input_tokens === 100)
+  ok('非串流回應 input_tokens 扣掉快取讀取', response.usage.input_tokens === 60)
 }
 
 console.log('\n[D] Chat 串流 → Anthropic SSE')

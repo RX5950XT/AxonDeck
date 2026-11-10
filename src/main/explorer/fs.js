@@ -412,6 +412,14 @@ function pageOptions(raw) {
   return { offset, limit }
 }
 
+/** 存新的一筆時順手丟掉過期的：不清的話逛過的每個資料夾都會一直留在記憶體 */
+function rememberList(key, next) {
+  for (const [k, item] of listCache) {
+    if (next.createdAt - item.createdAt >= LIST_CACHE_TTL_MS) listCache.delete(k)
+  }
+  listCache.set(key, next)
+}
+
 function listCacheKey(full, opts) {
   return `${full.toLowerCase()}|${opts.showHidden ? '1' : '0'}`
 }
@@ -442,7 +450,7 @@ async function readDirectoryEntries(full, opts) {
       }))
       .filter((entry) => opts.showHidden || !entry.hidden)
     const next = { createdAt: Date.now(), entries, sorted: new Map() }
-    listCache.set(key, next)
+    rememberList(key, next)
     return next
   }
   const attrMap = await readAttrs(full)
@@ -815,6 +823,26 @@ const purgeEntry = (key) => recycle.purge(key)
 const emptyRecycle = () => recycle.empty()
 
 /**
+ * 同一顆磁碟上 rename 被擋（裡面有檔案被別的程式開著）就直接失敗：
+ * 這時改走「複製再刪來源」只會複製出完整一份、來源又刪不乾淨，變成兩邊各一份。
+ */
+function assertMovable(error, from, next) {
+  const locked = ['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)
+  const sameDrive = path.parse(from).root.toLowerCase() === path.parse(next).root.toLowerCase()
+  if (locked && sameDrive) throw paths.fail('MOVE_FAILED', '搬不過去：裡面有檔案正被其他程式使用')
+}
+
+/** 跨磁碟搬移的最後一步。副本已經完整，刪不掉來源就照實說，不要回報成整個沒搬成。 */
+async function removeMovedSource(from) {
+  try {
+    await paths.removeLinkOrTree(from)
+  } catch {
+    invalidateListCache()
+    throw paths.fail('MOVE_PARTIAL', '已複製到目的地，但原本位置有檔案刪不掉（可能被其他程式開著）')
+  }
+}
+
+/**
  * @param {unknown} fromPath
  * @param {unknown} toDir
  */
@@ -850,31 +878,34 @@ async function moveEntry(fromPath, toDir, rawOptions) {
         invalidateListCache()
         if (options.onTotal) options.onTotal(0)
         return { path: next, bytes: 0, totalBytes: 0 }
-      } catch {
+      } catch (renameError) {
+        assertMovable(renameError, from, next)
+        let copied
         try {
-          const copied = await copyTreeWithProgress(from, next, options)
+          copied = await copyTreeWithProgress(from, next, options)
           checkCancelled(options.signal)
-          await paths.removeLinkOrTree(from)
-          invalidateListCache()
-          return { path: next, ...copied }
         } catch (error) {
           throw error && error.code === 'CANCELLED'
             ? error
             : paths.fail('MOVE_FAILED', '搬不過去')
         }
+        await removeMovedSource(from)
+        invalidateListCache()
+        return { path: next, ...copied }
       }
     }
     try {
       await fsp.rename(from, next)
       invalidateListCache()
       return { path: next }
-    } catch {
+    } catch (renameError) {
+      assertMovable(renameError, from, next)
       try {
         await fsp.cp(from, next, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true })
-        await paths.removeLinkOrTree(from)
       } catch {
         throw paths.fail('MOVE_FAILED', '搬不過去')
       }
+      await removeMovedSource(from)
       invalidateListCache()
       return { path: next }
     }

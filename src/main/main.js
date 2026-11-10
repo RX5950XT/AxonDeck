@@ -328,7 +328,6 @@ const STORE_ALLOWLIST = new Set([
   'chatImageOptions',
   // 新對話的取樣參數預設值（每個對話自己那份存在 chats.json）
   'chatParams',
-  'sysmonInterval',
   'sysmonSort',
   'sysmonSensors',
   'dictationEnabled',
@@ -2925,7 +2924,7 @@ app.whenReady().then(() => {
         console.error('[screentime] start failed:', err?.message || err)
       }
       const sysmon = loadSysmon()
-      try { sysmon.start(store?.get('sysmonInterval'), { background: true }) } catch (err) {
+      try { sysmon.start('normal', { background: true }) } catch (err) {
         console.error('[sysmon] sampler start failed:', err?.message || err)
       }
       const fansOn = store?.get('fanControl')?.enabled === true

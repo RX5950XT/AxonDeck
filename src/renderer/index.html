@@ -1305,16 +1305,6 @@
                   <button type="button" class="sysmon-tab" data-subtab="disk" role="tab"
                     aria-selected="false" aria-controls="sysmon-disk">磁碟空間</button>
                 </nav>
-                <div class="sysmon-actions" role="group" aria-label="系統監控操作">
-                  <label class="sysmon-interval">
-                    <span>更新頻率</span>
-                    <select id="sysmonInterval" class="select" aria-label="取樣間隔">
-                      <option value="fast">1 秒</option>
-                      <option value="normal" selected>2 秒</option>
-                      <option value="slow">5 秒</option>
-                    </select>
-                  </label>
-                </div>
               </div>
 
               <p id="sysmonError" class="live-error hidden" role="alert"></p>
@@ -1395,7 +1385,7 @@
                   <input id="sysmonSearch" class="input sysmon-search" type="search"
                     placeholder="搜尋名稱或 PID" aria-label="搜尋處理程序" autocomplete="off" />
                   <span id="sysmonProcCount" class="sysmon-proc-count" role="status" aria-live="polite"></span>
-                  <span class="sysmon-proc-spacer"></span>
+                  <span id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></span>
                   <button type="button" id="sysmonKillBtn" class="btn btn-secondary btn-sm sysmon-danger-btn" disabled>
                     強制結束工作
                   </button>
@@ -1407,10 +1397,6 @@
                     <div class="sysmon-rows" id="sysmonRows"></div>
                   </div>
                 </div>
-                <p id="sysmonDetail" class="sysmon-detail" role="status" aria-live="polite"></p>
-                <p id="sysmonNetworkNote" class="sysmon-detail sysmon-proc-note">欄名顯示整機占用；拖曳或用 Alt＋方向鍵調換欄位，名稱固定在第一欄。</p>
-                <p class="sysmon-detail sysmon-proc-note">記憶體欄是私有工作集（跟工作管理員同一個數字，不含共用的 DLL 頁）。I/O 欄是程序自己的讀寫量，含快取命中與管道，不等於實體磁碟；表頭是全部加總。</p>
-                <p class="sysmon-detail sysmon-proc-note">VRAM 欄是 Windows 記帳的「配置量」：dwm 會刻意預留大塊 VRAM（工作管理員同一套數字）；實際駐留量看總覽頁的 GPU 讀數。</p>
               </div>
 
               <!--

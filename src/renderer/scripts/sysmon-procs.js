@@ -3,15 +3,16 @@ const COLUMNS = [
   { key: 'name', label: '名稱', width: 'minmax(180px, 1fr)' },
   { key: 'pid', label: 'PID', width: '70px' },
   { key: 'cpu', label: 'CPU', width: '72px' },
-  { key: 'memory', label: '記憶體', width: '90px' },
+  { key: 'memory', label: '記憶體', width: '90px', hint: '私有工作集（跟工作管理員同一個數字，不含共用的 DLL 頁）' },
   // 程序的讀寫計數含檔案快取命中、管道與裝置 I/O，不等於實體磁碟，所以叫 I/O 不叫磁碟
-  { key: 'diskTotal', label: 'I/O', width: '96px' },
-  { key: 'network', label: '網路', width: '96px' },
+  { key: 'diskTotal', label: 'I/O', width: '96px', hint: '程序自己的讀寫量，含快取命中與管道，不等於實體磁碟；表頭是全部加總' },
+  { key: 'network', label: '網路', width: '96px', hint: 'TCP／UDP、IPv4／IPv6 的收送總量；表頭是整機占用' },
   { key: 'gpu', label: 'GPU', width: '66px' },
-  { key: 'gpuMemory', label: 'VRAM', width: '88px' },
+  { key: 'gpuMemory', label: 'VRAM', width: '88px', hint: 'Windows 記帳的配置量（dwm 會預留大塊）；實際駐留量看總覽頁' },
   { key: 'threads', label: '執行緒', width: '72px' }
 ]
 const STORAGE_KEY = 'sysmonProcessColumns'
+const DRAG_HINT = '拖曳調換欄位；Alt＋方向鍵也可調換'
 const FALLBACK_ICON = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="2" fill="#8993a4"/><path d="M3 5h10M5 8h2m2 0h2M5 11h6" stroke="#fff" fill="none"/></svg>')
 const PICKS = {
   pid: (p) => p.pid, name: (p) => p.name.toLowerCase(), cpu: (p) => p.cpu,
@@ -85,6 +86,19 @@ export function sortProcessRows(list, key, dir) {
   })
 }
 
+/**
+ * 依工作管理員的分法切兩段：有應用程式視窗的（前台）在上、其餘背景處理程序在下，
+ * 各段前面插一列標題。段內維持原本的排序。
+ */
+export function splitProcessRows(rows) {
+  const apps = rows.filter((p) => p.app)
+  const rest = rows.filter((p) => !p.app)
+  return [
+    ...(apps.length ? [{ header: '應用程式', count: apps.length }, ...apps] : []),
+    ...(rest.length ? [{ header: '背景處理程序', count: rest.length }, ...rest] : [])
+  ]
+}
+
 export function isProcessSortKey(key) { return Object.hasOwn(PICKS, key) }
 
 export function createProcessTable({ state, $, onSort, onSelect, fmtBytes, fmtRate, fmtPct }) {
@@ -115,7 +129,8 @@ export function createProcessTable({ state, $, onSort, onSelect, fmtBytes, fmtRa
   function setupDrag(btn, key) {
     if (key === 'name') return
     btn.draggable = true
-    btn.title = '拖曳調換欄位；Alt＋方向鍵也可調換'
+    const hint = COLUMNS.find((col) => col.key === key)?.hint
+    btn.title = [hint, DRAG_HINT].filter(Boolean).join('\n')
     btn.addEventListener('dragstart', (e) => {
       dragging = key
       e.dataTransfer.setData('text/plain', key)
@@ -189,10 +204,10 @@ export function createProcessTable({ state, $, onSort, onSelect, fmtBytes, fmtRa
       btn.classList.toggle('is-asc', sorted && state.sortDir === 'asc')
       btn.setAttribute('aria-sort', sorted ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none')
     }
-    const note = $('sysmonNetworkNote')
-    if (note) note.textContent = state.sample?.processNetwork?.available
-      ? '網路：TCP／UDP、IPv4／IPv6 的收送總量。欄名為整機占用；可拖曳或用 Alt＋方向鍵換欄。'
-      : '網路「—」表示目前無法讀取：沿用完整感測器的權限，不另外跳授權視窗。可拖曳欄名換順序。'
+    const net = [...($('sysmonHead')?.children || [])].find((btn) => btn.dataset.key === 'network')
+    if (net) net.title = [state.sample?.processNetwork?.available
+      ? COLUMNS.find((col) => col.key === 'network').hint
+      : '「—」表示目前無法讀取：沿用完整感測器的權限，不另外跳授權視窗', DRAG_HINT].join('\n')
   }
 
   function newRow(host) {
@@ -215,13 +230,29 @@ export function createProcessTable({ state, $, onSort, onSelect, fmtBytes, fmtRa
       }
       row.appendChild(cell)
     }
-    row.addEventListener('click', () => onSelect(Number(row.dataset.pid)))
+    row.addEventListener('click', () => {
+      if (row.dataset.pid) onSelect(Number(row.dataset.pid))
+    })
     pool.push(row)
     host.appendChild(row)
   }
 
+  function paintHeader(row, p) {
+    row.classList.remove('hidden', 'is-selected')
+    row.classList.add('is-group')
+    row.dataset.pid = ''
+    for (const cell of row.children) {
+      cell.classList.remove('is-hot')
+      if (cell.dataset.key === 'name') {
+        cell.lastElementChild.textContent = `${p.header}（${p.count}）`
+        cell.title = ''
+      } else cell.textContent = ''
+    }
+  }
+
   function paintRow(row, p) {
-    row.classList.remove('hidden')
+    if (p.header) { paintHeader(row, p); return }
+    row.classList.remove('hidden', 'is-group')
     row.dataset.pid = String(p.pid)
     row.classList.toggle('is-selected', state.selectedPid === p.pid)
     const values = {
@@ -246,9 +277,10 @@ export function createProcessTable({ state, $, onSort, onSelect, fmtBytes, fmtRa
   function renderRows() {
     const body = $('sysmonBody'), spacer = $('sysmonSpacer'), host = $('sysmonRows')
     if (!body || !spacer || !host) return
-    spacer.style.height = `${state.rows.length * 30}px`
+    const rows = state.viewRows || state.rows
+    spacer.style.height = `${rows.length * 30}px`
     const first = Math.max(0, Math.floor(state.scrollTop / 30) - 8)
-    const slice = state.rows.slice(first, first + Math.ceil((body.clientHeight || 400) / 30) + 16)
+    const slice = rows.slice(first, first + Math.ceil((body.clientHeight || 400) / 30) + 16)
     host.style.transform = `translateY(${first * 30}px)`
     while (pool.length < slice.length) newRow(host)
     for (let i = slice.length; i < pool.length; i += 1) pool[i].classList.add('hidden')

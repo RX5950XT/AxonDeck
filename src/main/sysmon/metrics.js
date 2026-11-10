@@ -465,7 +465,9 @@ function parseTick(rows) {
     nets: [],
     gpuEngines: [],
     gpuMemory: [],
-    procs: []
+    procs: [],
+    /** 有應用程式視窗的 pid（W 行）：前台應用程式 vs 背景處理程序 */
+    appPids: []
   }
   for (const row of rows) {
     const f = row.split('|')
@@ -503,6 +505,11 @@ function parseTick(rows) {
       case 'V': {
         const info = parseGpuInstance(f[1] || '')
         if (info) s.gpuMemory.push({ pid: info.pid, dedicated: num(f[2]), shared: num(f[3]) })
+        break
+      }
+      case 'W': {
+        const pid = num(f[1])
+        if (pid > 0) s.appPids.push(pid)
         break
       }
       case 'P':
@@ -589,11 +596,15 @@ function diffSamples(prev, curr, logicalCores) {
   }
 
   // ── 進程 ──────────────────────────────────────────────────────────
+  // 鍵帶上建立時間：同名程序很快重用同一個 pid（chrome 子程序常見）時，
+  // 不能拿上一個程序的累計 CPU 時間去減，會算成 0 或亂數
+  const procKey = (p) => `${p.pid}|${p.name}|${p.startedAt || 0}`
   const prevProcs = new Map()
-  if (prev) for (const p of prev.procs) prevProcs.set(`${p.pid}|${p.name}`, p)
+  if (prev) for (const p of prev.procs) prevProcs.set(procKey(p), p)
+  const appPids = new Set(curr.appPids || [])
 
   const processes = curr.procs.map((p) => {
-    const before = prevProcs.get(`${p.pid}|${p.name}`)
+    const before = prevProcs.get(procKey(p))
     let cpu = 0
     let diskRead = 0
     let diskWrite = 0
@@ -625,7 +636,8 @@ function diffSamples(prev, curr, logicalCores) {
       diskWrite,
       network: null,
       gpu: gpuByPid.get(p.pid) || 0,
-      gpuMemory: vram ? vram.dedicated : 0
+      gpuMemory: vram ? vram.dedicated : 0,
+      app: appPids.has(p.pid)
     }
   })
 
@@ -714,6 +726,7 @@ function mergeProcesses(list) {
     cur.diskRead += p.diskRead || 0
     cur.diskWrite += p.diskWrite || 0
     cur.network = cur.network == null || p.network == null ? null : cur.network + p.network
+    if (p.app) cur.app = true
     if (!cur.exePath && p.exePath) cur.exePath = p.exePath
     cur.gpu = Math.min(100, (cur.gpu || 0) + (p.gpu || 0))
     cur.gpuMemory += p.gpuMemory || 0
@@ -735,7 +748,9 @@ function cpuUsage(prev, curr) {
     const a = before.times
     const b = core.times
     const idle = b.idle - a.idle
-    const busy = (b.user - a.user) + (b.nice - a.nice) + (b.sys - a.sys) + (b.irq - a.irq)
+    // Windows 的 libuv：sys 已經是 KernelTime − IdleTime，而中斷時間本來就算在 KernelTime 裡；
+    // 再加 irq 等於重算一次（實測 user＋sys＋idle 剛好等於經過時間，irq 是多出來的）
+    const busy = (b.user - a.user) + (b.nice - a.nice) + (b.sys - a.sys)
     const total = idle + busy
     if (total <= 0) return 0
     return Math.max(0, Math.min(100, (busy / total) * 100))

@@ -172,8 +172,8 @@ native/
 - 即時字幕按開始後持有 `live` 引擎到停止／關窗；待機預熱切頁可釋放。語音輸入：右 Alt → 錄音 → ASR → 字典 → LLM 整理 → 插入；檔案轉錄 ffmpeg 串流切段，雲端 429／逾時／5xx 同段重試。
 
 ### 系統監控
-- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、沒人看 30 秒一輪；提權感測器 sidecar 走排程工作。總覽是左側欄列硬體（`#sysmonRail`：名稱＋主要讀數＋型號＋進度條，共用 `.settings-nav`），中間只顯示選到的那一種、所有段落全部攤開（頂端即時讀數黏住），右側 `#sysmonToc` 目錄跳段落並標出讀到哪（`sysmon-toc.js`），選擇記在 localStorage；多顆硬碟／多張顯示卡各收成一張卡（`devices` 欄位，展開後每個裝置一段，`mergeGpuBlocks`／`describeStorage`）（container query 掛在各卡，不掛在有下拉選單的分頁）。系統監控與 Local SI 都沒有頁首，子分頁就是頂排。效能與壓力測試同一分頁，即時儀表只有 `sysmon-oc.js` 那份。
-- 處理程序：記憶體欄是私有工作集（P 行第 15 欄，Rust 讀 `SYSTEM_PROCESS_INFORMATION` 0x08、ps1 讀 `WorkingSetPrivate`；工作集加總會重複算共用頁）；「I/O」欄是程序讀寫計數（含快取與管道，不是實體磁碟），表頭為總速率。`sysmon-procs.js` 管圖示與欄序；網路欄用感測器 sidecar 的 Kernel-Network ETW，未啟用顯示「—」。磁碟空間：`disk-tree` 平行掃＋treemap。
+- 取樣器 `axondeck-probe.exe sysmon` 開機常駐、看著時固定 2 秒一輪（不再提供頻率設定）、沒人看 30 秒一輪；提權感測器 sidecar 走排程工作。總覽是左側欄列硬體（`#sysmonRail`：名稱＋主要讀數＋型號＋進度條，共用 `.settings-nav`），中間只顯示選到的那一種、所有段落全部攤開（頂端即時讀數黏住），右側 `#sysmonToc` 目錄跳段落並標出讀到哪（`sysmon-toc.js`），選擇記在 localStorage；多顆硬碟／多張顯示卡各收成一張卡（`devices` 欄位，展開後每個裝置一段，`mergeGpuBlocks`／`describeStorage`）（container query 掛在各卡，不掛在有下拉選單的分頁）。系統監控與 Local SI 都沒有頁首，子分頁就是頂排。效能與壓力測試同一分頁，即時儀表只有 `sysmon-oc.js` 那份。
+- 處理程序：清單分「應用程式／背景處理程序」兩段（`splitProcessRows`）：probe 每輪送 `W|pid`（`apps.rs`：看得見、無擁有者、非工具視窗、有標題、沒被 DWM 隱藏的頂層視窗；UWP 取外框裡的子視窗 pid；頂層 CoreWindow 是系統介面不算），同名組任一成員有視窗就算應用程式。欄位說明放在表頭 title，選中程序的資訊在工具列同一行。記憶體欄是私有工作集（P 行第 15 欄，Rust 讀 `SYSTEM_PROCESS_INFORMATION` 0x08、ps1 讀 `WorkingSetPrivate`；工作集加總會重複算共用頁）；「I/O」欄是程序讀寫計數（含快取與管道，不是實體磁碟），表頭為總速率。`sysmon-procs.js` 管圖示與欄序；網路欄用感測器 sidecar 的 Kernel-Network ETW，未啟用顯示「—」。磁碟空間：`disk-tree` 平行掃＋treemap。
 
 ### 設定頁
 - 六區全部自動儲存。雲端模型只有一份 `cloudProviders`（`cloud-providers.js`），每顆模型帶用途（`cloud-model-types.mjs`：chat／image／asr／tts…），寫入時投影回 `chatProviders` 與 `asrClouds`。全新設定預設一組空的 OpenRouter；AGY 啟動時 `syncAntigravity` 自動加入。

@@ -10,12 +10,12 @@
  */
 
 import { electronAPI } from './app.js'
-import { initCustomSelects, syncCustomSelects } from './custom-select.js'
+import { initCustomSelects } from './custom-select.js'
 import { showFanPanel, hideFanPanel } from './sysmon-fans.js'
 import { showOcPanel, hideOcPanel, onOcSample } from './sysmon-oc.js'
 import { showScreentimePanel, hideScreentimePanel } from './sysmon-screentime.js'
 import { showDiskPanel, hideDiskPanel } from './sysmon-disk.js'
-import { createProcessTable, sortProcessRows, isProcessSortKey } from './sysmon-procs.js'
+import { createProcessTable, sortProcessRows, splitProcessRows, isProcessSortKey } from './sysmon-procs.js'
 import { createSectionToc } from './sysmon-toc.js'
 
 const HISTORY = 120
@@ -35,6 +35,8 @@ const state = {
   selectedPid: null,
   /** @type {any[]} */
   rows: [],
+  /** @type {any[]} 實際畫出來的列：rows 依「應用程式／背景處理程序」切兩段、各帶一列段落標題 */
+  viewRows: [],
   scrollTop: 0,
   benching: false,
   inventoryPolling: false,
@@ -1763,6 +1765,7 @@ function rebuildRows() {
       || (Array.isArray(p.pids) && p.pids.some((id) => String(id).includes(needle))))
   }
   state.rows = sortProcessRows(list, state.sortKey, state.sortDir)
+  state.viewRows = splitProcessRows(state.rows)
   updateHeadSort()
   const count = $('sysmonProcCount')
   if (count) {
@@ -1776,7 +1779,7 @@ function rebuildRows() {
     state.selectedPid = null
     updateKillButtons()
     const box = $('sysmonDetail')
-    if (box) box.textContent = '程序已結束。'
+    if (box) { box.textContent = '程序已結束。'; box.title = '' }
   }
   renderVisibleRows()
 }
@@ -1791,7 +1794,7 @@ function selectPid(pid) {
   renderVisibleRows()
   updateKillButtons()
   const box = $('sysmonDetail')
-  if (box) box.textContent = '讀取中…'
+  if (box) { box.textContent = '讀取中…'; box.title = '' }
   electronAPI.sysmon.detail(pid).then((res) => {
     if (state.selectedPid !== pid || !box) return
     const d = res?.ok ? res.data : null
@@ -1800,18 +1803,18 @@ function selectPid(pid) {
       return
     }
     const group = state.rows.find((p) => p.pid === pid)
-    const extra = (group?.count || 1) > 1
-      ? `同名 ${group.count} 個：PID ${group.pids.join('、')}`
-      : ''
+    const many = (group?.count || 1) > 1
     const bits = [
       `PID ${d.pid}`,
-      extra,
+      many ? `同名 ${group.count} 個` : '',
       d.description || d.name,
       d.company ? `發行者：${d.company}` : '',
       d.owner ? `使用者：${d.owner}` : '',
       d.path || ''
     ].filter(Boolean)
+    // 工具列只有一行：同名的整串 PID 放滑鼠提示，不擠掉後面的發行者與路徑
     box.textContent = bits.join(' · ')
+    box.title = [...bits, many ? `PID：${group.pids.join('、')}` : ''].filter(Boolean).join('\n')
   })
 }
 
@@ -1855,7 +1858,7 @@ async function doKill() {
     state.selectedPid = null
     updateKillButtons()
     const box = $('sysmonDetail')
-    if (box) box.textContent = ''
+    if (box) { box.textContent = ''; box.title = '' }
     showError('')
   } else {
     showError(res?.error?.message || '結束處理程序失敗')
@@ -2574,12 +2577,6 @@ export function initSysmonPage() {
   $('sysmonKillConfirm')?.addEventListener('click', doKill)
   $('sysmonKillCancel')?.addEventListener('click', () => $('sysmonKillDialog')?.close())
 
-  $('sysmonInterval')?.addEventListener('change', (e) => {
-    state.intervalKey = e.target.value
-    electronAPI.store.set('sysmonInterval', state.intervalKey)
-    if (state.active) electronAPI.sysmon.start(state.intervalKey)
-  })
-
   $('sysmonSensorsBtn')?.addEventListener('click', () => enableSensors())
 
   // 縮到系統匣／被完全遮住時 onSample 本來就不畫，取樣也跟著放慢
@@ -2662,17 +2659,10 @@ export function initSysmonPage() {
   }
 
   Promise.all([
-    electronAPI.store.get('sysmonInterval', 'normal'),
     electronAPI.store.get('sysmonSort', 'cpu:desc'),
     electronAPI.store.get('sysmonSensors', true)
-  ]).then(([interval, sort, sensorsAuto]) => {
+  ]).then(([sort, sensorsAuto]) => {
     state.sensorsAuto = sensorsAuto !== false
-    state.intervalKey = ['fast', 'normal', 'slow'].includes(interval) ? interval : 'normal'
-    const select = $('sysmonInterval')
-    if (select) {
-      select.value = state.intervalKey
-        syncCustomSelects()
-    }
     const [key, dir] = String(sort || '').split(':')
     if (isProcessSortKey(key)) {
       state.sortKey = key

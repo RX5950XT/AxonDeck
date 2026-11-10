@@ -12,7 +12,7 @@
  *
  * **絕不結束使用者的任何處理程序**：只驗按鈕與彈窗的狀態，真正的 kill 由
  * `npx electron scripts/e2e-sysmon.js` 用它自己 spawn 的子程序覆蓋。
- * 會改到 `sysmonInterval`／`sysmonSort`／`sysmonSensors` 三個 store key，開頭讀下來、finally 寫回。
+ * 會改到 `sysmonSort`／`sysmonSensors` 兩個 store key，開頭讀下來、finally 寫回。
  */
 const { spawn, spawnSync } = require('child_process')
 const path = require('path')
@@ -28,7 +28,7 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-
 // 沒有自己的資料夾會被擋掉（second-instance 轉交後退出，CDP 等不到主視窗）
 const USER_DATA_DIR = tempDir('axondeck-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
-const RESTORE_KEYS = ['sysmonInterval', 'sysmonSort', 'sysmonSensors']
+const RESTORE_KEYS = ['sysmonSort', 'sysmonSensors']
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getJson(url) {
@@ -408,7 +408,7 @@ async function main() {
     await cdp.eval(`document.querySelector('.sysmon-tab[data-subtab="processes"]').click()`)
     await sleep(400)
     const table = await cdp.eval(`(() => {
-      const rows = document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden)')
+      const rows = document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden):not(.is-group)')
       const spacer = document.getElementById('sysmonSpacer')
       const count = document.getElementById('sysmonProcCount').textContent
       const total = Number((count.match(/(\\d+)\\s*個/) || [])[1] || 0)
@@ -420,13 +420,17 @@ async function main() {
         groups: Number((count.match(/(\\d+)\\s*組/) || [])[1] || 0),
         total,
         cols: document.querySelectorAll('#sysmonHead .sysmon-th').length,
+        // 「應用程式」「背景處理程序」段落標題各占一列
+        sections: [...document.querySelectorAll('#sysmonRows .sysmon-row.is-group:not(.hidden)')].map((r) => r.textContent),
         firstCells: rows[0] ? [...rows[0].children].map((c) => c.textContent) : []
       }
     })()`)
     ok('列出的是整台機器的所有處理程序', table.total > 100, String(table.total))
     ok('spacer 撐出同名合併後的完整高度', table.groups > 0 && table.groups <= table.total
-      && table.rowHeight > 0 && Math.abs(table.spacerHeight - table.groups * table.rowHeight) < 1,
+      && table.rowHeight > 0 && Math.abs(table.spacerHeight - (table.groups + 2) * table.rowHeight) < 1,
       JSON.stringify(table))
+    ok('分成應用程式與背景處理程序兩段', table.sections.length >= 1
+      && table.sections[0].startsWith('應用程式'), JSON.stringify(table.sections))
     ok('虛擬捲動：DOM 節點遠少於總列數', table.domRows < 60 && table.domRows < table.groups,
       `DOM ${table.domRows} / 組 ${table.groups}`)
     ok('有九個欄位（含網路）', table.cols === 9, String(table.cols))
@@ -443,7 +447,7 @@ async function main() {
     const afterScroll = await cdp.eval(`(() => ({
       domRows: document.querySelectorAll('#sysmonRows .sysmon-row').length,
       transform: document.getElementById('sysmonRows').style.transform,
-      firstPid: document.querySelector('#sysmonRows .sysmon-row:not(.hidden)')?.dataset.pid || ''
+      firstPid: document.querySelector('#sysmonRows .sysmon-row:not(.hidden):not(.is-group)')?.dataset.pid || ''
     }))()`)
     ok('捲到底之後節點數沒有暴增', afterScroll.domRows < 60, String(afterScroll.domRows))
     ok('捲動是靠 transform 位移', /translateY\([1-9]/.test(afterScroll.transform), afterScroll.transform)
@@ -453,7 +457,7 @@ async function main() {
     // ── 排序 ────────────────────────────────────────────────────
     const sortState = async () => cdp.eval(`(() => {
       const th = document.querySelector('#sysmonHead .sysmon-th.is-sorted')
-      const rows = [...document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden)')]
+      const rows = [...document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden):not(.is-group)')]
       return {
         key: th?.dataset.key || '',
         aria: th?.getAttribute('aria-sort') || '',
@@ -510,7 +514,7 @@ async function main() {
     await sleep(200)
     const filtered = await cdp.eval(`(() => ({
       count: document.getElementById('sysmonProcCount').textContent,
-      names: [...document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden)')]
+      names: [...document.querySelectorAll('#sysmonRows .sysmon-row:not(.hidden):not(.is-group)')]
         .map((r) => r.querySelector('[data-key="name"]')?.textContent || '')
     }))()`)
     ok('搜尋會過濾', filtered.count !== beforeFilter && filtered.count.includes('/'),
@@ -535,7 +539,7 @@ async function main() {
     ok('沒選列時強制結束是 disabled', beforeSelect.kill, JSON.stringify(beforeSelect))
 
     const selected = await cdp.eval(`(() => {
-      const row = document.querySelector('#sysmonRows .sysmon-row:not(.hidden)')
+      const row = document.querySelector('#sysmonRows .sysmon-row:not(.hidden):not(.is-group)')
       row.click()
       return {
         pid: row.dataset.pid,
@@ -674,18 +678,6 @@ async function main() {
     ok('停得下來',
       (await cdp.eval(`document.getElementById('sysmonStressStart').disabled`)) === false)
 
-    // ── 取樣間隔 ────────────────────────────────────────────────
-    await cdp.eval(`(() => {
-      const s = document.getElementById('sysmonInterval')
-      s.value = 'slow'
-      s.dispatchEvent(new Event('change'))
-    })()`)
-    await sleep(300)
-    ok('取樣間隔寫回 store',
-      (await cdp.eval(`window.electronAPI.store.get('sysmonInterval', '')`)) === 'slow')
-    ok('main 的狀態跟著換',
-      (await cdp.eval(`(async () => (await window.electronAPI.sysmon.status()).data.intervalKey)()`)) === 'slow')
-
     // ── 離開分頁後取樣器仍在跑 ──────────────────────────────────
     await cdp.eval(`document.querySelector('[data-page="chat"]').click()`)
     await sleep(500)
@@ -729,7 +721,7 @@ async function main() {
         await cdp.eval(`(async () => {
           const orig = ${JSON.stringify(original)}
           // 原本沒設過的 key 要寫回預設值，不能留著測試中途改出來的值
-          const defaults = { sysmonInterval: 'normal', sysmonSort: 'cpu:desc', sysmonSensors: true }
+          const defaults = { sysmonSort: 'cpu:desc', sysmonSensors: true }
           for (const [k, v] of Object.entries(orig)) {
             await window.electronAPI.store.set(k, v === null ? defaults[k] : v)
           }

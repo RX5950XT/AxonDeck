@@ -22,7 +22,7 @@ assert.equal(metrics.mergeProcesses([p, { ...p, pid: 13, exePath: 'C:\\demo.exe'
 
 const source = fs.readFileSync('src/renderer/scripts/sysmon-procs.js', 'utf8').replace(/^export /gm, '')
 const context = vm.createContext({ btoa })
-vm.runInContext(source + '\nthis.api = { normalizeOrder, moveColumn, processTotals, networkRate, ioRate, safeIcon, sortProcessRows, createProcessTable };', context)
+vm.runInContext(source + '\nthis.api = { normalizeOrder, moveColumn, processTotals, networkRate, ioRate, safeIcon, sortProcessRows, splitProcessRows, createProcessTable };', context)
 const { api } = context
 assert.equal(api.normalizeOrder(['cpu', 'name', 'cpu', 'bad'])[0], 'name')
 assert.equal(new Set(api.normalizeOrder(['cpu', 'cpu'])).size, 9)
@@ -113,3 +113,15 @@ assert.equal(elements.sysmonHead.children[0].dataset.key, 'name')
 context.localStorage = { getItem() { throw new Error('disabled') }, setItem() { throw new Error('disabled') } }
 assert.doesNotThrow(() => api.createProcessTable({ state, $: () => null }))
 console.log('PASS 虛擬列、圖示節點、選取、群組 PID、拖曳／鍵盤欄序、保存與排序事件')
+
+const split = api.splitProcessRows([{ pid: 1, app: false }, { pid: 2, app: true }, { pid: 3, app: false }])
+assert.equal(JSON.stringify(split.map((r) => r.header || r.pid)), JSON.stringify(['應用程式', 2, '背景處理程序', 1, 3]))
+assert.equal(split[2].count, 2)
+assert.equal(JSON.stringify(api.splitProcessRows([{ pid: 1 }]).map((r) => r.header || r.pid)), JSON.stringify(['背景處理程序', 1]), '沒有應用程式就不出空段落')
+state.viewRows = split; state.scrollTop = 0; selected = null
+table.renderRows()
+const head = elements.sysmonRows.children[0]
+assert.equal(head.classList.contains('is-group'), true)
+head.listeners.click(); assert.equal(selected, null, '段落標題不可選')
+assert.equal(elements.sysmonRows.children[1].classList.contains('is-group'), false, '重用節點要拿掉標題樣式')
+console.log('PASS 應用程式／背景處理程序分段')

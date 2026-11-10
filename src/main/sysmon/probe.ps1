@@ -528,6 +528,10 @@ function Emit-Tick([string]$seq) {
     $started = if ($image.CreationDate) { [long]([DateTimeOffset]$image.CreationDate).ToUnixTimeMilliseconds() } else { 0 }
     "P|$($p.IDProcess)|$($p.Name)|$($p.PercentProcessorTime)|$($p.Timestamp_Sys100NS)|$($p.WorkingSet)|$($p.PrivateBytes)|$($p.ThreadCount)|$($p.IOReadBytesPersec)|$($p.IOWriteBytesPersec)|$($p.HandleCount)|$($p.CreatingProcessID)|$(Esc $image.ExecutablePath)|$started|$($p.WorkingSetPrivate)"
   }
+  # 退路版的「應用程式」判定：有主視窗（.NET 的 MainWindowHandle，跟 Rust 版的規則相近）
+  $rows += foreach ($w in @(Get-Process -EA SilentlyContinue)) {
+    if ($w.MainWindowHandle -ne [IntPtr]::Zero) { "W|$($w.Id)" }
+  }
 
   [Console]::Out.Write("#B tick $seq`n" + ($rows -join "`n") + "`n#E tick $seq`n")
 }

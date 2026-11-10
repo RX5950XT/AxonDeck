@@ -64,6 +64,10 @@ pub fn emit(con: Option<&WMIConnection>, st: &mut TickState) -> String {
         let _ = writeln!(s, "V|{}|{}|{}", v.raw("Name"), v.raw("DedicatedUsage"), v.raw("SharedUsage"));
     }
     proc_rows(&mut st.proc_buf, &mut st.proc_paths, &mut s);
+    // 有應用程式視窗的 pid：清單據此分成「應用程式」與「背景處理程序」
+    for pid in crate::apps::app_pids() {
+        let _ = writeln!(s, "W|{pid}");
+    }
     s
 }
 

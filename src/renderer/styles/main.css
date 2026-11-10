@@ -9172,22 +9172,6 @@ h6.md-h { font-size: 14px; }
   flex-wrap: wrap;
 }
 
-.sysmon-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-left: auto;
-}
-
-.sysmon-interval {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
 .sysmon-note {
   display: flex;
   align-items: center;
@@ -10360,7 +10344,6 @@ h6.md-h { font-size: 14px; }
 }
 
 .sysmon-search { width: min(280px, 100%); }
-.sysmon-proc-spacer { flex: 1 1 auto; }
 
 .sysmon-proc-count {
   color: var(--text-tertiary);
@@ -10443,11 +10426,12 @@ h6.md-h { font-size: 14px; }
 .sysmon-th.is-sorted .sysmon-sort-arrow { opacity: 1; }
 .sysmon-th.is-sorted.is-asc .sysmon-sort-arrow { transform: rotate(180deg); }
 
-/* 虛擬捲動：外層固定高度並捲動，spacer 撐出總高，rows 用 transform 定位 */
+/* 虛擬捲動：外層固定高度並捲動，spacer 撐出總高，rows 用 transform 定位。
+   高度撐到視窗底（扣掉標題列、子分頁、工具列與表頭），清單是這一頁的主體 */
 .sysmon-tbody {
   position: relative;
   min-width: 850px;
-  height: min(56vh, 620px);
+  height: max(320px, calc(100vh - 300px));
   overflow: hidden auto;
 }
 
@@ -10473,6 +10457,15 @@ h6.md-h { font-size: 14px; }
   background: var(--accent-soft);
 }
 
+/* 「應用程式」「背景處理程序」段落標題：不可選、不顯示圖示 */
+.sysmon-row.is-group { cursor: default; }
+.sysmon-row.is-group:hover { background: transparent; }
+.sysmon-row.is-group .sysmon-td[data-key="name"] {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.sysmon-row.is-group .sysmon-proc-icon { display: none; }
+
 .sysmon-td {
   padding: 0 10px;
   color: var(--text-secondary);
@@ -10488,18 +10481,15 @@ h6.md-h { font-size: 14px; }
 .sysmon-proc-icon { flex: 0 0 16px; object-fit: contain; }
 .sysmon-td.is-hot { color: var(--text-primary); font-weight: 600; }
 
+/* 選中程序的資訊：擠在工具列同一行，不另外佔高度；完整內容在 title */
 .sysmon-detail {
-  margin: 10px 0 0;
-  min-height: 18px;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--text-tertiary);
   font-size: 12px;
-  word-break: break-all;
-}
-
-.sysmon-proc-note {
-  margin: 6px 0 0;
-  min-height: 0;
-  word-break: normal;
 }
 
 /* ── 壓力測試 ───────────────────────────────────────────────────── */

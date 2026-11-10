@@ -19,7 +19,7 @@ const PORT = 9261
 const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '..', 'dist', 'win-unpacked', 'AxonDeck.exe')
 const USER_DATA_DIR = tempDir('axondeck-cdp-')
 fs.writeFileSync(path.join(USER_DATA_DIR, 'config.json'), JSON.stringify({ sysmonSensors: false }))
-const RESTORE_KEYS = ['sysmonInterval', 'sysmonSort', 'sysmonSensors']
+const RESTORE_KEYS = ['sysmonSort', 'sysmonSensors']
 const POWERSHELL = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 const SHOT_DIR = 'C:/Users/rx595/AppData/Local/Temp/claude/D--Workspace-Personal-Project-VoiceInk/d98f4901-bac1-487a-8ef0-81a53369b2ea/scratchpad'
 const A = 3 * 1024 * 1024
@@ -422,7 +422,7 @@ async function main() {
       try {
         await cdp.eval(`(async () => {
           const orig = ${JSON.stringify(original)}
-          const defaults = { sysmonInterval: 'normal', sysmonSort: 'cpu:desc', sysmonSensors: true }
+          const defaults = { sysmonSort: 'cpu:desc', sysmonSensors: true }
           for (const [key, value] of Object.entries(orig)) {
             await window.electronAPI.store.set(key, value === null ? defaults[key] : value)
           }

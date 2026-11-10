@@ -180,13 +180,13 @@ async function run() {
   assert.deepEqual(await evaluate('window.saved'), ['#room0', '#room1', '#room2', '#room3'].map((hash) => `https://web.telegram.org/a/${hash}`))
   console.log('PASS 閒置只收乾淨的非第一格；切回來回到原本的聊天室')
   await evaluate(`Promise.all([...document.querySelectorAll('webview')].map(v =>
-    v.executeJavaScript('document.body.insertAdjacentHTML("beforeend", "<div id=ConnectionStatusOverlay>等待網路連線</div>")')))`)
+    v.executeJavaScript('document.body.insertAdjacentHTML("beforeend", "<div class=MiddleHeader><span class=status>更新中</span></div>")')))`)
   await evaluate('window.loads = []; window.watch()')
   await evaluate('window.clock += 61000; window.watch()')
-  assert.ok(await evaluate('window.loads.length > 0'), '前景持續斷線仍會復原')
+  assert.ok(await evaluate('window.loads.length > 0'), '前景持續卡在更新中仍會復原')
   await until(`[...document.querySelectorAll('webview')].every((v,i) =>
     !v.isLoading() && v.getURL().endsWith('#room' + i))`)
-  console.log('PASS 前景持續斷線仍重連原本四個聊天室')
+  console.log('PASS 前景持續卡在更新中仍重連原本四個聊天室')
   await evaluate(`${panes}[0].dataset.src = 'https://web.telegram.org/a/#cold'`)
   await pages.navigate({ page: 'settings' })
   await pages.navigate({ page: 'chat' })

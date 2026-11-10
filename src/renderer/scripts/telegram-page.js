@@ -21,9 +21,10 @@ const WATCH_EVERY_MS = 20000
 const STUCK_MS = 60000
 // 全部重載之間至少隔這麼久：網路真的不通時不要每分鐘重載一次
 const RELOAD_ALL_GAP_MS = 5 * 60 * 1000
-// 在格子裡跑：連得上網，卻顯示「等待網路連線」（左欄的提示框，或聊天室標題下的狀態字）
+// 在格子裡跑：連得上網，卻顯示「等待網路連線」或「更新中」（左欄的提示框，或聊天室標題下的狀態字）。
+// 「更新中」是 Web A 的同步（sync／getDifference）卡住：它自己 30 秒的補救失敗後就永遠停在這，新訊息也不進來
 const STUCK_PROBE = `navigator.onLine && !!(document.getElementById('ConnectionStatusOverlay') ||
-  [...document.querySelectorAll('.MiddleHeader .status')].some((el) => /等待網路|等待网络|waiting for network/i.test(el.textContent)))`
+  [...document.querySelectorAll('.MiddleHeader .status')].some((el) => /等待網路|等待网络|waiting for network|更新中|正在更新|updating/i.test(el.textContent)))`
 
 // 在格子裡跑：外部連結搶在 Web A 前面直接 window.open（main 轉到 AI 頁的 Browser 模式），跳過「確定要開啟？」確認框；
 // t.me 這類 Telegram 自己的連結留給 Web A 在 App 內開聊天室
@@ -232,7 +233,7 @@ async function watchStuck() {
   } else if (!stuckSince) {
     stuckSince = Date.now()
   } else if (Date.now() - stuckSince >= STUCK_MS) {
-    reloadAll('卡在等待網路連線')
+    reloadAll('卡在等待網路連線或更新中')
   }
 }
 

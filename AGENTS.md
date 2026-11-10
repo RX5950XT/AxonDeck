@@ -74,7 +74,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - `electron:pack` 中途失敗會留下壞 `dist/win-unpacked`：整個刪掉重打。worktree 打包要實體 `node_modules`（junction 會漏 node-pty 原生檔）。
 - NSIS warning 會被當錯誤（`installer.nsh` 安裝／解除安裝各編譯一次，只在 `customInstall` 用的 `Var` 會報 6001）；別把 `tail` 的 exit code 當建置成功。
 - 更新：`disableDifferentialDownload` 必須開（GitHub 逐段序列下載慢 36 倍）；`nsis.artifactName` 不能改回預設；`.exe` 走 `update-mirrors.js` 鏡像、`latest.yml` 只從 GitHub 讀。回歸 `test-updater.js`。
-- 手動「重新啟動並安裝」不可改回 `/S`（兩三分鐘沒畫面，使用者重開機會把 App 弄沒）；結束 App 時的 `installOnQuit` 保留靜默；Windows 關機／登出不開安裝程式。`installOnQuit()` 要在 `app.exit(0)` 前一行。
+- 手動「重新啟動並安裝」不可改回 `/S`（兩三分鐘沒畫面，使用者重開機會把 App 弄沒）；結束 App 時的 `installOnQuit` 保留靜默；Windows 關機／登出不開安裝程式。`installOnQuit()` 要在 `app.exit(0)` 前一行。安裝完開回 App 的 `StartApp` 開 `$appExe`，不可改回 `$launchLink`（剛重寫的捷徑檔案總管會找不到，App 沒開回來）。
 - `app.setAppUserModelId('com.voiceink.app')` 要在搶鎖前；改 AUMID 會讓開機自啟動值變孤兒（`migrateLoginItemName`）。更新後捷徑變白紙由 `installer.nsh` 的 `customInstall` 重寫。
 - v1.40 由 VoiceInk 改名 AxonDeck。刻意留舊名（改了升級會斷）：`com.voiceink.app`（NSIS 解除安裝 GUID、捷徑 AUMID、開機自啟動值名）、userData 已有 `%APPDATA%\voiceink` 就沿用（設定裡存絕對路徑）、媒體 ProgID `VoiceInk.Media.*`（UserChoice 雜湊綁 ProgID）。GitHub repo 已改名 AxonDeck，舊網址（含舊版 App 的 `releases.atom`／`latest.yml`）靠 GitHub 自動轉址——**永遠不要再建名為 VoiceInk 的 repo**，否則轉址失效、舊版收不到更新。其餘舊名殘留由各模組啟動時清掉（Claude hooks、更新快取、工作列釘選、感測器排程、媒體登錄檔）。
 

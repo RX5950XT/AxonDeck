@@ -80,6 +80,12 @@
 !macroend
 
 ; 完成頁：更新時直接把 App 開回來、安裝視窗自己關掉；全新安裝照舊顯示「執行 AxonDeck」勾選框
+;
+; 開的是 $appExe，**不是** electron-builder 預設的 $launchLink（開始功能表捷徑）：
+; ExecShellAsUser 是請檔案總管代開，customInstall 才剛重寫完那份 .lnk，檔案總管偶爾就是
+; 找不到它，跳「Windows 找不到 '...\AxonDeck.lnk'」，App 沒被開回來＝使用者以為更新完 App 不見了
+; （實際發生過）。exe 是剛解出來的、一定在；工作列身分由 main.js 的 setAppUserModelId 自己設好，
+; 不靠捷徑上的 AUMID。
 !macro customFinishPage
   Function StartApp
     ${if} ${isUpdated}
@@ -87,7 +93,7 @@
     ${else}
       StrCpy $1 ""
     ${endif}
-    ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+    ${StdUtils.ExecShellAsUser} $0 "$appExe" "open" "$1"
   FunctionEnd
 
   Function axonDeckFinishPre

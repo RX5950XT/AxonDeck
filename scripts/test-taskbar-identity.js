@@ -92,4 +92,9 @@ assert.ok(
 const ignored = spawnSync('git', ['check-ignore', '-q', 'build/installer.nsh'], { cwd: root })
 assert.notStrictEqual(ignored.status, 0, '[F] build/installer.nsh 仍然被 .gitignore 擋掉（要改成 build/* ＋ !build/installer.nsh）')
 
-console.log('test-taskbar-identity: 全部通過（[A][B][C][D][E][F]）')
+// [G] 安裝完把 App 開回來要開 exe，不可以開剛重寫的捷徑（檔案總管偶爾找不到，跳「Windows 找不到 AxonDeck.lnk」）
+const startApp = nsh.slice(nsh.indexOf('Function StartApp'), nsh.indexOf('FunctionEnd', nsh.indexOf('Function StartApp')))
+assert.ok(/ExecShellAsUser\}\s+\$0\s+"\$appExe"/.test(startApp), '[G] StartApp 沒有直接開 $appExe')
+assert.ok(!/\$launchLink/.test(startApp), '[G] StartApp 還在開 $launchLink（捷徑）')
+
+console.log('test-taskbar-identity: 全部通過（[A][B][C][D][E][F][G]）')

@@ -185,6 +185,7 @@ native/
 - 各格同時載；用 `opacity:0`＋`position:absolute` 藏（display:none 會丟圖塊，`parkPane`）。每 20 秒探各格，卡在「等待網路連線」或「更新中」（Web A 同步卡死）60 秒或當掉就依序重載；當機記到 `userData/crash.log`。
 - 記住的聊天室（`dataset.src`→`telegramPanes`）只在看得到（`pageVisible`、`paneVisible` 且 `!document.hidden`）時更新；載入後 15 秒內（`SETTLE_MS`）回列表不算使用者去的，穩定後還在列表也不蓋掉，只標 `bounced` 不再重載。切回發現網址被改：先 about:blank 再整頁載回。
 - 前景狀態：`pageVisible`、`paneVisible`、`!document.hidden` 且 App 視窗有焦點（main 廣播 `pages:appFocus`）時，每格都對 Web A 維持前景；其餘交回背景。
+- 右鍵：訊息上 Web A 自己接（含「複製所選文字」）；其他地方（輸入框、標題、連結、反白）走 `web-context-menu.js`，跟網頁版 AI 同一套（含 F5）。實測 `scripts/probe-telegram-copy.js`（只開「儲存的訊息」）。
 - 閒置釋放：看不到超過 1 小時，第一格以外導到 about:blank（第一格留著連線收通知）；有草稿、往上翻著、正在出聲的不收。切回照 `dataset.src` 載回。
 
 ## 資料落點（`%APPDATA%/axondeck/`，舊安裝沿用 `%APPDATA%/voiceink`）

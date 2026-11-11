@@ -634,6 +634,10 @@ function bindDrawer() {
     byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {keyof typeof DRAWERS} */ (key)))
   }
   document.addEventListener('pointerdown', onOutsidePointer, true)
+  // 點進網頁（Telegram、網頁版 AI）時滑鼠事件只到網頁裡、這邊收不到 pointerdown；焦點會落到 <webview> 上，看這個
+  document.addEventListener('focusin', (event) => {
+    if (drawerOpen && event.target instanceof Element && event.target.tagName === 'WEBVIEW') setDrawer('')
+  })
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !drawerOpen || document.querySelector('dialog[open]')) return
     const { button } = DRAWERS[drawerOpen]

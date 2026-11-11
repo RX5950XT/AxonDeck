@@ -2735,6 +2735,10 @@ app.on('web-contents-created', (_event, contents) => {
     attachWebMenu(contents, hostWindow, isBrowser)
     if (!isBrowser) require('./ai-web').installRenderBoost(contents, aiWebPartitions.get(contents.session).slice('persist:ai-'.length))
   }
+  // Telegram：訊息上的右鍵 Web A 自己接（複製所選文字等）；其他地方（輸入框、標題、連結、反白的字）沒選單，補上同一套
+  if (contents.getType() === 'webview' && contents.session === session.fromPartition('persist:telegram')) {
+    attachWebMenu(contents, () => null, false)
+  }
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
   if (contents.getType() === 'webview') {

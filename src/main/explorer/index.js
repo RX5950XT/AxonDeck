@@ -39,6 +39,8 @@ let emit = () => {}
 
 /** @type {{ mode: 'copy'|'cut', paths: string[] }} */
 let clip = { mode: 'copy', paths: [] }
+/** 放進 clip 當下系統剪貼簿的樣子：之後變了＝使用者又在 Windows 檔案總管複製過，以系統那份為準 */
+let clipSystemSig = ''
 
 /**
  * @param {{ userDataPath?: string, send?: (channel: string, payload: any) => void }} opts
@@ -690,6 +692,7 @@ async function setClipboard(items, mode) {
   }
   // 壓縮檔裡、手機裡是唯讀的：剪下一律當複製（貼上＝解壓縮／從手機複製出來）
   clip = { mode: mode === 'cut' && !zipped ? 'cut' : 'copy', paths: next }
+  clipSystemSig = systemClipSig()
   return { count: clip.paths.length, mode: clip.mode }
 }
 
@@ -716,7 +719,7 @@ async function paste(toDir) {
   if (phonePaths.length && trashed) throw paths.fail('BAD_PATH', '手機裡的檔案不能丟進資源回收筒')
   const extracted = zippedPaths.length ? (await zipOps.extract(zippedPaths, destination)).paths : []
   if (phonePaths.length) await mtp.copyOut(phonePaths, destination)
-  if (!sources.length) return { trashed, paths: extracted, status: 'completed', items: [] }
+  if (!sources.length) return { trashed, mode: clipboard.mode, paths: extracted, sources: [], status: 'completed', items: [] }
   const result = await operations.run({
     mode: trashed ? 'trash' : clipboard.mode === 'cut' ? 'move' : 'copy',
     destination,
@@ -727,7 +730,86 @@ async function paste(toDir) {
     const completed = new Set(result.items.filter((item) => item.status === 'completed').map((item) => item.source))
     clip = { ...clipboard, paths: clipboard.paths.filter((item) => !completed.has(item)) }
   }
-  return operationResult(result, { trashed })
+  return operationResult(result, { trashed, mode: clipboard.mode })
+}
+
+// ===== 系統剪貼簿（Windows 檔案總管複製／剪下的檔案）=====
+// Electron 讀不到 CF_HDROP 整份清單：清單由 renderer 的 paste 事件給（`clipboardData.files`），
+// main 這邊只用 FileNameW（第一個檔）判斷「有沒有檔案」、Preferred DropEffect 判斷剪下還是複製。
+
+function systemClipboard() {
+  // require 寫在函式裡：單元測試用 Module._load mock electron
+  const electron = require('electron')
+  return electron && electron.clipboard
+}
+
+function systemClipSig() {
+  const cb = systemClipboard()
+  if (!cb) return ''
+  try {
+    return [cb.availableFormats().join(','), cb.readBuffer('FileNameW').toString('hex'), cb.readText()].join('|')
+  } catch {
+    return ''
+  }
+}
+
+function systemHasFiles() {
+  try {
+    return systemClipboard().readBuffer('FileNameW').length > 0
+  } catch {
+    return false
+  }
+}
+
+/** Preferred DropEffect：2＝剪下（DROPEFFECT_MOVE），5／1＝複製；讀不到當複製 */
+function systemClipMode() {
+  try {
+    const buf = systemClipboard().readBuffer('Preferred DropEffect')
+    const effect = buf.length >= 4 ? buf.readUInt32LE(0) : 0
+    return (effect & 2) && !(effect & 1) ? 'cut' : 'copy'
+  } catch {
+    return 'copy'
+  }
+}
+
+/** 系統剪貼簿是不是比 App 自己那份新 */
+function systemIsNewer() {
+  if (!systemHasFiles()) return false
+  return !clip.paths.length || systemClipSig() !== clipSystemSig
+}
+
+/**
+ * 剪貼簿狀態（專案檔案樹決定「貼上」能不能按）。source=system 時 count 不準（只知道有），給 -1。
+ */
+function clipboardState() {
+  if (systemIsNewer()) return { count: -1, mode: systemClipMode(), source: 'system' }
+  return { count: clip.paths.length, mode: clip.mode, source: 'app' }
+}
+
+/**
+ * 貼上：系統剪貼簿比較新而且 renderer 有給檔案清單就貼系統那份，否則照 App 剪貼簿。
+ * @param {unknown} toDir
+ * @param {unknown} systemPaths renderer paste 事件讀到的絕對路徑
+ */
+async function pasteAny(toDir, systemPaths) {
+  const list = Array.isArray(systemPaths) ? systemPaths.filter((p) => typeof p === 'string' && p) : []
+  if (!list.length || !systemIsNewer()) return paste(toDir)
+  const destination = paths.resolveExisting(toDir)
+  const sources = []
+  for (const item of list.slice(0, 50)) {
+    const full = paths.resolveExisting(item)
+    const a = full.toLowerCase()
+    const b = destination.toLowerCase()
+    if (b === a || b.startsWith(a + path.sep)) throw paths.fail('BAD_PATH', '不能把資料夾貼進它自己底下')
+    sources.push(full)
+  }
+  const mode = systemClipMode()
+  const result = await operations.run({ mode: mode === 'cut' ? 'move' : 'copy', destination, sources })
+  // 剪下貼完比照 Windows：清掉剪貼簿，免得再貼一次去找已經搬走的檔案
+  if (mode === 'cut' && result.status === 'completed') {
+    try { systemClipboard().clear() } catch { /* 清不掉不影響已搬完的檔案 */ }
+  }
+  return operationResult(result, { mode })
 }
 
 /**
@@ -763,6 +845,8 @@ function operationResult(result, extra = {}) {
   return {
     ...extra,
     paths: result && Array.isArray(result.paths) ? result.paths : [],
+    // 跟 paths 逐一對位的來源，復原搬移要靠它擺回原處
+    sources: result && Array.isArray(result.sources) ? result.sources : [],
     operationId: result && result.id,
     status: result && result.status,
     items: result && result.items ? result.items : []
@@ -857,6 +941,8 @@ module.exports = {
   shutdown,
   copyImage,
   setClipboard,
+  clipboardState,
+  pasteAny,
   paste,
   dropEntries,
   operationCancel,

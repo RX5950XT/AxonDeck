@@ -91,6 +91,7 @@ native/
 ### 專案工作區與終端機
 - 專案＝本機資料夾（`workspaces.json`，含 `tabsState`、`folders`、`folderId`、`setupScript`）。分類沿用 Chat 資料夾（`ws-project-folders.js`），刪分類只移回未分類。
 - 右側欄三顆：檔案樹／Git／MCP・Skills（開成 `cc-tools` 分頁，一專案一個）。主區＋右側欄包在 `#wsShell`；額度條 `quota-bar.js` 在外層 `.chat-stage` 最下面，Agent、Chat、網頁 AI、Telegram 共用，Browser 模式藏起來。
+- 檔案樹跟檔案頁共用同一份剪貼簿（main explorer 的 `clip`）：樹上剪下／複製／貼上（右鍵＋Ctrl+X／C／V）兩邊互通，貼進專案走 `workspace:pasteClipboard`（目的地 `resolveIn`，搬檔交給檔案頁操作中心）；`explorer.paste` 回報 `mode`／`sources`，檔案頁復原以它為準。Windows 檔案總管複製／剪下的也貼得進樹：Electron 讀不到 CF_HDROP 整份清單，所以貼上先叫 `workspace:triggerPaste`（main `webContents.paste()`）讓 renderer 的 `paste` 事件給 `clipboardData.files`，main 用 FileNameW 判斷有沒有檔、Preferred DropEffect 判斷剪下，並比對放進 App 剪貼簿當下的系統剪貼簿簽章決定誰比較新（`pasteAny`）。樹的拖曳改走 `explorer.startDrag`（原生拖放，拖得到檔案頁、桌面、別的程式）；拖回樹上靠 `draggingAbs` 比路徑認出是自己拖的→搬移，其餘當外部拖入（一律複製）。回歸 `probe-workspace-clipboard-cdp.js`（packaged）。
 - Git 面板按鈕依狀態（`paintGitActions`）：暫存區空就「全部提交 N 個」＝`add -A`；沒上游時「發布分支」＝`push -u origin HEAD`；GitHub 鈕 `githubUrl`。
 - 專案全文搜尋走 Rust `search`（平行讀檔，結果與 JS 版一致）；新查詢停止舊查詢。
 - AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity，入口在左側專案列右邊的展開鈕（`ws-project-sessions.js`）：可檢視、接續、複製全文（右鍵另有複製路徑）；展開中的專案側欄看得到時每 5 秒重讀、有變才就地換那一塊，展開狀態存 localStorage。清單 `workspace:agentSessions` 帶 `titledOnly` 拿掉沒標題的空白對話（含 OpenCode 預設的 `New session - <時間>`）；接續綁定（`agent-resume.js`）仍拿全部。檢視分頁 IPC 分段讀、renderer 接成完整單頁；Ctrl+F 搜尋全文與工具內容。回歸 `probe-workspace-agents-cdp.js`（packaged）。

@@ -28,6 +28,8 @@ import {
   openWithSystem
 } from './ws-tabs.js'
 import { showMenu } from './ws-menu.js'
+// 拖放游標：原生拖放（startDrag）的來源沒宣告 move 時要退回 copy，否則 drop 整個不發生
+import { setDropEffect } from './explorer-dnd.js'
 import { editInline, isInlineEditing, cancelInlineEdit } from './inline-edit.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
 import { openQuickOpen, isOpen as isQuickOpenOpen } from './ws-quickopen.js'
@@ -64,6 +66,8 @@ let anchorRel = ''
 const NEWLINE = String.fromCharCode(13, 10)
 /** 正在拖曳的那幾筆相對路徑 */
 let dragging = []
+/** 正在拖的那些項目的絕對路徑（小寫）：drop 回來時用來分辨是不是自己拖的 */
+let draggingAbs = new Set()
 /** 檔案面板現在是「檔案樹」還是「搜尋」 */
 let filesView = 'tree'
 /** 搜尋輸入的節流計時器（打字時不要每個鍵都去掃一次磁碟） */
@@ -955,8 +959,8 @@ function buildTreeRow(project, entry, depth) {
   if (entry.dir) row.setAttribute('aria-expanded', expanded.has(entry.rel) ? 'true' : 'false')
   if (!entry.dir && entry.rel === openRel) row.classList.add('is-open')
   if (selected.has(entry.rel)) row.classList.add('is-selected')
-  // 搬檔用 HTML5 DnD：檔案總管本來就是這個手感（半透明拖影正好當「要搬走的東西」），
-  // 而且 dragover／drop 的目標判定是瀏覽器算的，不必自己接 elementFromPoint。
+  // 拖曳交給 Windows 原生拖放（`explorer.startDrag`）：才拖得到檔案頁、桌面、別的程式。
+  // 拖回樹上一樣是 dragover／drop（帶 Files），靠 `dragging` 認出是自己拖的、改成搬移。
   // 分頁列那邊刻意不用它——那裡要的是「跟手＋平滑讓位」，拖影只會礙事。
   row.draggable = true
 
@@ -971,11 +975,9 @@ function buildTreeRow(project, entry, depth) {
   const status = treeStatusInfo(entry)
   if (status) row.appendChild(buildTreeStatus(project, entry, status))
 
-  row.addEventListener('contextmenu', (event) => openTreeMenu(project, entry, event))
+  row.addEventListener('contextmenu', (event) => void openTreeMenu(project, entry, event))
   row.addEventListener('focus', () => setTreeCursor(row))
-  row.addEventListener('dragstart', (event) => onTreeDragStart(event, entry))
-  // 拖到樹外或按 Esc 取消時不會有 drop：這裡不清，下次從外面拖檔進來會被當成搬移這些殘留項目
-  row.addEventListener('dragend', () => { dragging = []; clearDropMarks() })
+  row.addEventListener('dragstart', (event) => onTreeDragStart(event, project, entry))
   row.addEventListener('dragover', (event) => onTreeDragOver(event, entry, row))
   row.addEventListener('dragleave', () => row.classList.remove('is-drop'))
   row.addEventListener('drop', (event) => void onTreeDrop(event, project, entry))
@@ -1195,17 +1197,32 @@ function clearDropMarks() {
 
 /**
  * @param {DragEvent} event
+ * @param {{ id: string, path?: string }} project
  * @param {{ rel: string, dir: boolean }} entry
  */
-function onTreeDragStart(event, entry) {
+function onTreeDragStart(event, project, entry) {
   // 拖的那一列不在選取裡＝使用者只想搬它，先把選取換成它
   if (!selected.has(entry.rel)) setSelection([entry.rel])
+  const root = project.path || currentProject()?.path || ''
+  if (!root) return
   dragging = [...selected]
-  if (!event.dataTransfer) return
-  event.dataTransfer.effectAllowed = 'move'
-  // **一定要 setData**：不寫的話 Chromium 根本不會啟動這次拖曳
-  event.dataTransfer.setData('text/plain', dragging.join(', '))
+  draggingAbs = new Set(dragging.map((rel) => absOf(root, rel).toLowerCase()))
+  // 原生拖放一啟動，HTML5 那條就得讓位（兩邊一起來 Windows 只認先啟動的那個）
+  event.preventDefault()
+  const list = dragging.map((rel) => absOf(root, rel))
+  void electronAPI.explorer.startDrag(list).catch(() => {}).finally(() => {
+    // startDrag 等使用者放手才回來；drop 事件可能還在路上，晚一點再清，
+    // 不清的話拖到樹外或按 Esc 取消後，下次從外面拖進來會被當成搬移這些殘留項目
+    window.setTimeout(() => {
+      dragging = []
+      draggingAbs = new Set()
+      clearDropMarks()
+    }, 400)
+  })
 }
+
+/** 專案相對路徑 → 絕對路徑（只給拖放用，真正動檔案時 main 會再驗） */
+const absOf = (root, rel) => `${root.replace(/[\\/]+$/, '')}\\${rel.split('/').join('\\')}`
 
 /**
  * 這個目的地收不收得下。收不下就**不要** `preventDefault`——
@@ -1236,7 +1253,7 @@ function onTreeDragOver(event, entry, row) {
   if (!external && !canDropInto(toDir)) return
   event.preventDefault()
   event.stopPropagation()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = external ? 'copy' : 'move'
+  if (event.dataTransfer) setDropEffect(event, external ? 'copy' : 'move')
   clearDropMarks()
   // 放在檔案上時，把框線畫在**那個檔案的資料夾**那一列，不然看起來像要放進檔案裡
   const mark = entry.dir ? row : treeRows().find((one) => one.dataset.rel === toDir)
@@ -1254,17 +1271,10 @@ async function onTreeDrop(event, project, entry) {
   event.stopPropagation()
   clearDropMarks()
   const toDir = dropDirOf(entry)
-  const dropped = Array.from(event.dataTransfer?.files ?? [])
-  if (dropped.length && !dragging.length) {
-    const paths = []
-    for (const file of dropped) {
-      try {
-        const abs = electronAPI.getPathForFile(file)
-        if (abs) paths.push(abs)
-      } catch {
-        // 單一檔案轉不出路徑就跳過
-      }
-    }
+  const paths = filePaths(event.dataTransfer?.files)
+  // 自己拖出去又拖回來＝在樹裡搬移；其餘都是從外面（檔案頁、桌面）拖進來的
+  const own = dragging.length > 0 && paths.length > 0 && paths.every((p) => draggingAbs.has(p.toLowerCase()))
+  if (event.dataTransfer?.files?.length && !own) {
     if (!paths.length) {
       showToast('讀不到拖進來的檔案', 'error')
       return
@@ -1288,6 +1298,7 @@ async function onTreeDrop(event, project, entry) {
   const list = dragging
   const canDrop = list.length > 0 && canDropInto(toDir)
   dragging = []
+  draggingAbs = new Set()
   if (!canDrop) return
 
   const seq = projectSeq
@@ -1348,6 +1359,7 @@ function resetTreeCursor() {
  * @param {KeyboardEvent} event
  */
 function onTreeKeydown(event) {
+  if (onTreeClipboardKey(event)) return
   const rows = treeRows()
   if (!rows.length) return
   const current = /** @type {HTMLElement | null} */ (
@@ -1476,13 +1488,16 @@ async function markOpenFile(projectId, rel, asDir = false) {
  * @param {{ name: string, rel: string, dir: boolean }} entry
  * @param {MouseEvent} event
  */
-function openTreeMenu(project, entry, event) {
+async function openTreeMenu(project, entry, event) {
   event.preventDefault()
   // 右鍵按在選取範圍外＝使用者在講這一列，把選取換成它（比照檔案總管）
   if (!selected.has(entry.rel)) setSelection([entry.rel])
+  const clip = clipMenuItems(project, [...selected], dropDirOf(entry), await clipboardCount())
   if (selected.size > 1) {
     const many = [...selected]
     showMenu({ x: event.clientX, y: event.clientY }, [
+      ...clip,
+      { sep: true },
       { label: `複製 ${many.length} 條相對路徑`, onSelect: () => void copyPath(many.join(NEWLINE)) },
       { label: `刪除這 ${many.length} 個`, danger: true, onSelect: () => void removeMany(project, many) }
     ])
@@ -1502,6 +1517,9 @@ function openTreeMenu(project, entry, event) {
     { label: '新增檔案', onSelect: () => void createEntry(project, parent, false) },
     { label: '新增資料夾', onSelect: () => void createEntry(project, parent, true) },
     { label: '重新命名（F2）', onSelect: () => void renameEntry(project, entry) },
+    { sep: true },
+    ...clip,
+    { sep: true },
     { label: '複製相對路徑', onSelect: () => void copyPath(entry.rel) },
     { label: '在檔案頁顯示', onSelect: () => void revealEntry(project, entry.rel, entry.dir) },
     { label: `刪除「${entry.name}」`, danger: true, onSelect: () => void removeEntry(project, entry) }
@@ -1512,15 +1530,17 @@ function openTreeMenu(project, entry, event) {
  * 檔案樹空白處（列以外）的右鍵選單：東西一律建在專案根目錄。
  * @param {MouseEvent} event
  */
-function openTreeBlankMenu(event) {
+async function openTreeBlankMenu(event) {
   if (/** @type {HTMLElement} */ (event.target).closest?.('.ws-tree-row')) return
   const project = currentProject()
   if (!project) return
   event.preventDefault()
   setSelection([])
+  const paste = clipMenuItems(project, [], '', await clipboardCount())
   showMenu({ x: event.clientX, y: event.clientY }, [
     { label: '新增檔案', onSelect: () => void createEntry(project, '', false) },
     { label: '新增資料夾', onSelect: () => void createEntry(project, '', true) },
+    ...paste,
     { label: '重新命名專案', onSelect: () => void renameProjectInline(project) },
     { label: '重新整理', onSelect: () => void renderTree() },
     { sep: true },
@@ -1738,6 +1758,145 @@ async function revealEntry(project, rel, dir = true) {
   } catch {
     // call() 已經提示過了
   }
+}
+
+// ===== 跟檔案頁共用的剪貼簿 =====
+// 剪下／複製放進檔案頁那份剪貼簿（main 的 explorer `clip`）：檔案頁、別的專案的檔案樹都貼得到，
+// 反過來檔案頁剪下／複製的東西也貼得進專案。真正搬檔走檔案頁的操作中心（撞名改名、有進度條）。
+
+/** 檔案頁剪貼簿裡有幾項；讀不到當 0，選單照樣開 */
+async function clipboardCount() {
+  try {
+    const res = await electronAPI.explorer.clipboardState()
+    return res && res.ok ? Number(res.data && res.data.count) || 0 : 0 // -1＝系統剪貼簿有檔案
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * @param {{ id: string }} project
+ * @param {string[]} rels 空陣列＝只給「貼上」
+ * @param {string} toDir 貼到哪個資料夾
+ * @param {number} count 剪貼簿目前幾項
+ */
+function clipMenuItems(project, rels, toDir, count) {
+  const items = rels.length ? [
+    { label: '剪下（Ctrl+X）', onSelect: () => void clipEntries(project, rels, 'cut') },
+    { label: '複製（Ctrl+C）', onSelect: () => void clipEntries(project, rels, 'copy') }
+  ] : []
+  // count -1＝Windows 檔案總管複製的（main 只知道有，不知道幾個）
+  const label = count > 0 ? `貼上 ${count} 個項目（Ctrl+V）` : count < 0 ? '貼上 Windows 複製的檔案（Ctrl+V）' : '貼上（Ctrl+V）'
+  return [...items, { label, disabled: !count, onSelect: () => requestPaste(project, toDir) }]
+}
+
+/**
+ * @param {{ id: string }} project
+ * @param {string[]} rels
+ * @param {'cut'|'copy'} mode
+ */
+async function clipEntries(project, rels, mode) {
+  try {
+    const full = []
+    for (const rel of rels.slice(0, 50)) {
+      full.push(await call(electronAPI.workspace.reveal(project.id, rel), '找不到這個項目'))
+    }
+    await call(electronAPI.explorer.setClipboard(full, mode), '無法放入剪貼簿')
+    showToast(mode === 'cut' ? '已剪下，可到檔案頁或其他專案貼上' : '已複製，可到檔案頁或其他專案貼上')
+  } catch {
+    // call() 已經提示過了
+  }
+}
+
+/**
+ * File 物件 → 絕對路徑（拖放、paste 事件共用）
+ * @param {FileList | File[] | null | undefined} files
+ * @returns {string[]}
+ */
+function filePaths(files) {
+  const out = []
+  for (const file of Array.from(files ?? [])) {
+    try {
+      const abs = electronAPI.getPathForFile(file)
+      if (abs) out.push(abs)
+    } catch {
+      // 單一檔案轉不出路徑就跳過
+    }
+  }
+  return out
+}
+
+/** @type {{ project: { id: string, name: string }, toDir: string } | null} */
+let pendingPaste = null
+
+/**
+ * 貼上：先請 main 對這一頁跑一次「貼上」，paste 事件才拿得到 Windows 檔案總管複製的整份清單；
+ * 等不到事件就照 App 剪貼簿貼。要用哪一份由 main 判斷（看誰比較新）。
+ * @param {{ id: string, name: string }} project
+ * @param {string} toDir
+ */
+function requestPaste(project, toDir) {
+  const job = { project, toDir }
+  pendingPaste = job
+  void electronAPI.workspace.triggerPaste().catch(() => {})
+  window.setTimeout(() => {
+    if (pendingPaste !== job) return
+    pendingPaste = null
+    void pasteInto(project, toDir, [])
+  }, 600)
+}
+
+/** @param {ClipboardEvent} event */
+function onDocumentPaste(event) {
+  const job = pendingPaste
+  if (!job) return
+  pendingPaste = null
+  event.preventDefault()
+  event.stopPropagation()
+  void pasteInto(job.project, job.toDir, filePaths(event.clipboardData?.files))
+}
+
+/**
+ * @param {{ id: string, name: string }} project
+ * @param {string} toDir
+ * @param {string[]} systemPaths
+ */
+async function pasteInto(project, toDir, systemPaths) {
+  const seq = projectSeq
+  try {
+    const done = await call(electronAPI.workspace.pasteClipboard(project.id, toDir, systemPaths), '貼上失敗')
+    if (!isCurrentProject(project, seq)) return
+    if (toDir) expanded.add(toDir)
+    await renderTree(project, seq)
+    const n = Array.isArray(done && done.paths) ? done.paths.length : 0
+    if (n) showToast(`已${done.mode === 'cut' ? '搬入' : '貼上'} ${n} 個項目`)
+  } catch {
+    // call() 已經提示過了
+  }
+}
+
+/**
+ * 檔案樹的 Ctrl+C／X／V。就地改名的輸入框裡不攔（那是在複製文字）。
+ * @param {KeyboardEvent} event
+ * @returns {boolean} 有沒有處理
+ */
+function onTreeClipboardKey(event) {
+  const key = event.key.toLowerCase()
+  if (!event.ctrlKey || event.altKey || event.shiftKey || !['c', 'x', 'v'].includes(key)) return false
+  const target = /** @type {HTMLElement} */ (event.target)
+  if (target.closest?.('input, textarea, [contenteditable="true"]')) return false
+  const project = currentProject()
+  if (!project) return false
+  const current = /** @type {HTMLElement | null} */ (target.closest?.('.ws-tree-row'))
+  event.preventDefault()
+  if (key === 'v') {
+    const rel = current?.dataset.rel || ''
+    requestPaste(project, rel ? dropDirOf({ rel, dir: current?.dataset.dir === '1' }) : '')
+    return true
+  }
+  const rels = selected.size ? [...selected] : current?.dataset.rel ? [current.dataset.rel] : []
+  if (rels.length) void clipEntries(project, rels, key === 'x' ? 'cut' : 'copy')
+  return true
 }
 
 // ===== 專案內搜尋 =====
@@ -3026,7 +3185,7 @@ function initWorkspacePage() {
     btn.addEventListener('click', () => setPanel(/** @type {HTMLElement} */ (btn).dataset.panel))
   })
   document.getElementById('wsFilesRevealBtn')?.addEventListener('click', () => void revealProject())
-  el.tree?.addEventListener('contextmenu', openTreeBlankMenu)
+  el.tree?.addEventListener('contextmenu', (event) => void openTreeBlankMenu(event))
   document.getElementById('wsFilesRefreshBtn')?.addEventListener('click', () => void renderTree())
   document.getElementById('wsGitRefreshBtn')?.addEventListener('click', () => void renderGit())
   // 篩選只動畫面，不重問 main（狀態已經在手上了，但重畫最省事也最不會不同步）
@@ -3064,7 +3223,7 @@ function initWorkspacePage() {
     const external = Array.from(event.dataTransfer?.types ?? []).includes('Files') && !dragging.length
     if (!external && !canDropInto('')) return
     event.preventDefault()
-    if (event.dataTransfer) event.dataTransfer.dropEffect = external ? 'copy' : 'move'
+    if (event.dataTransfer) setDropEffect(event, external ? 'copy' : 'move')
     clearDropMarks()
     el.tree?.classList.add('is-drop')
   })
@@ -3079,6 +3238,7 @@ function initWorkspacePage() {
     void markOpenFile(detail.projectId, detail.rel, Boolean(detail.dir))
   })
   document.addEventListener('keydown', onGlobalKeydown)
+  document.addEventListener('paste', onDocumentPaste, true)
   // 資料夾被別人改了（AI 跑完、git 換分支、另一個編輯器存檔）→ 自己更新
   electronAPI.workspace.onChanged?.(onProjectChanged)
   // 回到視窗時 Git 狀態多半已經不一樣了（剛在別的地方 commit 過）

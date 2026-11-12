@@ -262,8 +262,6 @@ let selected = new Set()
 let anchor = ''
 /** 方向鍵的游標位置。跟 `anchor`（Shift 連選的錨點）是兩件事 */
 let cursor = ''
-/** 上一次剪下／複製了什麼——貼上要復原時得知道是搬過去還是拷過去的 */
-let lastClip = { mode: 'copy', paths: [] }
 /** @type {Array<{ name: string, path: string, dir: boolean, size: number, mtimeMs: number, ext?: string }>} */
 let entries = []
 let directoryTotal = 0
@@ -3113,7 +3111,6 @@ async function clipboard(items, mode) {
   // 壓縮檔裡剪不走：一律當複製，貼上＝解壓縮（main 也照這樣存）
   if (mode === 'cut' && items.some((item) => item.zip || item.phone)) mode = 'copy'
   try {
-    lastClip = { mode, paths: items.map((i) => i.path) }
     await call(
       electronAPI.explorer.setClipboard(items.map((i) => i.path), mode),
       '無法放入剪貼簿'
@@ -3211,9 +3208,10 @@ async function pasteHere() {
   try {
     const done = await call(electronAPI.explorer.paste(target), '貼上失敗')
     const landed = (done && done.paths) || []
-    if (landed.length && lastClip.paths.length) {
-      pushUndo(lastClip.mode === 'cut' ? '搬移' : '複製',
-        lastClip.mode === 'cut' ? undoMove(landed, done.sources || lastClip.paths) : undoCopy(landed))
+    // 剪貼簿可能是專案檔案樹放的：模式與來源一律以 main 回報為準
+    const moved = done && done.mode === 'cut'
+    if (landed.length) {
+      pushUndo(moved ? '搬移' : '複製', moved ? undoMove(landed, done.sources || []) : undoCopy(landed))
     }
     await refreshAfterMutate()
   } catch {

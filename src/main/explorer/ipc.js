@@ -70,6 +70,7 @@ function registerExplorerIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('explorer:setClipboard', (event, items, mode) => (
     invoke(event, () => service.setClipboard(items, mode))
   ))
+  ipcMain.handle('explorer:clipboardState', (event) => invoke(event, () => service.clipboardState()))
   ipcMain.handle('explorer:paste', (event, toDir) => invoke(event, () => service.paste(toDir)))
   ipcMain.handle('explorer:dropEntries', (event, items, toDir, mode) => (
     invoke(event, () => service.dropEntries(items, toDir, mode))

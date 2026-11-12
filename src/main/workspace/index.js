@@ -144,6 +144,24 @@ async function importDropped(projectId, relDir, sourcePaths) {
   return files.importDropped(await rootOf(projectId), relDir, sourcePaths)
 }
 
+/**
+ * 專案裡某個資料夾的絕對路徑（給檔案頁的貼上用）。走 `resolveIn`，不是資料夾就拒絕。
+ * @param {string} projectId
+ * @param {unknown} relDir
+ * @returns {Promise<string>}
+ */
+async function dirPath(projectId, relDir) {
+  const full = files.resolveIn(await rootOf(projectId), typeof relDir === 'string' ? relDir : '')
+  let st = null
+  try {
+    st = await fsp.stat(full)
+  } catch {
+    st = null
+  }
+  if (!st || !st.isDirectory()) throw fail('BAD_PATH', '只能貼進資料夾裡')
+  return full
+}
+
 async function removeEntry(projectId, relPath) {
   return files.removeEntry(await rootOf(projectId), relPath)
 }
@@ -367,6 +385,7 @@ module.exports = {
   renameEntry,
   moveEntry,
   importDropped,
+  dirPath,
   removeEntry,
   searchFiles,
   listFiles,

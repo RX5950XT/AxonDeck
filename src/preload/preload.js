@@ -456,6 +456,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * @param {string} relDir
      * @param {string[]} paths
      */
+    /** 把檔案頁剪貼簿的東西貼進專案的某個資料夾（relDir 空字串＝專案根目錄） */
+    pasteClipboard: (id, relDir, systemPaths) => ipcRenderer.invoke(
+      'workspace:pasteClipboard',
+      id,
+      relDir,
+      (Array.isArray(systemPaths) ? systemPaths : []).filter((p) => typeof p === 'string' && p.trim()).slice(0, 50)
+    ),
+    /** 叫 main 對這一頁執行「貼上」，好讓 paste 事件帶出 Windows 複製的檔案清單 */
+    triggerPaste: () => ipcRenderer.invoke('workspace:triggerPaste'),
     importDropped: (id, relDir, paths) => (
       ipcRenderer.invoke(
         'workspace:importDropped',
@@ -941,6 +950,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     shellRelease: (token) => ipcRenderer.invoke('explorer:shellRelease', token),
     copyImage: (filePath) => ipcRenderer.invoke('explorer:copyImage', filePath),
     setClipboard: (items, mode) => ipcRenderer.invoke('explorer:setClipboard', items, mode),
+    clipboardState: () => ipcRenderer.invoke('explorer:clipboardState'),
     paste: (toDir) => ipcRenderer.invoke('explorer:paste', toDir),
     dropEntries: (items, toDir, mode) => ipcRenderer.invoke('explorer:dropEntries', items, toDir, mode),
     operationCancel: (id) => ipcRenderer.invoke('explorer:operationCancel', id),

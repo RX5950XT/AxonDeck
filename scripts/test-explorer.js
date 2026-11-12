@@ -882,7 +882,7 @@ console.log('\n[S5] 拖著停住會進資料夾、搬錯了可以 Ctrl+Z')
   ok('搬移有記復原', /pushUndo\(mode === 'copy' \? '複製' : '搬移'/.test(pageSrc5))
   ok('改名有記復原', /pushUndo\(`改名/.test(pageSrc5))
   ok('貼上有記復原，而且分得出剪下跟複製',
-    /lastClip\.mode === 'cut' \? undoMove/.test(pageSrc5) && /lastClip = \{ mode, paths/.test(pageSrc5))
+    /moved \? undoMove\(landed, done\.sources/.test(pageSrc5) && /done\.mode === 'cut'/.test(pageSrc5))
   ok('復原「複製」是丟資源回收筒不是永久刪',
     /function undoCopy[\s\S]{0,220}RECYCLE_CWD, 'move'/.test(pageSrc5))
   ok('沒東西可復原時講一聲', /沒有可以復原的動作/.test(pageSrc5))

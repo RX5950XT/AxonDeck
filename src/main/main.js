@@ -2205,6 +2205,15 @@ registerWorkspaceIpc({
     renameEntry: (...args) => loadWorkspace().renameEntry(...args),
     moveEntry: (...args) => loadWorkspace().moveEntry(...args),
     importDropped: (...args) => loadWorkspace().importDropped(...args),
+    // 檔案頁剪下／複製的東西貼進專案：目的地照工作區規矩解析，搬檔交給檔案頁的操作中心
+    pasteClipboard: async (id, relDir, systemPaths) => (
+      loadExplorer().pasteAny(await loadWorkspace().dirPath(id, relDir), systemPaths)
+    ),
+    // 叫發起的頁面自己跑一次「貼上」：renderer 的 paste 事件才拿得到 Windows 複製的整份檔案清單
+    triggerPaste: (sender) => {
+      if (sender && !sender.isDestroyed()) sender.paste()
+      return true
+    },
     removeEntry: (...args) => loadWorkspace().removeEntry(...args),
     searchFiles: (...args) => loadWorkspace().searchFiles(...args),
     listFiles: (...args) => loadWorkspace().listFiles(...args),
@@ -2286,6 +2295,7 @@ registerExplorerIpc({
     shellRelease: (...args) => loadExplorer().shellRelease(...args),
     copyImage: (...args) => loadExplorer().copyImage(...args),
     setClipboard: (...args) => loadExplorer().setClipboard(...args),
+    clipboardState: (...args) => loadExplorer().clipboardState(...args),
     paste: (...args) => loadExplorer().paste(...args),
     dropEntries: (...args) => loadExplorer().dropEntries(...args),
     operationCancel: (...args) => loadExplorer().operationCancel(...args),

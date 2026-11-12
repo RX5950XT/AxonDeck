@@ -128,6 +128,9 @@
                     <button type="button" id="projNewFolderBtn" class="btn btn-secondary btn-sm" title="新增資料夾" aria-label="新增專案資料夾">
                       分類＋
                     </button>
+                    <button type="button" id="projCcToolsBtn" class="btn btn-secondary btn-sm" title="MCP 與 Skills（全域設定，不屬於任何專案）" aria-pressed="false">
+                      MCP/Skills
+                    </button>
                   </div>
                   <div class="proj-unified-list">
                     <div id="projList" class="chat-list proj-list" aria-label="專案清單"></div>
@@ -234,6 +237,52 @@
               <!-- Telegram：官方網頁版塞進 <webview>，可並排多開（同一個 partition＝掃碼登入一次）；第一次點進來才建 -->
               <div class="telegram-main hidden" id="telegramMain">
                 <div id="telegramFrame" class="telegram-frame"></div>
+              </div>
+
+              <!-- MCP 與 Skills：左側欄專案面板「MCP/Skills」開的獨立主畫面（不屬於任何專案）；六家共用最上面的切換（ccswitch-page.js） -->
+              <div id="wsCcTools" class="ws-cc-tools hidden">
+                <header class="cc-tools-head">
+                  <h2 class="cc-tools-title">MCP 與 Skills</h2>
+                  <div id="ccHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
+                </header>
+                <p id="ccToolsError" class="live-error hidden cc-page-error" role="alert"></p>
+                <p id="ccToolsStatus" class="cc-status hidden cc-page-status" role="status" aria-live="polite"></p>
+                <div class="cc-tools-grid">
+                  <div class="cc-tools-col">
+                    <section class="cc-panel" id="ccMcpPanel" aria-labelledby="ccMcpTitle">
+                      <div class="cc-panel-head">
+                        <h2 id="ccMcpTitle" class="cc-panel-title">MCP 伺服器</h2>
+                        <button type="button" id="ccAddMcpBtn" class="btn btn-primary btn-sm">新增伺服器</button>
+                      </div>
+                      <p id="ccMcpPath" class="cc-panel-desc"></p>
+                      <div id="ccMcpList" class="cc-list" role="list"></div>
+                      <p id="ccMcpEmpty" class="cc-empty hidden">還沒有 MCP 伺服器</p>
+                    </section>
+
+                    <section class="cc-panel" aria-labelledby="ccSkillTitle">
+                      <div class="cc-panel-head">
+                        <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
+                        <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                      </div>
+                      <p id="ccSkillPath" class="cc-panel-desc"></p>
+                      <div id="ccSkillList" class="cc-list" role="list"></div>
+                      <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
+                    </section>
+                  </div>
+                  <section class="cc-panel cc-memory-panel" id="ccMemoryPanel" aria-labelledby="ccMemoryTitle">
+                    <div class="cc-panel-head">
+                      <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶與設定</h2>
+                      <span class="cc-head-actions">
+                        <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
+                        <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
+                      </span>
+                    </div>
+                    <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔與設定檔"></div>
+                    <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
+                              aria-label="記憶檔內容"></textarea>
+                    <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
+                  </section>
+                </div>
               </div>
 
               <!-- Browser 模式：跟專案瀏覽器同一個 partition（登入狀態、擴充功能共用） -->
@@ -599,52 +648,6 @@
                     </div>
                   </div>
 
-                  <!-- MCP 與 Skills：右側欄「MCP／Skills」在目前專案開的分頁；六家共用最上面的切換（ccswitch-page.js） -->
-                  <div id="wsCcTools" class="ws-cc-tools" hidden>
-                    <header class="cc-tools-head">
-                      <h2 class="cc-tools-title">MCP 與 Skills</h2>
-                      <div id="ccHomes" class="cc-home-switch" role="group" aria-label="AI 家目錄"></div>
-                    </header>
-                    <p id="ccToolsError" class="live-error hidden cc-page-error" role="alert"></p>
-                    <p id="ccToolsStatus" class="cc-status hidden cc-page-status" role="status" aria-live="polite"></p>
-                    <div class="cc-tools-grid">
-                      <div class="cc-tools-col">
-                        <section class="cc-panel" id="ccMcpPanel" aria-labelledby="ccMcpTitle">
-                          <div class="cc-panel-head">
-                            <h2 id="ccMcpTitle" class="cc-panel-title">MCP 伺服器</h2>
-                            <button type="button" id="ccAddMcpBtn" class="btn btn-primary btn-sm">新增伺服器</button>
-                          </div>
-                          <p id="ccMcpPath" class="cc-panel-desc"></p>
-                          <div id="ccMcpList" class="cc-list" role="list"></div>
-                          <p id="ccMcpEmpty" class="cc-empty hidden">還沒有 MCP 伺服器</p>
-                        </section>
-
-                        <section class="cc-panel" aria-labelledby="ccSkillTitle">
-                          <div class="cc-panel-head">
-                            <h2 id="ccSkillTitle" class="cc-panel-title">Skills</h2>
-                            <button type="button" id="ccSkillOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
-                          </div>
-                          <p id="ccSkillPath" class="cc-panel-desc"></p>
-                          <div id="ccSkillList" class="cc-list" role="list"></div>
-                          <p id="ccSkillEmpty" class="cc-empty hidden">這個家目錄還沒有 skills</p>
-                        </section>
-                      </div>
-                      <section class="cc-panel cc-memory-panel" id="ccMemoryPanel" aria-labelledby="ccMemoryTitle">
-                        <div class="cc-panel-head">
-                          <h2 id="ccMemoryTitle" class="cc-panel-title">全域記憶與設定</h2>
-                          <span class="cc-head-actions">
-                            <button type="button" id="ccMemoryOpenBtn" class="btn btn-secondary btn-sm">開資料夾</button>
-                            <button type="button" id="ccMemorySaveBtn" class="btn btn-primary btn-sm">儲存</button>
-                          </span>
-                        </div>
-                        <div id="ccMemoryFiles" class="cc-home-switch" role="group" aria-label="記憶檔與設定檔"></div>
-                        <textarea id="ccMemoryEdit" class="cc-memory-edit" rows="12" spellcheck="false"
-                                  aria-label="記憶檔內容"></textarea>
-                        <p id="ccMemoryHint" class="cc-panel-desc">存檔前會先備份；切換檔案會捨棄還沒存的修改。</p>
-                      </section>
-                    </div>
-                  </div>
-
                   <!-- AI 會話結構化卡片檢視面板（不用 resume，直接檢視） -->
                   <div id="wsAiSession" class="ws-ai-session" hidden>
                     <div class="ws-ai-session-bar" id="wsAiSessionBar">
@@ -683,9 +686,6 @@
                   </button>
                   <button type="button" class="ws-right-tab" role="tab" data-panel="git" aria-selected="false">
                     Git
-                  </button>
-                  <button type="button" class="ws-right-tab" id="wsCcToolsBtn" title="在目前專案開「MCP 與 Skills」分頁">
-                    MCP/Skills
                   </button>
                 </div>
 

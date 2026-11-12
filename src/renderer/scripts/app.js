@@ -878,9 +878,9 @@ function initNavigation() {
  * 聊天與工作區共用同一頁：主區要顯示哪一個由最後點選的側欄項目決定。
  * 'chat'＝對話主區、'workspace'＝工作區主區（分頁列＋終端機／編輯器／瀏覽器）、
  * 'web'＝AI 網頁版（ChatGPT／Gemini／Claude／Grok，見 ai-web-page.js）、'browser'＝獨立瀏覽器（browser-page.js）、
- * 'telegram'＝Telegram（telegram-page.js）。
+ * 'telegram'＝Telegram（telegram-page.js）、'tools'＝MCP 與 Skills 全域設定（ccswitch-page.js 的 refreshCcTools）。
  * 切分頁時保持原樣，不重置。
- * @type {'chat' | 'workspace' | 'web' | 'browser' | 'telegram'}
+ * @type {'chat' | 'workspace' | 'web' | 'browser' | 'telegram' | 'tools'}
  */
 let chatPaneMode = 'chat'
 /** 主區真的換過一次就加一。晚回來的對話載入用這個判斷自己是不是舊的。 */
@@ -959,10 +959,10 @@ let lastNonBrowserPane = 'chat'
 
 /**
  * @param {string} last
- * @returns {'chat' | 'workspace' | 'web' | 'telegram'}
+ * @returns {'chat' | 'workspace' | 'web' | 'telegram' | 'tools'}
  */
 export function paneAfterLeavingBrowser(last) {
-  return last === 'workspace' || last === 'web' || last === 'telegram' ? last : 'chat'
+  return last === 'workspace' || last === 'web' || last === 'telegram' || last === 'tools' ? last : 'chat'
 }
 
 function initSidebarModes() {
@@ -1034,8 +1034,15 @@ function syncTelegramPane(mode) {
   })
 }
 
+/** MCP 與 Skills：不屬於任何專案的獨立主畫面，左側欄專案面板的按鈕開 */
+function syncCcToolsPane(mode) {
+  document.getElementById('wsCcTools')?.classList.toggle('hidden', mode !== 'tools')
+  document.getElementById('projCcToolsBtn')?.setAttribute('aria-pressed', String(mode === 'tools'))
+  if (mode === 'tools') import('./ccswitch-page.js').then((m) => m.refreshCcTools())
+}
+
 export function setChatPaneMode(mode) {
-  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser' && mode !== 'telegram') return
+  if (mode !== 'chat' && mode !== 'workspace' && mode !== 'web' && mode !== 'browser' && mode !== 'telegram' && mode !== 'tools') return
   if (chatPaneMode !== mode) chatPaneEpoch += 1
   chatPaneMode = mode
   if (mode !== 'browser') lastNonBrowserPane = mode
@@ -1047,6 +1054,7 @@ export function setChatPaneMode(mode) {
   if (browserMain) parkPane(browserMain, mode === 'browser')
   document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
+  syncCcToolsPane(mode)
   const chatMain = document.getElementById('chatMain')
   const termMain = document.getElementById('termMain')
   const layout = document.querySelector('#page-chat .chat-layout')

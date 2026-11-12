@@ -117,7 +117,7 @@ function normalizeSetupScript(value) {
   return rel.split('/').includes('..') ? '' : rel
 }
 
-const ALLOWED_TAB_KINDS = new Set(['terminal', 'editor', 'diff', 'browser', 'ai-session', 'cc-tools'])
+const ALLOWED_TAB_KINDS = new Set(['terminal', 'editor', 'diff', 'browser', 'ai-session'])
 
 /** 單一草稿的長度上限（renderer 的 `MAX_DRAFT_CHARS` 同一個數字；比存檔上限小，超過時 renderer 會提示先存檔） */
 const MAX_DRAFT_CHARS = 4 * 1024 * 1024

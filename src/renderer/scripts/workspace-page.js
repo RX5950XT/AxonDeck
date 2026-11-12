@@ -11,7 +11,6 @@ import {
   openEditorTab,
   openDiffTab,
   openBrowserTab,
-  openCcToolsTab,
   openAiSessionTab,
   setActiveProject,
   forgetProjectBrowsers,
@@ -3179,6 +3178,8 @@ function initWorkspacePage() {
   document.addEventListener('ws:terminal-status', paintProjectStatuses)
   el.newBtn?.addEventListener('click', () => void addProject())
   document.getElementById('projNewFolderBtn')?.addEventListener('click', () => void projectFolders.create())
+  // MCP 與 Skills 是全域設定、不屬於任何專案：開成獨立主畫面，不是專案分頁
+  document.getElementById('projCcToolsBtn')?.addEventListener('click', () => setChatPaneMode('tools'))
   projectSessions.start()
   initProjectDrop()
   document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
@@ -3208,8 +3209,6 @@ function initWorkspacePage() {
   document.getElementById('wsGitPushBtn')?.addEventListener('click', () => void pushCurrent())
   document.getElementById('wsGitPullBtn')?.addEventListener('click', () => void pullCurrent())
   document.getElementById('wsPortsRefreshBtn')?.addEventListener('click', () => void renderPorts())
-  // 第五顆不是側欄面板：MCP 與 Skills 版面要寬，開在目前專案的分頁裡
-  document.getElementById('wsCcToolsBtn')?.addEventListener('click', () => void openCcToolsTab())
   document.getElementById('wsReviewCompareBtn')?.addEventListener('click', () => void runCompare())
   document.getElementById('wsReviewRefreshBtn')?.addEventListener('click', () => void renderBranches())
   document.getElementById('wsFilesSearchBtn')?.addEventListener('click', () => {

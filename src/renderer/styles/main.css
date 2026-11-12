@@ -1910,6 +1910,14 @@ option:disabled:checked {
   white-space: nowrap;
 }
 
+/* 加入專案／分類＋／MCP/Skills 一排三顆：都不折行，只有加入專案吃剩下的寬度 */
+.proj-actions-bar > .btn:not(.proj-action-btn) {
+  flex: none;
+  font-size: 12px;
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+
 .proj-unified-list {
   flex: 1;
   min-height: 0;
@@ -11298,11 +11306,12 @@ h6.md-h { font-size: 14px; }
   .disk-filter { width: 100%; }
 }
 
-/* ===== Claude Code：供應商（額度條抽屜）、MCP 與 Skills（專案分頁） ===== */
+/* ===== Claude Code：供應商（額度條抽屜）、MCP 與 Skills（獨立主畫面） ===== */
 /* border／radius／glass 由上面的共用 surface mapping 提供，這裡只補內距與排版 */
 
-/* MCP 與 Skills 分頁：左欄 MCP＋Skills 清單，右欄記憶編輯器撐滿高度；窄了就疊成一欄 */
+/* MCP 與 Skills 主畫面：左欄 MCP＋Skills 清單，右欄記憶編輯器撐滿高度；窄了就疊成一欄 */
 .ws-cc-tools {
+  min-width: 0;
   flex: 1;
   min-height: 0;
   display: flex;

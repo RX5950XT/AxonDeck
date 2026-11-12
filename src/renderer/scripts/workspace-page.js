@@ -2,6 +2,7 @@ import { electronAPI, showToast, setChatPaneMode, setSidebarMode, openInFilesPag
 import { createListReorder } from './list-reorder.js'
 import { mergeVisibleOrder } from './usage-reorder.js'
 import { createProjectFolders } from './ws-project-folders.js'
+import { createProjectSessions } from './ws-project-sessions.js'
 import { askConfirm, showAlert } from './app-dialog.js'
 import { terminalStatuses } from './ws-terminal-status.js'
 import { toolIcon, terminalStateIcon } from './ws-tool-icons.js'
@@ -34,7 +35,7 @@ import { createWorktreeFlow } from './ws-worktree-flow.js'
 import { createWorkspaceCommands, workspaceCommandItems } from './ws-commands.js'
 
 /**
- * 專案工作區：左側欄的「專案」清單 ＋ 右側欄的三個面板（檔案總管／Git／AI 記錄）。
+ * 專案工作區：左側欄的「專案」清單（每列可展開 AI 記錄）＋ 右側欄的面板（檔案總管／Git）。
  *
  * 一個專案就是本機的一個資料夾（`workspaces.json`）。**沒有 git worktree**——
  * Orca 的核心是 worktree，但那要連帶處理分支、清理、每個 worktree 各一組分頁，
@@ -89,6 +90,20 @@ const el = {}
 
 let worktreeFlow
 const projectFolders = createProjectFolders({ getList: () => el.list, getProjects: () => projects, call, reload: reloadList })
+const projectSessions = createProjectSessions({
+  call,
+  getList: () => el.list,
+  getProject: (id) => projects.find((item) => item.id === id) || null,
+  // 檢視與接續都要落在那個專案的分頁列上：不是目前專案就先切過去
+  onOpen: async (project, row) => {
+    if (currentId !== project.id && !(await selectProject(project.id))) return
+    await openAiSessionTab(project, row)
+  },
+  onResume: async (project, row) => {
+    if (currentId !== project.id && !(await selectProject(project.id))) return
+    await resumeSession(project, row)
+  }
+})
 
 // ===== 共用 =====
 
@@ -277,6 +292,7 @@ function buildListItem(item) {
   open.addEventListener('click', () => void selectProject(item.id))
 
   row.append(open)
+  projectSessions.decorate(row, item)
   row.addEventListener('contextmenu', (event) => {
     event.preventDefault()
     showProjectMenu({ x: event.clientX, y: event.clientY }, row, item)
@@ -408,7 +424,7 @@ async function removeProject(item) {
 const reorder = createListReorder({
   getList: () => el.list,
   itemSelector: '.proj-list-item',
-  ignoreSelector: '.chat-list-btn, .chat-list-rename',
+  ignoreSelector: '.chat-list-btn, .chat-list-rename, .proj-sessions',
   onCommit: () => void persistOrder().catch(() => { void reloadList().catch(() => {}) }),
   dropZone: (x, y) => {
     const head = document.elementFromPoint(x, y)?.closest('.chat-folder-head, .chat-root-head')
@@ -623,7 +639,6 @@ function setPanel(next) {
     btn.setAttribute('aria-selected', on ? 'true' : 'false')
   })
   void renderPanel()
-  syncAgentWatch()
 }
 
 async function renderPanel(project = currentProject(), seq = projectSeq) {
@@ -631,11 +646,9 @@ async function renderPanel(project = currentProject(), seq = projectSeq) {
   if (el.rightEmpty) el.rightEmpty.hidden = has
   if (el.panelFiles) el.panelFiles.hidden = !has || panel !== 'files'
   if (el.panelGit) el.panelGit.hidden = !has || panel !== 'git'
-  if (el.panelAgents) el.panelAgents.hidden = !has || panel !== 'agents'
   if (!project || !isCurrentProject(project, seq)) return
   if (panel === 'files') await renderFilesPanel(project, seq)
   else if (panel === 'git') await renderGit(project, seq)
-  else await renderAgents()
 }
 
 /**
@@ -2838,134 +2851,7 @@ async function pullCurrent() {
   await renderGit()
 }
 
-// ===== AI 對話記錄 =====
-
-let agentSeq = 0
-let agentWatch = 0
-
-function syncAgentWatch() {
-  window.clearInterval(agentWatch)
-  agentWatch = panel === 'agents' ? window.setInterval(() => {
-    if (panel === 'agents' && !document.hidden) void renderAgents(true)
-  }, 4000) : 0
-}
-
-async function renderAgents(quiet = false) {
-  const project = currentProject()
-  if (!project || !el.agentList) return
-  const seq = ++agentSeq
-  const scroll = el.agentList.scrollTop
-  if (!quiet) {
-    el.agentList.replaceChildren()
-    const loading = document.createElement('p')
-    loading.className = 'ws-tree-note'
-    loading.textContent = '搜尋中…'
-    el.agentList.appendChild(loading)
-  }
-
-  let rows
-  try {
-    rows = await call(electronAPI.workspace.agentSessions(project.id), '讀不到 AI 記錄')
-  } catch {
-    return
-  }
-  // 讀取期間可能已經換過專案
-  if (seq !== agentSeq || currentProject()?.id !== project.id) return
-
-  el.agentList.replaceChildren()
-  if (!rows.length) {
-    const note = document.createElement('p')
-    note.className = 'ws-tree-note'
-    note.textContent = '最近沒有 AI 對話紀錄'
-    el.agentList.appendChild(note)
-    return
-  }
-  for (const row of rows) {
-    const item = document.createElement('button')
-    item.type = 'button'
-    item.className = 'ws-agent-row'
-    item.title = `檢視對話記錄（${row.id}）`
-
-    const head = document.createElement('span')
-    head.className = 'ws-agent-head'
-    const agent = document.createElement('span')
-    agent.className = `ws-agent-tag ws-agent-${row.agent}`
-    agent.textContent = row.agentLabel
-    const when = document.createElement('span')
-    when.className = 'ws-agent-when'
-    when.textContent = formatWhen(row.mtime)
-    head.append(agent, when)
-    // 記錄可能是別的工作台代跑的（Orca 有自己的 runtime home），標一下才知道從哪來
-    if (row.source) {
-      const src = document.createElement('span')
-      src.className = 'ws-agent-source'
-      src.textContent = row.source
-      head.appendChild(src)
-    }
-
-    const title = document.createElement('span')
-    title.className = 'ws-agent-title'
-    title.textContent = row.title || '（沒有標題）'
-
-    item.append(head, title)
-    item.addEventListener('click', () => void openAiSessionTab(project, row))
-
-    const wrap = document.createElement('div')
-    wrap.className = 'ws-agent-row-wrap'
-    wrap.dataset.id = `${row.agent}:${row.id}`
-    const actions = document.createElement('div')
-    actions.className = 'ws-agent-actions'
-    const resume = document.createElement('button')
-    resume.type = 'button'
-    resume.className = 'ws-agent-resume'
-    resume.textContent = '接續'
-    resume.title = '在新的終端機接續這一段'
-    resume.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void resumeSession(project, row)
-    })
-    const copy = document.createElement('button')
-    copy.type = 'button'
-    copy.className = 'ws-agent-copy'
-    copy.textContent = '複製'
-    copy.title = '複製這段對話紀錄檔的完整路徑'
-    copy.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void copySessionPath(project, row)
-    })
-    actions.append(resume, copy)
-    wrap.append(item, actions)
-    el.agentList.appendChild(wrap)
-  }
-  el.agentList.scrollTop = scroll
-}
-
-/**
- * @param {number} ms
- * @returns {string}
- */
-function formatWhen(ms) {
-  const diff = Date.now() - ms
-  const hour = 60 * 60 * 1000
-  if (diff < hour) return `${Math.max(1, Math.round(diff / 60000))} 分鐘前`
-  if (diff < 24 * hour) return `${Math.round(diff / hour)} 小時前`
-  const days = Math.round(diff / (24 * hour))
-  return days <= 30 ? `${days} 天前` : new Date(ms).toLocaleDateString('zh-TW')
-}
-
-/** 紀錄路徑由 main 確認歸屬，剪貼簿 IPC 不受視窗焦點影響。 */
-async function copySessionPath(project, row) {
-  try {
-    const data = await call(electronAPI.workspace.agentSessionDetail(project.id, row.agent, row.id), '讀不到紀錄檔路徑')
-    if (currentProject()?.id !== project.id) return
-    if (typeof data?.file !== 'string' || !data.file) {
-      showToast('找不到紀錄檔路徑', 'error')
-      return
-    }
-    await call(electronAPI.terminal.clipboardWrite(data.file), '複製不了路徑')
-    showToast('已複製路徑')
-  } catch { /* call 已顯示錯誤 */ }
-}
+// ===== AI 對話記錄（清單在專案側欄，見 ws-project-sessions.js）=====
 
 /**
  * 接續一段對話。指令由 main 組，而且 main 會**先確認這段對話真的屬於這個專案**
@@ -2984,7 +2870,7 @@ async function resumeSession(project, row) {
     return
   }
   if (currentProject()?.id !== project.id) return
-  await newTerminalWithCommand(`${info.agentLabel} · ${row.title || '接續'}`, info.command, info)
+  await newTerminalWithCommand(`${info.agentLabel} · ${row.sessionTitle || row.title || '接續'}`, info.command, info)
 }
 
 // ===== 對外 =====
@@ -3110,7 +2996,6 @@ function initWorkspacePage() {
   el.rightEmpty = document.getElementById('wsRightEmpty')
   el.panelFiles = document.getElementById('wsPanelFiles')
   el.panelGit = document.getElementById('wsPanelGit')
-  el.panelAgents = document.getElementById('wsPanelAgents')
   el.filesProject = document.getElementById('wsFilesProject')
   el.tree = document.getElementById('wsTree')
   el.gitBranch = document.getElementById('wsGitBranch')
@@ -3124,7 +3009,6 @@ function initWorkspacePage() {
   el.gitPushBtn = document.getElementById('wsGitPushBtn')
   el.gitStageAllBtn = document.getElementById('wsGitStageAllBtn')
   el.worktrees = document.getElementById('wsWorktrees')
-  el.agentList = document.getElementById('wsAgentList')
   el.reviewRef = document.getElementById('wsReviewRef')
   el.reviewFiles = document.getElementById('wsReviewFiles')
   el.portList = document.getElementById('wsPortList')
@@ -3136,6 +3020,7 @@ function initWorkspacePage() {
   document.addEventListener('ws:terminal-status', paintProjectStatuses)
   el.newBtn?.addEventListener('click', () => void addProject())
   document.getElementById('projNewFolderBtn')?.addEventListener('click', () => void projectFolders.create())
+  projectSessions.start()
   initProjectDrop()
   document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
     btn.addEventListener('click', () => setPanel(/** @type {HTMLElement} */ (btn).dataset.panel))
@@ -3152,7 +3037,6 @@ function initWorkspacePage() {
   })
   document.getElementById('wsWorktreeAddBtn')?.addEventListener('click', () => void addWorktree())
   document.getElementById('wsGitOpenAllBtn')?.addEventListener('click', () => void openAllChanged())
-  document.getElementById('wsAgentsRefreshBtn')?.addEventListener('click', () => void renderAgents())
   document.getElementById('wsGitStageAllBtn')?.addEventListener('click', () => void stageAll())
   document.getElementById('wsGitCommitBtn')?.addEventListener('click', () => void commitStaged())
   el.gitMessage?.addEventListener('keydown', (event) => {

@@ -5553,116 +5553,6 @@ body.is-col-resizing webview {
   white-space: nowrap;
 }
 
-/* ── AI 對話記錄 ── */
-.ws-agent-list {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ws-agent-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 100%;
-  padding: 7px 9px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.ws-agent-row:hover {
-  border-color: var(--border-color);
-  background-color: var(--surface-hover);
-}
-
-.ws-agent-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ws-agent-tag {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  background-color: var(--surface-subtle);
-}
-
-.ws-agent-when {
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-
-.ws-agent-title {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-/* ── 對話歸屬（哪一段對話屬於哪個專案）── */
-/* ── AI 記錄：來源標籤與直接接續 ── */
-.ws-agent-row-wrap {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-}
-
-.ws-agent-row-wrap .ws-agent-row {
-  flex: 1;
-  min-width: 0;
-}
-
-/* 操作鈕並排在標頭右邊，對話標題仍保留整行寬度。 */
-.ws-agent-row-wrap .ws-agent-head {
-  padding-right: 104px;
-  flex-wrap: wrap;
-  min-height: 24px;
-}
-
-.ws-agent-source {
-  flex: none;
-  padding: 1px 6px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  font-size: 10px;
-  color: var(--text-tertiary);
-}
-
-.ws-agent-actions {
-  position: absolute;
-  top: 5px;
-  right: 6px;
-  display: flex;
-  gap: 4px;
-}
-
-.ws-agent-resume,
-.ws-agent-copy {
-  padding: 2px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.ws-agent-resume:hover,
-.ws-agent-copy:hover {
-  color: var(--accent-primary);
-  border-color: var(--accent-primary);
-}
-
 /* ── AI 會話卡片裡的可收合區塊 ── */
 .ws-ai-fold {
   margin-top: 8px;
@@ -5907,6 +5797,173 @@ body.is-col-resizing webview {
 .proj-list-item .chat-list-title {
   font-weight: 650;
   color: var(--text-primary);
+}
+
+/* ── 專案列展開的 AI 對話記錄（ws-project-sessions.js）── */
+.proj-list-item {
+  flex-wrap: wrap;
+}
+
+.proj-sessions-toggle {
+  flex: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 4px 4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.proj-sessions-toggle:hover,
+.proj-sessions-toggle:focus-visible {
+  color: var(--text-primary);
+  background-color: var(--surface-hover);
+}
+
+.proj-sessions-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
+}
+
+.proj-list-item.sessions-open .proj-sessions-toggle {
+  color: var(--accent-primary);
+}
+
+.proj-list-item.sessions-open .proj-sessions-toggle svg {
+  transform: rotate(180deg);
+}
+
+.proj-sessions {
+  flex: 1 0 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 4px 6px 8px;
+  touch-action: auto;
+}
+
+.proj-sessions[hidden] {
+  display: none;
+}
+
+.proj-sess {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+
+.proj-sess:hover,
+.proj-sess:focus-within {
+  background-color: var(--surface-hover);
+}
+
+.proj-sess-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.proj-sess-open .ws-tool-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.proj-sess-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.proj-sess-when {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 操作鈕平常藏起來讓標題佔滿；滑到或鍵盤停到那一列才換掉時間出現 */
+.proj-sess-actions {
+  display: none;
+  flex: none;
+  gap: 3px;
+  padding-right: 4px;
+}
+
+.proj-sess:hover .proj-sess-actions,
+.proj-sess:focus-within .proj-sess-actions {
+  display: flex;
+}
+
+.proj-sess:hover .proj-sess-when,
+.proj-sess:focus-within .proj-sess-when {
+  display: none;
+}
+
+.proj-sess-btn {
+  padding: 1px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.proj-sess-btn:hover,
+.proj-sess-btn:focus-visible {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.proj-sess-more {
+  align-self: flex-start;
+  margin: 2px 0 0 6px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.proj-sess-more:hover {
+  color: var(--accent-primary);
+}
+
+.proj-sess-note {
+  margin: 2px 0 0 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 /* 沒有還活著的終端機就收起來（workspace-page.js 依狀態自動切，沒有按鈕） */

@@ -14,9 +14,25 @@ const profile = tempDir('agents-profile-')
 const project = tempDir('agents-project-')
 const other = tempDir('agents-other-')
 const fixture = seedAgentFixtures(tempDir('agents-home-'), project, true)
+const blankIds = seedBlankSessions(path.dirname(fixture.env.CLAUDE_CONFIG_DIR), project)
 const projectId = 'w_agents_probe'
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 let child, cdp, mainCdp
+
+/** 開了沒講話的空對話：側欄清單要過濾掉（接續綁定仍看得到） */
+function seedBlankSessions(home, dir) {
+  const { DatabaseSync } = require('node:sqlite')
+  const ids = { claude: 'c1234567-1234-4234-8234-123456789abc', opencode: 'ses_blank123', agy: 'd1234567-1234-4234-8234-123456789abc' }
+  const claudeFile = path.join(home, '.claude', 'projects', dir.replace(/[^A-Za-z0-9-]/g, '-'), ids.claude + '.jsonl')
+  fs.writeFileSync(claudeFile, JSON.stringify({ type: 'summary', summary: '' }) + String.fromCharCode(10))
+  let db = new DatabaseSync(path.join(home, '.local/share/opencode/opencode.db'))
+  db.prepare('INSERT INTO session VALUES(?,?,?,?,?)').run(ids.opencode, dir, 'New session - 2026-11-12T01:02:03.456Z', Date.now(), null)
+  db.close()
+  db = new DatabaseSync(path.join(home, '.gemini/antigravity-cli/conversation_summaries.db'))
+  db.prepare('INSERT INTO conversation_summaries VALUES(?,?,?,?,?)').run(ids.agy, '', JSON.stringify([require('url').pathToFileURL(dir).href]), new Date().toISOString(), '')
+  db.close()
+  return ids
+}
 
 async function freePort() {
   const server = net.createServer()
@@ -60,7 +76,7 @@ async function connect(url) {
 }
 async function target(port) {
   return wait(async () => {
-    try { return (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => /index\.html/.test(t.url)) } catch { return null }
+    try { return (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => /index\.html/.test(t.url) && t.url.includes('page=chat')) } catch { return null }
   }, '主畫面沒有啟動')
 }
 function expectedHash(agent) {
@@ -217,7 +233,10 @@ async function main() {
   await wait(() => cdp.eval('!!window.electronAPI?.workspace'), 'IPC 未就緒')
   const rows = await cdp.eval(`electronAPI.workspace.agentSessions('${projectId}').then(r => { if(!r.ok) throw new Error(r.error.message); return r.data })`)
   for (const [agent, id] of Object.entries(fixture.ids)) assert.ok(rows.some(row => row.agent === agent && row.id === id), `${agent} 不在紀錄清單`)
-  console.log('PASS 五種 AI 紀錄真格式與專案歸屬')
+  for (const [agent, id] of Object.entries(blankIds)) assert.ok(!rows.some(row => row.agent === agent && row.id === id), `${agent} 空白對話沒有被過濾`)
+  assert.equal(rows.length, Object.keys(fixture.ids).length, '清單只留有標題的對話')
+  console.log('PASS 五種 AI 紀錄真格式與專案歸屬；三家空白對話已過濾')
+  await wait(() => cdp.eval('!!document.getElementById("sidebarModeProjects")'), '側欄未就緒')
   await cdp.eval('document.getElementById("sidebarModeProjects").click()')
   await wait(() => cdp.eval(`!!document.querySelector('#projList [data-id=${projectId}] .chat-list-open')`), '專案清單未就緒')
   await cdp.eval(`document.querySelector('#projList [data-id=${projectId}] .chat-list-open').click()`)
@@ -270,31 +289,46 @@ async function main() {
 }
 
 async function sidebarCopy(rows) {
-  await click('.ws-right-tab[data-panel="agents"]')
-  await wait(() => cdp.eval('document.querySelectorAll("#wsAgentList .ws-agent-row-wrap").length>0'), 'AI 紀錄側欄未載入')
-  assert.equal(await cdp.eval('document.querySelectorAll("#wsAgentList .ws-agent-copy").length'), rows.length, '每筆紀錄要有複製鈕')
-  await mainCdp.eval(`globalThis.__copyService=process.mainModule.require(process.mainModule.require('electron').app.getAppPath()+'/src/main/terminal/service.js');globalThis.__copyWrite=__copyService.clipboardWrite;globalThis.__copiedPaths=[];__copyService.clipboardWrite=text=>{__copiedPaths.push(text);return true}`)
+  const item = `#projList [data-id=${projectId}]`
+  await click(`${item} .proj-sessions-toggle`)
+  await wait(() => cdp.eval(`document.querySelectorAll('${item} .proj-sess').length===${rows.length}`), '專案列展開後沒有列出 AI 紀錄')
+  assert.equal(await cdp.eval(`document.querySelector('${item} .proj-sessions-toggle').getAttribute('aria-expanded')`), 'true')
+  assert.ok(!(await cdp.eval('!!document.querySelector(".ws-right-tab[data-panel=agents]")')), '右側欄不再有 AI 記錄分頁')
+  await mainCdp.eval(`globalThis.__copyService=process.mainModule.require(process.mainModule.require('electron').app.getAppPath()+'/src/main/terminal/service.js');globalThis.__copyWrite=__copyService.clipboardWrite;globalThis.__copied=[];__copyService.clipboardWrite=text=>{__copied.push(text);return true}`)
   try {
     for (const [agent, id] of Object.entries(fixture.ids)) {
-      const selector = `#wsAgentList [data-id="${agent}:${id}"] .ws-agent-copy`
-      const expected = await cdp.eval(`electronAPI.workspace.agentSessionDetail('${projectId}',${JSON.stringify(agent)},${JSON.stringify(id)}).then(r=>r.data.file)`)
+      const selector = `${item} [data-id="${agent}:${id}"] .proj-sess-btn:last-child`
+      const ending = agent === 'claude' ? '回答74' : '最末尾驗收'
       await cdp.eval(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`)
       assert.equal(await cdp.eval(`document.querySelector(${JSON.stringify(selector)}).textContent`), '複製')
+      // 操作鈕滑到那一列才出現：先用真滑鼠移過去
+      const rowPoint = await cdp.eval(`(() => { const r=document.querySelector('${item} [data-id="${agent}:${id}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2} })()`)
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...rowPoint })
+      await wait(() => cdp.eval(`document.querySelector(${JSON.stringify(selector)}).offsetWidth>0`), `${agent} 滑過去沒有出現操作鈕`)
       await click(selector)
-      await wait(() => mainCdp.eval(`__copiedPaths.includes(${JSON.stringify(expected)})`), `${agent} 沒有複製正確紀錄檔路徑`)
+      await wait(() => mainCdp.eval(`__copied.some(t=>t.includes(${JSON.stringify(fixture.user)})&&t.endsWith(${JSON.stringify(ending)}))`), `${agent} 沒有複製到完整對話內容`)
       assert.ok(await cdp.eval('document.getElementById("wsAiSession").hidden'), '複製不應開啟對話')
     }
-    for (const width of [260, 320]) {
-      await cdp.eval(`document.getElementById('wsRight').style.width='${width}px'`)
-      const layout = await cdp.eval(`(() => {const list=document.getElementById('wsAgentList');return {width:list.clientWidth,scroll:list.scrollWidth,rows:[...list.querySelectorAll('.ws-agent-row-wrap')].map(row=>{const a=row.querySelector('.ws-agent-actions').getBoundingClientRect(),r=row.getBoundingClientRect();return {inside:a.right<=r.right,overlap:[...row.querySelectorAll('.ws-agent-head > span')].some(n=>{const t=n.getBoundingClientRect();return t.right>a.left+1 && t.top<a.bottom && t.bottom>a.top})}})}})()`)
-      assert.ok(layout.scroll <= layout.width + 1 && layout.rows.every(row => row.inside && !row.overlap), `${width}px 側欄操作不能遮住標籤或溢出：${JSON.stringify(layout)}`)
+    // 自動更新：新增一段對話，不按任何鈕也要出現。輪詢只在視窗看得到時跑，先把視窗放到螢幕外再顯示
+    await mainCdp.eval(`process.mainModule.require('electron').BrowserWindow.getAllWindows().filter(w=>/index\.html/.test(w.webContents.getURL())).forEach(w=>{w.setPosition(-3000,-3000);w.showInactive()})`)
+    const fresh = 'e1234567-1234-4234-8234-123456789abc'
+    fs.writeFileSync(path.join(fixture.env.CLAUDE_CONFIG_DIR, 'projects', project.replace(/[^A-Za-z0-9-]/g, '-'), fresh + '.jsonl'), JSON.stringify({ type: 'user', message: { content: '自動更新測試提問' } }) + '\n')
+    await wait(() => cdp.eval(`!!document.querySelector('${item} [data-id="claude:${fresh}"]')`), '新對話沒有自動出現在專案列', 15000)
+    for (const theme of ['dark', 'light']) {
+      await cdp.eval(`document.documentElement.dataset.theme='${theme}'`)
+      const layout = await cdp.eval(`(() => {const list=document.getElementById('projList');return {width:list.clientWidth,scroll:list.scrollWidth,rows:[...list.querySelectorAll('${item} .proj-sess')].map(row=>{const a=row.querySelector('.proj-sess-actions').getBoundingClientRect(),r=row.getBoundingClientRect(),t=row.querySelector('.proj-sess-title').getBoundingClientRect();return {inside:a.right<=r.right+1,overlap:t.right>a.left+1&&t.top<a.bottom&&t.bottom>a.top}})}})()`)
+      assert.ok(layout.scroll <= layout.width + 1 && layout.rows.every(row => row.inside && !row.overlap), `${theme} 專案列的 AI 紀錄不能溢出或重疊：${JSON.stringify(layout)}`)
+      await screenshot(`sidebar-sessions-${theme}.png`)
     }
-    await screenshot('sidebar-copy.png')
+    await cdp.eval('document.documentElement.dataset.theme="dark"')
+    await click(`${item} .proj-sessions-toggle`)
+    assert.ok(await cdp.eval(`document.querySelector('${item} .proj-sessions').hidden`), '再按一次要收起來')
+    await click(`${item} .proj-sessions-toggle`)
+    await wait(() => cdp.eval(`document.querySelectorAll('${item} .proj-sess').length>0`), '再展開沒有內容')
   } finally {
     await mainCdp.eval('__copyService.clipboardWrite=__copyWrite')
-    await cdp.eval('document.getElementById("wsRight").style.width=""')
   }
-  console.log('PASS 側欄複製：五家紀錄檔路徑、真點擊／IPC、文字「複製」、不開對話、窄側欄無重疊；保留系統剪貼簿')
+  console.log('PASS 專案列展開 AI 紀錄：五家完整內容複製、空白過濾、自動更新、深淺主題無重疊、收合')
 }
 main().catch(error => { console.error('FAIL', error.stack); process.exitCode = 1 }).finally(() => {
   cdp?.ws.close(); mainCdp?.ws.close()

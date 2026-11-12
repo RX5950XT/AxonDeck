@@ -90,10 +90,10 @@ native/
 
 ### 專案工作區與終端機
 - 專案＝本機資料夾（`workspaces.json`，含 `tabsState`、`folders`、`folderId`、`setupScript`）。分類沿用 Chat 資料夾（`ws-project-folders.js`），刪分類只移回未分類。
-- 右側欄四顆：檔案樹／Git／AI 記錄／MCP・Skills（開成 `cc-tools` 分頁，一專案一個）。主區＋右側欄包在 `#wsShell`；額度條 `quota-bar.js` 在外層 `.chat-stage` 最下面，Agent、Chat、網頁 AI、Telegram 共用，Browser 模式藏起來。
+- 右側欄三顆：檔案樹／Git／MCP・Skills（開成 `cc-tools` 分頁，一專案一個）。主區＋右側欄包在 `#wsShell`；額度條 `quota-bar.js` 在外層 `.chat-stage` 最下面，Agent、Chat、網頁 AI、Telegram 共用，Browser 模式藏起來。
 - Git 面板按鈕依狀態（`paintGitActions`）：暫存區空就「全部提交 N 個」＝`add -A`；沒上游時「發布分支」＝`push -u origin HEAD`；GitHub 鈕 `githubUrl`。
 - 專案全文搜尋走 Rust `search`（平行讀檔，結果與 JS 版一致）；新查詢停止舊查詢。
-- AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity；IPC 分段讀、renderer 接成完整單頁；Ctrl+F 搜尋全文與工具內容。
+- AI 記錄讀 Claude Code／Codex／Grok／OpenCode／Antigravity，入口在左側專案列右邊的展開鈕（`ws-project-sessions.js`）：可檢視、接續、複製全文（右鍵另有複製路徑）；展開中的專案側欄看得到時每 5 秒重讀、有變才就地換那一塊，展開狀態存 localStorage。清單 `workspace:agentSessions` 帶 `titledOnly` 拿掉沒標題的空白對話（含 OpenCode 預設的 `New session - <時間>`）；接續綁定（`agent-resume.js`）仍拿全部。檢視分頁 IPC 分段讀、renderer 接成完整單頁；Ctrl+F 搜尋全文與工具內容。回歸 `probe-workspace-agents-cdp.js`（packaged）。
 - 終端機 PTY 在獨立宿主（`<userData>/terminal-host/`），App 重開只斷線；五種 AI CLI 接回原程序，已結束就用記住的對話 ID 接續。Codex 預設 `codex --no-daemon`，宿主把 npm 套件內 codex.exe 排到 PATH 最前。
 - 狀態：Claude 靠 hook（`<userData>/claude-hook/`）＋畫面判斷；其他家看 `events.jsonl`／CLI log。對話綁定（`agent-resume.js` 的 `claimed`）：一筆對話只綁給一個還在跑的分頁；Claude 由 PTY 子程序對 `sessions/<pid>.json`。
 - 背景通知（`agent-notify.js`）：agent 分頁從運行中掉到閒置／等人且沒在看 → Windows 通知＋工作列 overlay 數字；點通知 `terminal:reveal` 切回該分頁。純 shell 不通知。

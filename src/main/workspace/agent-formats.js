@@ -19,7 +19,7 @@ function dataPaths() {
   }
 }
 
-async function extraSessions(project, samePath, idRe, sessionId = '') {
+async function extraSessions(project, samePath, idRe, sessionId = '', titledOnly = false) {
   const roots = dataPaths(), out = []
   for (const archive of ['sessions', 'archived_sessions']) {
     const parent = path.join(roots.grok, archive)
@@ -37,7 +37,7 @@ async function extraSessions(project, samePath, idRe, sessionId = '') {
       if (!samePath(summary?.info?.cwd, project) || summary?.info?.id !== entry.name) continue
       const file = path.join(full, 'chat_history.jsonl')
       const stat = await fs.promises.stat(file).catch(() => null)
-      if (stat) out.push({ agent: 'grok', id: entry.name, title: summary.session_summary || '', mtime: stat.mtimeMs, file, home: roots.grok })
+      if (stat && !(titledOnly && !summary.session_summary)) out.push({ agent: 'grok', id: entry.name, title: summary.session_summary || '', mtime: stat.mtimeMs, file, home: roots.grok })
     }
     }
   }
@@ -49,13 +49,15 @@ async function extraSessions(project, samePath, idRe, sessionId = '') {
       const sql = agent === 'agy'
         ? `SELECT conversation_id AS id,title,workspace_uris,last_modified_time FROM conversation_summaries
            WHERE parent_conversation_id = '' AND (? = '' OR conversation_id = ?)
+             AND (? = 0 OR coalesce(title, '') <> '')
              AND json_valid(workspace_uris) AND EXISTS (SELECT 1 FROM json_each(workspace_uris) WHERE lower(value) = lower(?))
            ORDER BY last_modified_time DESC LIMIT 30`
         : `SELECT id,title,directory,time_updated FROM session WHERE parent_id IS NULL
-           AND (? = '' OR id = ?) AND lower(rtrim(replace(directory, char(92), '/'), '/')) = lower(?)
+           AND (? = '' OR id = ?) AND (? = 0 OR (coalesce(title, '') <> '' AND title NOT GLOB 'New session - *'))
+           AND lower(rtrim(replace(directory, char(92), '/'), '/')) = lower(?)
            ORDER BY time_updated DESC LIMIT 30`
       const location = agent === 'agy' ? pathToFileURL(project).href : project.replace(/\\/g, '/').replace(/\/+$/, '')
-      for (const row of db.prepare(sql).iterate(sessionId, sessionId, location)) {
+      for (const row of db.prepare(sql).iterate(sessionId, sessionId, titledOnly ? 1 : 0, location)) {
         if (!idRe.test(row.id)) continue
         let inside = samePath(row.directory, project)
         if (agent === 'agy') { try { inside = JSON.parse(row.workspace_uris).some(uri => samePath(fileURLToPath(uri), project)) } catch { inside = false } }

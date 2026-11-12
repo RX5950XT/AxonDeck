@@ -109,7 +109,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 內建瀏覽器：`webviewTag` 只開主視窗、guest 不掛 preload；每分頁一顆 webview，換專案停放不拆；要自寫 `webview[hidden] { display: none }`。
 - 外部拖入一律複製不搬移，先量再複製、超上限整批拒絕；`dragover` 要放行外部檔案。搜尋四個上限（200 命中／8000 檔／1MB／15 秒）缺一不可。
 - 資料夾監看一次只看一個專案；`.git` 底下的變動只當「Git 狀態變了」；事件要合併；監看不起來安靜退回手動。
-- AI 記錄要掃 `CLAUDE_CONFIG_DIR`／`CODEX_HOME` 與其他工作台 home，照 `agent + id` 去重；「讀過」「改過」分開。恢復指令是 main 固定表，session id 卡 `^[A-Za-z0-9_-]{6,64}$`。
+- AI 記錄要掃 `CLAUDE_CONFIG_DIR`／`CODEX_HOME` 與其他工作台 home，照 `agent + id` 去重；「讀過」「改過」分開。恢復指令是 main 固定表，session id 卡 `^[A-Za-z0-9_-]{6,64}$`。空白對話只在側欄清單過濾（`titledOnly`），不可套到 `agent-resume.js`（剛開還沒講話的分頁會綁不到對話）；SQL 的 LIMIT 前就要濾，否則空白對話佔滿名額。
 
 ### 檔案總管
 - 整機搜尋不准自己 walk，只代跑 `<userData>/uffs/` 的 UFFS（checksum 缺就失敗）；CDP／沙箱的 `uffsAuto` 關掉。

@@ -257,7 +257,7 @@ const gitFileVersions = (projectId, relPath, staged) => git.fileVersions(project
 // ===== AI 對話記錄 =====
 
 async function agentSessions(projectId) {
-  return agents.sessions(await rootOf(projectId))
+  return agents.sessions(await rootOf(projectId), '', { titledOnly: true })
 }
 
 /**

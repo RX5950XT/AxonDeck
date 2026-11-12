@@ -28,7 +28,7 @@ export function workspaceCommandItems({ projects, project, sessions, presets,
   commands.push(...presets.map((preset) => ({ id: `new:${preset.key}`,
     label: `新增 ${preset.label} 終端機`, run: () => newAgent(preset.key) })))
   commands.push({ id: 'worktree', label: '在新 worktree 開 agent', run: addWorktree },
-    ...[['git', '開 Git 面板'], ['agents', '開 AI 記錄'], ['files', '開檔案樹']]
+    ...[['git', '開 Git 面板'], ['files', '開檔案樹']]
       .map(([name, label]) => ({ id: name, label, run: () => {
         if (name === 'files') setFilesView?.('tree')
         setPanel(name)

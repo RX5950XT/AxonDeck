@@ -669,7 +669,7 @@
                 tabindex="0"
               ></div>
 
-              <!-- 右側欄：檔案總管／Git／AI 對話記錄，全部繫在「目前選定的專案」上 -->
+              <!-- 右側欄：檔案總管／Git，全部繫在「目前選定的專案」上（AI 記錄在左側專案列展開） -->
               <aside class="ws-right hidden" id="wsRight">
                 <div class="ws-right-tabs" role="tablist" aria-label="右側欄面板">
                   <button
@@ -683,9 +683,6 @@
                   </button>
                   <button type="button" class="ws-right-tab" role="tab" data-panel="git" aria-selected="false">
                     Git
-                  </button>
-                  <button type="button" class="ws-right-tab" role="tab" data-panel="agents" aria-selected="false">
-                    AI 記錄
                   </button>
                   <button type="button" class="ws-right-tab" id="wsCcToolsBtn" title="在目前專案開「MCP 與 Skills」分頁">
                     MCP/Skills
@@ -801,15 +798,6 @@
                   </div>
                 </div>
 
-                <div class="ws-right-body" id="wsPanelAgents" role="tabpanel" hidden>
-                  <div class="ws-right-head">
-                    <span class="ws-right-project" id="wsAgentsHint">最近 60 天</span>
-                    <button type="button" id="wsAgentsRefreshBtn" class="btn-icon" title="重新整理" aria-label="重新整理 AI 記錄">
-                      ⟳
-                    </button>
-                  </div>
-                  <div class="ws-agent-list" id="wsAgentList" aria-label="AI 對話記錄"></div>
-                </div>
               </aside>
               </div>
               </div>

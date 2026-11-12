@@ -103,7 +103,7 @@ async function main() {
         return new Response(JSON.stringify({ five_hour: { utilization: 30, resets_at: new Date(Date.now() + 3600_000).toISOString() } }));
       } });
     })()`)
-    renderer = await connect((await target(9262, p => p.type === 'page' && /index\.html/.test(p.url))).webSocketDebuggerUrl)
+    renderer = await connect((await target(9262, p => p.type === 'page' && /index\.html/.test(p.url) && p.url.includes('page=chat'))).webSocketDebuggerUrl)
     await waitFor(() => renderer.eval(`document.readyState === 'complete' && !!window.electronAPI`), 'preload')
     await renderer.eval(`document.getElementById('sidebarModeProjects').click()`)
     await waitFor(() => renderer.eval(`!!document.querySelector('#projList [data-id="w_quota_test"] .chat-list-open')`), '測試專案')

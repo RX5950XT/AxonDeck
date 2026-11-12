@@ -482,6 +482,31 @@ function togglePopover(provider, anchor) {
   placePopover(pop, anchor)
 }
 
+/**
+ * 詳情是 popover="manual"，收合自己管：auto 的「點外面就關」在按下條上那一家時就先關掉，
+ * 放開的 click 又把它打開，變成再點同一家永遠收不起來。
+ */
+function bindPopoverDismiss() {
+  const pop = byId('quotaPopover')
+  if (!pop) return
+  const close = () => { if (pop.matches(':popover-open')) pop.hidePopover() }
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('#quotaPopover, .quota-item-open, dialog, .ws-menu, .custom-select-menu')) return
+    close()
+  }, true)
+  // 點進網頁（Telegram、網頁版 AI）收不到 pointerdown，看焦點落到 <webview>
+  document.addEventListener('focusin', (event) => {
+    if (event.target instanceof Element && event.target.tagName === 'WEBVIEW') close()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !pop.matches(':popover-open') || document.querySelector('dialog[open]')) return
+    const provider = popoverProvider
+    close()
+    byId('quotaItems')?.querySelector(`.quota-item[data-id="${CSS.escape(provider)}"] .quota-item-open`)?.focus()
+  })
+}
+
 // ===== 畫面 =====
 
 function renderLastSync() {
@@ -761,6 +786,7 @@ function bindControls() {
   byId('quotaPopover')?.addEventListener('toggle', (event) => {
     if (event.newState === 'closed') popoverProvider = ''
   })
+  bindPopoverDismiss()
   // 條被藏起來的期間沒同步；一回來就補（不等下一個 5 秒）
   document.addEventListener('visibilitychange', () => {
     if (isBarVisible() && isStale()) void runSync()

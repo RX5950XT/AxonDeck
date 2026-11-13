@@ -32,7 +32,7 @@ impl State {
                     self.layout();
                 },
                 preferences::Event::Resume(file,seconds) if self.loaded && self.resume_allowed && self.current()==Some(file.as_path()) && self.category!="image" => {
-                    self.resume_allowed=false; self.command(json!(["seek",seconds,"absolute+exact"])); self.notice("已接續上次播放位置");
+                    self.resume_allowed=false; self.command(json!(["seek",seconds,"absolute+exact"])); self.notice("已接續上次播放位置 · Home 從頭播放");
                 },
                 preferences::Event::Error(text) => self.notice(&text),
                 _ => {}

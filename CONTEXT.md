@@ -118,7 +118,7 @@ native/
 - 刪除進回收筒、Ctrl+Z 復原、撞名可改名／略過／覆蓋；殼層 sidecar 給原生右鍵、真縮圖、內容視窗、詳細資訊、MTP、手機清單（`devices`）。
 - 超過 300 項的資料夾改 Rust `list-dir`；資料夾大小（`folderSizes`）由 `dir-sizes.js` 背景用 `dir-size` 逐個算（單個上限 20 秒）。
 - UFFS 進頁只準備授權，搜尋時才載索引，保留到 App 結束。
-- 原生媒體播放器 `native/axondeck-probe/src/bin/axondeck-media/`：Rust＋Win32，mpv／ImageMagick 解碼，跑在 Job object，跟主 App 分開。偏好存 `%LOCALAPPDATA%/AxonDeck Media/preferences.json`。
+- 原生媒體播放器 `native/axondeck-probe/src/bin/axondeck-media/`：Rust＋Win32，mpv／ImageMagick 解碼，跑在 Job object，跟主 App 分開。偏好存 `%LOCALAPPDATA%/AxonDeck Media/preferences.json`。時間軸（`timeline.rs`）：滑桿點哪跳哪（自己接滑鼠，不走 Win32 翻頁）、進度條懸停泡泡（時間＋章節）、章節刻痕與選單、點總長切剩餘時間；同名字幕 `sub-auto=fuzzy`、音樂資料夾封面 `cover-art-auto`；媒體鍵＝視窗 `WM_APPCOMMAND`＋mpv 內建 SMTC 的鍵名綁定（浮窗顯示為 mpv.exe）。
 - 右鍵「在 AxonDeck 檔案頁顯示」叫 `AxonDeck.exe --reveal=<路徑>`（main `revealInFiles`）。
 - 預設關聯：新安裝或首次更新背景套用（同時寫 UserChoice 與 UserChoiceLatest Hash 並回讀），備份在 `association-backups/`，之後不覆寫自選；解除安裝還原。`npm run build:media` 固定 runtime 版本與 SHA-256。
 

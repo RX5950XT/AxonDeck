@@ -192,10 +192,63 @@ unsafe extern "system" fn slider_proc(hwnd: HWND,msg:u32,w:WPARAM,l:LPARAM,_:usi
         let full=damage.left==0 && damage.top==0 && damage.right==area.right && damage.bottom==area.bottom;
         let _=SetPropW(hwnd,w!("AxonDeckSliderFullPaint"),Some(windows::Win32::Foundation::HANDLE((full as usize+1) as _)));
     }
-    if msg==WM_NCDESTROY { let _=RemovePropW(hwnd,w!("AxonDeckSliderTheme")); let _=RemovePropW(hwnd,w!("AxonDeckSliderPanel")); }
+    if msg==WM_NCDESTROY { let _=RemovePropW(hwnd,w!("AxonDeckSliderTheme")); let _=RemovePropW(hwnd,w!("AxonDeckSliderPanel")); let _=RemovePropW(hwnd,w!("AxonDeckSliderDrag")); }
     if msg==WM_ERASEBKGND { return windows::Win32::Foundation::LRESULT(1); }
+    if let Some(result)=slider_mouse(hwnd,msg,l) { return result; }
     DefSubclassProc(hwnd,msg,w,l)
 } }
+/// 進度條懸停：wParam＝位置＋1（0＝收起），lParam＝滑桿。
+pub const SLIDER_HOVER: u32 = WM_APP + 10;
+// Windows 預設點空白處只翻一頁；主流播放器是點哪跳哪、按住就拖。換算沿用自繪圓點的整條 channel。
+fn slider_mouse(hwnd:HWND,msg:u32,l:LPARAM) -> Option<windows::Win32::Foundation::LRESULT> { unsafe {
+    if !matches!(msg,WM_LBUTTONDOWN|WM_MOUSEMOVE|WM_LBUTTONUP|WM_CAPTURECHANGED|WM_MOUSELEAVE) { return None; }
+    let parent=GetParent(hwnd).ok()?; let seek=GetDlgCtrlID(hwnd)==SEEK as i32;
+    let dragging=GetPropW(hwnd,w!("AxonDeckSliderDrag")).0 as usize!=0;
+    let x=l.0 as u16 as i16 as i32;
+    let notify=|code:u32| { SendMessageW(parent,WM_HSCROLL,Some(WPARAM(code as usize)),Some(LPARAM(hwnd.0 as isize))); };
+    let hover=|value:Option<i32>| if seek { SendMessageW(parent,SLIDER_HOVER,Some(WPARAM(value.map_or(0,|v| v as usize+1))),Some(LPARAM(hwnd.0 as isize))); };
+    let follow=|| { let value=slider_value_at(hwnd,x); position(hwnd,value); hover(Some(value)); };
+    match msg {
+        WM_LBUTTONDOWN => {
+            let _=SetPropW(hwnd,w!("AxonDeckSliderDrag"),Some(windows::Win32::Foundation::HANDLE(1 as _))); let _=SetCapture(hwnd);
+            follow(); notify(TB_THUMBTRACK);
+        },
+        WM_MOUSEMOVE => {
+            let mut track=TRACKMOUSEEVENT { cbSize:size_of::<TRACKMOUSEEVENT>() as u32,dwFlags:TME_LEAVE,hwndTrack:hwnd,..Default::default() }; let _=TrackMouseEvent(&mut track);
+            if dragging { follow(); notify(TB_THUMBTRACK); } else { hover(Some(slider_value_at(hwnd,x))); }
+        },
+        WM_LBUTTONUP | WM_CAPTURECHANGED if dragging => {
+            // ReleaseCapture 會同步送 WM_CAPTURECHANGED；先拿掉記號，只送一次結束。
+            let _=RemovePropW(hwnd,w!("AxonDeckSliderDrag"));
+            if msg==WM_LBUTTONUP { follow(); }
+            notify(TB_THUMBPOSITION); notify(TB_ENDTRACK);
+            if msg==WM_LBUTTONUP { let _=ReleaseCapture(); }
+            let mut cursor=windows::Win32::Foundation::POINT::default(); let _=GetCursorPos(&mut cursor); let _=ScreenToClient(hwnd,&mut cursor);
+            let mut area=RECT::default(); let _=GetClientRect(hwnd,&mut area);
+            if !windows::Win32::Graphics::Gdi::PtInRect(&area,cursor).as_bool() { hover(None); }
+        },
+        WM_MOUSELEAVE if !dragging => hover(None),
+        WM_LBUTTONUP | WM_CAPTURECHANGED | WM_MOUSELEAVE => return None,
+        _ => {}
+    }
+    Some(windows::Win32::Foundation::LRESULT(0))
+} }
+pub fn slider_value_at(hwnd:HWND,x:i32) -> i32 { unsafe {
+    let mut channel=RECT::default(); SendMessageW(hwnd,TBM_GETCHANNELRECT,None,Some(LPARAM(&mut channel as *mut _ as isize)));
+    let max=SendMessageW(hwnd,TBM_GETRANGEMAX,None,None).0.max(1) as i64;
+    ((x-channel.left) as i64*max/(channel.right-channel.left).max(1) as i64).clamp(0,max) as i32
+} }
+pub fn slider_x(hwnd:HWND,value:i32) -> i32 { unsafe {
+    let mut channel=RECT::default(); SendMessageW(hwnd,TBM_GETCHANNELRECT,None,Some(LPARAM(&mut channel as *mut _ as isize)));
+    let max=SendMessageW(hwnd,TBM_GETRANGEMAX,None,None).0.max(1) as i64;
+    channel.left+((channel.right-channel.left) as i64*value as i64/max) as i32
+} }
+thread_local! { static MARKS: std::cell::RefCell<Vec<f64>> = const { std::cell::RefCell::new(Vec::new()) }; }
+/// 章節刻痕（0～1）；只有進度條會畫。
+pub fn set_marks(hwnd:HWND,marks:Vec<f64>) {
+    MARKS.with(|m| *m.borrow_mut()=marks);
+    unsafe { let _=InvalidateRect(Some(hwnd),None,false); }
+}
 fn draw_slider(hwnd:HWND,dc:HDC,dark:bool) { unsafe {
     let mut area=RECT::default(); let _=GetClientRect(hwnd,&mut area);
     let scale=windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) as f32/96.; let p=|n:i32|(n as f32*scale).round() as i32;
@@ -208,6 +261,14 @@ fn draw_slider(hwnd:HWND,dc:HDC,dark:bool) { unsafe {
     let accent=rgb(if dark { 0x78a3b5 } else { 0x3d6a7d });
     for (right,color) in [(channel.right,rgb(if dark { 0x343c3f } else { 0xc6d0ce })),(x,accent)] {
         SetDCBrushColor(memory,color); FillRect(memory,&rect(channel.left,y-p(2),(right-channel.left).max(0),p(4)),brush);
+    }
+    if GetDlgCtrlID(hwnd)==SEEK as i32 {
+        // 章節像 YouTube 一樣在軌道上切出小缺口。
+        SetDCBrushColor(memory,rgb(if dark { 0x111417 } else { 0xeef3f0 }));
+        MARKS.with(|marks| for mark in marks.borrow().iter() {
+            let mx=channel.left+((channel.right-channel.left) as f64*mark).round() as i32;
+            FillRect(memory,&rect(mx-p(1),y-p(3),p(2).max(1),p(6)),brush);
+        });
     }
     let old_b=SelectObject(memory,GetStockObject(DC_BRUSH)); let old_p=SelectObject(memory,GetStockObject(DC_PEN));
     SetDCBrushColor(memory,accent); SetDCPenColor(memory,accent); let r=p(if GetFocus()==hwnd { 8 } else { 6 }); let _=Ellipse(memory,x-r,y-r,x+r,y+r);

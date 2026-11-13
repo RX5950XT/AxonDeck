@@ -47,7 +47,7 @@ impl Engine {
             "--input-vo-keyboard=yes", "--input-cursor=yes", "--idle=yes", "--keep-open=yes",
             "--force-window=yes", "--hwdec=auto-safe", "--vo=gpu-next", "--gpu-api=d3d11",
             "--audio-display=embedded-first", "--image-display-duration=inf", "--terminal=no",
-            "--autoload-files=no", "--demuxer-lavf-o=protocol_whitelist=[file,pipe,data]",
+            "--sub-auto=fuzzy", "--demuxer-lavf-o=protocol_whitelist=[file,pipe,data]",
             "--ytdl=no", "--access-references=no", "--demuxer-max-bytes=32MiB", "--demuxer-max-back-bytes=16MiB" ]).arg(format!("--input-ipc-server={pipe}")).arg(format!("--wid={wid}"))
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(0x08000000);
         if let Some(log) = std::env::var_os("AXONDECK_MEDIA_TRACE") { command.arg(format!("--log-file={}", log.to_string_lossy())).arg("--msg-level=all=debug"); }
@@ -93,7 +93,7 @@ impl Engine {
     pub fn command(&self, command: Value) { self.request(0, command); }
     pub fn request(&self, id: u64, command: Value) { let _ = self.commands.send(json!({"command":command,"request_id":id})); }
     pub fn observe(&self) {
-        for (id, name) in ["time-pos", "duration", "pause", "volume", "metadata", "track-list", "video-params", "video-zoom", "hwdec-current", "eof-reached", "speed", "mute", "video-unscaled", "video-rotate", "sub-delay", "sub-visibility"].iter().enumerate() {
+        for (id, name) in ["time-pos", "duration", "pause", "volume", "metadata", "track-list", "video-params", "video-zoom", "hwdec-current", "eof-reached", "speed", "mute", "video-unscaled", "video-rotate", "sub-delay", "sub-visibility", "chapter-list"].iter().enumerate() {
             self.command(json!(["observe_property", id + 1, name]));
         }
     }
@@ -112,6 +112,9 @@ impl Engine {
         self.command(json!(["set_property", "video-unscaled", "no"]));
         self.command(json!(["set_property", "video-rotate", 0]));
         self.command(json!(["set_property", "sub-delay", 0]));
+        // 同名字幕（含 .zh.srt 這類語言後綴）與資料夾封面自動帶入；圖片不掃旁邊的檔案。
+        self.command(json!(["set_property", "sub-auto", if image { "no" } else { "fuzzy" }]));
+        self.command(json!(["set_property", "cover-art-auto", if image { "no" } else { "exact" }]));
         self.command(json!(["loadfile", file.to_string_lossy(), "replace"]));
         self.command(json!(["set_property", "pause", false]));
     }

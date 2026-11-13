@@ -10,8 +10,9 @@
  * @typedef {{
  *   extensionActions: (guestId: number | null) => Promise<any[]>,
  *   extensionActivate: (guestId: number, extensionId: string, anchor: object) => Promise<unknown>,
- *   extensionsMenu: (guestId: number | null, anchor: object) => Promise<unknown>,
- *   onExtensionsChanged: (callback: () => void) => unknown
+ *   extensionsMenu: (guestId: number | null, anchor: object, extensionId?: string) => Promise<unknown>,
+ *   onExtensionsChanged: (callback: () => void) => unknown,
+ *   onExtensionCommand?: (callback: (extensionId: string, guestId: number | null) => void) => unknown
  * }} ActionsApi
  */
 
@@ -49,6 +50,14 @@ export function createBrowserActions(host, guestId, api = window.electronAPI?.wo
     timer = window.setTimeout(() => void paint(), 120)
   }
   api.onExtensionsChanged(refresh)
+  // 快速鍵開 popup：從這顆圖示的位置彈出；圖示列沒有它就貼著圖示列
+  api.onExtensionCommand?.((extensionId, target) => {
+    const id = guestId()
+    if (id == null || (target != null && target !== id)) return
+    const btn = [...host.children].find((node) => /** @type {HTMLElement} */ (node).dataset.ext === extensionId)
+    // 沒釘選（或圖示列整個藏起來）就從旁邊的 🧩 彈出
+    void api.extensionActivate(id, extensionId, anchorOf(btn || (host.hidden && host.nextElementSibling) || host))
+  })
   refresh()
   return refresh
 }
@@ -187,7 +196,7 @@ function actionButton(row, guestId, api) {
   })
   btn.addEventListener('contextmenu', (event) => {
     event.preventDefault()
-    void api.extensionsMenu(guestId(), anchorOf(btn))
+    void api.extensionsMenu(guestId(), anchorOf(btn), row.id) // 只列這個擴充功能（含取消釘選）
   })
   return btn
 }

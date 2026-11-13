@@ -17,10 +17,15 @@ contextBridge.exposeInMainWorld('browserWindowAPI', {
   // 跟主視窗 electronAPI.workspace 同名同參數，browser-actions.js 可以直接拿來用（guestId 這邊用不到）
   extensionActions: () => ipcRenderer.invoke('browserWindow:extensionActions'),
   extensionActivate: (_guestId, extensionId, anchor) => ipcRenderer.invoke('browserWindow:extensionActivate', extensionId, anchor),
-  extensionsMenu: (_guestId, anchor) => ipcRenderer.invoke('browserWindow:extensionsMenu', anchor),
+  extensionsMenu: (_guestId, anchor, extensionId) => ipcRenderer.invoke('browserWindow:extensionsMenu', anchor, extensionId),
   onExtensionsChanged: (callback) => {
     const handler = () => callback()
     ipcRenderer.on('browserWindow:extensionsChanged', handler)
     return () => ipcRenderer.removeListener('browserWindow:extensionsChanged', handler)
+  },
+  onExtensionCommand: (callback) => {
+    const handler = (_event, extensionId) => callback(String(extensionId), null)
+    ipcRenderer.on('browserWindow:extensionCommand', handler)
+    return () => ipcRenderer.removeListener('browserWindow:extensionCommand', handler)
   }
 })

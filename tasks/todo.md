@@ -38,6 +38,7 @@
 ### 既有失敗／未確認
 - [ ] 終端機「突然全空白」未重現，根因未確認（`fitAndSync` 切回一定重畫已補）。
 - [ ] `probe-asr-key-cdp.js` 初始化回報 `Promise was collected`，未進入斷言。
+- [ ] `e2e-browser-extensions.js:65` ScriptCat `installByCode` 回 -1（未改動的原始碼也一樣，疑 ScriptCat 上游改了訊息格式）。
 - [ ] `probe-explorer-shell.js` 5 項失敗、`probe-explorer-icon-fallback-cdp.js` 的 `.txt` 圖示失敗（v1.73.0 起就有，與縮圖改動無關）。
 
 ### 決定不做（記錄理由）
@@ -48,6 +49,9 @@
 
 ## 近期完成（新→舊，一行一件）
 
+- 2026-11-14 擴充功能管理頁新增「鍵盤快速鍵」（錄製、衝突檢查、在 AxonDeck 中／全域），分頁按下去開 popup 或送 `commands.onCommand`；工具列圖示可釘選／取消釘選（圖示右鍵、🧩 選單、管理頁），「用系統瀏覽器開」改純圖示。驗證：lint、`test-browser-extensions`、`probe-crx-commands.js` 原始碼與打包版各 9/9、electron:pack；工具列圖示按鈕未在完整 App 截圖確認。
+
+- 2026-11-13 Browser 的 Chrome 線上應用程式商店可直接按「加到 Chrome」安裝、「從 Chrome 中移除」移除（自補 webstorePrivate／management，接既有 install／remove，前後跳原生確認）。驗證：lint、`probe-crx-webstore.js` 原始碼與打包版各 5/5、`test-browser-extensions`、electron:pack。預設擴充功能另加 Bitwarden、最終啟用右鍵、Dark Reader、SponsorBlock（舊使用者下次啟動補裝一次）。
 - 2026-11-13 原生媒體播放器對齊主流（參考 uosc／ModernZ／IINA／mpv.net）：點哪跳哪、懸停時間＋章節泡泡、章節刻痕與選單、剩餘時間、同名字幕與資料夾封面自動載入、媒體鍵（Windows 媒體浮窗實測可暫停）、0–9 跳百分比、音量 OSD。驗證：cargo test 18/18、`probe-media-ui.js` 10/10、lint、electron:pack。
 - 2026-11-10 v1.76.0：Chat 新增 DeepSeek、Meta AI 網頁版；處理程序分「應用程式／背景」兩段、拿掉取樣頻率設定、修 CPU 重複計算；感測器斷線持續重連。
 - 2026-11-10 v1.75.1：深度讀碼（7 個子代理唯讀回報、主代理複核）修三十多個 bug；拆 6 條死 IPC、11 個多餘 export、88 行死 CSS；修三支過期 e2e。驗證：lint、單元 169/169、打包版 `e2e-cdp-smoke` 22/22、`e2e-sysmon-cdp` 118/118。

@@ -491,7 +491,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scriptCommand: (id, relPath, terminalId) => ipcRenderer.invoke('workspace:scriptCommand', id, relPath, terminalId),
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
-    extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
+    extensionsMenu: (guestId, anchor, extensionId) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor, extensionId),
     browserPopout: (url, title, guestId, slot) => ipcRenderer.invoke('workspace:browserPopout', url, title, guestId, slot),
     /** 彈出的獨立視窗被最小化或關閉：網頁收回原本的分頁位置 */
     onBrowserDock: (callback) => {
@@ -506,6 +506,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = () => callback()
       ipcRenderer.on('workspace:extensionsChanged', handler)
       return () => ipcRenderer.removeListener('workspace:extensionsChanged', handler)
+    },
+    /** 擴充功能的快速鍵要開 popup：(擴充功能 ID, 哪顆 webview) */
+    onExtensionCommand: (callback) => {
+      const handler = (_event, extensionId, guestId) => callback(String(extensionId), Number(guestId))
+      ipcRenderer.on('workspace:extensionCommand', handler)
+      return () => ipcRenderer.removeListener('workspace:extensionCommand', handler)
     },
     gitStatus: (id) => ipcRenderer.invoke('workspace:gitStatus', id),
     gitLog: (id) => ipcRenderer.invoke('workspace:gitLog', id),

@@ -2638,14 +2638,15 @@ let browserExtensions = null
  * @param {Electron.BrowserWindow | null} parent
  * @param {Electron.Rectangle} [anchor] popup 要對齊的位置（視窗內座標），沒給就靠右上
  */
-function browserExtensionItems(tab, parent, anchor) {
+function browserExtensionItems(tab, parent, anchor, only) {
   if (!browserExtensions) return []
   const notify = (message) => {
     const opts = { type: 'info', title: '擴充功能', message }
     ;(parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)).catch(() => {})
   }
   const width = parent && !parent.isDestroyed() ? parent.getContentBounds().width : 800
-  return browserExtensions.menuItems({ tab, parent, notify, anchor: anchor || { x: width - 48, y: 40, width: 32, height: 32 } })
+  return browserExtensions.menuItems({ tab, parent, notify, anchor: anchor || { x: width - 48, y: 40, width: 32, height: 32 },
+    only: typeof only === 'string' ? only : '' })
 }
 
 /** 畫面傳來的瀏覽器 webview id：只認掛在這個視窗裡的 guest */
@@ -2661,10 +2662,10 @@ function anchorRect(anchor) {
     : undefined
 }
 
-ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor) => {
+ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor, extensionId) => {
   if (!assertMainWindowSender(event)) return false
   const parent = BrowserWindow.fromWebContents(event.sender)
-  Menu.buildFromTemplate(browserExtensionItems(senderGuest(event, guestId), parent, anchorRect(anchor))).popup(parent ? { window: parent } : {})
+  Menu.buildFromTemplate(browserExtensionItems(senderGuest(event, guestId), parent, anchorRect(anchor), extensionId)).popup(parent ? { window: parent } : {})
   return true
 })
 
@@ -2689,11 +2690,11 @@ ipcMain.handle('browserWindow:extensionActivate', (event, extensionId, anchor) =
   browserExtensions.activate(extensionId, page, rect)
   return true
 })
-ipcMain.handle('browserWindow:extensionsMenu', (event, anchor) => {
+ipcMain.handle('browserWindow:extensionsMenu', (event, anchor, extensionId) => {
   const page = browserWindow.pageOf(event.sender)
   const win = browserWindow.windowOf(event.sender)
   if (!page || !win) return false
-  Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor))).popup({ window: win })
+  Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor), extensionId)).popup({ window: win })
   return true
 })
 
@@ -2825,12 +2826,21 @@ app.whenReady().then(() => {
     onActionsChanged: () => {
       sendToPages('workspace:extensionsChanged')
       browserWindow.broadcast('browserWindow:extensionsChanged')
+    },
+    // 快速鍵開 popup：請那個分頁的工具列從擴充功能圖示的位置彈出
+    openActionPopup: (extensionId, tab) => {
+      const host = tab.hostWebContents
+      if (host && !host.isDestroyed()) host.send('workspace:extensionCommand', extensionId, tab.id)
+      else browserWindow.barOf(tab)?.send('browserWindow:extensionCommand', extensionId)
     }
   })
-  // uBlock Origin Lite、Raindrop.io、Infinity New Tab Pro、ScriptCat、Read Frog
+  // uBlock Origin Lite、Raindrop.io、Infinity New Tab Pro、ScriptCat、Read Frog、
+  // Bitwarden、最終啟用右鍵、Dark Reader、SponsorBlock（後加的 ID 舊使用者下次啟動也會補裝一次）
   const DEFAULT_EXTENSIONS = [
     'ddkjiahejlhfcafbddmgiahcphecmpfh', 'ldgfbffkinooeloadekpmfoklnobpien', NEWTAB_EXTENSION_ID,
-    'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb'
+    'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb',
+    'nngceckbapebfimnlniiiahkandclblb', 'emfeppdfcjnldjgmofdkbggeacapegen',
+    'eimadpbcbfnmbkopoojfekhnkhdbieeh', 'mnjggcdmjocbbbhaepdhchncahnbgone'
   ]
   browserExtensions.loadInstalled()
     .catch((error) => console.warn('[browser-ext] 載入失敗:', error))

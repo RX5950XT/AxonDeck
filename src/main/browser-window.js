@@ -233,10 +233,16 @@ function navigate(sender, action, url) {
   return true
 }
 
+/** @param {Electron.WebContents} page 獨立視窗的網頁 → 那扇窗的工具列 */
+function barOf(page) {
+  for (const { win, view } of entries.values()) if (view.webContents === page && !win.isDestroyed()) return win.webContents
+  return null
+}
+
 function broadcast(channel) {
   for (const { win } of entries.values()) {
     if (!win.isDestroyed()) win.webContents.send(channel)
   }
 }
 
-module.exports = { configure, open, pageOf, windowOf, navigate, broadcast, BAR_HEIGHT }
+module.exports = { configure, open, pageOf, windowOf, barOf, navigate, broadcast, BAR_HEIGHT }

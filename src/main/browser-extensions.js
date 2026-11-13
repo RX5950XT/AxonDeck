@@ -13,8 +13,9 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execFile } = require('child_process')
-const { dialog } = require('electron')
+const { dialog, BrowserWindow } = require('electron')
 const { EXTENSIONS_PAGE_URL, isInternalBrowserUrl, isExtensionManagerUrl } = require('../shared/browser-url.mjs')
+const { createCommands, manifestCommands, assignShortcuts, shortcutFromInput } = require('./crx-commands')
 const rawFs = require('./raw-fs').promises
 const { removeTreeSync } = require('./safe-rm')
 
@@ -115,7 +116,7 @@ function parseUpdateXml(xml) {
  * @param {{ session: import('electron').Session, dir: string, fetch: typeof fetch, chromeVersion: string,
  *   aliasPreload: string, identityPreload: string, openUrl: (url: string) => void, onActionsChanged?: () => void }} opts
  */
-function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPreload, identityPreload, openUrl, openCompatible, onActionsChanged }) {
+function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPreload, identityPreload, openUrl, openCompatible, onActionsChanged, openActionPopup }) {
   const exts = session.extensions
   const stateFile = path.join(dir, 'extension-state.json')
   let state = {}
@@ -165,6 +166,13 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     createTab: (details) => requestTab(internalUrl(details.url) || String(details.url || ''), crx.ctx.store.getActiveTabOfCurrentWindow())
   })
   require('./crx-context-menus').registerContextMenus(crx)
+  // 鍵盤快速鍵（chrome.commands）；沒有工具列可問位置（測試）就照套件的做法貼視窗右上角開 popup
+  const commands = createCommands({ crx, session, rows: () => list(), savedOf: (id) => saved(id).commands, skip: isExtensionManagerUrl,
+    openPopup: (id, tab) => {
+      if (openActionPopup) return openActionPopup(id, tab)
+      const [width] = BrowserWindow.fromWebContents(tab.hostWebContents || tab)?.getContentSize() || [0]
+      activate(id, tab, { x: Math.max(0, width - 64), y: 0, width: 64, height: 64 })
+    } })
   const popupSources = new WeakMap()
   // 要排在套件自己的 preload 之後（套件在建構時登記）
   session.registerPreloadScript({ id: 'axondeck-crx-browser-alias', type: 'frame', filePath: aliasPreload })
@@ -180,6 +188,7 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
   function attachTab(contents, window, resolveWaiting = true) {
     if (contents.session !== session) return
     crx.addTab(contents, window)
+    commands.track(contents)
     const select = () => {
       const source = popupSources.get(contents)
       crx.selectTab(source && !source.isDestroyed() ? source : contents)
@@ -408,8 +417,30 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
   function list() {
     const records = new Map(Object.values(state).filter((s) => s.record).map((s) => [s.record.id, s.record]))
     for (const ext of exts.getAllExtensions()) records.set(ext.id, extensionRecord(ext))
-    return [...records.values()].map((ext) => ({ ...ext, enabled: !!exts.getExtension(ext.id),
-      userScripts: !!allowed(ext.id) })).sort((a, b) => a.name.localeCompare(b.name))
+    const rows = [...records.values()].sort((a, b) => a.name.localeCompare(b.name))
+    const shortcuts = assignShortcuts(rows, (id) => saved(id).commands)
+    return rows.map((ext) => ({ ...ext, enabled: !!exts.getExtension(ext.id),
+      userScripts: !!allowed(ext.id), pinned: saved(ext.id).pinned !== false, shortcuts: shortcuts.get(ext.id) || [] }))
+  }
+
+  /** 管理頁改快速鍵：value = { name, input?: 按鍵, clear?: true, global?: boolean } */
+  async function setShortcut(ext, value) {
+    const command = ext.shortcuts.find((c) => c.name === value?.name)
+    if (!command) throw new Error('找不到這個快速鍵')
+    const key = value.clear ? '' : (value.input ? shortcutFromInput(value.input) : command.key)
+    if (!key && !value.clear) throw new Error('請按 Ctrl 或 Alt（可再加 Shift）加上字母、數字或方向鍵')
+    const global = !!key && (typeof value.global === 'boolean' ? value.global : command.global)
+    const owner = key && list().flatMap((row) => row.shortcuts.map((c) => ({ ...c, ext: row })))
+      .find((c) => c.key === key && !(c.ext.id === ext.id && c.name === command.name))
+    if (owner) throw new Error(`${key} 已經給「${owner.ext.name}」的「${owner.description}」使用`)
+    const previous = saved(ext.id).commands
+    await saveState(ext.id, { commands: { ...previous, [command.name]: { key, global } } })
+    commands.refresh()
+    if (global && !commands.isRegistered(key)) {
+      await saveState(ext.id, { commands: previous })
+      commands.refresh()
+      throw new Error(`${key} 已被其他程式占用，不能設成全域`)
+    }
   }
 
   function extensionRecord(ext) {
@@ -420,7 +451,7 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
       source: store ? 'store' : 'local', url: ext.url,
       popup: (m.action || m.browser_action || m.page_action)?.default_popup || '', options: m.options_ui?.page || m.options_page || '',
       newtab: m.chrome_url_overrides?.newtab || '',
-      sidepanel: m.side_panel?.default_path || '',
+      sidepanel: m.side_panel?.default_path || '', commands: manifestCommands(m),
       permissions: m.permissions || [], hostPermissions: [...new Set([...(m.host_permissions || []),
         ...(m.permissions || []).filter((v) => v === '<all_urls>' || /^(\*|https?|file|ftp):\/\//.test(v)),
         ...(m.content_scripts || []).flatMap((s) => s.matches || [])])], homepage: m.homepage_url || '' }
@@ -432,6 +463,11 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     if (!ext) throw new Error('找不到這個擴充功能')
     if (action === 'remove') return remove(id)
     if (action === 'options') return openOptions(ext, source)
+    if (action === 'shortcut') return setShortcut(ext, value)
+    if (action === 'pinned') {
+      if (typeof value !== 'boolean') throw new Error('設定格式不對')
+      return saveState(id, { pinned: value }) // saveState 會叫工具列重畫
+    }
     if (action === 'reload' && ext.source === 'local') return installLocal(ext.sourcePath)
     if (action === 'enabled') {
       if (typeof value !== 'boolean') throw new Error('設定格式不對')
@@ -457,6 +493,8 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     if (['chrome:', 'edge:'].includes(url.protocol) && url.hostname === 'extensions') {
       const result = new URL(EXTENSIONS_PAGE_URL)
       result.searchParams.set('extension', ID_RE.test(url.searchParams.get('id') || '') ? url.searchParams.get('id') : '')
+      // 擴充功能的設定頁常有「到 chrome://extensions/shortcuts 改快速鍵」的連結
+      if (url.pathname === '/shortcuts') result.searchParams.set('view', 'shortcuts')
       return result.href
     }
     if (isExtensionManagerUrl(url.href)) return url.href
@@ -476,6 +514,9 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
   const manager = require('./browser-extension-manager').createManager({ session, list, change, checkUpdates, installLocal: pickLocal,
     openStore: (source) => requestTab(STORE_HOME, source).then(() => undefined), openUrl: requestTab,
     page: path.join(__dirname, '../renderer/pages/browser-extensions.html'), preload: path.join(__dirname, '../preload/browser-extensions-preload.js') })
+  // 商店頁的「加到 Chrome」按鈕（chrome.webstorePrivate）
+  require('./crx-webstore').registerWebStore({ session, install, remove, list, change })
+  session.registerPreloadScript({ id: 'axondeck-crx-webstore', type: 'frame', filePath: path.join(__dirname, '../preload/crx-webstore.js') })
 
   /** 擴充功能的設定頁沿用來源瀏覽器的新分頁。 */
   function openOptions(ext, source) {
@@ -513,7 +554,8 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
     const tab = require('electron').webContents.fromId(tabId)
     if (tab && tab.session !== session) return []
     const { actions: list } = crx.api.browserAction.getState()
-    const rows = list.filter((a) => exts.getExtension(a.id)).map(async (a) => {
+    // 取消釘選的不放工具列（還是能從 🧩 選單或快速鍵開）
+    const rows = list.filter((a) => exts.getExtension(a.id) && saved(a.id).pinned !== false).map(async (a) => {
       const own = a.tabs?.[tabId] || {}
       const pick = (key) => (own[key] !== undefined ? own[key] : a[key])
       const color = pick('color')
@@ -563,9 +605,15 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
    * 右鍵與工具列共用的「擴充功能」選單；`tab` 是目前那顆瀏覽器 webview（沒有就不能開 popup）
    * @param {{ tab: Electron.WebContents | null, anchor: Electron.Rectangle, parent: Electron.BrowserWindow | null, notify: (msg: string) => void }} ctx
    */
-  function menuItems({ tab, anchor, parent, notify }) {
+  function menuItems({ tab, anchor, parent, notify, only = '' }) {
     const storeId = storeIdFromUrl(tab?.getURL())
     const installed = list()
+    // 在工具列圖示上按右鍵：只列這個擴充功能自己的項目（跟 Chrome 一樣，取消釘選就在這裡）
+    const target = only && installed.find((ext) => ext.id === only)
+    if (target) {
+      return [{ label: target.name, enabled: false }, { type: 'separator' }, ...extensionSubmenu(target, { tab, anchor, notify }),
+        { type: 'separator' }, { label: '管理擴充功能…', click: () => manager.open('', tab).catch(() => notify('開分頁失敗')) }]
+    }
     const items = [{ label: '管理擴充功能…', click: () => manager.open('', tab).catch(() => notify('開分頁失敗')) }, { type: 'separator' }]
     if (tab && openCompatible && /^https?:\/\//.test(tab.getURL())) items.push({ label: '在無套件相容視窗開啟此頁', click: () => openCompatible(tab.getURL(), tab.getTitle()) }, { type: 'separator' })
     if (storeId) {
@@ -575,17 +623,7 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
           .catch((error) => notify(`安裝失敗：${error.message}`))
       }, { type: 'separator' })
     }
-    for (const ext of installed) {
-      const sub = []
-      if (tab) sub.push({ label: ext.popup ? '開啟' : '執行', enabled: ext.enabled && tab.session === session, click: () => activate(ext.id, tab, anchor) })
-      if (ext.options || ext.newtab || ext.popup || ext.sidepanel) sub.push({ label: ext.options ? '完整設定…' : '套件介面與設定…', enabled: ext.enabled, click: () => openOptions(ext, tab).catch(() => notify('開分頁失敗')) })
-      sub.push({ label: '詳細設定…', click: () => manager.open(ext.id, tab).catch(() => notify('開分頁失敗')) },
-        { label: ext.enabled ? '停用' : '啟用', click: () => change(ext.id, 'enabled', !ext.enabled).catch(() => notify('切換失敗')) },
-        { label: '重新載入', enabled: ext.enabled, click: () => change(ext.id, 'reload').catch(() => notify('重新載入失敗')) })
-      sub.push({ label: '移除', click: () => remove(ext.id).then(() => notify(`已移除「${ext.name}」`))
-        .catch(() => notify('移除失敗，請稍後再試')) })
-      items.push({ label: ext.name, submenu: sub })
-    }
+    for (const ext of installed) items.push({ label: ext.name, submenu: extensionSubmenu(ext, { tab, anchor, notify }) })
     if (!installed.length) items.push({ label: '（還沒有安裝擴充功能）', enabled: false })
     items.push({ type: 'separator' },
       { label: '從 Chrome 線上應用程式商店安裝', click: () => requestTab(STORE_HOME, tab).catch(() => notify('開分頁失敗')) },
@@ -597,6 +635,19 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
         } catch (error) { notify(error.message || '本機擴充功能安裝失敗') }
       } })
     return items
+  }
+
+  /** 一個擴充功能的選單項目：釘選、開啟、設定、停用、重新載入、移除 */
+  function extensionSubmenu(ext, { tab, anchor, notify }) {
+    const sub = [{ label: '釘選到工具列', type: 'checkbox', checked: ext.pinned, enabled: ext.enabled,
+      click: () => change(ext.id, 'pinned', !ext.pinned).catch(() => notify('切換失敗')) }]
+    if (tab) sub.push({ label: ext.popup ? '開啟' : '執行', enabled: ext.enabled && tab.session === session, click: () => activate(ext.id, tab, anchor) })
+    if (ext.options || ext.newtab || ext.popup || ext.sidepanel) sub.push({ label: ext.options ? '完整設定…' : '套件介面與設定…', enabled: ext.enabled, click: () => openOptions(ext, tab).catch(() => notify('開分頁失敗')) })
+    sub.push({ label: '詳細設定…', click: () => manager.open(ext.id, tab).catch(() => notify('開分頁失敗')) },
+      { label: ext.enabled ? '停用' : '啟用', click: () => change(ext.id, 'enabled', !ext.enabled).catch(() => notify('切換失敗')) },
+      { label: '重新載入', enabled: ext.enabled, click: () => change(ext.id, 'reload').catch(() => notify('重新載入失敗')) },
+      { label: '移除', click: () => remove(ext.id).then(() => notify(`已移除「${ext.name}」`)).catch(() => notify('移除失敗，請稍後再試')) })
+    return sub
   }
 
   /** 擴充功能自己加的右鍵項目（chrome.contextMenus） */

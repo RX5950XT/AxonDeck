@@ -24,4 +24,21 @@ dl { margin: 0; display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 
 dt { color: var(--text-secondary); }
 dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .hint { margin: 18px 0 0; color: var(--text-secondary); }
-@media (max-width: 800px) { body { padding: 20px; } main { grid-template-columns: 180px minmax(0, 1fr); gap: 18px; } }
+.views { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--border-color); }
+.views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--text-secondary); padding: 8px 12px; }
+.views button[aria-selected=true] { border-bottom-color: var(--accent-primary); color: var(--text-primary); font-weight: 600; }
+#shortcutView { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
+.shortcut-card { border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-glass); padding: 16px 20px; }
+.shortcut-card h2 { font-size: 16px; margin: 0 0 6px; }
+.shortcut-row { display: grid; grid-template-columns: minmax(0, 1fr) 200px auto 150px; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border-color); }
+.shortcut-row:first-of-type { border-top: 0; }
+.shortcut-name { overflow-wrap: anywhere; }
+.shortcut-key { font-family: 'Cascadia Mono', Consolas, monospace; text-align: left; }
+.shortcut-key.empty { color: var(--text-secondary); }
+.shortcut-key.recording { border-color: var(--accent-primary); outline: 2px solid var(--accent-primary); outline-offset: -1px; }
+select { font: inherit; color: inherit; background: var(--surface-glass); border: 1px solid var(--border-color); border-radius: 8px; min-height: 40px; padding: 0 10px; }
+select option { background: var(--app-bg); }
+select:disabled { opacity: .5; }
+select:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+@media (max-width: 800px) { body { padding: 20px; } main { grid-template-columns: 180px minmax(0, 1fr); gap: 18px; }
+  .shortcut-row { grid-template-columns: minmax(0, 1fr) auto; } .shortcut-name { grid-column: 1 / -1; } }

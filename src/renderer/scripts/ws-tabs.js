@@ -3198,13 +3198,114 @@ function newMenuItem(icon, label) {
 
 /** @type {HTMLElement | null} */
 let menuEl = null
+/** 滑鼠碰到「＋」就開的選單；滑出去會自己收。點擊開的不會。 */
+let menuByHover = false
+let menuCloseTimer = 0
+/** @type {Promise<Array<{ key: string, label: string, available: boolean }>> | null} */
+let shellsPromise = null
 
 function closeMenu() {
+  clearTimeout(menuCloseTimer)
   menuEl?.remove()
   menuEl = null
+  menuByHover = false
   el.newBtn?.setAttribute('aria-expanded', 'false')
   window.removeEventListener('pointerdown', onOutsideMenu, true)
   window.removeEventListener('keydown', onMenuKey, true)
+}
+
+/** 滑到「＋」上：自動展開 */
+function onNewBtnEnter() {
+  clearTimeout(menuCloseTimer)
+  if (menuEl) return
+  openMenu()
+  menuByHover = true
+}
+
+/** 滑出「＋」與選單：稍等一下再收（中間經過的空隙不要一碰就關） */
+function onMenuLeave() {
+  if (!menuByHover) return
+  clearTimeout(menuCloseTimer)
+  menuCloseTimer = setTimeout(closeMenu, 280)
+}
+
+function onMenuEnter() {
+  clearTimeout(menuCloseTimer)
+}
+
+/** 裝了哪些 shell（PowerShell 7／Windows PowerShell／命令提示字元），開過一次就記著 */
+function loadShells() {
+  shellsPromise ||= electronAPI.terminal.catalog()
+    .then((res) => (res?.ok && Array.isArray(res.data?.shells) ? res.data.shells.filter((s) => s.available) : []))
+    .catch(() => [])
+  return shellsPromise
+}
+
+/**
+ * 固定定位的面板放在 x 往右展開；右邊放不下就貼齊視窗右緣。
+ * @param {HTMLElement} panel
+ * @param {number} left
+ * @param {number} top
+ * @param {number} [flipRight] 放不下時改把右緣對齊到這個 x（子選單往左翻）
+ */
+function placePanel(panel, left, top, flipRight) {
+  const width = panel.offsetWidth
+  const height = panel.offsetHeight
+  let x = left
+  if (x + width > window.innerWidth - 8) {
+    x = flipRight !== undefined ? flipRight - width : window.innerWidth - 8 - width
+  }
+  panel.style.left = `${Math.max(8, Math.round(x))}px`
+  panel.style.top = `${Math.round(Math.max(8, Math.min(top, window.innerHeight - 8 - height)))}px`
+}
+
+/**
+ * 「終端機」那列的子選單：選要開哪一種 shell，每一列右邊可以直接用系統管理員身分開。
+ * @param {HTMLElement} row
+ */
+async function openShellSubmenu(row) {
+  if (!menuEl || menuEl.querySelector('.ws-new-sub')) return
+  const owner = menuEl
+  const shells = await loadShells()
+  if (menuEl !== owner || owner.querySelector('.ws-new-sub')) return
+  const sub = document.createElement('div')
+  sub.className = 'ws-new-menu ws-new-sub'
+  sub.setAttribute('role', 'menu')
+  const list = shells.length ? shells : [{ key: '', label: '終端機' }]
+  for (const shell of list) {
+    const line = document.createElement('div')
+    line.className = 'ws-new-shell'
+    const open = newMenuItem('shell', shell.label)
+    open.dataset.shell = shell.key
+    open.addEventListener('click', () => {
+      closeMenu()
+      void newTerminal('shell', false, undefined, shell.key)
+    })
+    const admin = document.createElement('button')
+    admin.type = 'button'
+    admin.className = 'ws-new-admin-btn'
+    admin.dataset.shell = shell.key
+    const shield = toolIcon('shield')
+    if (shield) admin.appendChild(shield)
+    admin.title = `以系統管理員身分開 ${shell.label}（會跳一次 UAC）`
+    admin.setAttribute('aria-label', `以系統管理員身分開 ${shell.label}`)
+    admin.addEventListener('click', () => {
+      closeMenu()
+      void newTerminal('shell', true, undefined, shell.key)
+    })
+    line.append(open, admin)
+    sub.appendChild(line)
+  }
+  owner.appendChild(sub)
+  const rowRect = row.getBoundingClientRect()
+  const menuRect = owner.getBoundingClientRect()
+  placePanel(sub, menuRect.right + 2, rowRect.top - 7, menuRect.left - 2)
+  row.setAttribute('aria-expanded', 'true')
+}
+
+function closeShellSubmenu() {
+  menuEl?.querySelector('.ws-new-sub')?.remove()
+  menuEl?.querySelector('.ws-new-has-sub')?.setAttribute('aria-expanded', 'false')
 }
 
 /** 跟右鍵選單（ws-menu.js）一樣，Esc 關得掉 @param {KeyboardEvent} event */
@@ -3224,30 +3325,50 @@ function onOutsideMenu(event) {
   closeMenu()
 }
 
+/** 點「＋」：滑過去自動開的就把它固定住；本來就是點開的再點一次才收 */
 function toggleMenu() {
+  if (menuEl && menuByHover) {
+    menuByHover = false
+    clearTimeout(menuCloseTimer)
+    return
+  }
   if (menuEl) {
     closeMenu()
     return
   }
+  openMenu()
+}
+
+function openMenu() {
   const anchor = el.newBtn
   if (!anchor) return
+  void loadShells()
   menuEl = document.createElement('div')
   menuEl.className = 'ws-new-menu'
   menuEl.setAttribute('role', 'menu')
-
-  const admin = document.createElement('label')
-  admin.className = 'ws-new-admin'
-  const adminInput = document.createElement('input')
-  adminInput.type = 'checkbox'
-  adminInput.id = 'wsNewAdmin'
-  admin.append(adminInput, document.createTextNode('以系統管理員身分執行'))
+  menuEl.addEventListener('pointerenter', onMenuEnter)
+  menuEl.addEventListener('pointerleave', onMenuLeave)
 
   for (const item of NEW_ITEMS) {
     const btn = newMenuItem(item.preset, item.label)
+    if (item.preset === 'shell') {
+      // 「終端機」：直接點＝預設 shell；滑過去展開子選單選 shell／系統管理員
+      btn.classList.add('ws-new-has-sub')
+      btn.setAttribute('aria-haspopup', 'menu')
+      btn.setAttribute('aria-expanded', 'false')
+      btn.addEventListener('pointerenter', () => void openShellSubmenu(btn))
+      btn.addEventListener('focus', () => void openShellSubmenu(btn))
+      btn.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowRight') return
+        event.preventDefault()
+        void openShellSubmenu(btn).then(() => menuEl?.querySelector('.ws-new-sub button')?.focus())
+      })
+    } else {
+      btn.addEventListener('pointerenter', closeShellSubmenu)
+    }
     btn.addEventListener('click', () => {
-      const asAdmin = adminInput.checked
       closeMenu()
-      void newTerminal(item.preset, asAdmin)
+      void newTerminal(item.preset, false)
     })
     menuEl.appendChild(btn)
   }
@@ -3256,25 +3377,18 @@ function toggleMenu() {
   sep.className = 'ws-new-sep'
   menuEl.appendChild(sep)
 
-  // 「自訂…」是選 shell 與工作目錄的唯一入口（側欄那顆「＋ 終端機」收掉之後）
-  const customBtn = newMenuItem('custom', '終端機（自訂…）')
-  customBtn.id = 'wsNewCustomTerm'
-  customBtn.addEventListener('click', () => {
-    closeMenu()
-    void import('./terminal-page.js').then((mod) => mod.openNewTerminalDialog(project?.path || ''))
-  })
-
   const browserBtn = newMenuItem('browser', '瀏覽器')
+  browserBtn.addEventListener('pointerenter', closeShellSubmenu)
   browserBtn.addEventListener('click', () => {
     closeMenu()
     void openBrowserTab()
   })
-  menuEl.append(customBtn, browserBtn, admin)
+  menuEl.append(browserBtn)
 
-  const rect = anchor.getBoundingClientRect()
-  menuEl.style.top = `${Math.round(rect.bottom + 4)}px`
-  menuEl.style.right = `${Math.round(window.innerWidth - rect.right)}px`
   document.body.appendChild(menuEl)
+  // 往右展開：左緣對齊「＋」，右邊放不下才貼齊視窗右緣
+  const rect = anchor.getBoundingClientRect()
+  placePanel(menuEl, rect.left, rect.bottom + 4)
   anchor.setAttribute('aria-expanded', 'true')
   window.addEventListener('pointerdown', onOutsideMenu, true)
   window.addEventListener('keydown', onMenuKey, true)
@@ -3283,10 +3397,13 @@ function toggleMenu() {
 /**
  * @param {string} preset
  * @param {boolean} admin
+ * @param {() => boolean} [isActive]
+ * @param {string} [shell] 指定 shell 的 key；空字串＝main 的預設
  */
-async function newTerminal(preset, admin, isActive) {
+async function newTerminal(preset, admin, isActive, shell = '') {
   try {
     const created = await call(electronAPI.terminal.create({
+      ...(shell ? { shell } : {}),
       preset,
       // 有選專案就在專案裡開；沒有的話 main 會退回家目錄
       cwd: project?.path || '',
@@ -3680,6 +3797,8 @@ export function initWsTabs() {
   el.reviewCloseBtn = document.getElementById('wsReviewCloseBtn')
 
   el.newBtn?.addEventListener('click', toggleMenu)
+  el.newBtn?.addEventListener('pointerenter', onNewBtnEnter)
+  el.newBtn?.addEventListener('pointerleave', onMenuLeave)
 
   const onEditorChange = () => {
     const tab = findTab(activeId)

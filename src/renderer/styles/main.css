@@ -1896,6 +1896,7 @@ option:disabled:checked {
 .proj-actions-bar {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
   position: relative;
@@ -1903,16 +1904,17 @@ option:disabled:checked {
 }
 
 .proj-action-btn {
-  flex: 1;
+  flex: 999 0 auto;
   justify-content: center;
   font-size: 12px;
   padding: 6px 8px;
   white-space: nowrap;
 }
 
-/* 加入專案／分類＋／MCP/Skills 一排三顆：都不折行，只有加入專案吃剩下的寬度 */
+/* 加入專案／分類＋／MCP/Skills 一排三顆：字不折行，剩下的寬度幾乎都給加入專案；
+   側欄太窄放不下就整顆換到第二排，那一排只有它自己時才撐滿 */
 .proj-actions-bar > .btn:not(.proj-action-btn) {
-  flex: none;
+  flex: 1 0 auto;
   font-size: 12px;
   padding: 6px 8px;
   white-space: nowrap;
@@ -2589,30 +2591,36 @@ option:disabled:checked {
   position: absolute; top: 0; right: 0; width: 28px; height: 30px;
   display: flex; flex-direction: column; pointer-events: auto;
 }
-.term-conversation button {
+.term-conversation-toggle, .term-conversation-row {
   font: inherit; color: var(--text-secondary); background: transparent;
   border: 1px solid transparent; border-radius: 6px; cursor: pointer;
 }
-.term-conversation button:hover, .term-conversation button[aria-current='true'] {
+.term-conversation-toggle:hover, .term-conversation-row:hover, .term-conversation-row[aria-current='true'] {
   color: var(--text-primary); background: var(--surface-hover);
 }
-.term-conversation button:focus-visible {
+.term-conversation-toggle:focus-visible, .term-conversation-row:focus-visible {
   outline: 2px solid var(--accent-primary); outline-offset: -2px;
 }
-.term-conversation button:disabled { opacity: .5; cursor: default; }
 .term-conversation-toggle { min-height: 30px; font-size: 20px !important; }
 .term-conversation-panel {
-  position: absolute; top: 0; right: 28px; width: min(330px, calc(100% - 28px)); max-height: 100%;
+  position: absolute; top: 0; right: 28px; width: min(480px, calc(100% - 28px)); max-height: 100%;
   display: flex; flex-direction: column; min-height: 0; pointer-events: auto;
   padding: 6px; border: 1px solid var(--border-color); border-radius: 8px;
-  background: var(--bg-secondary); color: var(--text-primary); font-size: 13px;
+  /* 不透明：面板加寬後蓋住的終端機字會從底下透出來，跟清單內容糊在一起 */
+  background: var(--surface-solid); color: var(--text-primary); font-size: 13px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
 }
 .term-conversation-panel[hidden], .term-conversation-status[hidden] { display: none; }
 .term-conversation-status { color: var(--text-secondary); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
 .term-conversation-list { flex: 1; min-height: 0; overflow-y: auto; }
-.term-conversation-row { display: block; width: 100%; text-align: left; padding: 8px; overflow-wrap: anywhere; }
-.term-conversation-row span { display: block; white-space: pre-wrap; line-height: 1.45; }
+.term-conversation-row { display: block; width: 100%; text-align: left; padding: 8px; overflow-wrap: anywhere; color: var(--text-primary); }
+.term-conversation-text { line-height: 1.5; user-select: text; }
+.term-conversation-text:not(.is-markdown) { white-space: pre-wrap; }
+/* Markdown 縮小一號、段落間距收緊，面板裡才放得下 */
+.term-conversation-text.is-markdown > :last-child { margin-bottom: 0; }
+.term-conversation-text.is-markdown :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; margin: 8px 0 4px; }
+.term-conversation-text.is-markdown pre { max-width: 100%; overflow-x: auto; font-size: 12px; }
+.term-conversation-cut { margin: 6px 0 0; color: var(--text-tertiary); font-size: 11px; }
 .term-conversation-role { display: block; font-size: 11px; color: var(--text-tertiary); margin-bottom: 3px; }
 .term-conversation-turn + .term-conversation-turn { border-top: 1px solid var(--border-color); }
 /* 分割顯示：並排的每一格各佔一份寬度。**順序用 `order` 排、不搬 DOM**——
@@ -3020,14 +3028,61 @@ option:disabled:checked {
   background-color: var(--border-color);
 }
 
-.ws-new-admin {
+/* 「終端機 ›」：滑過去往右展開選 shell 的子選單（箭頭用 ::after，不混進列的文字） */
+.ws-new-has-sub::after {
+  content: '›';
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-tertiary);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.ws-new-has-sub[aria-expanded='true'] {
+  background-color: var(--surface-hover);
+}
+
+.ws-new-sub {
+  min-width: 0;
+}
+
+.ws-new-shell {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 10px 3px;
-  color: var(--text-secondary);
-  font-size: 12px;
+}
+
+.ws-new-shell > .ws-new-item {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ws-new-admin-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-tertiary);
   cursor: pointer;
+}
+
+.ws-new-admin-btn .ws-tool-icon {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+  color: inherit;
+}
+
+.ws-new-admin-btn:hover,
+.ws-new-admin-btn:focus-visible {
+  background-color: var(--surface-hover);
+  color: var(--accent-primary);
 }
 
 /* ── 三種內容疊在同一個位置 ── */
@@ -5998,33 +6053,6 @@ body.is-col-resizing webview {
   color: var(--text-tertiary);
 }
 
-/* 只有三個欄位，用 .app-dialog 的 760px 會讓 select 孤零零漂在一片空白裡 */
-#termNewDialog {
-  width: min(460px, 92vw);
-}
-
-/* 內距要跟 .dialog-head／.dialog-actions 一樣是 24px，否則欄位比標題往左突一截 */
-.term-new-body {
-  display: flex;
-  flex-direction: column;
-  padding: 4px 24px 0;
-}
-
-.term-new-body .select {
-  width: 100%;
-}
-
-.term-cwd-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.term-cwd-row .input {
-  flex: 1;
-  min-width: 0;
-}
-
 .input-sm {
   padding: 7px 10px;
   font-size: 13px;
@@ -6780,7 +6808,6 @@ body.is-col-resizing webview {
    .dialog-actions 擠出可視範圍——「取消／儲存」看不到也滑不下去（實際出貨過）。
    新增彈窗時 body 一定要掛在這條清單上。 */
 .prompt-editor,
-.term-new-body,
 .cc-dialog-body,
 .chat-scan-body,
 .usage-dialog-body,
@@ -9183,8 +9210,7 @@ h6.md-h { font-size: 14px; }
   min-width: 0;
 }
 
-.option-group > .custom-select,
-.term-new-body .custom-select {
+.option-group > .custom-select {
   width: 100%;
 }
 

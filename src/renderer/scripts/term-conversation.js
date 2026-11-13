@@ -1,4 +1,7 @@
-const PREVIEW_CHARS = 1800
+import { renderMarkdown } from './markdown.js'
+
+/** 每則顯示完整內容；只有超長的一則（貼整份檔案之類）才截在這裡，免得清單卡住 */
+const PREVIEW_CHARS = 20000
 const cursorKey = cursor => `${cursor?.offset || 0}:${cursor?.part || 0}`
 const clip = text => text.slice(0, PREVIEW_CHARS)
 export const terminalHistoryText = text => String(text).replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '').replace(/\n/g, '\r\n')
@@ -161,21 +164,61 @@ export function bindConversationNav({ pane, term, read, reload, requestJump }) {
     if (value && !initializing) void refresh()
   }
 
+  /** 內容沒變的那則沿用上次畫好的節點：串流中每秒重畫一次，不能整串 Markdown 重轉 */
+  let rendered = new Map()
+
+  /**
+   * 你說的照原樣顯示（跟聊天頁一樣，不讓自己打的符號被改寫）；AI 回的走 Markdown。
+   * @param {string} id
+   * @param {'prompt' | 'answer'} role
+   * @param {string} text
+   * @param {boolean} truncated
+   */
+  function bodyOf(id, role, text, truncated, next) {
+    const cached = rendered.get(id)
+    if (cached && cached.text === text && cached.truncated === truncated) { next.set(id, cached); return cached.node }
+    const node = element('div', 'term-conversation-text')
+    if (role === 'answer') {
+      node.classList.add('is-markdown')
+      node.append(renderMarkdown(text))
+    } else {
+      node.textContent = text
+    }
+    if (truncated) node.append(element('p', 'term-conversation-cut', '（太長，後面省略）'))
+    next.set(id, { text, truncated, node })
+    return node
+  }
+
   function paint() {
     const scroll = list.scrollTop
+    const next = new Map()
     list.replaceChildren()
     pairs.forEach((pair, index) => {
       const turn = element('div', 'term-conversation-turn')
-      for (const [role, label, text] of [['prompt', '你', pair.prompt], ['answer', 'AI', pair.answer]]) {
+      for (const [role, label, text, cut] of [['prompt', '你', pair.prompt, pair.promptTruncated], ['answer', 'AI', pair.answer, pair.answerTruncated]]) {
         if (!text) continue
-        const row = button('term-conversation-row', '', () => void jumpTo(pair, role))
+        // 內容有 Markdown（清單、程式碼區塊的複製鈕）不能塞在 <button> 裡，改用 role=button
+        const row = element('div', 'term-conversation-row')
+        row.tabIndex = 0
+        row.setAttribute('role', 'button')
         row.dataset.key = pair.key; row.dataset.role = role
         row.setAttribute('aria-label', `第 ${index + 1} 輪 ${label}：${text.slice(0, 160)}`)
-        row.append(element('small', 'term-conversation-role', `${index + 1} · ${label}`), element('span', '', text.slice(0, 160)))
+        row.addEventListener('click', event => {
+          // 點到內文的連結、複製鈕、或正在選字時不要跳轉
+          const selection = window.getSelection?.()
+          if (event.target.closest?.('a, button') || (selection && !selection.isCollapsed && row.contains(selection.anchorNode))) return
+          void jumpTo(pair, role)
+        })
+        row.addEventListener('keydown', event => {
+          if (event.target !== row || (event.key !== 'Enter' && event.key !== ' ')) return
+          event.preventDefault(); void jumpTo(pair, role)
+        })
+        row.append(element('small', 'term-conversation-role', `${index + 1} · ${label}`), bodyOf(`${pair.key}:${role}`, role, text, cut, next))
         turn.append(row)
       }
       list.append(turn)
     })
+    rendered = next
     list.scrollTop = scroll
   }
 
@@ -272,14 +315,14 @@ export function bindConversationNav({ pane, term, read, reload, requestJump }) {
   }
 
   function markCurrent(pair, role) {
-    for (const row of list.querySelectorAll('button')) {
+    for (const row of list.querySelectorAll('.term-conversation-row')) {
       row.setAttribute('aria-current', String(row.dataset.key === pair.key && row.dataset.role === role))
     }
   }
 
   async function jumpTo(pair, role) {
     const request = ++jumpRequest, expectedSession = sessionId
-    for (const row of list.querySelectorAll('button')) row.removeAttribute('aria-current')
+    for (const row of list.querySelectorAll('.term-conversation-row')) row.removeAttribute('aria-current')
     setOpen(false)
     let line = locate(pair, role)
     if (line < 0 && requestJump && term.buffer.active.type === 'alternate') {

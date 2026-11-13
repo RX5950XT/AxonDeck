@@ -23,7 +23,8 @@ pub const PS_INTEGRATION: &str = concat!(
     "}"
 );
 
-const SHELLS: [(&str, &str); 3] = [("pwsh", "pwsh.exe"), ("powershell", "powershell.exe"), ("cmd", "cmd.exe")];
+const SHELLS: [(&str, &str); 4] =
+    [("pwsh", "pwsh.exe"), ("powershell", "powershell.exe"), ("cmd", "cmd.exe"), ("wsl", "wsl.exe")];
 // ponytail: Codex 的 Windows 背景 daemon 會彈出工具視窗；上游修好後可恢復共用 daemon。
 const PRESETS: [(&str, &str); 6] =
     [("shell", ""), ("claude", "claude"), ("codex", "codex --no-daemon --no-alt-screen"), ("opencode", "opencode"), ("agy", "agy"), ("grok", "grok --minimal --no-alt-screen")];

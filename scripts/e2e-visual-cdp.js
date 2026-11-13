@@ -579,12 +579,16 @@ async function main() {
     await gotoPage(cdp, 'chat')
     const dialogDropdown = await cdp.eval(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260))
-      document.getElementById('wsNewBtn')?.click()
+      // 新終端機彈窗拿掉了，改借供應商彈窗裡的下拉（沒開過的話自己補兩個選項）
+      const dialog = document.getElementById('ccProviderDialog')
+      const select = document.getElementById('ccAuthFieldSelect')
+      if (select && !select.options.length) {
+        for (const name of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) select.add(new Option(name, name))
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      dialog?.showModal()
       await new Promise((resolve) => setTimeout(resolve, 160))
-      document.getElementById('wsNewCustomTerm')?.click()
-      await new Promise((resolve) => setTimeout(resolve, 160))
-      const dialog = document.getElementById('termNewDialog')
-      const trigger = document.querySelector('.custom-select-trigger[data-select-id="termShellSelect"]')
+      const trigger = document.querySelector('.custom-select-trigger[data-select-id="ccAuthFieldSelect"]')
       if (!dialog || !trigger || !dialog.open) return null
       trigger.click()
       await new Promise((resolve) => setTimeout(resolve, 120))
@@ -602,7 +606,7 @@ async function main() {
         belowTrigger: !!m && m.top > t.top && m.top - t.bottom <= 12
       }
       trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-      document.getElementById('termNewCancelBtn')?.click()
+      dialog.close()
       return result
     })()`)
     if (!dialogDropdown || !dialogDropdown.opened || !dialogDropdown.inDialog ||

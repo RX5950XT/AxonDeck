@@ -26,7 +26,10 @@ const MAX_TITLE = 60
 const SHELLS = {
   pwsh: { label: 'PowerShell 7', exe: 'pwsh.exe' },
   powershell: { label: 'Windows PowerShell', exe: 'powershell.exe' },
-  cmd: { label: '命令提示字元', exe: 'cmd.exe' }
+  cmd: { label: '命令提示字元', exe: 'cmd.exe' },
+  // 預設發行版的 bash；不帶參數 wsl.exe 會把目前的 Windows 資料夾換成 /mnt/<碟>/… 開在那裡。
+  // ponytail: 只看 wsl.exe 在不在，沒裝發行版的機器點下去會看到 WSL 自己的安裝說明
+  wsl: { label: 'WSL（Linux）', exe: 'wsl.exe' }
 }
 
 /** 開好之後自動送出的第一行指令。同樣只收 key。 */

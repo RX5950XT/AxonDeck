@@ -311,7 +311,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     write: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     kill: (id) => ipcRenderer.invoke('terminal:kill', id),
-    pickDirectory: () => ipcRenderer.invoke('terminal:pickDirectory'),
     /** 貼上要讀的剪貼簿文字。**不要改用 `navigator.clipboard.readText()`**：
      *  那支要視窗有焦點，沒焦點直接 reject，Ctrl+V 就變成沒反應。 */
     clipboardText: () => ipcRenderer.invoke('terminal:clipboardText'),

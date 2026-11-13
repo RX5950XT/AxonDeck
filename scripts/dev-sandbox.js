@@ -14,7 +14,7 @@
  * |---|---|---|
  * | 大而唯讀（`models`、`hf-models`） | junction 接回真的那份 | 30GB 不可能複製；App 只會讀它 |
  * | 小而想沿用（`config.json`、`workspaces.json`） | **複製**一份 | 沙箱怎麼寫都不會弄髒你的 |
- * | 會累積的紀錄（`usage.json`、`code-usage.json`、`agy-logs.db`、`dictations.json`、`terminals.json`） | 不接 | 沙箱的測試資料混進去就分不出來了；`terminals.json` 指的是**另一份程序**的 pty，接過來只會是死的 |
+ * | 會累積的紀錄（`usage.json`、`code-usage.json`、`agy-logs.db`、`dictations.json`、`terminals.json`） | 不接 | 沙箱的測試資料混進去就分不出來了；`terminals.json` 指的是**另一份程序**的 pty，接過來只會是死的；沙箱自己上次留下的也每次清掉 |
  *
  * 另外這幾個一定要在沙箱裡關掉——它們的影響會**跑出 userData 之外**：
  * `agyEnabled`（會去搶同一個埠）、`dictationEnabled`（原生 hook 在全機器層級吞掉右 Alt）、
@@ -112,6 +112,8 @@ function seed() {
     done.push('清掉舊沙箱')
   }
   fs.mkdirSync(SANDBOX, { recursive: true })
+  // 上一次預覽開的終端機：那份程序已經關了，留著只會在專案底下多出一排死分頁
+  unlinkDest('terminals.json')
 
   for (const dir of LINK_DIRS) if (linkDir(dir)) done.push(`接回 ${dir}/`)
 

@@ -38,11 +38,6 @@ import { WebglAddon } from '../../../node_modules/@xterm/addon-webgl/lib/addon-w
 let initialized = false
 let hostEl = null
 let errorEl = null
-let dialogEl = null
-let shellSelect = null
-let presetSelect = null
-let cwdInput = null
-let adminInput = null
 let findEl = null
 let findInput = null
 let findCountEl = null
@@ -493,8 +488,8 @@ function initTerminalDrop(pane, term, id) {
       showToast('無法取得可貼上的本機路徑，請從檔案總管拖入', 'error')
       return
     }
-    const cmd = isCmdShell(id)
-    const text = paths.map((path) => quotePath(path, cmd)).join(' ') + ' '
+    const shell = shellOf(id)
+    const text = paths.map((path) => quotePath(path, shell)).join(' ') + ' '
     term.paste(text)
     term.focus()
   })
@@ -540,20 +535,26 @@ function attachRenderer(term) {
 }
 
 /**
- * 這一格的 shell 是不是 `cmd`——引號規則不一樣（`cmd` 用雙引號，PowerShell 用單引號）。
+ * 這一格是哪種 shell——引號規則不一樣（`cmd` 用雙引號，PowerShell 用單引號，WSL 還要換成 Linux 路徑）。
  * @param {string} id
  */
-function isCmdShell(id) {
-  return items.find((item) => item.id === id)?.shell === 'cmd'
+function shellOf(id) {
+  return items.find((item) => item.id === id)?.shell || ''
 }
 
 /**
  * 一條本機路徑貼進終端機時該長什麼樣（跟拖放檔案同一套規則）。
  * @param {string} filePath
- * @param {boolean} cmd
+ * @param {string} shell
  */
-function quotePath(filePath, cmd) {
-  return cmd ? `"${filePath}"` : `'${filePath.replace(/['\u2018-\u201b]/g, '$&$&')}'`
+function quotePath(filePath, shell) {
+  if (shell === 'cmd') return `"${filePath}"`
+  if (shell === 'wsl') {
+    // WSL 裡 Windows 的 D: 是 /mnt/d；bash 單引號裡放不了單引號，要先收尾、跳脫、再開
+    const unix = filePath.replace(/^([A-Za-z]):[\\/]/, (_, drive) => `/mnt/${drive.toLowerCase()}/`).replace(/\\/g, '/')
+    return `'${unix.replace(/'/g, "'\\''")}'`
+  }
+  return`'${filePath.replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**
@@ -607,7 +608,7 @@ async function pasteClipboardImage(term, id) {
     saved = null
   }
   if (!saved?.path) return false
-  term.paste(`${quotePath(saved.path, isCmdShell(id || currentId))} `)
+  term.paste(`${quotePath(saved.path, shellOf(id || currentId))} `)
   showToast('截圖已存成檔案並貼上路徑', 'info')
   return true
 }
@@ -938,7 +939,8 @@ async function openSession(id, isActive = () => true) {
   // 聊天與工作區同頁：點終端機就是切到工作區主區（同步切 DOM，xterm 才量得到尺寸）
   setChatPaneMode('workspace')
   currentId = id
-  unread.delete(id)
+  // 未讀點當下就收，不等最後那次 reloadList（main 忙的時候要等上一兩秒）
+  if (unread.delete(id)) pushTabState(id)
   showHost(true)
   // 先掛分頁再等 PTY。等的期間專案還原或對話載入會把畫面搶走，
   // 分頁沒掛上的話這顆就只剩側欄圖示，程序還在跑、點不回去。
@@ -1154,69 +1156,6 @@ function findOpen() {
   return Boolean(findEl) && !findEl.classList.contains('hidden')
 }
 
-// ===== 新終端機 =====
-
-function fillCatalogSelects() {
-  shellSelect.replaceChildren()
-  for (const shell of catalog.shells) {
-    const option = document.createElement('option')
-    option.value = shell.key
-    option.textContent = shell.available ? shell.label : `${shell.label}（未安裝）`
-    option.disabled = !shell.available
-    shellSelect.appendChild(option)
-  }
-  const firstAvailable = catalog.shells.find((s) => s.available)
-  if (firstAvailable) shellSelect.value = firstAvailable.key
-
-  presetSelect.replaceChildren()
-  for (const preset of catalog.presets) {
-    const option = document.createElement('option')
-    option.value = preset.key
-    option.textContent = preset.label
-    presetSelect.appendChild(option)
-  }
-}
-
-/**
- * 「自訂…」：分頁列的「＋」選單裡唯一還要選 shell 與工作目錄的入口。
- * @param {string} [cwd] 預設工作目錄（工作區傳專案路徑進來）
- */
-export function openNewTerminalDialog(cwd = '') {
-  initTerminalPage()
-  if (items.length >= catalog.maxSessions) {
-    showToast(`最多 ${catalog.maxSessions} 個終端機，請先刪掉一些`, 'error')
-    return
-  }
-  fillCatalogSelects()
-  if (adminInput) adminInput.checked = false
-  if (cwd && cwdInput) cwdInput.value = cwd
-  dialogEl.showModal()
-}
-
-async function createSession() {
-  // 建立要等 ConPTY 起來，期間連按會開出兩個工作階段
-  const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById('termNewCreateBtn'))
-  if (btn?.disabled) return
-  if (btn) btn.disabled = true
-  try {
-    const created = await call(electronAPI.terminal.create({
-      shell: shellSelect.value,
-      preset: presetSelect.value,
-      cwd: cwdInput.value,
-      // 工作階段跟著專案走（缺值＝未分類）
-      projectId: currentProjectId(),
-      admin: Boolean(adminInput?.checked)
-    }), '建立終端機失敗')
-    dialogEl.close()
-    await reloadList()
-    await openSession(created.id)
-  } catch {
-    // call() 已經把訊息顯示出來了
-  } finally {
-    if (btn) btn.disabled = false
-  }
-}
-
 // ===== 生命週期 =====
 
 async function reloadList() {
@@ -1388,11 +1327,6 @@ function initTerminalPage() {
 
   hostEl = document.getElementById('termHost')
   errorEl = document.getElementById('termError')
-  dialogEl = document.getElementById('termNewDialog')
-  shellSelect = document.getElementById('termShellSelect')
-  presetSelect = document.getElementById('termPresetSelect')
-  cwdInput = document.getElementById('termCwdInput')
-  adminInput = /** @type {HTMLInputElement | null} */ (document.getElementById('termAdminInput'))
   findEl = document.getElementById('termFind')
   findInput = /** @type {HTMLInputElement | null} */ (document.getElementById('termFindInput'))
   findCountEl = document.getElementById('termFindCount')
@@ -1421,13 +1355,6 @@ function initTerminalPage() {
     event.preventDefault()
     applyFontSize(fontSize + (event.deltaY < 0 ? 1 : -1))
   }, { passive: false })
-
-  document.getElementById('termNewCancelBtn')?.addEventListener('click', () => dialogEl.close())
-  document.getElementById('termNewCreateBtn')?.addEventListener('click', () => void createSession())
-  document.getElementById('termCwdBtn')?.addEventListener('click', async () => {
-    const picked = await call(electronAPI.terminal.pickDirectory(), '選擇資料夾失敗')
-    if (picked) cwdInput.value = picked
-  })
 
   electronAPI.terminal.onData(onData)
   electronAPI.terminal.onStatus(onStatus)
@@ -1459,7 +1386,6 @@ function initTerminalPage() {
       // 字級要在第一個分頁開起來之前讀好，不然會先用預設值畫一次再跳大小
       applyFontSize(await electronAPI.store.get('termFontSize', FONT_DEFAULT), false)
       catalog = await call(electronAPI.terminal.catalog(), '讀取設定失敗')
-      cwdInput.value = catalog.homeDir || ''
       await reloadList()
       await restorePreviousTerminals()
     } catch {

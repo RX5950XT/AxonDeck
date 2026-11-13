@@ -2711,42 +2711,6 @@
         </div>
       </dialog>
 
-      <!-- 新終端機：shell 與啟動指令只送 key，工作目錄走系統對話框 -->
-      <dialog id="termNewDialog" data-page-content="chat" class="app-dialog" aria-label="新終端機">
-        <div class="dialog-head">
-          <h2 class="dialog-title">新終端機</h2>
-          <p class="dialog-desc">開的是獨立 shell；縮到系統匣後照常執行。</p>
-        </div>
-        <div class="term-new-body">
-          <div class="setting-group">
-            <label for="termShellSelect">Shell</label>
-            <select id="termShellSelect" class="select"></select>
-          </div>
-          <div class="setting-group">
-            <label class="setting-check">
-              <input type="checkbox" id="termAdminInput" />
-              <span>以系統管理員身分執行</span>
-            </label>
-            <p class="setting-hint">會跳一次 UAC；同次啟動之後不用再按。</p>
-          </div>
-          <div class="setting-group">
-            <label for="termPresetSelect">啟動指令</label>
-            <select id="termPresetSelect" class="select"></select>
-            <p class="setting-hint">開好後自動送出；選「純 shell」不送。</p>
-          </div>
-          <div class="setting-group">
-            <label for="termCwdInput">工作目錄</label>
-            <div class="term-cwd-row">
-              <input type="text" id="termCwdInput" class="input" readonly aria-label="工作目錄" />
-              <button type="button" id="termCwdBtn" class="btn btn-secondary btn-sm">選擇…</button>
-            </div>
-          </div>
-        </div>
-        <div class="dialog-actions">
-          <button type="button" id="termNewCancelBtn" class="btn btn-secondary btn-sm">取消</button>
-          <button type="button" id="termNewCreateBtn" class="btn btn-primary btn-sm">開啟</button>
-        </div>
-      </dialog>
 
       <dialog id="usageSettingsDialog" data-page-content="chat" class="app-dialog usage-dialog" aria-labelledby="usageSettingsTitle">
         <header class="dialog-head">

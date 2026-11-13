@@ -155,9 +155,7 @@ async function main() {
     createdId = await cdp.eval(`(async () => {
       document.getElementById('wsNewBtn').click()
       await new Promise((r) => setTimeout(r, 300))
-      document.getElementById('wsNewCustomTerm').click()
-      await new Promise((r) => setTimeout(r, 400))
-      document.getElementById('termNewCreateBtn').click()
+      ;[...document.querySelectorAll('.ws-new-item')].find((b) => b.textContent.trim() === '終端機').click()
       await new Promise((r) => setTimeout(r, 4000))
       const list = await window.electronAPI.terminal.list()
       return list.data[list.data.length - 1]?.id || ''

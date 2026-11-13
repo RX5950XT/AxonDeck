@@ -213,29 +213,32 @@ async function main() {
     const shells = await cdp.eval(`(async () => {
       document.getElementById('wsNewBtn').click()
       await new Promise((r) => setTimeout(r, 300))
-      const labels = [...document.querySelectorAll('.ws-new-item')].map((b) => b.textContent)
-      const hasAdmin = !!document.getElementById('wsNewAdmin')
-      document.getElementById('wsNewCustomTerm').click()
-      await new Promise((r) => setTimeout(r, 400))
-      const dialog = document.getElementById('termNewDialog')
+      const labels = [...document.querySelectorAll('.ws-new-menu:not(.ws-new-sub) > .ws-new-item')].map((b) => b.textContent)
+      document.querySelector('.ws-new-has-sub').dispatchEvent(new PointerEvent('pointerenter'))
+      for (let i = 0; i < 30 && !document.querySelector('.ws-new-sub'); i += 1) await new Promise((r) => setTimeout(r, 100))
+      const sub = document.querySelector('.ws-new-sub')
+      const btnRect = document.getElementById('wsNewBtn').getBoundingClientRect()
+      const menuRect = document.querySelector('.ws-new-menu:not(.ws-new-sub)').getBoundingClientRect()
+      const subRect = sub ? sub.getBoundingClientRect() : null
       return {
         labels,
-        hasAdmin,
-        open: dialog.open,
-        shells: [...document.getElementById('termShellSelect').options].map((o) => o.value),
-        presets: [...document.getElementById('termPresetSelect').options].map((o) => o.value)
+        // 往右展開：左緣對齊「＋」（右邊放不下才往左貼齊視窗）；子選單在主選單右邊
+        rightward: Math.abs(menuRect.left - btnRect.left) < 2 || menuRect.right >= innerWidth - 9,
+        subBeside: !!subRect && (subRect.left >= menuRect.right - 1 || subRect.right <= menuRect.left + 1),
+        legacy: !!document.getElementById('wsNewAdmin') || !!document.getElementById('wsNewCustomTerm'),
+        shells: sub ? [...sub.querySelectorAll('.ws-new-item')].map((b) => b.dataset.shell) : [],
+        admins: sub ? sub.querySelectorAll('.ws-new-admin-btn').length : 0
       }
     })()`)
-    ok('「＋」選單有終端機與各家 CLI，還有管理員勾選',
-      shells.labels.includes('終端機') && shells.labels.includes('Claude Code') && shells.hasAdmin,
+    ok('「＋」選單有終端機與各家 CLI，沒有自訂與管理員勾選',
+      shells.labels.includes('終端機') && shells.labels.includes('Claude Code') && !shells.legacy,
       JSON.stringify(shells.labels))
-    ok('「＋」的「終端機（自訂…）」打得開新終端機彈窗', shells.open)
-    ok('shell 選單有三種', shells.shells.length === 3, JSON.stringify(shells.shells))
-    ok('啟動指令有 claude／codex', shells.presets.includes('claude') && shells.presets.includes('codex'),
-      JSON.stringify(shells.presets))
+    ok('「終端機」子選單列出裝了的 shell，每列都有系統管理員',
+      shells.shells.length >= 1 && shells.admins === shells.shells.length, JSON.stringify(shells))
+    ok('「＋」選單往右展開、子選單在旁邊不重疊', shells.rightward && shells.subBeside, JSON.stringify(shells))
 
     const created = await cdp.eval(`(async () => {
-      document.getElementById('termNewCreateBtn').click()
+      document.querySelector('.ws-new-sub .ws-new-item').click()
       // 固定睡 2.5 秒不夠：暫存 userData 的第一個終端機要先把宿主的執行環境
       // （Electron ＋ node-pty，248MB）複製進 <userData>/terminal-host/，
       // 那段時間 PTY 還沒起來，量到的是 state=stopped／panes=0。等到畫面上真的
@@ -250,7 +253,7 @@ async function main() {
         id: item.id,
         title: item.title,
         state: item.state,
-        dialogClosed: !document.getElementById('termNewDialog').open,
+        dialogClosed: !document.querySelector('.ws-new-menu'),
         hostVisible: !document.getElementById('termHost').classList.contains('hidden'),
         panes: document.querySelectorAll('.term-pane').length,
         // 不可以數 .xterm-rows：WebGL renderer 把字畫在 canvas 上，那個容器整個不存在。
@@ -259,7 +262,7 @@ async function main() {
       }
     })()`)
     createdId = created.id
-    ok('建立後彈窗關閉、畫布顯示', created.dialogClosed && created.hostVisible, JSON.stringify(created))
+    ok('建立後選單關閉、畫布顯示', created.dialogClosed && created.hostVisible, JSON.stringify(created))
     ok('xterm 真的掛上去了', created.panes === 1 && created.rows === 1, JSON.stringify(created))
     const redraw = await cdp.eval(`(async () => {
       const term = window.__testTerminal
@@ -693,9 +696,7 @@ async function main() {
       // 走 UI 開第二個（renderer 的清單才會同步），開完再切回第一個當作「正在看的那個」
       document.getElementById('wsNewBtn').click()
       await new Promise((r) => setTimeout(r, 300))
-      document.getElementById('wsNewCustomTerm').click()
-      await new Promise((r) => setTimeout(r, 400))
-      document.getElementById('termNewCreateBtn').click()
+      ;[...document.querySelectorAll('.ws-new-item')].find((b) => b.textContent.trim() === '終端機').click()
       await new Promise((r) => setTimeout(r, 3000))
       const list = await window.electronAPI.terminal.list()
       const id = list.data[list.data.length - 1].id
@@ -710,18 +711,21 @@ async function main() {
       cdp,
       `[...document.querySelectorAll('.ws-tab')]
          .filter((el) => !el.classList.contains('is-active'))
-         .some((el) => el.querySelector('.ws-tab-unread'))`,
+         // 要等 ping 真的跑完：開在專案資料夾的 shell 啟動那一下也會先亮一次未讀點
+         .some((el) => el.querySelector('.ws-tab-unread') && !el.querySelector('.ws-tab-state-running'))`,
       20000
     ), await cdp.eval(`document.querySelectorAll('.ws-tab-unread').length + ' 個未讀點'`))
 
-    ok('點開那個分頁就把未讀點清掉', await cdp.eval(`(async () => {
+    const cleared = await cdp.eval(`(async () => {
       const el = [...document.querySelectorAll('.ws-tab')]
         .find((node) => node.querySelector('.ws-tab-unread'))
-      if (!el) return false
+      if (!el) return 'no-dot'
       el.querySelector('.ws-tab-open').click()
       await new Promise((r) => setTimeout(r, 900))
-      return document.querySelectorAll('.ws-tab-unread').length === 0
-    })()`))
+      const left = [...document.querySelectorAll('.ws-tab-unread')].map((dot) => dot.closest('.ws-tab')?.dataset.id + (dot.closest('.ws-tab')?.classList.contains('is-active') ? '(active)' : ''))
+      return left.length === 0 || 'clicked=' + el.dataset.id + ' left=' + left.join(',') + ' second=${second}'
+    })()`)
+    ok('點開那個分頁就把未讀點清掉', cleared === true, String(cleared))
 
     // 排序改成分頁列拖曳（回歸在 e2e-workspace-cdp 的 [L]），這裡不再測側欄。
 
@@ -858,49 +862,22 @@ async function main() {
     // ===== 管理員終端機 =====
     // 只建立、不開啟：真的開會跳 UAC，自動化測試等不到人按（提權那段走
     // scripts/probe-terminal-admin-elevate.js）
+    // 「＋ → 終端機」子選單每列右邊的「系統管理員」是提權終端機唯一的入口
     const adminBox = await cdp.eval(`(async () => {
       document.getElementById('wsNewBtn').click()
       await new Promise((r) => setTimeout(r, 300))
-      document.getElementById('wsNewCustomTerm').click()
-      await new Promise((r) => setTimeout(r, 400))
-      const input = document.getElementById('termAdminInput')
-      const label = input ? input.closest('label') : null
-      const rect = label ? label.getBoundingClientRect() : { width: 0, height: 0 }
-      const created = await window.electronAPI.terminal.create({
-        shell: document.getElementById('termShellSelect').value,
-        preset: 'shell',
-        cwd: document.getElementById('termCwdInput').value,
-        admin: true
-      })
-      document.getElementById('termNewCancelBtn').click()
-      return {
-        w: rect.width,
-        h: rect.height,
-        checkedByDefault: input ? input.checked : null,
-        id: created.data.id,
-        admin: created.data.admin
-      }
+      document.querySelector('.ws-new-has-sub').dispatchEvent(new PointerEvent('pointerenter'))
+      for (let i = 0; i < 30 && !document.querySelector('.ws-new-sub'); i += 1) await new Promise((r) => setTimeout(r, 100))
+      const btn = document.querySelector('.ws-new-sub .ws-new-admin-btn')
+      const rect = btn ? btn.getBoundingClientRect() : { width: 0, height: 0 }
+      const created = await window.electronAPI.terminal.create({ shell: btn ? btn.dataset.shell : '', preset: 'shell', admin: true })
+      document.getElementById('wsNewBtn').click()
+      return { w: rect.width, h: rect.height, id: created.data.id, admin: created.data.admin }
     })()`)
     adminId = adminBox.id || ''
-    ok('新終端機彈窗有「以系統管理員身分執行」且量得到尺寸',
+    ok('「終端機」子選單有「系統管理員」且量得到尺寸',
       adminBox.w > 0 && adminBox.h > 0, JSON.stringify(adminBox))
-    ok('管理員預設不勾', adminBox.checkedByDefault === false)
     ok('admin 有存進 terminals.json', adminBox.admin === true)
-
-    // 「＋」選單裡的管理員勾選也要在（那是提權終端機唯一的入口）
-    const adminInMenu = await cdp.eval(`(async () => {
-      document.getElementById('wsNewBtn').click()
-      await new Promise((r) => setTimeout(r, 300))
-      const input = document.getElementById('wsNewAdmin')
-      const label = input ? input.closest('label') : null
-      const rect = label ? label.getBoundingClientRect() : { width: 0, height: 0 }
-      const result = { found: !!input, checked: input ? input.checked : null, w: rect.width, h: rect.height }
-      document.getElementById('wsNewBtn').click()
-      return result
-    })()`)
-    ok('分頁列的「＋」選單有「以系統管理員身分執行」且量得到尺寸',
-      adminInMenu.found && adminInMenu.checked === false && adminInMenu.w > 0 && adminInMenu.h > 0,
-      JSON.stringify(adminInMenu))
 
     // ===== RWD =====
     for (const width of [1440, 900, 560]) {

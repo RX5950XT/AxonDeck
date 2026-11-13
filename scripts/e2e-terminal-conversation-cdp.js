@@ -160,12 +160,12 @@ async function main() {
     const expected = agent === 'codex' ? firstPrompt : fixture.user.slice(0, 40)
     assert(await cdp.eval(`(() => { const t=__navTerms.get(${JSON.stringify(terminalId)}),b=t.buffer.active; return Array.from({length:t.rows},(_,i)=>b.getLine(b.viewportY+i)?.translateToString(true)||'').join('').includes(${JSON.stringify(expected)}) })()`), agent + ' 提問不在可見畫面')
     await clickAgent('.term-conversation-toggle')
-    const latest = '.term-conversation-turn:last-child button:last-child'
+    const latest = '.term-conversation-turn:last-child .term-conversation-row:last-child'
     await clickAgent(latest)
     const deadline = Date.now() + 30000
     let detail
     while (Date.now() < deadline) {
-      detail = await cdp.eval(`(() => { const t=__navTerms.get(${JSON.stringify(terminalId)}),b=t.buffer.active; const row=${agentQuery(latest)}; const needle=(row?.querySelector('span')?.textContent||'').replace(/\\s+/g,'').slice(0,16); const top=(b.getLine(b.viewportY)?.translateToString(true)||'').replace(/\\s+/g,''); return {ok:row?.getAttribute('aria-current')==='true'&&!!needle&&top.includes(needle)&&b.viewportY<b.baseY,current:row?.getAttribute('aria-current'),needle,top:top.slice(0,80),y:b.viewportY,base:b.baseY} })()`)
+      detail = await cdp.eval(`(() => { const t=__navTerms.get(${JSON.stringify(terminalId)}),b=t.buffer.active; const row=${agentQuery(latest)}; const needle=(row?.querySelector('.term-conversation-text')?.textContent||'').replace(/\\s+/g,'').slice(0,16); const top=(b.getLine(b.viewportY)?.translateToString(true)||'').replace(/\\s+/g,''); return {ok:row?.getAttribute('aria-current')==='true'&&!!needle&&top.includes(needle)&&b.viewportY<b.baseY,current:row?.getAttribute('aria-current'),needle,top:top.slice(0,80),y:b.viewportY,base:b.baseY} })()`)
       if (detail?.ok) break
       await delay(150)
     }
@@ -202,7 +202,9 @@ async function main() {
   const listText = await cdp.eval(`${query('.term-conversation-list')}.textContent`)
   assert(listText.includes(firstPrompt) && listText.includes(firstAnswer) && !listText.includes('不應顯示的過程'))
   await mouse('.term-conversation-toggle', true)
-  await mouse('.xterm-screen')
+  // 面板加寬到能看完整內容後會蓋住畫面中間，移到終端機左緣才算真的離開
+  const outside = await cdp.eval(`(() => { const r=${query('.xterm-screen')}.getBoundingClientRect(); return {x:r.left+12,y:r.top+14} })()`)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...outside })
   await wait(() => cdp.eval(`${query('.term-conversation-panel')}.hidden`), '離開仍未收合')
   assert.equal(await cdp.eval(`__navTerms.get(${JSON.stringify(id)}).cols`), cols)
   pass('選單只有可點選提問／回答，滑入展開離開收合，沒有閱讀面板與重讀按鈕')

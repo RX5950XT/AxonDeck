@@ -98,14 +98,33 @@ function configure(monaco) {
   // 寫死顏色的話深／淺主題一切換就會看到一塊突兀的方塊。
   const shared = { 'editor.background': '#00000000', 'editorGutter.background': '#00000000' }
   // 反白跟 App 其他地方同一個半透明色（themes.css 的 --selection-bg）
-  const dark = { ...shared, 'editor.selectionBackground': '#78a3b559', 'editor.inactiveSelectionBackground': '#78a3b533' }
-  const light = { ...shared, 'editor.selectionBackground': '#3d6a7d40', 'editor.inactiveSelectionBackground': '#3d6a7d26' }
-  monaco.editor.defineTheme('axondeck-dark', { base: 'vs-dark', inherit: true, rules: [], colors: dark })
-  monaco.editor.defineTheme('axondeck-light', { base: 'vs', inherit: true, rules: [], colors: light })
-  applyTheme(monaco)
+  themeColors.dark = { ...shared, 'editor.selectionBackground': '#78a3b559', 'editor.inactiveSelectionBackground': '#78a3b533' }
+  themeColors.light = { ...shared, 'editor.selectionBackground': '#3d6a7d40', 'editor.inactiveSelectionBackground': '#3d6a7d26' }
+  defineThemes(monaco)
   // 主題是改 <html> 的 data-theme，沒有事件可以聽——盯著那個屬性就好
   new MutationObserver(() => applyTheme(monaco))
     .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+}
+
+/** 兩套佈景的顏色；`extendThemes` 可以替單一視窗補色（例如獨立編輯視窗的縮圖地圖） */
+const themeColors = { dark: {}, light: {} }
+
+/** @param {any} monaco */
+function defineThemes(monaco) {
+  monaco.editor.defineTheme('axondeck-dark', { base: 'vs-dark', inherit: true, rules: [], colors: themeColors.dark })
+  monaco.editor.defineTheme('axondeck-light', { base: 'vs', inherit: true, rules: [], colors: themeColors.light })
+  applyTheme(monaco)
+}
+
+/**
+ * 替這個視窗的佈景補幾個顏色（不影響其他視窗：每扇窗各有一份 monaco）。
+ * @param {any} monaco
+ * @param {{ dark: Record<string, string>, light: Record<string, string> }} extra
+ */
+export function extendThemes(monaco, extra) {
+  themeColors.dark = { ...themeColors.dark, ...extra.dark }
+  themeColors.light = { ...themeColors.light, ...extra.light }
+  defineThemes(monaco)
 }
 
 /**

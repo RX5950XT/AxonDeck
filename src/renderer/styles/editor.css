@@ -224,3 +224,239 @@
 .ed-status-msg[data-tone="error"] {
   color: var(--danger, #e06c6c);
 }
+
+/* 「⋯」更多 */
+.ed-more {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  padding: 0;
+}
+
+.ed-more svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* 狀態列每一格都點得開（VS Code 式）：平常像文字，滑過才看得出是按鈕 */
+.ed-stat {
+  height: 22px;
+  padding: 0 6px;
+  margin: 0 -6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ed-stat:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.ed-stat:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+
+.ed-stat:disabled {
+  cursor: default;
+}
+
+.ed-stat[hidden],
+.ed-diff[hidden] {
+  display: none;
+}
+
+.ed-stat:empty {
+  display: none;
+}
+
+/* 語言模式選單：從狀態列往上長、可以打字篩選 */
+.ed-picker {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 16px));
+  max-height: min(420px, calc(100vh - 80px));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.ed-picker-input {
+  flex: none;
+  margin: 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.ed-picker-input:focus {
+  border-color: var(--focus-ring-color);
+}
+
+.ed-picker-list {
+  overflow-y: auto;
+  padding: 0 4px 4px;
+}
+
+.ed-picker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ed-picker-row[aria-selected="true"],
+.ed-picker-row:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.ed-picker-row.is-current {
+  color: var(--accent-primary);
+}
+
+.ed-picker-exts {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 比較未儲存的變更：蓋掉整個主區 */
+.ed-main[data-diff] > :not(.ed-diff) {
+  display: none;
+}
+
+.ed-diff {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.ed-diff-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ed-diff-host {
+  flex: 1;
+  min-height: 0;
+}
+
+/* HTML 預覽：iframe 填滿；頁面自己有底色，沒有的給白底（瀏覽器預設） */
+.ed-preview[data-kind="html"] {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.ed-html {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  border: none;
+  background: #fff;
+}
+
+/* CSV／TSV 表格：表頭與列號固定，欄位交替上色（Rainbow CSV 的味道，但收斂成 App 的色調） */
+.ed-preview[data-kind="csv"] {
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ed-preview[data-kind="csv"] > * {
+  max-width: none;
+  margin-inline: 0;
+}
+
+.ed-csv-info {
+  position: sticky;
+  left: 0;
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ed-csv-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ed-csv-table th,
+.ed-csv-table td {
+  max-width: 360px;
+  padding: 4px 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+  white-space: pre;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.ed-csv-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-solid);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ed-csv-table .ed-csv-ln {
+  position: sticky;
+  left: 0;
+  background: var(--surface-solid);
+  color: var(--text-tertiary);
+  font-weight: 400;
+  text-align: right;
+}
+
+.ed-csv-table thead .ed-csv-ln {
+  z-index: 2;
+}
+
+.ed-csv-table .is-num {
+  text-align: right;
+}
+
+.ed-csv-table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.ed-csv-table [data-col="1"],
+.ed-csv-table [data-col="3"],
+.ed-csv-table [data-col="5"],
+.ed-csv-table [data-col="7"] {
+  color: var(--text-secondary);
+}

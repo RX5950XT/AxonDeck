@@ -892,8 +892,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ===== 獨立編輯視窗（只能讀寫 main 替這扇窗開的那個檔案）=====
   editorFile: {
-    load: () => ipcRenderer.invoke('editorFile:load'),
-    save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
+    /** @param {string} [encoding] 指定編碼重開；不給就自動判斷 */
+    load: (encoding) => ipcRenderer.invoke('editorFile:load', encoding),
+    /** @param {string} [encoding] 換成這個編碼存（utf8／utf8bom／utf16le） */
+    save: (content, mtimeMs, encoding) => ipcRenderer.invoke('editorFile:save', content, mtimeMs, encoding),
+    saveAs: (content) => ipcRenderer.invoke('editorFile:saveAs', content),
+    openPicked: () => ipcRenderer.invoke('editorFile:openPicked'),
+    readDisk: () => ipcRenderer.invoke('editorFile:readDisk'),
+    previewHtml: (content) => ipcRenderer.invoke('editorFile:previewHtml', content),
+    reveal: () => ipcRenderer.invoke('editorFile:reveal'),
+    copyPath: () => ipcRenderer.invoke('editorFile:copyPath'),
     stat: () => ipcRenderer.invoke('editorFile:stat'),
     openLink: (link) => ipcRenderer.invoke('editorFile:openLink', link),
     bigOpen: () => ipcRenderer.invoke('editorFile:bigOpen'),

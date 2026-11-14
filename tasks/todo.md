@@ -49,6 +49,8 @@
 
 ## 近期完成（新→舊，一行一件）
 
+- 2026-11-14 GPU 可重建圖片快取上限 64 MiB（`force-gpu-mem-discardable-limit-mb`，明確啟動參數可覆寫）：隔離 PNG 負載閒置 GPU 335.57→167.95 MiB、截圖與 WebGL2 讀回一致；安裝版實測 60 秒約 314–319 MiB、九頁與加速檢查通過。證據在 terminal/logs/gpu-cache-probe；未做數小時重度媒體回歸。
+- 2026-11-14 獨立編輯器對齊主流體驗（參考 VS Code／Notepads／Notepad++／Win11 記事本）：狀態列每格可點（跳行、縮排、以其他編碼重新開啟／以 UTF-8 等儲存、CRLF／LF、可搜尋語言模式）、「⋯」選單（開啟、另存新檔、比較未儲存的變更、在檔案頁顯示、複製路徑、縮圖地圖、空白字元）、sticky scroll／括號配色（大檔自動關）；預覽加 HTML（不開 CORS 的 `vi-preview`）、CSV／TSV 表格、Mermaid，Markdown 分割跟捲；補約 120 種副檔名，HTML／CSV 只進「開啟方式」；修 `.gitignore` 類檔名關聯打不開。驗證：lint、`test-editor-window`、cargo test 7/7、`probe-editor-formats` 9 項、`probe-editor-bigfile`（打字 13ms，基準 15ms）、electron:pack＋打包版 HTML 預覽。
 - 2026-11-14 分頁列「＋」滑過就展開、往右開；「終端機」子選單直接選 shell（PowerShell 7／Windows PowerShell／命令提示字元／WSL，WSL 拖放路徑轉 `/mnt/<碟>`），每列右邊盾牌圖示＝系統管理員，拿掉「終端機（自訂…）」彈窗與管理員勾選（連同 `terminal:pickDirectory`）。終端機對話導覽 AI 回覆走 Markdown、每則顯示完整（上限 2 萬字）、面板加寬不透明。驗證：lint、`test-terminal-conversation`、打包版 `e2e-terminal-cdp`、`e2e-terminal-conversation-cdp`。
 - 2026-11-14 擴充功能管理頁新增「鍵盤快速鍵」（錄製、衝突檢查、在 AxonDeck 中／全域），分頁按下去開 popup 或送 `commands.onCommand`；工具列圖示可釘選／取消釘選（圖示右鍵、🧩 選單、管理頁），「用系統瀏覽器開」改純圖示。驗證：lint、`test-browser-extensions`、`probe-crx-commands.js` 原始碼與打包版各 9/9、electron:pack；工具列圖示按鈕未在完整 App 截圖確認。
 

@@ -56,7 +56,7 @@ const { registerWorkspaceIpc } = require('./workspace/ipc')
 const workspaceMedia = require('./workspace/media')
 const extensionManager = require('./browser-extension-manager')
 // 自訂協定的權限只能在 app ready 之前宣告
-protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, extensionManager.PRIVILEGES])
+protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, workspaceMedia.PREVIEW_PRIVILEGES, extensionManager.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
@@ -274,7 +274,8 @@ app.on('second-instance', (_event, argv, _cwd, data) => {
 /** 命令列帶來的檔案：編輯器不接的格式（或開失敗）退回叫出主視窗，不吞掉這次點擊 */
 function openFromShell(file) {
   if (!app.isReady()) return
-  editorWindow.open(file)
+  // 從 Windows「開啟方式」指名編輯器：HTML／CSV 這些不搶預設的格式也收
+  editorWindow.open(file, { openWith: true })
     .then((opened) => { if (!opened) showMainWindow() })
     .catch((err) => { console.warn('[editor] open failed:', err?.code || 'OPEN_FAILED'); showMainWindow() })
 }
@@ -2862,8 +2863,11 @@ app.whenReady().then(() => {
   // （跟檔案總管讀檔同一個入口，沒有放寬任何範圍），拿不到就丟例外 → 協定回 404。
   workspaceMedia.register(
     protocol,
-    (projectId) => loadWorkspace().rootOf(projectId),
-    (full) => require('./explorer/paths').resolveExisting(full)
+    // 獨立編輯視窗的 HTML 預覽借同一套站台，根目錄是那扇窗的檔案所在資料夾
+    async (projectId) => projectId.startsWith(editorWindow.SITE_PREFIX) ? editorWindow.siteRoot(projectId) : loadWorkspace().rootOf(projectId),
+    (full) => require('./explorer/paths').resolveExisting(full),
+    // 獨立編輯視窗開的是任意檔案（下載資料夾的 HTML 也算）：預覽走不開 CORS 的 vi-preview，腳本讀不到同資料夾的檔案
+    (projectId) => projectId.startsWith(editorWindow.SITE_PREFIX)
   )
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] })
@@ -2892,7 +2896,8 @@ app.whenReady().then(() => {
     secure: attachWindowSecurity,
     theme: () => store?.get('theme') || 'dark',
     imageBase: (file) => workspaceMedia.localBaseFor(file),
-    forceClose: () => sessionEnding
+    forceClose: () => sessionEnding,
+    reveal: (file) => void revealInFiles(file)
   })
   browserWindow.configure({
     isDev,

@@ -62,7 +62,8 @@ async function initializeAssociations(options = {}) {
     const exe = path.join(resourcesPath, 'media', 'axondeck-media.exe')
     // 媒體與文字／程式碼編輯器各記各的：舊版已初始化媒體的使用者，更新後仍要補一次編輯器
     // 編輯器 '3'：.ts 從媒體移交給編輯器，1.46.0 已初始化過的要再跑一次（Rust 只改還指著媒體的那幾個）
-    for (const [name, args, version] of [['media-associations-initialized', ['--initialize'], ASSOCIATION_MARKER], ['editor-associations-initialized', ['--editor', '--initialize'], '3']]) {
+    // 編輯器 '4'：多了一批格式與只進「開啟方式」的 HTML／CSV，要重新登記（已初始化過的不改預設）
+    for (const [name, args, version] of [['media-associations-initialized', ['--initialize'], ASSOCIATION_MARKER], ['editor-associations-initialized', ['--editor', '--initialize'], '4']]) {
       const marker = path.join(userDataPath, name)
       if (await initializedMarker(marker, version)) continue
       await fs.access(exe)
@@ -138,4 +139,4 @@ async function openSystem(target, real = target) {
 async function openPath(file) {
   return await openMedia(file) || await openEditor(file) ? '' : openSystem(file)
 }
-module.exports = { mediaKind, openMedia, openEditor, openSystem, isUnknownText, openPath, setThemeGetter, setEditorOpener, initializeAssociations }
+module.exports = { mediaKind, openMedia, openEditor, openSystem, isUnknownText, looksLikeText, openPath, setThemeGetter, setEditorOpener, initializeAssociations }

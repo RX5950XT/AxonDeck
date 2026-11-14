@@ -46,7 +46,7 @@ function clearSubs(host) {
  * @param {object[]} items
  */
 function paintItems(host, items) {
-  const linedUp = (items || []).some((item) => item && item.icon)
+  const linedUp = (items || []).some((item) => item && (item.icon || item.checked !== undefined))
   for (const item of items) {
     if (item.sep) {
       const hr = document.createElement('div')
@@ -70,12 +70,22 @@ function paintItems(host, items) {
     } else if (linedUp) {
       const slot = document.createElement('span')
       slot.className = 'ws-menu-icon-slot'
+      // 勾選項（編碼、換行字元這類「選其中一個」）：打勾放在圖示那一格
+      if (item.checked) slot.textContent = '✓'
       btn.appendChild(slot)
     }
+    if (item.checked !== undefined) btn.setAttribute('role', 'menuitemcheckbox')
+    if (item.checked !== undefined) btn.setAttribute('aria-checked', String(Boolean(item.checked)))
     const text = document.createElement('span')
     text.className = 'ws-menu-label'
     text.textContent = item.label
     btn.appendChild(text)
+    if (item.hint) {
+      const hint = document.createElement('span')
+      hint.className = 'ws-menu-hint'
+      hint.textContent = item.hint
+      btn.appendChild(hint)
+    }
     if (item.children && item.children.length) {
       btn.classList.add('has-sub')
       btn.addEventListener('pointerenter', () => openSub(host, btn, item.children))
@@ -112,7 +122,7 @@ function openSub(host, btn, children) {
 }
 
 /**
- * @typedef {{ label: string, danger?: boolean, disabled?: boolean, icon?: string, children?: object[], onSelect?: () => void, sep?: boolean }} MenuItem
+ * @typedef {{ label: string, danger?: boolean, disabled?: boolean, icon?: string, children?: object[], onSelect?: () => void, sep?: boolean, checked?: boolean, hint?: string }} MenuItem
  */
 
 /**

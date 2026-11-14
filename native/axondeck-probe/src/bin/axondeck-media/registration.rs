@@ -22,6 +22,8 @@ pub struct Suite {
     prefix: &'static str,
     backups: &'static str,
     formats: fn() -> &'static Value,
+    /// 只登記在「開啟方式」、不搶預設的格式（HTML 留給瀏覽器、CSV 留給 Excel）：不進備份、不設 UserChoice
+    open_with: fn() -> &'static Value,
     command: fn() -> String,
     icon: fn() -> String,
     label: fn(&str) -> &'static str,
@@ -35,6 +37,7 @@ pub static MEDIA: Suite = Suite {
     description: "AxonDeck 原生圖片、動畫、影片與音樂播放器",
     app: "axondeck-media.exe", prefix: "VoiceInk.Media.", backups: "association-backups",
     formats: engine::formats,
+    open_with: no_formats,
     command: || format!("\"{}\" -- \"%1\"", engine::runtime().join("axondeck-media.exe").display()),
     icon: || format!("{},0", engine::runtime().join("icon.ico").display()),
     label: |kind| match kind { "image" => "AxonDeck Media 圖片", "video" => "AxonDeck Media 影片", "audio" => "AxonDeck Media 音樂", _ => "AxonDeck Media 播放清單" },
@@ -53,6 +56,14 @@ pub fn reveal(file: &Path) {
     select.push(file);
     let _ = Command::new("explorer.exe").arg(select).spawn();
 }
+fn no_formats() -> &'static Value {
+    static NONE: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    NONE.get_or_init(|| json!({}))
+}
+fn editor_open_with() -> &'static Value {
+    static FORMATS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    FORMATS.get_or_init(|| serde_json::from_str(include_str!("../../../../../src/main/editor-open-with.json")).expect("embedded editor open-with list"))
+}
 fn editor_formats() -> &'static Value {
     static FORMATS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     FORMATS.get_or_init(|| serde_json::from_str(include_str!("../../../../../src/main/editor-formats.json")).expect("embedded editor format list"))
@@ -62,13 +73,19 @@ pub static EDITOR: Suite = Suite {
     description: "AxonDeck 文字、Markdown 與程式碼預覽編輯器",
     app: "AxonDeck.exe", prefix: "AxonDeck.Editor.", backups: "editor-association-backups",
     formats: editor_formats,
+    open_with: editor_open_with,
     command: || format!("\"{}\" \"--open-file=%1\"", app_exe().display()),
     icon: || format!("{},0", app_exe().display()),
-    label: |kind| match kind { "markdown" => "Markdown 文件", "json" => "JSON 檔案", "config" => "設定檔", "code" => "程式碼檔案", _ => "文字檔" },
+    label: |kind| match kind { "markdown" => "Markdown 文件", "json" => "JSON 檔案", "config" => "設定檔", "code" => "程式碼檔案",
+        "web" => "HTML 文件", "table" => "CSV／TSV 表格", _ => "文字檔" },
     legacy: false,
     retired: &[],
 };
 impl Suite {
+    /// 登記／解除登記要走的全部格式（預設＋只進開啟方式的）；設預設、備份、還原只看 `formats`
+    fn all_kinds(&self) -> impl Iterator<Item = (&'static String, &'static Value)> {
+        (self.formats)().as_object().unwrap().iter().chain((self.open_with)().as_object().unwrap().iter())
+    }
     fn capabilities(&self) -> String { format!("{}\\Capabilities", self.key) }
     fn application(&self) -> String { format!("Software\\Classes\\Applications\\{}", self.app) }
 }
@@ -128,7 +145,7 @@ pub fn register(s: &Suite, machine: bool) -> windows::core::Result<()> {
     put(root, &application, "FriendlyAppName", s.name)?;
     put(root, &format!("{application}\\DefaultIcon"), "", &icon)?;
     put(root, &format!("{application}\\shell\\open\\command"), "", &command)?;
-    for (kind, formats) in (s.formats)().as_object().unwrap() {
+    for (kind, formats) in s.all_kinds() {
         let prog = format!("{}{kind}", s.prefix);
         put(root, &format!("Software\\Classes\\{prog}"), "", (s.label)(kind))?;
         put(root, &format!("Software\\Classes\\{prog}\\DefaultIcon"), "", &icon)?;
@@ -168,7 +185,7 @@ pub fn unregister(s: &Suite, machine: bool) -> windows::core::Result<()> {
         }
     };
     unsafe {
-        for (kind, formats) in (s.formats)().as_object().unwrap() {
+        for (kind, formats) in s.all_kinds() {
             let prog = format!("{}{kind}", s.prefix);
             check(RegDeleteTreeW(root, PCWSTR(wide(&format!("Software\\Classes\\{prog}")).as_ptr())));
             for ext in formats.as_array().unwrap() {
@@ -503,6 +520,14 @@ mod tests {
         let editor = extensions(&EDITOR);
         assert!(!editor.is_empty());
         for (ext, _) in editor { assert!(!media.contains(&ext), "{ext} 同時被媒體與編輯器接管"); }
+    }
+    #[test]
+    fn open_with_only_formats_never_become_defaults() {
+        let defaults: std::collections::HashSet<_> = extensions(&MEDIA).into_iter().chain(extensions(&EDITOR)).map(|(ext, _)| ext).collect();
+        let only: Vec<_> = EDITOR.all_kinds().filter(|(kind, _)| !editor_formats().as_object().unwrap().contains_key(*kind))
+            .flat_map(|(_, list)| list.as_array().unwrap().iter().map(|ext| format!(".{}", ext.as_str().unwrap()))).collect();
+        assert!(only.contains(&".html".to_owned()) && only.contains(&".csv".to_owned()));
+        for ext in only { assert!(!defaults.contains(&ext), "{ext} 只該出現在開啟方式，不可被設成預設"); }
     }
     #[test]
     fn retired_media_extensions_moved_to_editor() {

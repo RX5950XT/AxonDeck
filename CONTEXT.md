@@ -4,6 +4,8 @@
 
 ## 概況
 
+- GPU 可重建圖片快取預設 64 MiB（`main.js`，明確啟動參數可覆寫）；不改硬體加速、WebGL、影片解碼或 AI 模型配置。合成 PNG 負載 335.57→167.95 MiB；本機安裝版已套用，重開後 60 秒約 314–319 MiB（含重啟清快取效果），九頁與加速檢查通過，未做長時重度媒體回歸／發版。備份與證據在 terminal 的 logs/gpu-cache-probe。
+
 AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.76.1**（2026-11-10）。
 
 | 頁 | `data-page` | 一句話 |
@@ -106,9 +108,11 @@ native/
 - 新 worktree 單一表單（`ws-worktree-flow.js`）；初始化腳本只收專案內 .ps1／.cmd／.bat，由 main 組指令。刪 worktree 先問宿主底下還有沒有在跑的終端機（`listRunningUnder`）。`Ctrl+Shift+P` 指令面板在 `ws-commands.js`；Diff 審查意見貼到最近的 agent 終端機（`term.paste`，不自動送出）。
 
 ### 編輯器與預覽
-- 獨立編輯器 `editor-window.js`＋`pages/editor.html`：一檔一窗、路徑只由 main 決定、存檔帶 mtime（STALE 問覆寫）、暫存檔再 rename（EPERM 重試 20 次，`files.renameRetry`）。UTF-8／BOM／UTF-16 LE 原樣存回，其他當 Big5 唯讀。
+- 獨立編輯器 `editor-window.js`＋`pages/editor.html`：一檔一窗、路徑只由 main 決定（關聯、檔案頁、自己的開啟／另存對話框）、存檔帶 mtime（STALE 問覆寫）、暫存檔再 rename（EPERM 重試 20 次，`files.renameRetry`）。UTF-8／BOM／UTF-16 LE 原樣存回，其他自動當 Big5 唯讀；狀態列可「以其他編碼重新開啟」（`DECODERS`，含 GBK／Shift JIS…）與「以 UTF-8／BOM／UTF-16 LE 儲存」（唯讀編碼一鍵轉 UTF-8 後可改）。副檔名照 Windows 規則取（`extOf`：`.gitignore`→`gitignore`，`path.extname` 會回空字串）。
+- renderer 拆四支：`editor-window.js`（開存檔、另存、比較未儲存的變更＝Monaco diff、⋯選單、快速鍵 capture 階段攔）、`editor-status.js`（行欄→跳行、縮排、編碼、CRLF／LF、可搜尋的語言選單）、`editor-preview.js`（Markdown 分割時以標題當錨點跟捲／HTML／Mermaid）、`editor-csv.js`（RFC 4180、前 5000 列）。縮圖地圖與捲軸標記的底色用 `extendThemes` 只替這扇窗補實色（透明底會畫成黑／灰條）。回歸 `probe-editor-formats.js`（真 Electron＋vite）。
+- 預覽種類由 main 的 `PREVIEWS` 決定（markdown／html／csv／mermaid），各記各的顯示方式（Markdown 沿用舊鍵 `axondeck.editor.markdownMode`）。HTML 預覽走**不開 CORS 的 `vi-preview://`**（根目錄＝檔案所在資料夾，假專案 id `~editor-<隨機>`），iframe 只給 `allow-scripts allow-forms`：被動載入 CSS／圖片／腳本照常，fetch／XHR／canvas 讀不到旁邊的檔案。
 - 大檔：Monaco 上限 256MB（20MB／30 萬行以上關上色與換行）；超過 256MB 用唯讀分段檢視（main `big-text.js` 每 1024 列一個書籤，renderer `big-text-view.js` 自畫捲軸，每 2 秒看修改時間、變長就接著掃）。Git diff 只收前 2MB（`run` 帶 `maxChars`）。Markdown 超過 512K 字預設開編輯（`previewSlice`）。
-- 格式清單 `editor-formats.json`（不可與 `media-formats.json` 重疊，Rust 測試擋）。關聯 ProgID `AxonDeck.Editor.*`、指令 `AxonDeck.exe "--open-file=%1"`，備份 `editor-association-backups/`。開檔共用 `mediaPlayer.openPath`（媒體→播放器、文字→編輯器、其餘→系統）。
+- 格式清單 `editor-formats.json`（不可與 `media-formats.json` 重疊，Rust 測試擋）；`editor-open-with.json`（HTML／CSV／TSV）只登記在「開啟方式」、不設預設不進備份（Rust `Suite.open_with`，測試 `open_with_only_formats_never_become_defaults`），從關聯開檔帶 `openWith: true` 才收。改格式清單要重編 `axondeck-media.exe`（`include_str!`）並升 `media-player.js` 的編輯器 marker（現在 '4'）。關聯 ProgID `AxonDeck.Editor.*`、指令 `AxonDeck.exe "--open-file=%1"`，備份 `editor-association-backups/`。開檔共用 `mediaPlayer.openPath`（媒體→播放器、文字→編輯器、其餘→系統）。
 - Markdown 預覽傳 `{ html: true }`（聊天不開）：內嵌 HTML 經 DOMParser＋白名單重建（`markdown-html.js`）；mermaid 在隱藏 srcdoc iframe 跑（`mermaid-frame.js`，避開 Monaco 的 AMD `define`）；KaTeX 只輸出 MathML；highlight.js 按需載。mermaid／katex／highlight.js／gemoji 是 devDependency，靠 `build.files` 的 FileSet 打包（FileSet 放陣列最後）。相對連結交給呼叫端 `openLink`。
 - HTML 預覽 `workspace:previewHtml` → `vi-media://<專案id>.<SITE_TOKEN>/<rel>`，iframe `allow-scripts allow-same-origin`，CSP `frame-src` 要留 `vi-media:`。
 - Office 預覽：原始版面＝`workspace:convertOffice` 用 Office COM（沒有才 LibreOffice）轉 PDF 交 pdf.js，快取 `userData/office-preview`；簡易檢視＝`ws-office*.js` 自己解 zip。檔案樹的圖片／音訊／影片開 `vi-media` 分頁，解不了編碼才開原生播放器。

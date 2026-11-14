@@ -79,6 +79,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - v1.40 由 VoiceInk 改名 AxonDeck。刻意留舊名（改了升級會斷）：`com.voiceink.app`（NSIS 解除安裝 GUID、捷徑 AUMID、開機自啟動值名）、userData 已有 `%APPDATA%\voiceink` 就沿用（設定裡存絕對路徑）、媒體 ProgID `VoiceInk.Media.*`（UserChoice 雜湊綁 ProgID）。GitHub repo 已改名 AxonDeck，舊網址（含舊版 App 的 `releases.atom`／`latest.yml`）靠 GitHub 自動轉址——**永遠不要再建名為 VoiceInk 的 repo**，否則轉址失效、舊版收不到更新。其餘舊名殘留由各模組啟動時清掉（Claude hooks、更新快取、工作列釘選、感測器排程、媒體登錄檔）。
 
 ### 啟動與常駐
+- GPU 可重建圖片快取預設 64 MiB，保留明確啟動覆寫；不是總 VRAM 上限。不要用限制 tile／WebGL／模型容量或關閉硬體加速來代替。快取減少可能增加圖片重新解碼，驗收須分開合成對照與重開後數字。
 - `whenReady` 立刻建窗不 await store；重模組第一次用到才 require。不可關 `setBackgroundThrottling`（`document.hidden` 會恆 false）。
 - 常駐三件套：`requestSingleInstanceLock()`；沒搶到用 `app.quit()`；`whenReady` 也 `if (!hasInstanceLock) return`。`--terminal-admin-host=` 要攔在搶鎖前。
 - `before-quit`：`workspace:flushDrafts` 排在終端機 `disconnect()` 前；`agy.shutdown()` 不是 `stop()`；風扇交還排在 `sensors.stop()` 前。
@@ -105,6 +106,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 開分頁每次 await 後核對 `projectSwitch` 並重新 `findTab`；改名／搬檔要 `retargetTabs`；切專案要 `disposeModelsExcept`。
 - 大檔：Monaco 停手 300ms 才 `getValue()`、`stash()` 先 `flushChange()`；`showTab` 用 `modelText` 比對不 `getValue()`。Monaco 只能走 AMD `min/vs`。
 - 媒體不讀內容不轉 base64：走 `vi-media://<token>/` 協定（自解 Range）；`registerSchemesAsPrivileged` 在 ready 前；Electron 沒 PDF 檢視器，用 pdf.js。
+- Electron 自訂協定不檢查 Access-Control-Allow-Origin、也不送 Origin／`Sec-Fetch-*`：開了 `corsEnabled` 的 `vi-media` 上，opaque origin 的 iframe 照樣 fetch 得到旁邊檔案、crossOrigin 圖片讀得到像素（CSP `connect-src` 也擋不了後者）。不信任的 HTML（獨立編輯器開的任意檔案）只能走不開 CORS 的 `vi-preview`，回歸 `probe-editor-formats.js` [D]。
 - `git status --porcelain=v2 -b -z`（欄位依位置）；`git log` 用 `%x1f` 不混 `-z`；跟分支比要比 `merge-base`；`--numstat` 配 `--no-renames`。暫存區／變更的行數分開算（`--cached` vs `diff`）。
 - 內建瀏覽器：`webviewTag` 只開主視窗、guest 不掛 preload；每分頁一顆 webview，換專案停放不拆；要自寫 `webview[hidden] { display: none }`。
 - 外部拖入一律複製不搬移，先量再複製、超上限整批拒絕；`dragover` 要放行外部檔案。搜尋四個上限（200 命中／8000 檔／1MB／15 秒）缺一不可。

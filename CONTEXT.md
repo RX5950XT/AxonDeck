@@ -6,7 +6,7 @@
 
 - GPU 可重建圖片快取預設 64 MiB（`main.js`，明確啟動參數可覆寫）；不改硬體加速、WebGL、影片解碼或 AI 模型配置。合成 PNG 負載 335.57→167.95 MiB；本機安裝版已套用，重開後 60 秒約 314–319 MiB（含重啟清快取效果），九頁與加速檢查通過，未做長時重度媒體回歸／發版。備份與證據在 terminal 的 logs/gpu-cache-probe。
 
-AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.76.1**（2026-11-10）。
+AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.82.0**（2026-11-15）。
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|

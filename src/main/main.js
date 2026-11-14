@@ -23,6 +23,12 @@ if (adminHostArg) {
   return
 }
 
+// 圖片可重建快取採固定上限；不限制 WebGL、影片解碼或 AI 模型記憶體。
+// Chromium 桌面預設可達 256 MiB，多個常駐程式會各留一份。
+if (!app.commandLine.hasSwitch('force-gpu-mem-discardable-limit-mb')) {
+  app.commandLine.appendSwitch('force-gpu-mem-discardable-limit-mb', '64')
+}
+
 const models = require('./models')
 const chat = require('./chat')
 const modelScope = require('./model-scope')

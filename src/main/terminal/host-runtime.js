@@ -119,6 +119,10 @@ function stageRuntime(root, execPath = process.execPath) {
       fs.writeFileSync(path.join(staging, 'opencode/tui.json'), JSON.stringify({
         plugin: [require('node:url').pathToFileURL(path.join(dir, NAV_FILE)).href]
       }))
+      // OpenCode 2 的本機外掛是資料夾，入口寫在 package.json 的 `./tui`
+      fs.writeFileSync(path.join(staging, 'opencode/package.json'), JSON.stringify({
+        name: 'axondeck-navigation', version: '0.0.0', type: 'module', exports: { './tui': `./${path.basename(NAV_FILE)}` }
+      }))
       if (native) {
         // 同樣複製一份出來跑：安裝目錄的 exe 不能被常駐程序鎖住（更新要覆寫它）
         fs.copyFileSync(native, path.join(staging, 'AxonDeckTerminalHost.exe'))

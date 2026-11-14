@@ -131,14 +131,7 @@ fn codex_native(shim: &str) -> Option<(String, String)> {
 
 /// home 由 main 按對話記錄查得，只覆寫兩家 CLI 官方支援的環境鍵。
 pub fn agent_environment(mut env: Vec<(String, String)>, agent: &str, home: &str) -> Vec<(String, String)> {
-    if agent == "opencode" && !env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_TUI_CONFIG") && !value.is_empty()) {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                let config = dir.join("opencode/tui.json");
-                if config.is_file() { set_var(&mut env, "OPENCODE_TUI_CONFIG", &config.to_string_lossy()); }
-            }
-        }
-    }
+    if agent == "opencode" { set_opencode_plugins(&mut env); }
     if agent == "codex" {
         if let Some((bin, root)) = codex_native(&resolve_exe("codex.cmd")) {
             prepend_path(&mut env, &bin);
@@ -235,10 +228,7 @@ pub fn shell_environment(editor: &str, editor_dir: &str, terminal_id: &str) -> V
     } else {
         set_var(&mut env, "AXONDECK_NAV_JUMP", &jump);
     }
-    let config = opencode_config();
-    if !config.is_empty() && !env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_TUI_CONFIG") && !value.is_empty()) {
-        set_var(&mut env, "OPENCODE_TUI_CONFIG", &config);
-    }
+    set_opencode_plugins(&mut env);
     env
 }
 
@@ -266,6 +256,51 @@ fn opencode_config() -> String {
     let Some(dir) = exe.parent() else { return String::new() };
     let config = dir.join("opencode/tui.json");
     if config.is_file() { config.to_string_lossy().into_owned() } else { String::new() }
+}
+
+/// 兩代 OpenCode 的導覽外掛都掛上：1.x 讀 `OPENCODE_TUI_CONFIG`，2.x 讀 `OPENCODE_CLI_CONFIG_CONTENT`。
+/// 使用者自己設了就不動。
+fn set_opencode_plugins(env: &mut Vec<(String, String)>) {
+    let config = opencode_config();
+    if !config.is_empty() && !env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_TUI_CONFIG") && !value.is_empty()) {
+        set_var(env, "OPENCODE_TUI_CONFIG", &config);
+    }
+    let content = opencode_cli_config(env);
+    if !content.is_empty() { set_var(env, "OPENCODE_CLI_CONFIG_CONTENT", &content); }
+}
+
+/// 2.x 的 `plugins` 會整份取代使用者 cli.json 的那份（2.3.0 實測），所以把原本的清單接在前面；
+/// cli.json 讀不懂（例：含註解）就不帶，保住使用者自己的外掛。
+fn opencode_cli_config(env: &[(String, String)]) -> String {
+    if env.iter().any(|(key, value)| key.eq_ignore_ascii_case("OPENCODE_CLI_CONFIG_CONTENT") && !value.is_empty()) {
+        return String::new();
+    }
+    let Ok(exe) = std::env::current_exe() else { return String::new() };
+    let Some(dir) = exe.parent() else { return String::new() };
+    let plugin = dir.join("opencode");
+    if !plugin.join("package.json").is_file() { return String::new() }
+    let plugin = plugin.to_string_lossy().into_owned();
+    let config_home = env.iter().find(|(key, value)| key.eq_ignore_ascii_case("XDG_CONFIG_HOME") && !value.is_empty())
+        .map(|(_, value)| std::path::PathBuf::from(value))
+        .unwrap_or_else(|| Path::new(&home_dir()).join(".config"));
+    match std::fs::read_to_string(config_home.join("opencode").join("cli.json")) {
+        Ok(text) => merge_opencode_plugins(Some(&text), &plugin),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => merge_opencode_plugins(None, &plugin),
+        Err(_) => String::new(),
+    }
+}
+
+/// 使用者 cli.json 的 `plugins` 後面接上 AxonDeck 的外掛；cli.json 解析失敗回空字串（不帶變數）。
+fn merge_opencode_plugins(cli_json: Option<&str>, plugin: &str) -> String {
+    let mut plugins = match cli_json.map(|text| serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'))) {
+        None => Vec::new(),
+        Some(Ok(value)) => value.get("plugins").and_then(|list| list.as_array()).cloned().unwrap_or_default(),
+        Some(Err(_)) => return String::new(),
+    };
+    if !plugins.iter().any(|item| item.as_str() == Some(plugin)) {
+        plugins.push(serde_json::Value::String(plugin.to_string()));
+    }
+    serde_json::json!({ "plugins": plugins }).to_string()
 }
 
 /// 使用者「現在」的環境：跟從檔案總管開的一樣（登錄檔裡的系統＋使用者變數，Windows Terminal 也這樣做）。
@@ -377,6 +412,18 @@ mod tests {
         let has = |key: &str| env.iter().any(|(k, _)| k.eq_ignore_ascii_case(key));
         assert!(has("SystemRoot") && has("Path") && has("USERPROFILE") && has("TERM"));
         assert!(!has("AXONDECK_INHERITED_JUNK"));
+    }
+
+    #[test]
+    fn opencode_plugins_keep_user_list() {
+        let ours = "C:\\rt\\opencode";
+        assert_eq!(merge_opencode_plugins(None, ours), r#"{"plugins":["C:\\rt\\opencode"]}"#);
+        let user = r#"{"theme":"x","plugins":["@acme/tui",{"package":"b","options":{"v":1}}]}"#;
+        assert_eq!(merge_opencode_plugins(Some(user), ours), r#"{"plugins":["@acme/tui",{"options":{"v":1},"package":"b"},"C:\\rt\\opencode"]}"#);
+        assert_eq!(merge_opencode_plugins(Some("\u{feff}{\"plugins\":[\"C:\\\\rt\\\\opencode\"]}"), ours), r#"{"plugins":["C:\\rt\\opencode"]}"#);
+        assert_eq!(merge_opencode_plugins(Some("{ // 註解\n}"), ours), "");
+        let preset = agent_environment(vec![("OPENCODE_CLI_CONFIG_CONTENT".into(), "{}".into())], "opencode", "");
+        assert_eq!(preset.iter().find(|(k, _)| k == "OPENCODE_CLI_CONFIG_CONTENT").map(|(_, v)| v.as_str()), Some("{}"));
     }
 
     #[test]

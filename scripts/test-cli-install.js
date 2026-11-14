@@ -32,7 +32,7 @@ async function main() {
   ok('Claude 官方原生安裝器', cli.INSTALLERS.claude.includes('https://claude.ai/install.ps1'))
   ok('Grok 官方原生安裝器', cli.INSTALLERS.grok.includes('https://x.ai/cli/install.ps1'))
   ok('agy 官方原生安裝器', cli.INSTALLERS.agy.includes('https://antigravity.google/cli/install.ps1'))
-  ok('Codex 與 OpenCode 用官方 npm 套件', cli.INSTALLERS.codex.includes('@openai/codex') && cli.INSTALLERS.opencode.includes('opencode-ai'))
+  ok('Codex 與 OpenCode 用官方 npm 套件', cli.INSTALLERS.codex.includes('@openai/codex') && cli.INSTALLERS.opencode.includes('@opencode/cli@latest'))
   const env = cli.withPath({ Path: 'old', PATH: 'duplicate', USERPROFILE: 'C:\\user', LOCALAPPDATA: 'C:\\local', APPDATA: 'C:\\roaming', ProgramFiles: 'C:\\program' }, 'new')
   ok('PATH 保留原鍵且合併大小寫', Object.keys(env).filter(k => /^path$/i.test(k)).length === 1 && env.Path.includes('new') && !env.Path.includes('duplicate'))
   ok('補上三家原生與 npm 的路徑', ['.local\\bin', '.grok\\bin', 'agy\\bin', 'roaming\\npm', 'nodejs'].every(s => env.Path.includes(s)))
@@ -63,7 +63,7 @@ async function main() {
     const toolCalls = []
     let present = false
     const toolRunner = cli.createRunner({ spawnImpl: mockSpawn(script => {
-      if (script.includes(`${key} --version`)) return { code: present ? 0 : 1, output: present ? '1.2.3' : '' }
+      if (script.includes(`${key} --version`)) return { code: present ? 0 : 1, output: present ? '2.3.0' : '' }
       if (script.includes(cli.INSTALLERS[key])) present = true
       return {}
     }, toolCalls) })
@@ -71,12 +71,24 @@ async function main() {
     const update = await toolRunner.run(key)
     ok(`${key} 安裝與更新固定指令且完成後驗版本`, install.action === 'install' && update.action === 'update' && update.phase === 'succeeded' && toolCalls.some(c => c.script.includes(cli.UPDATERS[key])))
   }
+  for (const upgraded of [true, false]) {
+    const majorCalls = []
+    let upgradedNow = false
+    const majorRunner = cli.createRunner({ spawnImpl: mockSpawn(script => {
+      if (script.includes('opencode --version')) return { output: upgradedNow ? '2.3.0' : '1.19.5' }
+      if (script.includes('opencode upgrade --major')) upgradedNow = upgraded
+      return {}
+    }, majorCalls) })
+    const result = await majorRunner.run('opencode')
+    ok(upgraded ? 'OpenCode 1.x 用 --major 升到 2' : 'OpenCode --major 沒升上 2 就算失敗',
+      majorCalls.some(c => c.script.includes('opencode upgrade --major')) && (upgraded ? result.phase === 'succeeded' && result.local === '2.3.0' : result.code === 'VERIFY_FAILED'))
+  }
   const sharedCalls = []
   let sharedNode = false
   const sharedRunner = cli.createRunner({ spawnImpl: mockSpawn(script => {
     if (script.includes('OpenJS.NodeJS.LTS')) { sharedNode = true; return {} }
     if (script.includes('node --version') || script.includes('npm --version')) return { code: sharedNode ? 0 : 1 }
-    if (/codex --version|opencode --version/.test(script)) return { output: '1.2.3' }
+    if (/codex --version|opencode --version/.test(script)) return { output: '2.3.0' }
     return {}
   }, sharedCalls) })
   const sharedResults = await Promise.all([sharedRunner.run('codex'), sharedRunner.run('opencode')])

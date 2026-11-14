@@ -11,6 +11,19 @@ function openDb(file) {
   catch { return null }
 }
 
+// OpenCode 2 把對話搬到 session_v2／session_message（內容直接嵌在 data.content），舊表不再寫入。
+function opencodeV2(db) {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_v2'").get())
+}
+
+// 轉成 1.x 的 message＋parts 形狀，讓下游同一套邏輯處理；synthetic／system／compaction 不算對話。
+function opencodeV2Message(type, data) {
+  if (type === 'user') return { message: { role: 'user', time: data?.time }, parts: [{ type: 'text', text: String(data?.text || '') }] }
+  if (type !== 'assistant') return null
+  const parts = (Array.isArray(data?.content) ? data.content : []).map(p => p?.type === 'tool' ? { type: 'tool', tool: p.name, state: p.state } : p)
+  return { message: { role: 'assistant', time: data?.time, finish: data?.finish }, parts }
+}
+
 function dataPaths() {
   return {
     grok: process.env.GROK_HOME || path.join(os.homedir(), '.grok'),
@@ -52,7 +65,7 @@ async function extraSessions(project, samePath, idRe, sessionId = '', titledOnly
              AND (? = 0 OR coalesce(title, '') <> '')
              AND json_valid(workspace_uris) AND EXISTS (SELECT 1 FROM json_each(workspace_uris) WHERE lower(value) = lower(?))
            ORDER BY last_modified_time DESC LIMIT 30`
-        : `SELECT id,title,directory,time_updated FROM session WHERE parent_id IS NULL
+        : `SELECT id,title,directory,time_updated FROM ${opencodeV2(db) ? 'session_v2' : 'session'} WHERE parent_id IS NULL
            AND (? = '' OR id = ?) AND (? = 0 OR (coalesce(title, '') <> '' AND title NOT GLOB 'New session - *'))
            AND lower(rtrim(replace(directory, char(92), '/'), '/')) = lower(?)
            ORDER BY time_updated DESC LIMIT 30`
@@ -190,12 +203,17 @@ async function* records(found, agent, offset, conversationOnly = false) {
   const db = openDb(found.file)
   if (!db) throw Object.assign(new Error('SESSION_UNAVAILABLE'), { code: 'SESSION_UNAVAILABLE', userMessage: '這份對話記錄目前無法讀取，請稍後再試' })
   try {
-    const sql = agent === 'agy' ? 'SELECT idx,step_type,step_payload FROM steps WHERE idx >= ? ORDER BY idx' : 'SELECT rowid,id,data FROM message WHERE session_id = ? AND rowid >= ? ORDER BY rowid'
+    const v2 = agent === 'opencode' && opencodeV2(db)
+    const sql = agent === 'agy' ? 'SELECT idx,step_type,step_payload FROM steps WHERE idx >= ? ORDER BY idx'
+      : v2 ? 'SELECT rowid,type,data FROM session_message WHERE session_id = ? AND rowid >= ? ORDER BY rowid'
+        : 'SELECT rowid,id,data FROM message WHERE session_id = ? AND rowid >= ? ORDER BY rowid'
     for (const row of db.prepare(sql).iterate(...(agent === 'agy' ? [offset] : [found.id, offset]))) {
       let turns = []
+      const entry = agent === 'agy' ? null : v2 ? opencodeV2Message(row.type, JSON.parse(row.data))
+        : { message: JSON.parse(row.data), parts: db.prepare('SELECT data FROM part WHERE message_id = ? ORDER BY time_created,id').all(row.id).map(p => JSON.parse(p.data)) }
       if (agent === 'agy') turns = agyTurns(row).filter(t => !conversationOnly || (!t.thought && !t.tools?.length))
-      else {
-        const message = JSON.parse(row.data), parts = db.prepare('SELECT data FROM part WHERE message_id = ? ORDER BY time_created,id').all(row.id).map(p => JSON.parse(p.data))
+      else if (entry) {
+        const { message, parts } = entry
         const text = textParts(conversationOnly ? parts.filter(p => p.type === 'text' && !p.synthetic && !p.ignored) : parts)
         const tools = conversationOnly ? [] : parts.filter(p => p.type === 'tool').map(p => ({ name: p.tool || 'tool', detail: JSON.stringify(p.state || {}) }))
         const pending = message.role === 'assistant' && !message.time?.completed

@@ -394,6 +394,27 @@ function stagedNavFile(terminalId) {
   return path.join(hostDir, '..', 'terminal-nav', `${terminalId}.json`)
 }
 
+/**
+ * OpenCode 2 不讀 OPENCODE_TUI_CONFIG，外掛改由 OPENCODE_CLI_CONFIG_CONTENT 帶。它的 `plugins` 會整份取代
+ * 使用者 cli.json 的那份（2.3.0 實測），所以把原本的清單接在前面；讀不懂就不帶，保住使用者自己的外掛。
+ * 同 shell.rs 的 `opencode_cli_config`。
+ */
+function opencodeCliConfig(env, pluginDir) {
+  const fs = require('node:fs')
+  if (Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_CLI_CONFIG_CONTENT' && env[key])) return ''
+  if (!fs.existsSync(path.join(pluginDir, 'package.json'))) return ''
+  const configKey = Object.keys(env).find(key => key.toUpperCase() === 'XDG_CONFIG_HOME' && env[key])
+  const configHome = configKey ? env[configKey] : path.join(require('node:os').homedir(), '.config')
+  let plugins = []
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(configHome, 'opencode', 'cli.json'), 'utf8').replace(/^﻿/, ''))
+    if (Array.isArray(parsed?.plugins)) plugins = parsed.plugins
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return ''
+  }
+  return JSON.stringify({ plugins: plugins.includes(pluginDir) ? plugins : [...plugins, pluginDir] })
+}
+
 function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   const env = { ...process.env, TERM: 'xterm-256color' }
   delete env.ELECTRON_RUN_AS_NODE
@@ -428,6 +449,8 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   if (require('node:fs').existsSync(config) && !Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_TUI_CONFIG' && env[key])) {
     env.OPENCODE_TUI_CONFIG = config
   }
+  const cliConfig = opencodeCliConfig(env, path.join(__dirname, 'opencode'))
+  if (cliConfig) env.OPENCODE_CLI_CONFIG_CONTENT = cliConfig
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
   if (homeKey && typeof agentHome === 'string' && /^[A-Za-z]:[\\/]/.test(agentHome)
     && agentHome.length <= 1024 && !/[\u0000-\u001f]/.test(agentHome) && !agentHome.replace(/\\/g, '/').split('/').includes('..')) {

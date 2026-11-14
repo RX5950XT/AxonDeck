@@ -9,10 +9,17 @@ const INSTALLERS = Object.freeze({
   claude: "Invoke-RestMethod 'https://claude.ai/install.ps1' | Invoke-Expression",
   codex: 'npm.cmd install --global @openai/codex@latest --no-audit --no-fund',
   grok: "Invoke-RestMethod 'https://x.ai/cli/install.ps1' | Invoke-Expression",
-  opencode: 'npm.cmd install --global opencode-ai@latest --no-audit --no-fund',
+  // OpenCode 2 起改名 @opencode/cli（舊的 opencode-ai 停在 1.x）。
+  opencode: 'npm.cmd install --global @opencode/cli@latest --no-audit --no-fund',
   agy: "Invoke-RestMethod 'https://antigravity.google/cli/install.ps1' | Invoke-Expression"
 })
 const UPDATERS = Object.freeze({ claude: 'claude update', codex: 'codex update', grok: 'grok update', opencode: 'opencode upgrade', agy: 'agy update' })
+// OpenCode 1.x 的 `opencode upgrade` 只在 1.x 內升級；跨到 2 要加 --major（官方會一併移除 1.x）。
+const OPENCODE_MAJOR = 2
+const majorOf = version => Number.parseInt(String(version).split('.')[0], 10) || 0
+const updaterFor = (key, local) => key === 'opencode' && majorOf(local) < OPENCODE_MAJOR ? `${UPDATERS.opencode} --major` : UPDATERS[key]
+// 1.x 的 --major 失敗時仍以結束碼 0 收尾，只能靠升級後的版本號判斷是否成功。
+const reachedTarget = (key, installed) => key !== 'opencode' || majorOf(installed) >= OPENCODE_MAJOR
 const NODE_INSTALL = 'winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
 const REGISTRY_PATH = "[Environment]::GetEnvironmentVariable('Path', 'Machine'); [Environment]::GetEnvironmentVariable('Path', 'User')"
 const TIMEOUT_MS = 10 * 60_000
@@ -146,11 +153,11 @@ function createRunner({ spawnImpl = spawn, env = process.env, timeoutMs = TIMEOU
       const action = local ? 'update' : 'install'
       tasks.set(key, { phase: 'running', action, message: action === 'install' ? '安裝中…' : '更新中…' })
       if (Date.now() >= deadline) throw { code: 'TIMEOUT' }
-      const result = await execute(action === 'install' ? INSTALLERS[key] : UPDATERS[key], deadline)
+      const result = await execute(action === 'install' ? INSTALLERS[key] : updaterFor(key, local), deadline)
       if (result.code !== 'OK') throw result
       await refreshEnvironment(deadline)
       const installed = await readVersion(key, Math.min(deadline, Date.now() + 10000))
-      if (!installed) throw { code: Date.now() >= deadline ? 'TIMEOUT' : 'VERIFY_FAILED' }
+      if (!installed || !reachedTarget(key, installed)) throw { code: Date.now() >= deadline ? 'TIMEOUT' : 'VERIFY_FAILED', output: result.output }
       tasks.set(key, { phase: 'succeeded', action, local: installed, message: action === 'install' ? '安裝完成' : '更新完成' })
     } catch (error) {
       const code = ['TIMEOUT', 'SPAWN_FAILED', 'EXIT_FAILED', 'VERIFY_FAILED'].includes(error?.code) ? error.code : 'TASK_FAILED'

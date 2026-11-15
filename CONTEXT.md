@@ -6,7 +6,7 @@
 
 - GPU 可重建圖片快取預設 64 MiB（`main.js`，明確啟動參數可覆寫）；不改硬體加速、WebGL、影片解碼或 AI 模型配置。合成 PNG 負載 335.57→167.95 MiB；本機安裝版已套用，重開後 60 秒約 314–319 MiB（含重啟清快取效果），九頁與加速檢查通過，未做長時重度媒體回歸／發版。備份與證據在 terminal 的 logs/gpu-cache-probe。
 
-AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.82.0**（2026-11-15）。
+AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.82.2**（2026-11-16）。
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -89,7 +89,7 @@ native/
 - Chrome 擴充功能（只限 `persist:wsbrowser`）：`browser-extensions.js` 從商店下載 CRX3、寫公鑰進 manifest、`tar.exe` 解到 `userData/browser-extensions/`；啟動後 1 分鐘、之後每 6 小時檢查更新。本機資料夾安裝存 `local-extensions.json`；啟用狀態存 `extension-state.json`。
 - 商店頁「加到 Chrome／從 Chrome 中移除」：`preload/crx-webstore.js` 只在 `chromewebstore.google.com` 主 frame 補 `chrome.webstorePrivate`／`chrome.management`，`main/crx-webstore.js` 只收該分區商店主 frame、先跳原生確認再走 `install`／`remove`。兩個物件要定義成不可改：裝好擴充功能後 Chromium 會在商店頁重掛原生（Electron 裡沒作用）的 `chrome.management`，蓋掉就按不了移除。回歸 `probe-crx-webstore.js`（打真商店；探針視窗放螢幕外要關遮蔽偵測，否則沒 rAF、按鈕停在灰色）。
 - 擴充功能鍵盤快速鍵（`main/crx-commands.js`）：manifest 的 `commands` 加上有工具列圖示就有的「啟用擴充功能」，使用者改的存在 `extension-state.json` 的 `commands`；沒設過的拿建議鍵、被占走就空著。分頁的 `before-input-event` 命中就吃掉：`_execute_action` 請該分頁的工具列（`workspace:extensionCommand`／`browserWindow:extensionCommand`）從圖示位置開 popup，其他送 `commands.onCommand`；「全域」用 globalShortcut。同步寫回套件的 `commands.commandMap` 讓 `chrome.commands.getAll` 有值。管理頁分頁本身不派送（錄快速鍵用）。工具列釘選存 `pinned`（預設釘選），沒釘選的不進 `actions()`，圖示右鍵只列該擴充功能。回歸 `probe-crx-commands.js`。
-- 擴充功能管理頁 `axon-extensions://manager/...`（`chrome://extensions` 也導過來），協定只供應固定資源、IPC 限分區與主 frame。`crx-browser-alias.js` 補 `browser` 命名空間；ScriptCat 的 userScripts 由 `crx-user-scripts.js` 用原生 scripting 補（USER_SCRIPT 映射 ISOLATED）；`crx-context-menus.js` 補 contextMenus。右鍵與 F5 由 `web-context-menu.js` 掛在 guest 的 `before-input-event`（焦點在 webview 時按鍵到不了主視窗）。
+- 擴充功能管理頁 `axon-extensions://manager/...`（`chrome://extensions` 也導過來），協定只供應固定資源、IPC 限分區與主 frame。`crx-browser-alias.js` 補 `browser` 命名空間，並補上套件漏掉的 `webNavigation` 網址篩選（沒補的話 ScriptCat 會被 iframe 的 `#url=` 誤觸發而 `tabs.goBack()`）；ScriptCat 的 userScripts 由 `crx-user-scripts.js` 用原生 scripting 補（USER_SCRIPT 映射 ISOLATED）；`crx-context-menus.js` 補 contextMenus。右鍵與 F5 由 `web-context-menu.js` 掛在 guest 的 `before-input-event`（焦點在 webview 時按鍵到不了主視窗）。
 - 專案腳本開瀏覽器（`script-launch.js`）：`.bat`／`.cmd` 由 App 啟動，`BROWSER`＝AxonDeck.exe、`start` 改道 `%AXONDECK_START%`；第二份 AxonDeck 用原始順序 argv 判斷並帶 `AXONDECK_PROJECT`。檔案樹一鍵啟動用 `workspace:scriptCommand` 在終端機跑，看到 loopback URL 等 TCP 就緒再開專案分頁。
 
 ### 專案工作區與終端機

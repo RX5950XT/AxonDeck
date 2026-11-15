@@ -821,7 +821,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 出現在哪一面螢幕。指示器那一側只收畫面資料，送得出去的只有 ✕／✓。
     /** @param {{ state: string, level?: number, message?: string }} payload */
     hudState: (payload) => ipcRenderer.invoke('dictation:hudState', payload),
-    /** @param {'cancel'|'stop'} action */
+    /** @param {'cancel'|'stop'|'pointerIn'|'pointerOut'} action */
     hudAction: (action) => ipcRenderer.invoke('dictation:hudAction', action),
     /** @param {(payload: { state: string, level: number, message: string }) => void} callback */
     onHud: (callback) => {

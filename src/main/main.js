@@ -1758,6 +1758,7 @@ ipcMain.handle('dictation:hudState', (event, payload) => {
 
 ipcMain.handle('dictation:hudAction', (event, action) => {
   if (!dictationHud.isSender(event)) return false
+  if (action === 'pointerIn' || action === 'pointerOut') return dictationHud.setPointerOver(action === 'pointerIn')
   if (action !== 'cancel' && action !== 'stop') return false
   if (!mainWindow || mainWindow.isDestroyed()) return false
   // 走跟全域熱鍵同一條路：主視窗的 dictation.js 已經在處理 stop／cancel

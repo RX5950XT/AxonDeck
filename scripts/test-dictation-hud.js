@@ -21,6 +21,7 @@ class Window extends EventEmitter {
   }
   setMenu() {}
   setAlwaysOnTop() {}
+  setIgnoreMouseEvents(ignore) { this.ignoreMouse = ignore }
   loadFile() {}
   isDestroyed() { return this.destroyed }
   isVisible() { return this.visible }

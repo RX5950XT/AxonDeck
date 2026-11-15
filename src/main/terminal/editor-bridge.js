@@ -77,7 +77,9 @@ function isRealEditor(value) {
   if (!raw) return false
   const name = raw.toLowerCase().replace(/^start\s+(\/wait\s+)?/, '').trim()
   const base = name.split(/[\\/]/).pop().replace(/\.exe$/, '')
-  return base !== 'notepad'
+  // 自己的橋接命令也不算：App 從自己的終端機裡被開起來（重啟、更新、探針）時會繼承
+  // `EDITOR=axondeck-edit.cmd`，當成「使用者挑過」就不接手，Ctrl+G 退回登錄檔裡的記事本。
+  return !['notepad', 'axondeck-edit.cmd', 'voiceink-edit.cmd'].includes(base)
 }
 
 let dir = ''

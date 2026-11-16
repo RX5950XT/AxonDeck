@@ -377,6 +377,8 @@ export async function deleteTerminalSession(id) {
 /** 目前的終端機外觀（配色 key／桌布檔名／桌布壓暗程度）與桌布的 `blob:` 網址 */
 let appearance = normalizeAppearance({})
 let backgroundUri = ''
+/** `backgroundUri` 是哪個桌布檔解出來的 */
+let backgroundName = ''
 
 /**
  * main 給的 `data:` URI 換成 `blob:` 短網址。
@@ -415,18 +417,29 @@ export async function refreshTerminalAppearance() {
     electronAPI.store.get('termBgOpacity', DEFAULT_TERM_BG_OPACITY)
   ])
   appearance = normalizeAppearance({ theme, image, opacity })
-  const dataUri = appearance.image
-    ? String((await electronAPI.terminal.background(appearance.image))?.data || '')
-    : ''
-  // 舊的那條要收掉，不然每次改外觀都留一份圖在記憶體裡
-  if (backgroundUri) URL.revokeObjectURL(backgroundUri)
-  backgroundUri = dataUri ? toBlobUrl(dataUri) : ''
+  // 每次切回 Agent 都會走到這裡：桌布檔名沒變就沿用，不再跟 main 拿幾 MB 的 base64 重解一次
+  //（換圖一定換檔名，見 main/terminal/background.js）。實測這段佔切回時的 20ms 以上。
+  if (appearance.image !== backgroundName || (appearance.image && !backgroundUri)) {
+    const dataUri = appearance.image
+      ? String((await electronAPI.terminal.background(appearance.image))?.data || '')
+      : ''
+    // 舊的那條要收掉，不然每次改外觀都留一份圖在記憶體裡
+    if (backgroundUri) URL.revokeObjectURL(backgroundUri)
+    backgroundUri = dataUri ? toBlobUrl(dataUri) : ''
+    backgroundName = appearance.image
+  }
   paintAppearance()
 }
+
+/** 上次刷到 xterm 上的選項；沒變就不重設（重設 theme 會讓 WebGL 整張字形貼圖重建） */
+let paintedOptions = ''
 
 /** 把目前的外觀刷到 `.term-host` 與每一個已開的 xterm 上 */
 function paintAppearance() {
   const options = applyAppearance(hostEl, appearance, backgroundUri)
+  const key = JSON.stringify(options)
+  if (key === paintedOptions) return options
+  paintedOptions = key
   for (const entry of panes.values()) {
     entry.term.options.allowTransparency = options.allowTransparency
     entry.term.options.theme = options.theme

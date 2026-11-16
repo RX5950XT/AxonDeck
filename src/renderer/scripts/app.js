@@ -930,6 +930,24 @@ const SIDEBAR_PANELS = {
 }
 
 /**
+ * 切換 chat-layout 上決定側欄收合的 class（`is-browser`／`sidebar-browser`）。
+ * 進 Browser 時側欄從原寬縮成 48px，如果照 CSS 的 0.16s 寬度動畫走，網頁每一幀都跟著改尺寸重畫，
+ * 從 Agent 切過去最長一幀 28–76ms（拿掉動畫 8–14ms）。所以換模式這一下直接到位，
+ * 滑鼠移上去展開／收起（`bt-open`）的動畫照舊。
+ * @param {string} name
+ * @param {boolean} on
+ */
+function toggleLayoutMode(name, on) {
+  const layout = document.querySelector('#page-chat .chat-layout')
+  if (!layout || layout.classList.contains(name) === on) return
+  const sidebar = /** @type {HTMLElement | null} */ (layout.querySelector('.chat-sidebar'))
+  if (sidebar) sidebar.style.transition = 'none'
+  layout.classList.toggle(name, on)
+  // 等新尺寸算過（兩個 rAF）再還原，之後的 hover 展開才有動畫
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (sidebar) sidebar.style.transition = '' }))
+}
+
+/**
  * @param {'projects' | 'browser' | 'chats'} mode
  */
 export function setSidebarMode(mode) {
@@ -944,7 +962,7 @@ export function setSidebarMode(mode) {
     if (panel) panel.hidden = key !== mode
   }
   // Browser 側欄收合的 CSS 認這個 class（不用 :has()，Chromium 不一定會重算）
-  document.querySelector('#page-chat .chat-layout')?.classList.toggle('sidebar-browser', mode === 'browser')
+  toggleLayoutMode('sidebar-browser', mode === 'browser')
   try {
     localStorage.setItem('chatSidebarMode', mode)
   } catch {
@@ -1052,7 +1070,7 @@ export function setChatPaneMode(mode) {
   // 先在 is-browser 還在時量好尺寸再停放
   const browserMain = document.getElementById('browserMain')
   if (browserMain) parkPane(browserMain, mode === 'browser')
-  document.querySelector('#page-chat .chat-layout')?.classList.toggle('is-browser', mode === 'browser')
+  toggleLayoutMode('is-browser', mode === 'browser')
   if (mode === 'web') import('./ai-web-page.js').then((m) => m.showAiWeb())
   syncCcToolsPane(mode)
   const chatMain = document.getElementById('chatMain')

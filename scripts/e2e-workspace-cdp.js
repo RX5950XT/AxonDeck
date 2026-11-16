@@ -607,7 +607,7 @@ async function main() {
     await cdp.eval(`[...document.querySelectorAll('.ws-new-menu .ws-new-item')]
       .find((b) => b.textContent === '瀏覽器').click()`)
     ok('[F] 開得出瀏覽器分頁',
-      await waitInPage(cdp, `document.getElementById('wsBrowser').offsetHeight > 0`, 8000))
+      await waitInPage(cdp, `!document.getElementById('wsBrowser').hidden && document.getElementById('wsBrowser').offsetHeight > 0`, 8000))
     ok('[F] X-Frame-Options 警示已移除',
       await cdp.eval(`!document.getElementById('wsBrowserNote')`))
     const guestSrc = () => `(document.querySelector('#wsBrowserFrame webview')?.dataset.src || '')`
@@ -1000,7 +1000,7 @@ async function main() {
     // ===== [G] 內容不會疊在一起 ＋ main 的路徑守衛 =====
     const stacked = await cdp.eval(`(() => ({
       editor: document.getElementById('wsEditor').offsetHeight,
-      browser: document.getElementById('wsBrowser').offsetHeight,
+      browser: document.getElementById('wsBrowser').hidden ? 0 : document.getElementById('wsBrowser').offsetHeight,
       termHost: document.getElementById('termHost').offsetHeight,
       empty: document.getElementById('termEmpty').offsetHeight
     }))()`)

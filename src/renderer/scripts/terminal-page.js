@@ -818,6 +818,7 @@ async function restorePaneHistory(id) {
   if (!entry.ready) return
   entry.restoring = (async () => {
     entry.ready = false
+    entry.pane.classList.add('is-restoring')
     try {
       await writeOutput(entry, '')
       const snapshot = await openPty(id, entry, '讀取終端機畫面失敗')
@@ -829,6 +830,7 @@ async function restorePaneHistory(id) {
     } finally {
       entry.ready = true
       if (panes.get(id) === entry) await drainOutput(entry)
+      entry.pane.classList.remove('is-restoring')
     }
   })()
   try { await entry.restoring } finally { entry.restoring = null }
@@ -982,6 +984,8 @@ async function openSession(id, isActive = () => true) {
     && panes.get(id) === entry && !hostEl.classList.contains('hidden') && isActive()
 
   if (fresh) {
+    // 舊對話＋畫面快照要寫好幾段，邊寫邊畫就是一路捲到底；寫完才顯示，直接停在最底
+    entry.pane.classList.add('is-restoring')
     try {
       const snapshot = await openPty(id, entry, '開啟終端機失敗')
       // 掛上之後、快照回來之前收到的片段先排隊，免得順序顛倒；
@@ -991,6 +995,7 @@ async function openSession(id, isActive = () => true) {
       entry.seq = snapshot.seq
       entry.ready = true
       await drainOutput(entry)
+      entry.pane.classList.remove('is-restoring')
       void entry.conversation.refresh()
       scanScreen(id)
     } catch {

@@ -2567,6 +2567,9 @@ option:disabled:checked {
 /* 捲軸與右上角導覽同一欄，展開只覆蓋畫面，不重排 CLI。 */
 .term-screen { position: absolute; inset: 0 30px 0 0; }
 .term-pane.has-native-tui .term-screen { right: 0; }
+/* 補回舊對話與畫面時不畫：逐段寫入會一路捲給人看，寫完才一次出現在最底 */
+.term-pane.is-restoring .term-screen,
+.term-pane.is-restoring > .term-scrollbar { visibility: hidden; }
 .term-pane.has-native-tui > .term-scrollbar { display: none; }
 .term-scrollbar {
   position: absolute; top: 32px; right: 2px; bottom: 0; width: 24px;
@@ -3730,8 +3733,14 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   padding: 4px;
 }
 
+/* 切到終端機等別的分頁不用 display:none：webview 會丟掉畫好的圖塊，切回來整頁重新點陣化。
+   改成原尺寸疊在底下、透明、點不到（同 webview-warm／parkPane；focus 由 JS 的 inert 擋） */
 .ws-browser[hidden] {
-  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .ws-browser-bar {

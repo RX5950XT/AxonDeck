@@ -163,7 +163,11 @@ export function showSurface(kind) {
   el.termHost?.classList.toggle('hidden', kind !== 'terminal')
   el.termEmpty?.classList.toggle('hidden', kind !== 'empty')
   if (el.editor) el.editor.hidden = kind !== 'editor'
-  if (el.browser) el.browser.hidden = kind !== 'browser'
+  if (el.browser) {
+    // 藏起來是停放在底下（見 .ws-browser[hidden]），不是 display:none，所以要另外擋 focus
+    el.browser.hidden = kind !== 'browser'
+    el.browser.inert = kind !== 'browser'
+  }
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
   if (kind !== 'ai-session') {

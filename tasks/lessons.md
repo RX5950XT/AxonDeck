@@ -161,3 +161,4 @@
 - **背景自動同步的頻率要套到所有入口**（定時、開頁、開彈窗、重啟）；手動刷新另走明確按鈕。
 - **更新顯示方式要分入口**：結束 App 靜默、手動有進度、關機登出不裝。
 - **開預覽照 AGENTS.md 用 `node scripts/dev-sandbox.js --packed`；絕不自己結束使用者正在用的安裝版 AxonDeck。**
+- **修「切換頓一下」要把同類入口都量過**：同一顆 webview 被藏的路徑不只一條（左側 Browser、專案分頁、換專案），外層容器 display:none 一樣會丟圖塊；用重頁面＋整個瀏覽器的 trace 看 RasterTask，host 的 rAF 量不到。

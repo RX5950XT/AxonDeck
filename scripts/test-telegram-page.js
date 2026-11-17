@@ -71,7 +71,7 @@ async function run() {
   const wc = pages.contents('chat')
   const evaluate = (code) => wc.executeJavaScript(code)
   const until = async (code) => {
-    const deadline = Date.now() + 5000
+    const deadline = Date.now() + 20000
     while (!await evaluate(code)) {
       if (Date.now() > deadline) throw new Error(`未符合：${code}`)
       await new Promise((resolve) => setTimeout(resolve, 50))

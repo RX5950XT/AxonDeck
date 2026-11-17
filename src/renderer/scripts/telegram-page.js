@@ -21,6 +21,11 @@ const WATCH_EVERY_MS = 20000
 const STUCK_MS = 60000
 // 全部重載之間至少隔這麼久：網路真的不通時不要每分鐘重載一次
 const RELOAD_ALL_GAP_MS = 5 * 60 * 1000
+// 格子一格一格載：Web A 開頁時靠 BroadcastChannel 在 100ms 內選出唯一的主分頁，選不出來就各自當主分頁。
+// 幾格同時開偶爾會冒出兩個主分頁，其他格送訊息是廣播請主分頁代送，兩個主分頁都送 → 同一則訊息發兩次。
+// 前一格載完再等一下（Web A 讀完快取才選主分頁）才開下一格
+const LOAD_GAP_MS = 1500
+const LOAD_TIMEOUT_MS = 10000
 // 在格子裡跑：連得上網，卻顯示「等待網路連線」或「更新中」（左欄的提示框，或聊天室標題下的狀態字）。
 // 「更新中」是 Web A 的同步（sync／getDifference）卡住：它自己 30 秒的補救失敗後就永遠停在這，新訊息也不進來
 const STUCK_PROBE = `navigator.onLine && !!(document.getElementById('ConnectionStatusOverlay') ||
@@ -91,6 +96,33 @@ const settling = new WeakMap()
 const bounced = new WeakSet()
 let stuckSince = 0
 let lastReloadAllAt = 0
+let loadChain = Promise.resolve()
+
+/** 排隊載入（理由見 LOAD_GAP_MS）；start 真的開始載，格子已經拿掉就跳過 */
+function loadInTurn(view, start) {
+  const turn = loadChain.then(() => new Promise((resolve, reject) => {
+    if (!view.isConnected) { resolve(); return }
+    let timer
+    const done = () => {
+      clearTimeout(timer)
+      view.removeEventListener('did-finish-load', onLoad)
+      setTimeout(resolve, LOAD_GAP_MS)
+    }
+    // 先導到 about:blank 的那一下不算（reloadPane）
+    const onLoad = () => { if (view.getURL() !== 'about:blank') done() }
+    timer = setTimeout(done, LOAD_TIMEOUT_MS)
+    view.addEventListener('did-finish-load', onLoad)
+    settle(view)
+    try {
+      Promise.resolve(start()).catch((error) => { done(); reject(error) })
+    } catch (error) {
+      done()
+      reject(error)
+    }
+  }))
+  loadChain = turn.catch(() => {})
+  return turn
+}
 
 /** 只收 Telegram 網頁版自己的網址；設定檔壞掉或被改過就回首頁 */
 function safeUrl(value) {
@@ -178,7 +210,7 @@ function settle(view) {
   }, SETTLE_MS))
 }
 
-/** 全部格子先卸載再同時載回原本的聊天室（理由見 WATCH_EVERY_MS 上面） */
+/** 全部格子先卸載再一格一格載回原本的聊天室（理由見 WATCH_EVERY_MS 上面） */
 async function reloadAll(why) {
   if (Date.now() - lastReloadAllAt < RELOAD_ALL_GAP_MS) return
   lastReloadAllAt = Date.now()
@@ -189,16 +221,14 @@ async function reloadAll(why) {
   const urls = views.map((view) => view.dataset.src)
   await Promise.allSettled(views.map((view) => view.loadURL('about:blank')))
   views.forEach((view, index) => {
-    settle(view)
-    view.loadURL(urls[index]).catch(() => {})
+    loadInTurn(view, () => view.loadURL(urls[index])).catch(() => {})
   })
 }
 
 /** 只重載一格回原本的聊天室：先導走才是整頁重載（只改 hash 會被彈回列表，見 SETTLE_MS） */
 async function reloadPane(view, url) {
-  settle(view)
   await view.loadURL('about:blank').catch(() => {})
-  await view.loadURL(url)
+  await loadInTurn(view, () => view.loadURL(url))
 }
 
 /** 第一格以外閒置夠久就收掉；正在出聲（通話、語音）或收了會變樣的不收 */
@@ -342,8 +372,7 @@ function mountView(pane, url) {
   })
 
   pane.append(view)
-  settle(view)
-  view.setAttribute('src', url) // 幾格同時載，不排隊
+  loadInTurn(view, () => view.setAttribute('src', url))
 }
 
 /** 第一次切進來才建：沒點過 Telegram 就不去連線；彈成獨立視窗後收掉，回來再照存檔建 */

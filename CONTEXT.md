@@ -6,7 +6,7 @@
 
 - GPU 可重建圖片快取預設 64 MiB（`main.js`，明確啟動參數可覆寫）；不改硬體加速、WebGL、影片解碼或 AI 模型配置。合成 PNG 負載 335.57→167.95 MiB；本機安裝版已套用，重開後 60 秒約 314–319 MiB（含重啟清快取效果），九頁與加速檢查通過，未做長時重度媒體回歸／發版。備份與證據在 terminal 的 logs/gpu-cache-probe。
 
-AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.82.4**（2026-11-17）。
+AxonDeck（v1.40 前叫 VoiceInk，舊名相容點見 AGENTS「打包／建置」）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5。目前 **v1.82.6**（2026-11-18）。
 
 | 頁 | `data-page` | 一句話 |
 |---|---|---|
@@ -81,7 +81,7 @@ native/
 - Cloudflare：Grok 用 `grok-clearance.js` 借 Edge／Chrome 拿 `cf_clearance`；其他分區 `installChallengeFallback` 看到 `cf-mitigated: challenge` 就把該分頁改回 Electron 原 UA 重載。另有「無套件相容視窗」（`persist:wsbrowser-clean`）。
 - 閒置釋放（`sleepIdleAiWeb`）：切走超過 1 小時的網頁版對話整顆 webview 拿掉，點回照網址重建；有打到一半的字、還在生成（找停止鈕）、往上翻著、正在出聲的不收。回歸 `test-ai-web-sleep.js`。
 - 生成狀態：`pollAiWebStatus` 每 2 秒看開著的 webview 有沒有停止鈕，側欄顯示回應中／已完成（未讀）；沒開過、App 重開後的對話沒有狀態，按鈕標籤改版就抓不到。
-- 順暢度：`installRenderBoost` 對 ChatGPT／Gemini／Grok 的訊息節點插 `content-visibility:auto`（選擇器改版就失效，退回原樣）。
+- 順暢度：`installRenderBoost` 對 ChatGPT／Gemini／Grok 的訊息節點插 `content-visibility:auto`：頁內腳本先量真實高度寫進 `contain-intrinsic-size` 才加 `.axd-cv`（直接套會讓沒畫過的舊訊息先當 400px，往上捲一路跳）。選擇器改版就失效，退回原樣。Gemini 長串公式生成時的大卡頓是它自己每段重建整則回答，App 這邊改不到。
 - 外連開在哪：Agent 模式 → 專案瀏覽器分頁；對話／網頁版 AI → 右側 `chat-browser.js`；Browser 模式與 SI 以外 → Browser 模式新分頁（`browser-page.js`，分頁與群組存 localStorage `browserTabs`，垂直分頁可拖曳分組）。空白分頁開 Infinity New Tab（`NEWTAB_URL`）。
 - 分頁右鍵「彈出獨立視窗」走 `browser-window.js`：main 自建 WebContentsView，首次載入前還原整串歷史（webview 搬不了視窗）。
 - 登入小視窗：`window.open` 帶尺寸、先開 `about:blank`、或 `isLoginPopup` 判定的登入頁 → App 內小視窗並保留 opener；擴充功能 `chrome.identity` 由 `crx-identity.js` 補（preload 要在 electron-chrome-extensions 之前登記）。

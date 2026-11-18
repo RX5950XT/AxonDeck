@@ -187,6 +187,37 @@ const RENDER_BOOST_CSS = Object.freeze({
   grok: 'div[id^="response-"]'
 })
 
+const BOOSTED = 'axd-cv'
+
+/**
+ * 在網頁裡跑：訊息先照常排版，量到真實高度寫進 contain-intrinsic-size 後才標記（才套 content-visibility）。
+ * 直接套的話沒畫過的舊訊息先當 400px，往上捲到時才長回真實高度，畫面被往回推（2026-11-18 Gemini 實測一路跳 800～1500px）。
+ * @param {string} selector
+ */
+function boostScript(selector) {
+  return `(() => {
+  if (window.__axdRenderBoost) return
+  window.__axdRenderBoost = true
+  const selector = ${JSON.stringify(`${selector}:not(.${BOOSTED})`)}
+  let timer = 0
+  const mark = () => {
+    if (timer) return
+    timer = setTimeout(() => {
+      timer = 0
+      for (const el of document.querySelectorAll(selector)) {
+        const height = el.offsetHeight
+        if (!height) continue // 分頁藏著量不到，下次再標
+        el.style.containIntrinsicSize = 'auto ' + height + 'px'
+        el.classList.add(${JSON.stringify(BOOSTED)})
+      }
+    }, 300)
+  }
+  new MutationObserver(mark).observe(document.documentElement, { childList: true, subtree: true })
+  addEventListener('scroll', mark, { capture: true, passive: true })
+  mark()
+})()`
+}
+
 /**
  * 網頁版 AI 的 webview 每次載入文件都補上 RENDER_BOOST_CSS（SPA 站內換頁不會換文件，插一次就一直在）
  * @param {import('electron').WebContents} contents
@@ -195,9 +226,11 @@ const RENDER_BOOST_CSS = Object.freeze({
 function installRenderBoost(contents, site) {
   const selector = RENDER_BOOST_CSS[site]
   if (!selector) return
-  const css = `${selector}{content-visibility:auto;contain-intrinsic-size:auto 400px}`
+  const css = `${selector}.${BOOSTED}{content-visibility:auto}`
+  const script = boostScript(selector)
   contents.on('dom-ready', () => {
     contents.insertCSS(css).catch((error) => console.error('[ai-web] 加速樣式插不進去:', error))
+    contents.executeJavaScript(script).catch((error) => console.error('[ai-web] 加速標記裝不上:', error))
   })
 }
 

@@ -1,12 +1,12 @@
 # AxonDeck — 專案規範與 AI 作業守則
 
-> 規則正文；`CLAUDE.md` 只是入口。現況與架構見 [CONTEXT.md](./CONTEXT.md)，判斷原則見 [tasks/lessons.md](./tasks/lessons.md)。
+> 規則正文；`CLAUDE.md` 只是入口。現況、架構與待辦見 [tasks/todo.md](./tasks/todo.md)，判斷原則見 [tasks/lessons.md](./tasks/lessons.md)。
 > 「地雷」每一條都實際改壞過；細節查 git log。
 
 ## 專案
 
 Windows Electron AI 工作台。Vanilla JS + Vite（無框架），Electron 43.7.5（內建 Node 24）、腳本用系統 Node 22。
-導覽九頁（可拖曳排序，清單以 `scripts/lib/nav-pages.js` 為準）：SI（`chat`）｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。各頁內容與入口位置見 CONTEXT。
+導覽九頁（可拖曳排序，清單以 `scripts/lib/nav-pages.js` 為準）：SI（`chat`）｜檔案｜語音轉文字｜翻譯｜文字轉語音｜生成圖片影像（`imagegen`）｜系統監控｜Local SI（`hfmodels`）｜設定。各頁內容與入口位置見 tasks/todo.md。
 
 ## 指令
 
@@ -39,7 +39,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ## 作業守則
 
-1. 動手前讀 CONTEXT.md 找模組、讀本檔該模組地雷；追完整條資料流與所有 caller，修根因。
+1. 動手前讀 tasks/todo.md 找模組、讀本檔該模組地雷；追完整條資料流與所有 caller，修根因。
 2. 改動最小。非簡單任務先把可勾選計畫寫進 `tasks/todo.md`。
 3. 完成前附驗證指令與實際輸出（至少 `npm run lint`）。同一修法失敗兩次就換方法。
 4. mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。能靜態擋的（未定義名字、死變數、IPC 對不上）進 `npm run lint`，不寫單元測試；不新增「讀原始碼字串比對」的測試（改了名字就壞、不跑程式碼）。
@@ -162,7 +162,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 
 ### 用量統計與額度
 - 游標 key 跟著檔案走（session 會搬進 `archived_sessions`）。Codex fork 的開頭重播一筆都不收（到第一個 `turn_context`）。
-- 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重（resume／fork 會把舊訊息複製進新檔，要跨檔去重）；Grok ticks 一律 1 USD = 1e10；Grok 母 session 的 usage 已含子代理，子代理自己的檔不能再算（例外見 CONTEXT）；Codex 舊 session 會被壓成 `.jsonl.zst`。parsers.js 與 `usage.rs` 規則必須一致（跑 `probe-usage-native-parity.js`；它的真實資料段在有 session 正在寫時可能偶發位元組數不同，重跑即可）。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
+- 加錯差十倍：Codex 用 `last_token_usage`；Claude 串流照 `message.id` 去重（resume／fork 會把舊訊息複製進新檔，要跨檔去重）；Grok ticks 一律 1 USD = 1e10；Grok 母 session 的 usage 已含子代理，子代理自己的檔不能再算（例外見 tasks/todo.md）；Codex 舊 session 會被壓成 `.jsonl.zst`。parsers.js 與 `usage.rs` 規則必須一致（跑 `probe-usage-native-parity.js`；它的真實資料段在有 session 正在寫時可能偶發位元組數不同，重跑即可）。快取讀／寫分開計價；沒單價回 `null` 不是 0；改 `normalizeModel` 要 `RULES_VERSION` +1。
 - `mergeExpectedWindows` 只能由 `usage/index.js` 呼叫，空窗不 merge（會生出假的 100%）。Codex 重置兌換只走官方 `codex app-server`，測試絕不真的兌換。Grok `tier: 1`＝SuperGrok，其他不猜。
 - Claude token 自己續（`usage/claude-auth.js`）：兩把鎖、鎖內重讀、CAS 寫回、原子替換；額度 API 要報 `claude-code/<版本>` UA，429 不重試並冷卻。Grok／Antigravity 靠代跑 CLI 續期並確認 token 真的換了。
 - Claude 多帳號（`usage/claude-accounts.js`）：使用中的帳號以 CLI 檔案為準、每次同步／切換前抄回快照，**快照絕不拿去續期**；只有沒在用的帳號由我們續、寫回自己的 store。續期、抄快照、切換排同一條隊，切換另拿 claude-auth 的兩把鎖。新增帳號在暫存 `CLAUDE_CONFIG_DIR` 跑 `claude auth login --claudeai`。回歸 `test-claude-accounts.js`。

@@ -183,7 +183,7 @@ npm run electron:build   # NSIS 安裝檔 → dist/
 
 原生元件（沒建也能打包，只是對應功能降級）：`npm run build:probe`（需 Rust）、`build:media`（需 Rust、7-Zip、VS C++ build tools）、`build:shell`／`build:sensors`／`build:hook`（需 .NET SDK）。
 
-文件分工：[AGENTS.md](./AGENTS.md) 規範與地雷、[CONTEXT.md](./CONTEXT.md) 現況架構與已知限制、[tasks/todo.md](./tasks/todo.md) 待辦、[tasks/lessons.md](./tasks/lessons.md) 判斷原則。
+文件分工：[AGENTS.md](./AGENTS.md) 規範與地雷、[tasks/todo.md](./tasks/todo.md) 現況架構、待辦與已知限制、[tasks/lessons.md](./tasks/lessons.md) 判斷原則。
 
 ---
 

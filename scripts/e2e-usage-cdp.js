@@ -190,7 +190,8 @@ async function main() {
       return {
         order: [...document.querySelectorAll('.header-nav .nav-tab')].map((item) => item.dataset.page),
         noPage: !document.getElementById('page-usage'),
-        inStage: bar.closest('.chat-stage') !== null && bar.closest('#wsShell') === null,
+        // 專案模式：額度條搬進 #termMain 最下面、四顆入口搬到右側欄底部（si-layout.js）
+        inStage: bar.parentElement?.id === 'termMain' && document.getElementById('quotaDock')?.parentElement?.id === 'wsRightDock',
         belowSurfaces: rect.top >= surfaces.bottom - 1,
         height: rect.height,
         chips: document.querySelectorAll('#quotaItems .quota-item').length
@@ -447,16 +448,19 @@ async function main() {
     }
     pass('深淺主題都看得到、字色跟著主題換、沒有水平溢出')
 
-    // ===== 條橫跨主區＋右側欄；Port、資源兩個抽屜 =====
+    // ===== 條只在終端機那一塊底下、四顆入口在右側欄底部；Port、資源兩個抽屜 =====
     const span = await cdp.eval(`(() => {
       const bar = document.getElementById('quotaBar').getBoundingClientRect()
+      const term = document.getElementById('termMain').getBoundingClientRect()
       const right = document.getElementById('wsRight').getBoundingClientRect()
-      return { barRight: bar.right, rightRight: right.right, rightBottom: right.bottom, barTop: bar.top, noPortTab: !document.querySelector('.ws-right-tab[data-panel="ports"]') }
+      const dock = document.getElementById('quotaDock').getBoundingClientRect()
+      return { barLeft: bar.left, barRight: bar.right, termLeft: term.left, termRight: term.right, rightLeft: right.left, rightBottom: right.bottom, dockBottom: dock.bottom, noPortTab: !document.querySelector('.ws-right-tab[data-panel="ports"]') }
     })()`)
-    if (Math.abs(span.barRight - span.rightRight) > 2 || span.rightBottom > span.barTop + 1 || !span.noPortTab) {
-      throw new Error(`額度條沒有延伸到右側欄底下：${JSON.stringify(span)}`)
+    if (Math.abs(span.barLeft - span.termLeft) > 2 || Math.abs(span.barRight - span.termRight) > 2 || span.barRight > span.rightLeft ||
+        span.rightBottom - span.dockBottom > 12 || !span.noPortTab) {
+      throw new Error(`額度條／四顆入口位置不對：${JSON.stringify(span)}`)
     }
-    pass('額度條橫跨主區與右側欄，右側欄沒有 Port 分頁了')
+    pass('額度條對齊終端機那一塊，四顆入口在右側欄底部，右側欄沒有 Port 分頁')
     await cdp.eval("document.getElementById('quotaPortsBtn').click()")
     await waitFor(
       () => cdp.eval("!document.getElementById('quotaDrawerPorts').hidden && document.querySelectorAll('#wsPortList .ws-port-row').length > 0"),

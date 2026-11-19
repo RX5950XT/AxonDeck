@@ -64,6 +64,15 @@
           </button>
         </nav>
         <div class="header-drag-spacer" aria-hidden="true"></div>
+        <!-- SI 頁專用：收合／展開左右側欄（si-layout.js），其他頁藏著 -->
+        <div class="si-pane-toggles" id="siPaneToggles" role="group" aria-label="側欄" hidden>
+          <button type="button" id="siToggleLeft" class="win-btn si-pane-btn" aria-pressed="true">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor"/><path d="M6 2.5v11" stroke="currentColor"/><rect class="si-pane-fill" x="2" y="3" width="4" height="10" fill="currentColor"/></svg>
+          </button>
+          <button type="button" id="siToggleRight" class="win-btn si-pane-btn" aria-pressed="true">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor"/><path d="M10 2.5v11" stroke="currentColor"/><rect class="si-pane-fill" x="10" y="3" width="4" height="10" fill="currentColor"/></svg>
+          </button>
+        </div>
         <div class="window-controls" role="group" aria-label="視窗控制">
           <button type="button" id="winMin" class="win-btn" aria-label="最小化" title="最小化">─</button>
           <button type="button" id="winMax" class="win-btn" aria-label="最大化" title="最大化">□</button>
@@ -798,6 +807,8 @@
                   </div>
                 </div>
 
+                <!-- 專案模式時，額度條的供應商／用量統計／Port／資源（#quotaDock）搬到這裡（si-layout.js） -->
+                <div class="ws-right-dock" id="wsRightDock"></div>
               </aside>
               </div>
               </div>
@@ -888,7 +899,9 @@
                       <p id="resNote" class="cu-footnote"></p>
                     </div>
                   </div>
-                  <div class="quota-dash" role="group" aria-label="Claude Code">
+                  <div class="quota-items" id="quotaItems" role="list" aria-label="各家額度"></div>
+                  <!-- 四顆入口：專案模式且右側欄開著時搬進 #wsRightDock，其他時候放在條的右邊、同步鈕左側（si-layout.js） -->
+                  <div class="quota-dash" id="quotaDock" role="group" aria-label="供應商、用量統計、Port 與資源">
                     <button type="button" id="quotaProviderBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="切換 Claude Code 供應商">
                       <span id="quotaGatewayDot" class="agy-dot is-stopped" aria-hidden="true"></span>
                       <span class="quota-dash-label">供應商</span>
@@ -898,9 +911,6 @@
                       <span class="quota-dash-label">用量統計</span>
                       <span id="quotaStatsValue" class="quota-dash-value"></span>
                     </button>
-                  </div>
-                  <div class="quota-items" id="quotaItems" role="list" aria-label="各家額度"></div>
-                  <div class="quota-dash quota-dash-end" role="group" aria-label="本機">
                     <button type="button" id="quotaPortsBtn" class="quota-dash-btn" aria-expanded="false" aria-controls="quotaDrawer" title="本機正在監聽的 Port">
                       <span class="quota-dash-label">Port</span>
                     </button>

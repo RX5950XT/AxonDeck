@@ -633,6 +633,7 @@ function setDrawer(name) {
   if (drawer) {
     drawer.hidden = !name
     drawer.classList.toggle('is-narrow', name === 'ports' || name === 'resources')
+    fitDrawer()
   }
   for (const [key, ids] of Object.entries(DRAWERS)) {
     const panel = byId(ids.panel)
@@ -646,11 +647,27 @@ function setDrawer(name) {
   void import('./app-resources-bar.js').then((mod) => mod.setResourcesOpen(name === 'resources'))
 }
 
+/**
+ * 抽屜蓋滿額度條上面那一塊（專案模式＝終端機那一塊，其他模式＝主區），
+ * 側欄拖寬拖窄、收合、視窗縮放都跟著重算；寬度由 left/right 0 對齊條本身。
+ */
+function fitDrawer() {
+  const bar = byId('quotaBar')
+  const drawer = byId('quotaDrawer')
+  const area = bar?.parentElement
+  if (!bar || !drawer || !area || drawer.hidden) return
+  const style = getComputedStyle(area)
+  const gap = parseFloat(style.rowGap) || 0
+  const top = area.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0)
+  drawer.style.bottom = `calc(100% + ${gap}px)`
+  drawer.style.height = `${Math.max(120, Math.round(bar.getBoundingClientRect().top - gap - top))}px`
+}
+
 /** 點條以外的地方就收起來；彈窗、選單裡的點擊不算（編輯供應商、改單價都會開彈窗） */
 function onOutsidePointer(event) {
   if (!drawerOpen) return
   const target = event.target instanceof Element ? event.target : null
-  if (!target || target.closest('#quotaBar, dialog, [popover], .ws-menu, .custom-select-menu')) return
+  if (!target || target.closest('#quotaBar, #quotaDock, dialog, [popover], .ws-menu, .custom-select-menu')) return
   setDrawer('')
 }
 
@@ -659,6 +676,10 @@ function bindDrawer() {
     byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {keyof typeof DRAWERS} */ (key)))
   }
   document.addEventListener('pointerdown', onOutsidePointer, true)
+  // 條會在 .chat-stage 與 #termMain 之間搬家（si-layout.js）：兩邊都看著
+  const observer = new ResizeObserver(() => fitDrawer())
+  for (const area of [document.querySelector('#page-chat .chat-stage'), byId('termMain')]) if (area) observer.observe(area)
+  document.addEventListener('quota:layout', fitDrawer)
   // 點進網頁（Telegram、網頁版 AI）時滑鼠事件只到網頁裡、這邊收不到 pointerdown；焦點會落到 <webview> 上，看這個
   document.addEventListener('focusin', (event) => {
     if (drawerOpen && event.target instanceof Element && event.target.tagName === 'WEBVIEW') setDrawer('')

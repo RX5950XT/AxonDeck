@@ -143,6 +143,38 @@ a:hover {
   -webkit-app-region: no-drag;
 }
 
+/* SI 頁收合左右側欄的兩顆（si-layout.js）：跟窗控同一排、同一種鈕 */
+.si-pane-toggles {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.si-pane-toggles[hidden] {
+  display: none;
+}
+
+.win-btn.si-pane-btn {
+  width: 40px;
+}
+
+.si-pane-btn[aria-pressed='false'] .si-pane-fill {
+  opacity: 0;
+}
+
+.win-btn.si-pane-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+
+#page-chat .chat-layout.si-left-collapsed :is(.chat-sidebar, #chatSidebarResizer),
+#page-chat .chat-layout.si-right-collapsed :is(#wsRight, #wsRightResizer) {
+  display: none;
+}
+
 /* 視窗控制鈕 */
 .window-controls {
   display: flex;
@@ -15926,14 +15958,15 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   color: var(--text-secondary);
 }
 
-/* 條左邊：Claude Code 供應商／用量統計，點開往上展開抽屜 */
+/* 條右邊（同步鈕左側）：供應商／用量統計／Port／資源，點開往上展開抽屜；
+   專案模式且右側欄開著時搬到右側欄底部（si-layout.js） */
 .quota-dash {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  padding-right: 8px;
-  border-right: 1px solid var(--border-light);
+  padding-left: 8px;
+  border-left: 1px solid var(--border-light);
 }
 
 .quota-dash-btn {
@@ -15984,14 +16017,14 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   display: none;
 }
 
-/* 抽屜：疊在工作區內容上面（不推擠終端機，xterm 不必重排），貼著條往上長 */
+/* 抽屜：疊在條上面那一塊（專案模式＝終端機那一塊），寬度對齊條、高度由 quota-bar.js 的 fitDrawer 量；
+   不推擠終端機，xterm 不必重排 */
 .quota-drawer {
   position: absolute;
   left: 0;
   right: 0;
   bottom: calc(100% + 4px);
   z-index: 30;
-  max-height: min(68vh, 720px);
   padding: 14px;
   overflow-y: auto;
   border: 1px solid var(--glass-border);
@@ -16154,18 +16187,44 @@ body.is-col-resizing { user-select: none; cursor: col-resize; }
   padding: 0 8px;
 }
 
-/* 條右邊：Port／資源，跟左邊那組同一個樣子，分隔線改在左側 */
-.quota-dash-end {
-  padding: 0 0 0 8px;
-  border-right: 0;
-  border-left: 1px solid var(--border-light);
+/* 右側欄底部：四顆入口排 2×2，側欄拖太窄就改一欄（si-layout.js 搬過來） */
+.ws-right-dock {
+  flex-shrink: 0;
+  container: ws-right-dock / inline-size;
 }
 
-/* Port、資源：貼著條右邊的直條彈窗，內容短也維持直條 */
+.ws-right-dock:empty {
+  display: none;
+}
+
+.ws-right-dock .quota-dash {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px 0 0;
+  border-left: 0;
+  border-top: 1px solid var(--border-light);
+  font-size: 12px;
+}
+
+.ws-right-dock .quota-dash-btn {
+  min-width: 0;
+  max-width: none;
+  height: 30px;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+@container ws-right-dock (max-width: 200px) {
+  .ws-right-dock .quota-dash {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Port、資源：貼著右邊的直條，高度跟其他抽屜一樣 */
 .quota-drawer.is-narrow {
   left: auto;
   width: min(420px, 100%);
-  height: min(68vh, 720px);
 }
 
 /* 資源：部分｜程序數｜CPU｜記憶體，記憶體佔比條排在該列下面 */

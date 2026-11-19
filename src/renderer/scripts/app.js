@@ -12,6 +12,7 @@ import {
 } from './chat-page.js'
 import { DEFAULT_ASR_API_URL, DEFAULT_ASR_MODEL } from './api.js'
 import { initResizer } from './pane-resize.js'
+import { syncSiLayout, setSiHeaderVisible } from './si-layout.js'
 import { initCustomSelects, syncCustomSelects } from './custom-select.js'
 import { toolIcon } from './ws-tool-icons.js'
 import { createListReorder } from './list-reorder.js'
@@ -1092,6 +1093,7 @@ export function setChatPaneMode(mode) {
   if (layout) layout.classList.toggle('is-workspace', mode === 'workspace')
   if (wsRight) wsRight.classList.toggle('hidden', mode !== 'workspace')
   if (wsRightResizer) wsRightResizer.classList.toggle('hidden', mode !== 'workspace')
+  syncSiLayout(mode)
   // 工作區主區剛從 display:none 顯現，xterm 要等這一幀才 fit 得準
   if (mode === 'workspace') {
     loadTerminalPage().then((m) => m.refreshTerminalPage())
@@ -1121,6 +1123,7 @@ export function switchPage(pageName, subtab = '') {
     page.classList.toggle('active', on)
     page.inert = !on
   })
+  setSiHeaderVisible(pageName === 'chat')
   // 先啟動新頁 acquire，再 release 舊頁，避免中間 owner 歸零觸發 unload＋重付 warm
   if (pageName === 'chat') {
     refreshChatPage()

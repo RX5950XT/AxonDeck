@@ -2242,6 +2242,9 @@
                 <button type="button" class="settings-nav-item" data-section="agy">
                   <span class="nav-icon" data-icon="agy"></span>AGY 反代
                 </button>
+                <button type="button" class="settings-nav-item" data-section="grok">
+                  <span class="nav-icon" data-icon="grok"></span>Grok 反代
+                </button>
                 <button type="button" class="settings-nav-item" data-section="install">
                   <span class="nav-icon" data-icon="download"></span>安裝
                 </button>
@@ -2655,6 +2658,196 @@
                           </table>
                         </div>
                         <p id="agyLogEmpty" class="agy-empty">尚無流量記錄。啟動服務並讓客戶端送出第一個請求後就會出現。</p>
+                      </section>
+                    </div>
+                  </section>
+
+                  <!-- Grok 反代：SuperGrok 訂閱 → OpenAI／Anthropic／Responses 端點（grok-proxy-page.js 自己管輪詢） -->
+                  <section class="settings-section" id="set-grok" data-section="grok">
+                    <header class="settings-section-head">
+                      <h2 class="settings-section-title">Grok 反代</h2>
+                    </header>
+                    <div class="agy-shell">
+                      <header class="agy-header">
+                        <div class="agy-heading">
+                          <p class="page-desc">把 SuperGrok 訂閱（Grok CLI 登入）轉成 OpenAI／Anthropic／Responses API；只聽 127.0.0.1，需帶金鑰。</p>
+                        </div>
+                        <div class="agy-actions" role="group" aria-label="服務操作">
+                          <button type="button" id="grokRefreshBtn" class="btn btn-secondary btn-sm">重新整理</button>
+                          <button type="button" id="grokTestBtn" class="btn btn-secondary btn-sm">測試連線</button>
+                          <button type="button" id="grokToggleBtn" class="btn btn-primary btn-sm">啟動服務</button>
+                        </div>
+                      </header>
+
+                      <p id="grokError" class="live-error hidden" role="alert"></p>
+
+                      <section class="agy-panel agy-control" aria-labelledby="grokControlTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="grokControlTitle" class="agy-panel-title">服務控制</h2>
+                          <p id="grokStatusLine" class="agy-status" role="status" aria-live="polite">
+                            <span id="grokStatusDot" class="agy-dot" aria-hidden="true"></span>
+                            <span id="grokStatusText">已停止</span>
+                          </p>
+                        </div>
+
+                        <dl class="agy-endpoint">
+                          <div class="agy-endpoint-row">
+                            <dt>Base URL</dt>
+                            <dd>
+                              <code id="grokBaseUrl" class="agy-code">尚未啟動</code>
+                              <button type="button" class="btn btn-secondary btn-sm" data-grok-copy="baseUrl">複製</button>
+                            </dd>
+                          </div>
+                          <div class="agy-endpoint-row">
+                            <dt>API Key</dt>
+                            <dd>
+                              <code id="grokApiKey" class="agy-code agy-secret">尚未產生</code>
+                              <button type="button" id="grokKeyToggleBtn" class="btn btn-secondary btn-sm" aria-pressed="false">顯示</button>
+                              <button type="button" class="btn btn-secondary btn-sm" data-grok-copy="apiKey">複製</button>
+                              <button type="button" id="grokRegenerateBtn" class="btn btn-secondary btn-sm">重新產生</button>
+                            </dd>
+                          </div>
+                          <div class="agy-endpoint-row">
+                            <dt>憑證</dt>
+                            <dd><span id="grokCredential" class="agy-credential">服務停止中</span></dd>
+                          </div>
+                        </dl>
+
+                        <div id="grokCredentialHelp" class="agy-cred-help" role="status" hidden>
+                          <p id="grokCredentialHelpTitle" class="agy-cred-help-title"></p>
+                          <ol id="grokCredentialHelpSteps" class="agy-cred-help-steps"></ol>
+                        </div>
+
+                        <p id="grokTestResult" class="agy-test-result" role="status" aria-live="polite" hidden></p>
+
+                        <details class="agy-clients">
+                          <summary class="agy-clients-summary">客戶端怎麼填？（Claude Code／CC Switch、OpenAI 相容工具、Codex）</summary>
+                          <div class="agy-clients-body">
+                            <div class="agy-client">
+                              <p class="agy-client-tag">Claude Code · CC Switch</p>
+                              <div class="agy-client-row">
+                                <code class="agy-code-inline">ANTHROPIC_BASE_URL</code>
+                                <code id="grokAnthropicUrl" class="agy-code">尚未啟動</code>
+                                <button type="button" class="btn btn-secondary btn-sm" data-grok-copy="anthropicBaseUrl">複製</button>
+                              </div>
+                              <div class="agy-client-row">
+                                <code class="agy-code-inline">ANTHROPIC_AUTH_TOKEN</code>
+                                <span class="agy-client-note">填上面那組 API Key</span>
+                                <button type="button" class="btn btn-secondary btn-sm" data-grok-copy="apiKey">複製</button>
+                              </div>
+                              <p class="agy-client-warn">結尾<strong>不要</strong>加 <code class="agy-code-inline">/v1</code>（Claude Code 自己接）。</p>
+                            </div>
+                            <div class="agy-client">
+                              <p class="agy-client-tag">OpenAI 相容工具</p>
+                              <div class="agy-client-row">
+                                <code class="agy-code-inline">Base URL</code>
+                                <code id="grokOpenaiUrl" class="agy-code">尚未啟動</code>
+                                <button type="button" class="btn btn-secondary btn-sm" data-grok-copy="baseUrl">複製</button>
+                              </div>
+                              <p class="agy-client-note">這一組<strong>要</strong>帶 <code class="agy-code-inline">/v1</code>；Chat Completions 與 Responses（Codex 等）都走這個位址。模型名可加 <code class="agy-code-inline">-low</code>／<code class="agy-code-inline">-high</code> 等後綴指定思考強度。</p>
+                            </div>
+                          </div>
+                        </details>
+
+                        <div class="agy-settings">
+                          <label class="agy-setting">
+                            <span>監聽埠</span>
+                            <input id="grokPortInput" class="input" type="number" min="1024" max="65535" step="1" inputmode="numeric" />
+                          </label>
+                          <label class="agy-setting">
+                            <span>日誌保留天數</span>
+                            <input id="grokRetentionInput" class="input" type="number" min="1" max="365" step="1" inputmode="numeric" />
+                          </label>
+                          <label class="agy-setting agy-setting-check">
+                            <input id="grokLogBodiesInput" type="checkbox" />
+                            <span>除錯模式：記錄請求／回應內容（各截 8KB）</span>
+                          </label>
+                          <div class="agy-setting-actions">
+                            <button type="button" id="grokClearLogsBtn" class="btn btn-secondary btn-sm">清空日誌</button>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section class="agy-panel agy-stats" aria-labelledby="grokStatsTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="grokStatsTitle" class="agy-panel-title">統計</h2>
+                          <div id="grokRangeGroup" class="agy-range" role="group" aria-label="統計時間範圍">
+                            <button type="button" class="agy-range-btn" data-grok-range="6h" aria-pressed="false">6 小時</button>
+                            <button type="button" class="agy-range-btn is-active" data-grok-range="24h" aria-pressed="true">24 小時</button>
+                            <button type="button" class="agy-range-btn" data-grok-range="7d" aria-pressed="false">7 天</button>
+                            <button type="button" class="agy-range-btn" data-grok-range="30d" aria-pressed="false">30 天</button>
+                            <button type="button" class="agy-range-btn" data-grok-range="all" aria-pressed="false">全部</button>
+                          </div>
+                        </div>
+                        <div id="grokStatCards" class="agy-stat-cards"></div>
+                        <div class="agy-charts">
+                          <figure class="agy-chart">
+                            <figcaption class="agy-chart-head">
+                              <span>請求量</span>
+                              <span id="grokTrendMeta" class="agy-chart-meta"></span>
+                            </figcaption>
+                            <div class="agy-bars-wrap">
+                              <div id="grokHourlyChart" class="agy-bars" role="img" aria-label="請求量長條圖"></div>
+                              <div id="grokChartTip" class="agy-tip" hidden></div>
+                            </div>
+                          </figure>
+                          <figure class="agy-chart">
+                            <figcaption class="agy-chart-head">
+                              <span>模型分佈</span>
+                              <span id="grokModelMeta" class="agy-chart-meta"></span>
+                            </figcaption>
+                            <div id="grokModelChart" class="agy-model-list" role="img" aria-label="各模型請求量分佈"></div>
+                          </figure>
+                        </div>
+                      </section>
+
+                      <section class="agy-panel agy-models" aria-labelledby="grokModelsTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="grokModelsTitle" class="agy-panel-title">可用模型</h2>
+                          <p class="agy-panel-desc">即時向上游查詢；點模型或強度可複製 ID。</p>
+                        </div>
+                        <div class="agy-models-bar">
+                          <button type="button" id="grokModelsRefreshBtn" class="btn btn-secondary btn-sm">
+                            重新查詢
+                          </button>
+                          <span id="grokModelsMeta" class="agy-models-meta" role="status"></span>
+                        </div>
+                        <div id="grokModelsList" class="agy-models-list"></div>
+                      </section>
+
+                      <section class="agy-panel agy-logs" aria-labelledby="grokLogsTitle">
+                        <div class="agy-panel-head">
+                          <h2 id="grokLogsTitle" class="agy-panel-title">流量日誌</h2>
+                          <div class="agy-log-filters" role="group" aria-label="日誌篩選">
+                            <select id="grokProtocolFilter" class="select" aria-label="協議篩選">
+                              <option value="">全部協議</option>
+                              <option value="openai">OpenAI</option>
+                              <option value="anthropic">Anthropic</option>
+                              <option value="responses">Responses</option>
+                            </select>
+                            <label class="agy-filter-check">
+                              <input id="grokErrorsOnly" type="checkbox" />
+                              <span>只看錯誤</span>
+                            </label>
+                          </div>
+                        </div>
+                        <div class="agy-table-wrap">
+                          <table class="agy-table">
+                            <caption class="visually-hidden">反向代理流量日誌，依時間由新到舊排列</caption>
+                            <thead>
+                              <tr>
+                                <th scope="col">時間</th>
+                                <th scope="col">協議</th>
+                                <th scope="col">模型</th>
+                                <th scope="col">狀態</th>
+                                <th scope="col">耗時</th>
+                                <th scope="col">Tokens</th>
+                              </tr>
+                            </thead>
+                            <tbody id="grokLogRows"></tbody>
+                          </table>
+                        </div>
+                        <p id="grokLogEmpty" class="agy-empty">尚無流量記錄。啟動服務並讓客戶端送出第一個請求後就會出現。</p>
                       </section>
                     </div>
                   </section>

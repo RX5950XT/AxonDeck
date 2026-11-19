@@ -4,9 +4,9 @@
 
 Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言模型、語音轉文字、翻譯、文字轉語音、生成圖片影像、系統監控，全部放在同一個 App。語音與翻譯可以完全離線跑本地模型，也能改用雲端 API。
 
-**目前版本 v1.82.6** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
+**目前版本 v1.83.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
 
-> **v1.82.6**：網頁版 AI（Gemini／ChatGPT／Grok）往上捲舊對話時畫面不再忽然被往回推；長對話照樣保持順暢。
+> **v1.83.0**：新增 Grok 反代——把 SuperGrok 訂閱轉成 OpenAI／Anthropic／Responses API；AGY 支援 Gemini 4 Neon／Hydrogen 的額度與費用計算，可用模型改成依額度池分組的緊湊排版。
 >
 > **v1.82.5**：Telegram 多開幾格時，送出的訊息偶爾會發兩次的問題修好了（格子改成一格一格載入，不再同時選出兩個負責連線的分頁）。
 >
@@ -50,7 +50,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 | **生成圖片影像** | 內嵌 Miroxen：Qwen-Image 生圖、MiniMax-H3 生有聲影片 |
 | **系統監控** | 硬體規格與即時讀數、使用時長、處理程序、風扇、效能調整、壓力測試、磁碟空間 |
 | **Local SI** | 從 Hugging Face 搜尋、下載、載入 GGUF 模型，自動決定最佳參數 |
-| **設定** | 雲端模型、外觀、AGY 反代、軟體安裝與更新、AI CLI 版本 |
+| **設定** | 雲端模型、外觀、AGY 反代、Grok 反代、軟體安裝與更新、AI CLI 版本 |
 
 ---
 
@@ -139,6 +139,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 ### AGY 反代與設定
 
 - **AGY 反代**：把本機 Antigravity 登入轉成 OpenAI（`/v1/chat/completions`）與 Anthropic（`/v1/messages`）相容 API，另支援生圖（`/v1/images/generations`）；只聽 `127.0.0.1`、強制金鑰，附流量日誌與統計。
+- **Grok 反代**：把 Grok CLI 登入的 SuperGrok 訂閱轉成 OpenAI（`/v1/chat/completions`、`/v1/responses`）與 Anthropic（`/v1/messages`）相容 API；模型名加 `-low`／`-high` 等後綴指定思考強度，顯示每週額度，同樣只聽本機、強制金鑰、附日誌與統計。
 - **安裝**：常用軟體一鍵安裝，WinGet 已安裝程式的更新與解除安裝；更新失敗自動改用管理員權限或原廠安裝程式重試。
 - **CLI 版本**：Claude Code、Codex、Grok、OpenCode 等的版本檢查、安裝與更新。
 - 主題深淺色、終端機外觀、開機自啟動、關視窗留在系統匣、自動更新。

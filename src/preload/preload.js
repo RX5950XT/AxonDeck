@@ -290,6 +290,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     test: () => ipcRenderer.invoke('agy:test')
   },
 
+  // ===== Grok 反向代理 =====
+  // 同 AGY：token 與上游 URL 留在 main，這裡只有開關、埠與日誌查詢。
+  grokProxy: {
+    status: () => ipcRenderer.invoke('grokProxy:status'),
+    start: () => ipcRenderer.invoke('grokProxy:start'),
+    stop: () => ipcRenderer.invoke('grokProxy:stop'),
+    /** @param {{ port: number, logBodies: boolean, retentionDays: number }} settings */
+    saveSettings: (settings) => ipcRenderer.invoke('grokProxy:saveSettings', settings),
+    regenerateKey: () => ipcRenderer.invoke('grokProxy:regenerateKey'),
+    /** @param {{ limit?: number, protocol?: string, onlyErrors?: boolean }} query */
+    logs: (query) => ipcRenderer.invoke('grokProxy:logs', query),
+    /** @param {{ range?: '6h'|'24h'|'7d'|'30d'|'all' }} [query] */
+    stats: (query) => ipcRenderer.invoke('grokProxy:stats', query),
+    models: (force) => ipcRenderer.invoke('grokProxy:models', force === true),
+    clearLogs: () => ipcRenderer.invoke('grokProxy:clearLogs'),
+    test: () => ipcRenderer.invoke('grokProxy:test')
+  },
+
   // ===== 終端機 =====
   // shell 與啟動指令都只傳 key（執行檔路徑在 main 的固定表）；工作目錄一律走系統對話框。
   terminal: {

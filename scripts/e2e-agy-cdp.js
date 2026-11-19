@@ -496,7 +496,7 @@ async function main() {
       return {
         exists: !!list,
         empty: !!list?.querySelector('.agy-models-empty'),
-        rows: document.querySelectorAll('#agyModelsList .agy-model-row').length
+        rows: document.querySelectorAll('#agyModelsList .agy-model-line').length
       }
     })()`)
     if (!panelIdle.exists) fail('找不到模型面板 #agyModelsList')
@@ -508,7 +508,11 @@ async function main() {
       const button = document.getElementById('agyModelsRefreshBtn')
       if (button.disabled) return null
       return {
-        rows: [...document.querySelectorAll('#agyModelsList .agy-model-id')].map((n) => n.textContent),
+        rows: [...document.querySelectorAll('#agyModelsList .agy-model-name')].map((n) => n.textContent),
+        // 每顆模型一列，檔位 chip 的 aria-label 帶完整 ID
+        lines: [...document.querySelectorAll('#agyModelsList .agy-model-line')].map((line) => (
+          [...line.querySelectorAll('.agy-model-variant')].map((n) => n.getAttribute('aria-label').replace('複製模型 ID ', ''))
+        )),
         meta: document.getElementById('agyModelsMeta')?.textContent || '',
         empty: !!document.querySelector('.agy-models-empty'),
         help: (() => {
@@ -525,20 +529,20 @@ async function main() {
     if (panel.rows.length) {
       pass(`列出 ${panel.rows.length} 個可用模型`)
       const { compareModelIds } = require(path.join(__dirname, '..', 'src', 'main', 'agy', 'catalog'))
-      const disordered = panel.rows.some((id, index) => (
-        index > 0 && compareModelIds(panel.rows[index - 1], id) > 0
-      ))
-      if (!disordered) pass('可用模型由新到舊、同代依思考強度排序')
-      else fail(`模型未依名稱排序：${panel.rows.join(', ')}`)
+      const disordered = panel.lines.find((ids) => ids.some((id, index) => (
+        index > 0 && compareModelIds(ids[index - 1], id) > 0
+      )))
+      if (!disordered) pass('同一顆模型的檔位依思考強度高到低排')
+      else fail(`檔位未依強度排序：${disordered.join(', ')}`)
       if (/\d/.test(panel.meta)) pass('meta 有顯示數量')
       else fail(`meta 沒有數量：${panel.meta}`)
 
       const toggled = await cdp.eval(`(() => {
-        const before = document.querySelectorAll('#agyModelsList .agy-model-row').length
+        const before = document.querySelectorAll('#agyModelsList .agy-model-line').length
         const toggle = document.getElementById('agyModelsShowAll')
         toggle.checked = true
         toggle.dispatchEvent(new Event('change', { bubbles: true }))
-        const after = document.querySelectorAll('#agyModelsList .agy-model-row').length
+        const after = document.querySelectorAll('#agyModelsList .agy-model-line').length
         toggle.checked = false
         toggle.dispatchEvent(new Event('change', { bubbles: true }))
         return { before, after }
@@ -547,7 +551,7 @@ async function main() {
       else fail(`顯示全部反而變少：${toggled.before} → ${toggled.after}`)
 
       const copyable = await cdp.eval(`(() => {
-        const first = document.querySelector('#agyModelsList .agy-model-id')
+        const first = document.querySelector('#agyModelsList .agy-model-name')
         return { tag: first?.tagName, label: first?.getAttribute('aria-label') || '' }
       })()`)
       if (copyable.tag === 'BUTTON') pass('模型 ID 本身就是複製鈕')

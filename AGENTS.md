@@ -200,6 +200,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 | 終端機 | `test-terminal*.js` `test-term-agent.js` `test-claude-hooks.js` `e2e-terminal-cdp.js`；宿主 `probe-terminal-restart.js` `probe-terminal-host-version.js`；IME `probe-terminal-ime.js` |
 | CC Proxy／閘道 | `test-ccswitch*.js` `e2e-ccswitch-cdp.js`；真上游 `probe-ccswitch-*.js` |
 | AGY | `test-agy-mappers.js` `e2e-agy.js` `e2e-agy-cdp.js` `probe-agy-upstream.js` |
+| Grok 反代 | `test-grok-proxy.js` |
 | 用量／額度 | `test-code-usage.js` `test-usage.js` `test-claude-auth.js` `e2e-usage-cdp.js`；`probe-usage-native-parity.js` |
 | 系統監控 | `test-sysmon*.js` `e2e-sysmon-cdp.js` `e2e-sysmon-disk-cdp.js` `cargo test` |
 | 語音／ASR | `test-dictation.js` `e2e-dictation.js` `test-stt-archive.js` `test-live-pipeline.js` `test-vad.js` `e2e-stt-cdp.js` `e2e-stt-compact-cdp.js` `e2e-recorder-cdp.js`；真模型 `probe-live-asr.js` |

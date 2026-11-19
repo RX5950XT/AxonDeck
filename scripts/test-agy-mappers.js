@@ -769,5 +769,33 @@ test('Gemini 思考強度：high > medium > tiered > low > extra-low > lite', ()
   ])
 })
 
+test('Gemini 4 同代照上游推薦排模型線、檔位相鄰，停用的不能對話', () => {
+  const entry = { maxTokens: 1_048_576, maxOutputTokens: 262_144 }
+  const { models } = catalog.parseCatalog({
+    models: {
+      'gemini-4-hydrogen-low': entry,
+      'gemini-4-argon-high': entry,
+      'gemini-4-neon-high': entry,
+      'gemini-4-hydrogen-xhigh': entry,
+      'gemini-4-neon-xhigh': entry,
+      'gemini-4-carbon-disabled': { ...entry, disabled: true }
+    },
+    agentModelSorts: [{ groups: [{ modelIds: ['gemini-4-neon-high', 'gemini-4-argon-high', 'gemini-4-hydrogen-high'] }] }]
+  })
+  assert.deepStrictEqual(models.map((row) => row.id), [
+    'gemini-4-neon-xhigh',
+    'gemini-4-neon-high',
+    'gemini-4-argon-high',
+    'gemini-4-hydrogen-xhigh',
+    'gemini-4-hydrogen-low',
+    'gemini-4-carbon-disabled'
+  ])
+  const byId = Object.fromEntries(models.map((row) => [row.id, row]))
+  assert.deepStrictEqual([byId['gemini-4-neon-xhigh'].line, byId['gemini-4-neon-xhigh'].variant], ['gemini-4-neon', 'xhigh'])
+  assert.strictEqual(byId['gemini-4-argon-high'].pool, 'argon')
+  assert.strictEqual(byId['gemini-4-neon-high'].pool, 'gemini')
+  assert.strictEqual(byId['gemini-4-carbon-disabled'].chatCapable, false)
+})
+
 console.log(`\n${passed} passed, ${failures.length} failed\n`)
 if (failures.length) process.exit(1)

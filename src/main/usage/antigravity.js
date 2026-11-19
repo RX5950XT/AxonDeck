@@ -130,13 +130,24 @@ function parseQuotaSummary(summary, slots = new Map()) {
   return slots
 }
 
-function parseModelsFallback(modelsResponse, slots = new Map()) {
+/**
+ * 單模型 quotaInfo 是「目前卡住它的那一道」：Gemini 平常回 5 小時，
+ * Claude／GPT 每週用掉一半後改回每週（2026-11-19 實測）。看重置時間離現在多遠才分得出是哪道。
+ */
+function fallbackSlot(resetAt, nowMs) {
+  const resetMs = Date.parse(resetAt)
+  return Number.isFinite(resetMs) && resetMs - nowMs > 6 * 60 * 60 * 1000 ? 'weekly' : '5h'
+}
+
+function parseModelsFallback(modelsResponse, slots = new Map(), nowMs = Date.now()) {
   const models = modelsResponse?.models
   if (!models || typeof models !== 'object' || Array.isArray(models)) return slots
   const fallback = new Map()
   for (const [name, model] of Object.entries(models)) {
-    // Argon 的 quotaInfo 是它自己的每週池，不能當 Gemini 5 小時的備援
-    const family = name.startsWith('claude')
+    // Argon 的 quotaInfo 是它自己的每週池，不能當 Gemini 池的備援；
+    // 停用的（gemini-4-carbon-disabled，Ultra 限定）沒有額度可言
+    if (model?.disabled === true) continue
+    const family = name.startsWith('claude') || name.startsWith('gpt-oss')
       ? 'claude'
       : name.startsWith('gemini') && !name.includes('argon')
         ? 'gemini'
@@ -146,7 +157,7 @@ function parseModelsFallback(modelsResponse, slots = new Map()) {
     upsertSlot(
       fallback,
       family,
-      '5h',
+      fallbackSlot(model?.quotaInfo?.resetTime, nowMs),
       Number.isFinite(remaining) ? remaining : 0,
       model?.quotaInfo?.resetTime
     )
@@ -171,12 +182,12 @@ function windowsFromSlots(slots) {
 function applyAntigravityQuota({ summary, models, tier, nowMs }) {
   const account = createBaseAccount('antigravity', nowMs)
   const slots = parseQuotaSummary(summary)
-  parseModelsFallback(models, slots)
+  parseModelsFallback(models, slots, nowMs)
   account.status = 'available'
   account.accuracy = 'official'
   account.planName = tier ? `Antigravity ${String(tier).slice(0, 120)}` : 'Antigravity'
   // 上游口徑：同池模型共用 5 小時與每週兩道上限，依 token 成本比例扣（貴的模型扣得快）
-  account.notes = '已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini 與 Claude／GPT 各一池，依 token 成本比例扣 5 小時與每週額度；Pro 方案的 Gemini 4 Argon 另有獨立每週額度。'
+  account.notes = '已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini（4 Neon、4 Hydrogen、3.8 Flash）與 Claude／GPT 各一池，依 token 成本比例扣 5 小時與每週額度；Pro 方案的 Gemini 4 Argon 另有獨立每週額度。'
   account.windows = windowsFromSlots(slots)
   if (!account.windows.length) {
     account.status = 'connected'

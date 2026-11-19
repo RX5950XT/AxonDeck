@@ -59,8 +59,16 @@ function parseCatalog(payload) {
     // 型錄列著但實際 404 的，當作淘汰；我們的替代優先（上游的替代目標本身也可能已 404）
     const retired = RETIRED_MODELS[id]
     const replacement = retired ? { newModelId: retired } : deprecated[id]
+    const { line, variant } = splitVariant(id)
     return {
       id,
+      line,
+      variant,
+      // Claude／GPT、Gemini 兩池；Pro 方案的 Argon 另有獨立每週額度（Ultra 併在 Gemini 池）
+      pool: /argon/i.test(id) ? 'argon' : poolRank(parseModelId(id).family) === 0 ? 'claude' : 'gemini',
+      // 型錄列著但方案用不了（gemini-4-carbon-disabled 只給 Ultra，生成回 404，2026-11-19 實測）
+      disabled: entry.disabled === true,
+      note: typeof entry.tagDescription === 'string' ? entry.tagDescription.slice(0, 200) : '',
       maxTokens: num(entry.maxTokens),
       maxOutputTokens: num(entry.maxOutputTokens),
       provider: typeof entry.modelProvider === 'string'
@@ -77,7 +85,8 @@ function parseCatalog(payload) {
   })
 
   for (const model of models) model.chatCapable = isChatCapable(model)
-  models.sort((a, b) => compareModelIds(a.id, b.id))
+  const lineRank = recommendedLineRank(payload)
+  models.sort((a, b) => compareModelIds(a.id, b.id, lineRank))
 
   return {
     models,
@@ -90,7 +99,44 @@ function parseCatalog(payload) {
  * @returns {boolean}
  */
 function isChatCapable(model) {
-  return model.maxTokens >= CHAT_MIN_CONTEXT && model.maxOutputTokens > 0
+  return !model.disabled && model.maxTokens >= CHAT_MIN_CONTEXT && model.maxOutputTokens > 0
+}
+
+/**
+ * 同一顆模型的檔位後綴。`-tiered-high` 要整段剝掉，`-lite` 不算（Flash-Lite 是另一顆模型）。
+ */
+const VARIANT_RE = /-((?:tiered-)?(?:extra-low|low|medium|x?high)|tiered|sonar|thinking|agent)$/i
+
+/**
+ * @param {string} id
+ * @returns {{ line: string, variant: string }} line 是模型本體（gemini-4-neon），variant 是檔位（xhigh）；沒有檔位時 variant 為空
+ */
+function splitVariant(id) {
+  const text = String(id || '')
+  const matched = VARIANT_RE.exec(text)
+  return matched
+    ? { line: text.slice(0, matched.index), variant: matched[1].toLowerCase() }
+    : { line: text, variant: '' }
+}
+
+/**
+ * 上游 `agentModelSorts` 的推薦順序（Neon → Argon → Hydrogen → 3.8 Flash…），換算成每條模型線的名次。
+ * 同世代的模型線照這個排，不照字母（字母會把 Argon 排在 Neon 前面）。
+ * @param {object} payload
+ * @returns {Map<string, number>}
+ */
+function recommendedLineRank(payload) {
+  const rank = new Map()
+  const sorts = Array.isArray(payload?.agentModelSorts) ? payload.agentModelSorts : []
+  for (const sort of sorts) {
+    for (const group of Array.isArray(sort?.groups) ? sort.groups : []) {
+      for (const id of Array.isArray(group?.modelIds) ? group.modelIds : []) {
+        const { line } = splitVariant(id)
+        if (typeof id === 'string' && !rank.has(line)) rank.set(line, rank.size)
+      }
+    }
+  }
+  return rank
 }
 
 const FAMILY_RE = /^(gemini|claude|gpt-oss|gpt_oss)[-_]?(.*)$/i
@@ -113,9 +159,11 @@ function poolRank(family) {
  */
 const INTENSITY_TOKENS = [
   ['extra-low', 20],
+  // tiered 要先於 high／xhigh：`tiered-high` 是自動分級，不是固定的 high
+  ['tiered', 70],
+  ['xhigh', 110],
   ['high', 100],
   ['medium', 80],
-  ['tiered', 70],
   ['thinking', 65],
   ['agent', 60],
   ['low', 50],
@@ -137,30 +185,18 @@ function intensityRank(rest) {
 
 /**
  * @param {string} id
- * @returns {{ pool: number, family: string, version: number[] | null, rest: string, intensity: number }}
+ * @returns {{ pool: number, family: string, version: number[] | null }}
  */
 function parseModelId(id) {
   const lower = String(id || '').toLowerCase()
   const matched = FAMILY_RE.exec(lower)
-  if (!matched) {
-    return { pool: 2, family: lower, version: null, rest: lower, intensity: intensityRank(lower) }
-  }
+  if (!matched) return { pool: 2, family: lower, version: null }
   const family = matched[1].replace('_', '-')
-  let rest = matched[2]
-  let version = null
-  const ver = /(\d+(?:[.-]\d+)*)/.exec(rest)
-  if (ver) {
-    version = ver[1].split(/[.-]/).map(Number)
-    rest = `${rest.slice(0, ver.index)}${rest.slice(ver.index + ver[1].length)}`
-      .replace(/^[-_]+|[-_]+$/g, '')
-      .replace(/[-_]{2,}/g, '-')
-  }
+  const ver = /(\d+(?:[.-]\d+)*)/.exec(matched[2])
   return {
     pool: poolRank(family),
     family,
-    version,
-    rest,
-    intensity: intensityRank(rest)
+    version: ver ? ver[1].split(/[.-]/).map(Number) : null
   }
 }
 
@@ -185,21 +221,33 @@ function compareVersionDesc(a, b) {
 }
 
 /**
- * 額度池分開後，世代由新到舊；Gemini 同代再依思考強度高→低。
+ * 額度池分開後，世代由新到舊；同世代先把同一顆模型的檔位排在一起
+ * （照上游推薦順序，沒列到的照名字），再依思考強度高→低。
  * `3.10` 必須排在 `3.2` 前面，`gemini-pro-agent` 沒有世代號放最後。
  * @param {string} a
  * @param {string} b
+ * @param {Map<string, number>} [lineRank] `recommendedLineRank` 的結果
  * @returns {number}
  */
-function compareModelIds(a, b) {
+function compareModelIds(a, b, lineRank) {
   const pa = parseModelId(a)
   const pb = parseModelId(b)
   if (pa.pool !== pb.pool) return pa.pool - pb.pool
   if (pa.family !== pb.family) return pa.family.localeCompare(pb.family)
   const version = compareVersionDesc(pa.version, pb.version)
   if (version) return version
-  if (pa.intensity !== pb.intensity) return pb.intensity - pa.intensity
-  return pa.rest.localeCompare(pb.rest, 'en', { numeric: true })
+  const la = splitVariant(String(a || '').toLowerCase())
+  const lb = splitVariant(String(b || '').toLowerCase())
+  if (la.line !== lb.line) {
+    const ra = lineRank?.get(la.line) ?? Infinity
+    const rb = lineRank?.get(lb.line) ?? Infinity
+    if (ra !== rb) return ra - rb
+    return la.line.localeCompare(lb.line, 'en', { numeric: true })
+  }
+  const ia = intensityRank(la.variant)
+  const ib = intensityRank(lb.variant)
+  if (ia !== ib) return ib - ia
+  return la.variant.localeCompare(lb.variant, 'en', { numeric: true })
 }
 
 /**

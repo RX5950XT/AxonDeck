@@ -8888,53 +8888,107 @@ h6.md-h { font-size: 14px; }
   text-align: center;
 }
 
+/* 依額度池分組，一顆模型一列、檔位收成 chip：同一顆模型四個檔位不再佔四張卡 */
 .agy-models-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.agy-model-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
+.agy-model-group {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background-color: var(--bg-secondary);
+  overflow: hidden;
 }
 
-.agy-model-row.is-internal {
+.agy-model-group-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.agy-model-group-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+}
+
+.agy-model-line {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 6px 3px 6px;
+}
+
+.agy-model-line + .agy-model-line {
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+}
+
+.agy-model-line.is-internal {
   opacity: 0.6;
 }
 
-/* 整個 ID 就是複製鈕：一鍵複製的目標要夠大，不要縮成一個小圖示 */
-.agy-model-id {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 4px;
+.agy-model-name,
+.agy-model-variant {
   border: none;
   border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.agy-model-name {
+  min-width: 0;
+  padding: 2px 4px;
   background: none;
   color: var(--text-primary);
-  font-family: var(--font-mono);
   font-size: 12px;
   text-align: left;
-  cursor: pointer;
   overflow-wrap: anywhere;
 }
 
-.agy-model-id:hover {
-  background-color: var(--bg-tertiary);
+.agy-model-variants {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.agy-model-tags {
+.agy-model-variant {
+  padding: 1px 7px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.agy-model-name:hover,
+.agy-model-variant:hover {
+  background-color: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.agy-model-name:focus-visible,
+.agy-model-variant:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.agy-model-variant.is-deprecated {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.agy-model-meta {
   display: flex;
   gap: 5px;
   align-items: center;
-  flex: none;
-  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
@@ -8963,25 +9017,19 @@ h6.md-h { font-size: 14px; }
   background-color: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
-@media (max-width: 900px) {
-  .agy-models-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (max-width: 640px) {
   .agy-models-meta {
     margin-left: 0;
     flex-basis: 100%;
   }
 
-  .agy-model-row {
-    flex-direction: column;
-    align-items: flex-start;
+  .agy-model-line {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .agy-model-tags {
-    justify-content: flex-start;
+  .agy-model-variants {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 

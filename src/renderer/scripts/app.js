@@ -30,6 +30,8 @@ let transcribePage = null
 let quotaBar = null
 /** @type {typeof import('./agy-page.js') | null} */
 let agyPage = null
+/** @type {typeof import('./grok-proxy-page.js') | null} */
+let grokProxyPage = null
 /** @type {typeof import('./terminal-page.js') | null} */
 let terminalPage = null
 /** @type {typeof import('./stt-page.js') | null} */
@@ -79,6 +81,12 @@ async function loadQuotaBar() {
 async function loadAgyPage() {
   if (!agyPage) agyPage = await import('./agy-page.js')
   return agyPage
+}
+
+/** @returns {Promise<typeof import('./grok-proxy-page.js')>} */
+async function loadGrokProxyPage() {
+  if (!grokProxyPage) grokProxyPage = await import('./grok-proxy-page.js')
+  return grokProxyPage
 }
 
 /** @type {typeof import('./workspace-page.js') | null} */
@@ -1151,6 +1159,7 @@ export function switchPage(pageName, subtab = '') {
     loadSettingsForm({ keepDraft: settingsDirty })
     // 上次停在 AGY 反代那一區，回來要接著輪詢
     if (document.querySelector('#set-agy.active')) void loadAgyPage().then((m) => m.refreshAgyPage())
+    if (document.querySelector('#set-grok.active')) void loadGrokProxyPage().then((m) => m.refreshGrokProxyPage())
   }
   cooldownPage(pageName)
   noteLocation()
@@ -1163,6 +1172,7 @@ function cooldownPage(pageName = '') {
   if (pageName !== 'sysmon') sysmonPage?.cooldownSysmonPage()
   // AGY 反代在設定頁裡：離開設定頁就收它的輪詢
   if (pageName !== 'settings') agyPage?.cooldownAgyPage()
+  if (pageName !== 'settings') grokProxyPage?.cooldownGrokProxyPage()
   // **離開 HF模型頁不關 router**：聊天要用它，關掉等於每次切頁都把模型卸載一次。
   // 這裡只收自己的計時器。
   if (pageName !== 'explorer') explorerPage?.cooldownExplorerPage()
@@ -1171,7 +1181,7 @@ function cooldownPage(pageName = '') {
 
 /**
  * 供聊天／翻譯頁的「前往設定」呼叫。
- * @param {'cloud'|'basic'|'appearance'|'cli'|'agy'|'install'} [section]
+ * @param {'cloud'|'basic'|'appearance'|'cli'|'agy'|'grok'|'install'} [section]
  */
 export function openSettingsPage(section = 'cloud') {
   if (pageOwner && pageOwner !== 'settings') return navigateToPage({ page: 'settings', subtab: section })
@@ -1202,6 +1212,8 @@ function activateSettingsSection(target) {
   if (target === 'cli') void loadCcSwitchPage().then((mod) => mod.refreshVersionsSection())
   if (target === 'agy') void loadAgyPage().then((mod) => mod.refreshAgyPage())
   else agyPage?.cooldownAgyPage()
+  if (target === 'grok') void loadGrokProxyPage().then((mod) => mod.refreshGrokProxyPage())
+  else grokProxyPage?.cooldownGrokProxyPage()
 }
 
 /**

@@ -18,6 +18,15 @@ const UPSTREAM_MODELS = Object.freeze([
   'claude-sonnet-5-5-high',
   'claude-sonnet-5-5-medium',
   'claude-sonnet-5-5-low',
+  // 2026-11-19 實測（sandbox 200）：Neon 是上游預設 agent 模型，Neon／Hydrogen 都在 Gemini 池
+  'gemini-4-neon-xhigh',
+  'gemini-4-neon-high',
+  'gemini-4-neon-medium',
+  'gemini-4-neon-low',
+  'gemini-4-hydrogen-xhigh',
+  'gemini-4-hydrogen-high',
+  'gemini-4-hydrogen-medium',
+  'gemini-4-hydrogen-low',
   // Pro 方案是獨立每週額度，Ultra 併在 Gemini 池；要報 agy CLI 的 User-Agent 才給（見 usage/antigravity.js）
   'gemini-4-argon-high',
   'gemini-4-argon-medium',
@@ -106,6 +115,8 @@ const EXACT_MAP = Object.freeze({
   'claude-sonnet-5-5': SONNET,
   'claude-opus-5-5': OPUS,
   'gemini-4-argon': 'gemini-4-argon-medium',
+  'gemini-4-neon': 'gemini-4-neon-medium',
+  'gemini-4-hydrogen': 'gemini-4-hydrogen-medium',
   // Claude Haiku（上游沒有對應的小模型，一律走 Sonnet）
   'claude-haiku-4': SONNET,
   'claude-haiku-4-5-20251001': SONNET,

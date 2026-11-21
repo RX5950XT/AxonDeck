@@ -2939,6 +2939,8 @@ app.whenReady().then(() => {
     forceClose: () => sessionEnding,
     reveal: (file) => void revealInFiles(file)
   })
+  // 網站要 HTTP 帳密時跳登入小窗（沒接的話 Electron 直接取消、網頁只看到 401）
+  require('./http-auth-prompt').install(app, { icon: APP_ICON, theme: () => store?.get('theme') || 'dark' })
   browserWindow.configure({
     isDev,
     icon: APP_ICON,

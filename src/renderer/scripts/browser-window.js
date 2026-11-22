@@ -53,3 +53,11 @@ $('bwUrl').addEventListener('keydown', (event) => {
   const href = isSearch ? `https://www.google.com/search?udm=50&aep=11&q=${encodeURIComponent(text)}` : safeUrl(text)
   if (href) void api.navigate('go', href)
 })
+api.onShortcut?.((action) => {
+  if (action === 'focus-url') {
+    $('bwUrl').focus()
+    $('bwUrl').select()
+  } else if (action === 'close-tab') {
+    window.close()
+  }
+})

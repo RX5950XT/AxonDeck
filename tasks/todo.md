@@ -1,5 +1,5 @@
 # AxonDeck todo
-最後更新：2026-11-19
+最後更新：2026-11-22
 
 > 交接、現況、待辦都在本檔（嚴格 ≤100 行）；規則與地雷見 [AGENTS.md](../AGENTS.md)，判斷原則見 [lessons.md](./lessons.md)，功能說明見 README。壓縮前的完整歷史：`git log -- CONTEXT.md tasks/todo.md`。
 
@@ -28,7 +28,7 @@
 
 ### 各模組重點決策（細節查 git log 與 AGENTS 地雷）
 - 網頁版 AI：分區 `persist:ai-<site>`，`setupSession` 偽裝 Chrome；Grok 借 Edge／Chrome 拿 `cf_clearance`，其他看到 challenge 改回原 UA 重載。閒置 1 小時釋放 webview（有草稿／生成中／上翻／出聲不收）；`pollAiWebStatus` 抓停止鈕；`installRenderBoost` 先量高度再加 `content-visibility`。
-- 內建瀏覽器：最近 2 顆 `.webview-warm` 透明疊放（display:none 丟圖塊），背景 1 小時 `sleepIdle`。擴充功能只限 `persist:wsbrowser`，商店頁自補 `webstorePrivate`／`management`（要定義成不可改）；快速鍵 `crx-commands.js`；管理頁 `axon-extensions://`。
+- 內建瀏覽器：最近 2 顆 `.webview-warm` 透明疊放（display:none 丟圖塊），背景 1 小時 `sleepIdle`。擴充功能只限 `persist:wsbrowser`，商店頁自補 `webstorePrivate`／`management`（要定義成不可改）；擴充快速鍵 `crx-commands.js`、網頁與外殼快捷鍵 `browser-shortcuts.js`（含頁內尋找／縮放）；管理頁 `axon-extensions://`（「我的擴充功能」與「鍵盤快速鍵」獨立兩頁）。
 - 工作區：檔案樹與檔案頁共用剪貼簿（`pasteAny` 比系統剪貼簿簽章），拖曳走 `explorer.startDrag`。AI 記錄五家（OpenCode 2 讀 `session_v2`，用量兩表合讀）。終端機 PTY 在獨立宿主，重開只斷線；WebGL 最多 8 個，不可切走就 dispose。
 - 編輯器：一檔一窗、存檔帶 mtime、暫存檔再 rename；>256MB 唯讀分段；HTML 預覽走不開 CORS 的 `vi-preview://`；改 `editor-formats.json` 要重編 `axondeck-media.exe` 並升 marker（現在 '4'）。
 - 檔案頁：>300 項改 Rust `list-dir`；縮圖 mpv／magick＋`thumb-cache`（512 MB）；預設關聯寫 UserChoice＋Latest Hash，備份在 `association-backups/`。

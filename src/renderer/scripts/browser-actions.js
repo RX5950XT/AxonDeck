@@ -12,9 +12,29 @@
  *   extensionActivate: (guestId: number, extensionId: string, anchor: object) => Promise<unknown>,
  *   extensionsMenu: (guestId: number | null, anchor: object, extensionId?: string) => Promise<unknown>,
  *   onExtensionsChanged: (callback: () => void) => unknown,
- *   onExtensionCommand?: (callback: (extensionId: string, guestId: number | null) => void) => unknown
+ *   onExtensionCommand?: (callback: (extensionId: string, guestId: number | null) => void) => unknown,
+ *   extensionShortcuts?: () => Promise<string[]>,
+ *   extensionRunShortcut?: (guestId: number, input: object) => Promise<boolean>
  * }} ActionsApi
  */
+
+const CODE_KEYS = {
+  Comma: 'Comma', Period: 'Period', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Space: 'Space',
+  Insert: 'Insert', Delete: 'Delete', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+  MediaTrackNext: 'MediaNextTrack', MediaPlayPause: 'MediaPlayPause', MediaTrackPrevious: 'MediaPrevTrack', MediaStop: 'MediaStop'
+}
+const MEDIA_KEYS = new Set(['MediaNextTrack', 'MediaPlayPause', 'MediaPrevTrack', 'MediaStop'])
+
+/** @param {KeyboardEvent} event */
+function shortcutFromEvent(event) {
+  if (event.metaKey) return ''
+  const code = String(event.code || '')
+  const key = CODE_KEYS[code] || /^Key([A-Z])$/.exec(code)?.[1] || /^Digit(\d)$/.exec(code)?.[1] || ''
+  if (!key) return ''
+  if (MEDIA_KEYS.has(key)) return (event.ctrlKey || event.altKey || event.shiftKey) ? '' : key
+  if (event.ctrlKey === event.altKey) return ''
+  return [event.ctrlKey && 'Ctrl', event.altKey && 'Alt', event.shiftKey && 'Shift', key].filter(Boolean).join('+')
+}
 
 /**
  * @param {HTMLElement | null} host
@@ -26,16 +46,25 @@ export function createBrowserActions(host, guestId, api = window.electronAPI?.wo
   if (!host || !api) return () => {}
   let timer = 0
   let seq = 0
+  /** @type {Set<string>} */
+  let shortcuts = new Set()
 
   async function paint() {
     const mine = ++seq
     let rows = []
+    let nextShortcuts = []
     try {
-      rows = await api.extensionActions(guestId())
+      const [nextRows, nextList] = await Promise.all([
+        api.extensionActions(guestId()),
+        api.extensionShortcuts ? api.extensionShortcuts().catch(() => []) : Promise.resolve([])
+      ])
+      rows = nextRows
+      nextShortcuts = nextList
     } catch (error) {
       console.error('[browser-actions] 讀不到擴充功能:', error)
     }
     if (mine !== seq || !host) return // 等的時候又換了分頁，用較新那次
+    shortcuts = new Set(Array.isArray(nextShortcuts) ? nextShortcuts : [])
     const order = readOrder()
     const rank = (row) => (order.includes(row.id) ? order.indexOf(row.id) : order.length) // 沒排過的接在後面
     rows = [...rows].sort((a, b) => rank(a) - rank(b))
@@ -58,6 +87,26 @@ export function createBrowserActions(host, guestId, api = window.electronAPI?.wo
     // 沒釘選（或圖示列整個藏起來）就從旁邊的 🧩 彈出
     void api.extensionActivate(id, extensionId, anchorOf(btn || (host.hidden && host.nextElementSibling) || host))
   })
+  // 焦點在外層工具列／網址列時也要吃得到擴充功能快速鍵（沒釘選時 host 會 hidden，所以看父層工具列是否可見）
+  document.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.keyCode === 229 || event.repeat || event.metaKey || !shortcuts.size) return
+    const bar = host.parentElement
+    if (!host.isConnected || !bar || bar.offsetParent === null || bar.closest('[hidden], .hidden, .is-parked, [inert]')) return
+    if (document.querySelector('dialog[open]')) return
+    const key = shortcutFromEvent(event)
+    if (!key || !shortcuts.has(key)) return
+    const id = guestId()
+    if (id == null) return
+    event.preventDefault()
+    event.stopPropagation()
+    void api.extensionRunShortcut?.(id, {
+      code: event.code,
+      control: event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey,
+      meta: event.metaKey
+    })
+  }, true)
   refresh()
   return refresh
 }

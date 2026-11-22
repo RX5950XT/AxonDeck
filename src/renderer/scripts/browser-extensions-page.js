@@ -5,6 +5,21 @@ let selected = params.get('extension') || '', rows = [], busy = false, removing 
 let view = params.get('view') === 'shortcuts' ? 'shortcuts' : 'list', recording = null
 const list = document.getElementById('extensionList'), detail = document.getElementById('detail'), status = document.getElementById('status')
 const listView = document.getElementById('listView'), shortcutView = document.getElementById('shortcutView')
+const headerActions = document.getElementById('headerActions'), pageTitle = document.getElementById('pageTitle')
+function syncPageMeta() {
+  const isShortcuts = view === 'shortcuts'
+  if (headerActions) headerActions.hidden = isShortcuts
+  if (pageTitle) pageTitle.textContent = isShortcuts ? '鍵盤快速鍵' : '擴充功能'
+  document.title = isShortcuts ? '鍵盤快速鍵 — AxonDeck' : '擴充功能 — AxonDeck'
+  const url = new URL(location.href)
+  if (isShortcuts) {
+    url.searchParams.set('view', 'shortcuts')
+    if (!url.searchParams.get('extension')) url.searchParams.delete('extension')
+  } else {
+    url.searchParams.delete('view')
+  }
+  if (url.href !== location.href) history.replaceState(null, '', url)
+}
 function message(text, error = false) { status.textContent = text; status.classList.toggle('error', error) }
 function button(text, action, disabled = false) {
   const el = document.createElement('button'); el.type = 'button'; el.textContent = text; el.disabled = disabled || busy
@@ -79,6 +94,7 @@ document.addEventListener('pointerdown', (event) => {
   if (field) { field.textContent = field.dataset.label; field.classList.remove('recording'); field.classList.toggle('empty', field.dataset.label === '未設定') }
 }, true)
 function paint() {
+  syncPageMeta()
   document.querySelectorAll('.header-actions button').forEach((el) => { el.disabled = busy })
   listView.hidden = view !== 'list'; shortcutView.hidden = view !== 'shortcuts'
   document.querySelectorAll('[data-view]').forEach((el) => el.setAttribute('aria-selected', String(el.dataset.view === view)))
@@ -128,7 +144,7 @@ document.getElementById('checkUpdates').addEventListener('click', async () => {
   finally { busy = false; paint() }
 })
 document.querySelectorAll('[data-view]').forEach((el) => el.addEventListener('click', () => {
-  view = el.dataset.view; recording = null; paint()
+  view = el.dataset.view; removing = ''; recording = null; paint()
   message(view === 'shortcuts' ? '按下按鍵欄位即可改快速鍵' : '選擇套件可查看詳細設定')
 }))
 document.getElementById('openStore').addEventListener('click', () => { void api.store().then((result) => { if (!result.ok) message('商店開啟失敗', true) }) })

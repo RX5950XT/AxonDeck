@@ -1,4 +1,5 @@
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; padding: 24px; background: var(--app-bg); color: var(--text-primary); font: 14px/1.6 'Segoe UI', 'Microsoft JhengHei', sans-serif; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }

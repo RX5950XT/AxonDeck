@@ -614,7 +614,11 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
       return [{ label: target.name, enabled: false }, { type: 'separator' }, ...extensionSubmenu(target, { tab, anchor, notify }),
         { type: 'separator' }, { label: '管理擴充功能…', click: () => manager.open('', tab).catch(() => notify('開分頁失敗')) }]
     }
-    const items = [{ label: '管理擴充功能…', click: () => manager.open('', tab).catch(() => notify('開分頁失敗')) }, { type: 'separator' }]
+    const items = [
+      { label: '管理擴充功能…', click: () => manager.open('', tab).catch(() => notify('開分頁失敗')) },
+      { label: '鍵盤快速鍵…', click: () => manager.open('', tab, 'shortcuts').catch(() => notify('開分頁失敗')) },
+      { type: 'separator' }
+    ]
     if (tab && openCompatible && /^https?:\/\//.test(tab.getURL())) items.push({ label: '在無套件相容視窗開啟此頁', click: () => openCompatible(tab.getURL(), tab.getTitle()) }, { type: 'separator' })
     if (storeId) {
       items.push({
@@ -657,7 +661,10 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
   }
 
   return { loadInstalled, ensureDefaults, install, installLocal, remove, list, attachTab, menuItems, contextMenuItems, activate, actions, checkUpdates, startAutoUpdate,
-    change, openInternalUrl }
+    change, openInternalUrl,
+    hasCommandShortcut: (input, url) => commands.hasLocalShortcut(input, url),
+    localShortcuts: () => commands.localShortcuts(),
+    triggerShortcut: (input, tab) => commands.trigger(input, tab) }
 }
 
 module.exports = { createBrowserExtensions, storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml, STORE_HOME }

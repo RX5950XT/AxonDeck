@@ -84,12 +84,27 @@ async function main() {
   assert.equal(keyOf(BW, other.name), '')
   console.log('PASS 全域登記成功、清除後變未設定')
 
-  // 管理頁：鍵盤快速鍵分頁 → 點 Bitwarden 開 popup 那格 → 按 Alt+Shift+B
+  // 管理頁：鍵盤快速鍵分頁與我的擴充功能互不疊加 → 切頁同步標題／網址／動作鈕 → 點 Bitwarden 開 popup 那格 → 按 Alt+Shift+B
   await browser.openUrl('axon-extensions://manager/pages/browser-extensions.html?view=shortcuts&theme=dark')
   const manager = browser.tabs[1].webContents
   browser.tabs[1].showInactive()
   const mjs = (code) => manager.executeJavaScript(code, true)
   await wait(() => mjs('document.querySelectorAll(".shortcut-card").length >= 2'), '快速鍵卡片')
+  assert.deepEqual(await mjs('({ list: document.getElementById("listView").offsetHeight, actions: document.getElementById("headerActions").offsetHeight, shortcuts: document.getElementById("shortcutView").offsetHeight, title: document.title })'),
+    { list: 0, actions: 0, shortcuts: await mjs('document.getElementById("shortcutView").offsetHeight'), title: '鍵盤快速鍵 — AxonDeck' }, '鍵盤快速鍵頁與套件管理頁獨立顯示')
+  assert.ok((await mjs('document.getElementById("shortcutView").offsetHeight')) > 0)
+  await mjs(`document.querySelector('[data-view="list"]').click(); true`)
+  await wait(() => mjs('!!document.querySelector("#detail input")'), '切回我的擴充功能')
+  assert.equal(await mjs('document.getElementById("shortcutView").offsetHeight'), 0, '切回我的擴充功能時快速鍵頁要藏起來')
+  assert.ok((await mjs('document.getElementById("listView").offsetHeight')) > 0)
+  assert.ok((await mjs('document.getElementById("headerActions").offsetHeight')) > 0)
+  assert.equal(await mjs('document.title'), '擴充功能 — AxonDeck')
+  assert.equal(await mjs('new URL(location.href).searchParams.has("view")'), false)
+  await mjs(`document.querySelector('[data-view="shortcuts"]').click(); true`)
+  await wait(() => mjs('document.querySelectorAll(".shortcut-card").length >= 2'), '切回快速鍵卡片')
+  assert.equal(await mjs('new URL(location.href).searchParams.get("view")'), 'shortcuts')
+  assert.equal(await mjs('document.getElementById("listView").offsetHeight'), 0)
+  assert.ok((await mjs('document.getElementById("shortcutView").offsetHeight')) > 0)
   await mjs(`[...document.querySelectorAll('.shortcut-card')].find((c) => c.textContent.includes('Bitwarden')).querySelector('.shortcut-key').click(); true`)
   await wait(() => mjs('!!document.querySelector(".shortcut-key.recording")'), '進入錄製')
   press(manager, 'B', ['alt', 'shift'])

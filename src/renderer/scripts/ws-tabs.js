@@ -167,6 +167,7 @@ export function showSurface(kind) {
     // 藏起來是停放在底下（見 .ws-browser[hidden]），不是 display:none，所以要另外擋 focus
     el.browser.hidden = kind !== 'browser'
     el.browser.inert = kind !== 'browser'
+    if (kind !== 'browser') closeBrowserFind(false)
   }
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
@@ -797,6 +798,7 @@ function stash() {
     else if (el.editorText.dataset.held !== '1') tab.content = /** @type {HTMLTextAreaElement} */ (el.editorText).value
   }
   if (tab.kind === 'browser') {
+    closeBrowserFind(false)
     const live = liveBrowserUrl(tab)
     if (live) tab.url = live
     else if (el.browserUrl) tab.url = /** @type {HTMLInputElement} */ (el.browserUrl).value
@@ -841,8 +843,8 @@ async function activate(id) {
       body: () => el.aiSessionBody
     })
   } else {
-    paintBrowser(tab)
     showSurface('browser')
+    paintBrowser(tab)
   }
   // 讓檔案樹知道現在開的是哪一個檔案（用事件不用 import：workspace-page 已經 import 了這裡）
   document.dispatchEvent(new CustomEvent('ws:active-file', {
@@ -946,6 +948,7 @@ export async function closeTab(id) {
   if (bigView?.id === id) releaseBig()
   // 關掉的瀏覽器分頁那顆 webview 也要收：留著的話那個網頁還在背景跑
   if (tab.kind === 'browser') {
+    if (activeId === id) closeBrowserFind(false)
     parkedBrowsers.delete(guestKey(browserProjectId(tab), tab.id))
     pruneBrowserGuests()
   }
@@ -2844,6 +2847,13 @@ function ensureBrowserGuest(tab) {
     target.loadError = `${detail.errorDescription || '載入失敗'}（${detail.errorCode}）`
     if (activeId === target.id) paintBrowserChrome(target)
   })
+  guest.addEventListener('found-in-page', (event) => {
+    const target = own()
+    if (!target || activeId !== target.id || !el.browserFind || el.browserFind.hidden) return
+    const result = /** @type {any} */ (event).result
+    if (!result || !el.browserFindCount) return
+    el.browserFindCount.textContent = result.matches > 0 ? `${result.activeMatchOrdinal} / ${result.matches}` : '找不到'
+  })
   host.appendChild(guest)
   return guest
 }
@@ -2877,6 +2887,7 @@ function pruneBrowserGuests() {
  */
 function syncBrowserLocation(tab, url) {
   if (!tab || tab.kind !== 'browser' || !url || url === 'about:blank') return
+  if (activeId === tab.id && tab.url !== url && !isBlankPage(url)) closeBrowserFind(false)
   const guest = browserGuestOf(tab)
   if (guest) guest.dataset.src = url
   if (url === NEWTAB_URL) {
@@ -2939,7 +2950,7 @@ function paintBrowserChrome(tab) {
   if (el.browserFwdBtn) el.browserFwdBtn.disabled = !forward
   if (el.browserReloadBtn) {
     el.browserReloadBtn.textContent = loading ? '✕' : '⟳'
-    el.browserReloadBtn.title = loading ? '停止載入' : '重新整理 (Ctrl+R)'
+    el.browserReloadBtn.title = loading ? '停止載入' : '重新整理 (Ctrl+R / F5)'
     el.browserReloadBtn.setAttribute('aria-label', loading ? '停止載入' : '重新整理')
   }
   if (el.browserProgress) el.browserProgress.hidden = !loading
@@ -2957,6 +2968,7 @@ function paintBrowserChrome(tab) {
  * @param {WsTab} tab
  */
 function paintBrowser(tab) {
+  closeBrowserFind(false)
   const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
   const guest = ensureBrowserGuest(tab)
   if (input) input.value = tab.url || ''
@@ -2997,6 +3009,7 @@ function navigateBrowser() {
     showToast('只支援 http 與 https 的網址', 'error')
     return
   }
+  closeBrowserFind(false)
   tab.url = href
   tab.loadError = ''
   input.value = href
@@ -3024,7 +3037,7 @@ function activeGuestId() {
 
 /**
  * 工具列與快捷鍵共用的一組動作。
- * @param {'back' | 'forward' | 'reload' | 'devtools'} action
+ * @param {'back' | 'forward' | 'reload' | 'reload-hard' | 'devtools'} action
  */
 function browserAction(action) {
   const tab = findTab(activeId)
@@ -3034,12 +3047,13 @@ function browserAction(action) {
   try {
     if (action === 'back' && guest.canGoBack()) guest.goBack()
     else if (action === 'forward' && guest.canGoForward()) guest.goForward()
-    else if (action === 'reload') {
+    else if (action === 'reload' || action === 'reload-hard') {
       // 同一顆鈕：正在載入時是「停止」
-      if (guest.isLoading()) guest.stop()
+      if (action === 'reload' && guest.isLoading()) guest.stop()
       else {
         tab.loadError = ''
-        guest.reload()
+        if (action === 'reload-hard') guest.reloadIgnoringCache()
+        else guest.reload()
       }
     } else if (action === 'devtools') {
       if (guest.isDevToolsOpened()) guest.closeDevTools()
@@ -3049,6 +3063,140 @@ function browserAction(action) {
     // webview 還沒 attach：這一次就當沒按到
   }
   paintBrowserChrome(tab)
+}
+
+let browserFindActive = false
+
+function openBrowserFind() {
+  const tab = findTab(activeId)
+  if (!tab || tab.kind !== 'browser' || !el.browserFind) return
+  el.browserFind.hidden = false
+  const input = /** @type {HTMLInputElement | null} */ (el.browserFindInput)
+  input?.focus()
+  input?.select()
+  if (input?.value) runBrowserFind(true, false)
+}
+
+/**
+ * @param {boolean} [forward]
+ * @param {boolean} [followUp] true＝在既有搜尋中找下一筆／上一筆（Electron 的 findNext=false）
+ */
+function runBrowserFind(forward = true, followUp = false) {
+  const tab = findTab(activeId)
+  const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+  const input = /** @type {HTMLInputElement | null} */ (el.browserFindInput)
+  const query = input?.value || ''
+  if (!guest) return
+  try {
+    if (!query) {
+      browserFindActive = false
+      guest.stopFindInPage('clearSelection')
+      if (el.browserFindCount) el.browserFindCount.textContent = ''
+      return
+    }
+    const startNew = !followUp || !browserFindActive
+    browserFindActive = true
+    guest.findInPage(query, { forward, findNext: startNew })
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {boolean} [focusGuest] */
+function closeBrowserFind(focusGuest = false) {
+  browserFindActive = false
+  if (!el.browserFind) return
+  el.browserFind.hidden = true
+  if (el.browserFindCount) el.browserFindCount.textContent = ''
+  const tab = findTab(activeId)
+  const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+  try {
+    guest?.stopFindInPage('clearSelection')
+    if (focusGuest) guest?.focus()
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {number} delta 0＝重設 100%，其餘以 0.5 zoomLevel 增減 */
+function browserZoom(delta) {
+  const tab = findTab(activeId)
+  const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+  if (!guest) return
+  try {
+    if (delta === 0) { guest.setZoomLevel(0); return }
+    const next = Math.max(-3, Math.min(3, Math.round((guest.getZoomLevel() + delta) * 2) / 2))
+    guest.setZoomLevel(next)
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {number} n 1..8 取對應分頁；9 取最後一個分頁 */
+function activateTabByIndex(n) {
+  const target = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1]
+  if (target) void activate(target.id)
+}
+
+/** @param {string} action */
+function handleWorkspaceBrowserShortcut(action) {
+  if (action === 'back' || action === 'forward' || action === 'reload' || action === 'reload-hard' || action === 'devtools') {
+    browserAction(action)
+  } else if (action === 'zoom-in') {
+    browserZoom(0.5)
+  } else if (action === 'zoom-out') {
+    browserZoom(-0.5)
+  } else if (action === 'zoom-reset') {
+    browserZoom(0)
+  } else if (action === 'focus-url') {
+    const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
+    input?.focus()
+    input?.select()
+  } else if (action === 'find') {
+    openBrowserFind()
+  } else if (action === 'find-next' || action === 'find-prev') {
+    const query = /** @type {HTMLInputElement | null} */ (el.browserFindInput)?.value
+    if (el.browserFind && !el.browserFind.hidden && query) runBrowserFind(action === 'find-next', true)
+    else openBrowserFind()
+  } else if (action === 'new-tab') {
+    void openBrowserTab()
+  } else if (action === 'close-tab') {
+    void closeActiveTab()
+  } else if (action === 'next-tab' || action === 'prev-tab') {
+    void cycleTab(action === 'next-tab' ? 1 : -1)
+  } else if (/^tab-[1-9]$/.test(action)) {
+    activateTabByIndex(Number(action.slice(4)))
+  } else if (action === 'new-terminal') {
+    void newShellTerminal()
+  } else if (action === 'command-palette') {
+    document.dispatchEvent(new CustomEvent('ws:open-command-palette'))
+  }
+}
+
+/** 外層 DOM 焦點時的瀏覽器快捷鍵（Ctrl+W／Tab／Shift+T／Shift+P 已有工作區全域監聽接手） @param {KeyboardEvent} event */
+function matchOuterBrowserShortcut(event) {
+  const ctrl = (event.ctrlKey || event.metaKey) && !event.altKey
+  const alt = event.altKey && !event.ctrlKey && !event.metaKey
+  const plain = !event.ctrlKey && !event.altKey && !event.metaKey
+  const shift = event.shiftKey
+  const lower = event.key.toLowerCase()
+  const code = event.code || ''
+
+  if (ctrl && (code === 'Equal' || code === 'NumpadAdd' || event.key === '+' || event.key === '=')) return 'zoom-in'
+  if (ctrl && !shift && (code === 'Minus' || code === 'NumpadSubtract' || event.key === '-')) return 'zoom-out'
+  if (event.repeat) return ''
+  if (ctrl && !shift && (code === 'Digit0' || code === 'Numpad0')) return 'zoom-reset'
+  if (alt && !shift && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return event.key === 'ArrowLeft' ? 'back' : 'forward'
+  if ((plain && !shift && event.key === 'F12') || (ctrl && shift && (code === 'KeyI' || lower === 'i'))) return 'devtools'
+  if (event.key === 'F5' && !event.altKey && !event.metaKey) return (shift || event.ctrlKey) ? 'reload-hard' : 'reload'
+  if (ctrl && (code === 'KeyR' || lower === 'r')) return shift ? 'reload-hard' : 'reload'
+  if ((ctrl && !shift && (code === 'KeyL' || lower === 'l')) || (alt && !shift && (code === 'KeyD' || lower === 'd'))) return 'focus-url'
+  if (ctrl && !shift && (code === 'KeyF' || lower === 'f')) return 'find'
+  if (plain && event.key === 'F3') return shift ? 'find-prev' : 'find-next'
+  if (ctrl && !shift && (code === 'KeyT' || lower === 't')) return 'new-tab'
+  if (ctrl && !shift && (event.key === 'PageDown' || event.key === 'PageUp')) return event.key === 'PageDown' ? 'next-tab' : 'prev-tab'
+  if (ctrl && !shift && (/^Digit([1-9])$/.test(code) || /^Numpad([1-9])$/.test(code))) return `tab-${code.slice(-1)}`
+  return ''
 }
 
 // ===== AI 會話結構化分頁（不需 resume） =====
@@ -3734,6 +3882,12 @@ export function initWsTabs() {
   el.browserProgress = document.getElementById('wsBrowserProgress')
   el.browserError = document.getElementById('wsBrowserError')
   el.browserErrorNote = document.getElementById('wsBrowserErrorNote')
+  el.browserFind = document.getElementById('wsBrowserFind')
+  el.browserFindInput = document.getElementById('wsBrowserFindInput')
+  el.browserFindCount = document.getElementById('wsBrowserFindCount')
+  el.browserFindPrev = document.getElementById('wsBrowserFindPrev')
+  el.browserFindNext = document.getElementById('wsBrowserFindNext')
+  el.browserFindClose = document.getElementById('wsBrowserFindClose')
 
   // AI 會話元素
   el.aiSession = document.getElementById('wsAiSession')
@@ -4088,40 +4242,53 @@ export function initWsTabs() {
     if (event.key === 'Enter') {
       event.preventDefault()
       navigateBrowser()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      const tab = findTab(activeId)
+      const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
+      if (input && tab?.kind === 'browser') input.value = tab.url || ''
+      const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+      if (guest && !isBlankPage(tab?.url)) {
+        try { guest.focus() } catch { /* 還沒 attach */ }
+      }
     }
+  })
+  el.browserFindInput?.addEventListener('input', () => runBrowserFind(true, false))
+  el.browserFindInput?.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.keyCode === 229) return
+    if (event.key === 'Enter' || event.key === 'F3') {
+      event.preventDefault()
+      event.stopPropagation()
+      runBrowserFind(!event.shiftKey, true)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeBrowserFind(true)
+    }
+  })
+  el.browserFindPrev?.addEventListener('click', () => runBrowserFind(false, true))
+  el.browserFindNext?.addEventListener('click', () => runBrowserFind(true, true))
+  el.browserFindClose?.addEventListener('click', () => closeBrowserFind(true))
+  electronAPI.workspace.onBrowserShortcut?.((action, target) => {
+    const main = document.getElementById('termMain')
+    if (!main || main.offsetParent === null || document.querySelector('dialog[open]')) return
+    const tab = findTab(activeId)
+    if (!tab || tab.kind !== 'browser' || activeGuestId() !== target) return
+    handleWorkspaceBrowserShortcut(action)
   })
   // 瀏覽器的快捷鍵。**只在瀏覽器分頁、而且工作區真的看得見時**才收，
   // 不然會把別頁的 Alt+← 與 Ctrl+R 吃掉。
-  // 注意：焦點在 webview 裡面時這些事件根本不會傳到這裡（guest 有自己的
-  // 事件迴圈），所以按鈕本身仍然是主要入口。
   document.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+    if (document.querySelector('dialog[open]')) return
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'browser') return
     const main = document.getElementById('termMain')
     if (!main || main.offsetParent === null) return
-    if (event.altKey && !event.ctrlKey && !event.metaKey
-      && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      event.preventDefault()
-      browserAction(event.key === 'ArrowLeft' ? 'back' : 'forward')
-      return
-    }
-    if (event.key === 'F12') {
-      event.preventDefault()
-      browserAction('devtools')
-      return
-    }
-    if (event.key === 'F5' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r')) {
-      event.preventDefault()
-      browserAction('reload')
-      return
-    }
-    // Ctrl+L＝跳到網址列（跟一般瀏覽器一樣），順手把整段選起來
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
-      event.preventDefault()
-      const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
-      input?.focus()
-      input?.select()
-    }
+    const action = matchOuterBrowserShortcut(event)
+    if (!action) return
+    event.preventDefault()
+    handleWorkspaceBrowserShortcut(action)
   })
 
   window.addEventListener('focus', () => void checkActiveFileExternalChange())

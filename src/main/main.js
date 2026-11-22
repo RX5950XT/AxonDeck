@@ -2744,6 +2744,14 @@ ipcMain.handle('browserWindow:extensionsMenu', (event, anchor, extensionId) => {
   Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor), extensionId)).popup({ window: win })
   return true
 })
+ipcMain.handle('browserWindow:extensionShortcuts', (event) => (
+  browserWindow.pageOf(event.sender) && browserExtensions ? browserExtensions.localShortcuts() : []
+))
+ipcMain.handle('browserWindow:extensionRunShortcut', (event, input) => {
+  const page = browserWindow.pageOf(event.sender)
+  if (!page || !browserExtensions || !input || typeof input !== 'object') return false
+  return browserExtensions.triggerShortcut(input, page)
+})
 
 // 工具列圖示列：圖示、標題、徽章；按下去開 popup（或送 action.onClicked）
 ipcMain.handle('workspace:extensionActions', (event, guestId) => {
@@ -2759,8 +2767,18 @@ ipcMain.handle('workspace:extensionActivate', (event, guestId, extensionId, anch
   return true
 })
 
+ipcMain.handle('workspace:extensionShortcuts', (event) => (
+  assertMainWindowSender(event) && browserExtensions ? browserExtensions.localShortcuts() : []
+))
+
+ipcMain.handle('workspace:extensionRunShortcut', (event, guestId, input) => {
+  const tab = assertMainWindowSender(event) ? senderGuest(event, guestId) : null
+  if (!tab || !browserExtensions || !input || typeof input !== 'object') return false
+  return browserExtensions.triggerShortcut(input, tab)
+})
+
 /**
- * 網頁的右鍵選單＋F5（瀏覽器分頁多一組「擴充功能」）。webview 與彈出視窗的網頁共用。
+ * 網頁的右鍵選單＋F5（瀏覽器分頁多一組「擴充功能」與瀏覽器快捷鍵）。webview 與彈出視窗的網頁共用。
  * @param {Electron.WebContents} contents
  * @param {() => BrowserWindow | null} hostWindow
  * @param {boolean} isBrowser
@@ -2769,10 +2787,32 @@ function attachWebMenu(contents, hostWindow, isBrowser) {
   require('./web-context-menu').attachWebContextMenu(contents, {
     openUrl: openInProjectBrowser,
     isWebUrl,
+    reloadKeys: !isBrowser,
     extraItems: isBrowser ? (params) => [
       ...(browserExtensions?.contextMenuItems(contents, params) || []),
       { label: '擴充功能', submenu: browserExtensionItems(contents, hostWindow()) }
     ] : undefined
+  })
+  if (!isBrowser) return
+  const { isExtensionShortcutsUrl } = require('../shared/browser-url.mjs')
+  const { shortcutFromInput } = require('./crx-commands')
+  require('./browser-shortcuts').attachBrowserShortcuts(contents, {
+    shouldSkip: (input, url) => (
+      (isExtensionShortcutsUrl(url) && Boolean(shortcutFromInput(input)))
+      || Boolean(browserExtensions?.hasCommandShortcut(input, url))
+    ),
+    onHostAction: (matched, tab) => {
+      const host = tab.hostWebContents
+      if (host && !host.isDestroyed()) {
+        if (matched.focusHost) host.focus()
+        host.send('workspace:browserShortcut', matched.action, tab.id)
+        return
+      }
+      const bar = browserWindow.barOf(tab)
+      if (!bar || bar.isDestroyed()) return
+      if (matched.focusHost) bar.focus()
+      bar.send('browserWindow:shortcut', matched.action)
+    }
   })
 }
 

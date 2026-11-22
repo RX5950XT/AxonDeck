@@ -518,6 +518,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     extensionActions: (guestId) => ipcRenderer.invoke('workspace:extensionActions', guestId),
     extensionActivate: (guestId, extensionId, anchor) => ipcRenderer.invoke('workspace:extensionActivate', guestId, extensionId, anchor),
+    extensionShortcuts: () => ipcRenderer.invoke('workspace:extensionShortcuts'),
+    extensionRunShortcut: (guestId, input) => ipcRenderer.invoke('workspace:extensionRunShortcut', guestId, input),
+    onBrowserShortcut: (callback) => {
+      const handler = (_event, action, guestId) => callback(String(action), Number(guestId))
+      ipcRenderer.on('workspace:browserShortcut', handler)
+      return () => ipcRenderer.removeListener('workspace:browserShortcut', handler)
+    },
     /** 擴充功能的圖示、徽章或安裝狀態變了 */
     onExtensionsChanged: (callback) => {
       const handler = () => callback()

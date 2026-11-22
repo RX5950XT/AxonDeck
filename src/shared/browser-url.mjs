@@ -7,6 +7,11 @@ export function isExtensionManagerUrl(value) {
   } catch { return false }
 }
 
+export function isExtensionShortcutsUrl(value) {
+  if (!isExtensionManagerUrl(value)) return false
+  try { return new URL(value).searchParams.get('view') === 'shortcuts' } catch { return false }
+}
+
 export function isInternalBrowserUrl(value) {
   if (isExtensionManagerUrl(value)) return true
   try {

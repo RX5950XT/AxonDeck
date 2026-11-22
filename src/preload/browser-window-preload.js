@@ -18,6 +18,13 @@ contextBridge.exposeInMainWorld('browserWindowAPI', {
   extensionActions: () => ipcRenderer.invoke('browserWindow:extensionActions'),
   extensionActivate: (_guestId, extensionId, anchor) => ipcRenderer.invoke('browserWindow:extensionActivate', extensionId, anchor),
   extensionsMenu: (_guestId, anchor, extensionId) => ipcRenderer.invoke('browserWindow:extensionsMenu', anchor, extensionId),
+  extensionShortcuts: () => ipcRenderer.invoke('browserWindow:extensionShortcuts'),
+  extensionRunShortcut: (_guestId, input) => ipcRenderer.invoke('browserWindow:extensionRunShortcut', input),
+  onShortcut: (callback) => {
+    const handler = (_event, action) => callback(String(action))
+    ipcRenderer.on('browserWindow:shortcut', handler)
+    return () => ipcRenderer.removeListener('browserWindow:shortcut', handler)
+  },
   onExtensionsChanged: (callback) => {
     const handler = () => callback()
     ipcRenderer.on('browserWindow:extensionsChanged', handler)

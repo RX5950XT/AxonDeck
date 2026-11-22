@@ -54,6 +54,11 @@ class WorkspaceCommands {
       if (this.ui && !this.ui.host.hidden) this.close()
       else void this.open()
     }, true)
+    document.addEventListener('ws:open-command-palette', () => {
+      if (!this.isActive()) return
+      if (this.ui && !this.ui.host.hidden) this.close()
+      else void this.open()
+    })
   }
 
   ensureUi() {

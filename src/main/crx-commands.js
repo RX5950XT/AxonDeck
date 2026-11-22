@@ -132,6 +132,24 @@ function createCommands({ crx, session, rows, savedOf, openPopup, skip }) {
 
   const isRegistered = (key) => registered.has(toAccelerator(key))
 
+  function findLocalCommand(input, url) {
+    if (skip(url)) return null
+    const command = table.get(shortcutFromInput(input))
+    return command && !command.global ? command : null
+  }
+
+  const hasLocalShortcut = (input, url) => Boolean(findLocalCommand(input, url))
+
+  const localShortcuts = () => [...table.entries()].filter(([, cmd]) => !cmd.global).map(([key]) => key)
+
+  function trigger(input, tab) {
+    if (!tab || tab.isDestroyed()) return false
+    const command = findLocalCommand(input, tab.getURL())
+    if (!command) return false
+    run(command, tab)
+    return true
+  }
+
   /** 瀏覽器分頁：記住最後用的分頁（全域快捷鍵要用），按鍵命中就執行並吃掉 */
   function track(contents) {
     if (tracked.has(contents)) return
@@ -149,7 +167,7 @@ function createCommands({ crx, session, rows, savedOf, openPopup, skip }) {
 
   session.extensions.on('extension-loaded', () => refresh())
   session.extensions.on('extension-unloaded', () => refresh())
-  return { refresh, track, isRegistered }
+  return { refresh, track, isRegistered, hasLocalShortcut, localShortcuts, trigger }
 }
 
 module.exports = { createCommands, normalizeShortcut, shortcutFromInput, manifestCommands, assignShortcuts }

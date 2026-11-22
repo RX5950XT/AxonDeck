@@ -3848,6 +3848,29 @@ body:has(.ws-monaco .find-widget.visible) .workbench-hover-container {
   font-family: var(--font-mono);
 }
 
+.ws-browser-find {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-browser-find[hidden] {
+  display: none;
+}
+
+.ws-browser-find-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-browser-find-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* webview 的宿主容器；webview 本身由 JS 建立並吃滿容器（每個分頁一顆） */
 .ws-browser-frame {
   position: relative;

@@ -217,14 +217,18 @@ const TEST_PROMPT = '請只回覆「OK」兩個字。'
 /**
  * 挑一個拿來試打的模型。
  * 額度已經歸零的直接跳過（打下去必定失敗，測不出「連線有沒有通」）。
+ * 優先用 Gemini 4 Hydrogen low：便宜、快，又不吃 Claude 那池的每週額度（使用者指定，2026-11-19）。
  * @param {Array<object>} models
  * @returns {string}
  */
 function pickTestModel(models) {
   const chat = models.filter((model) => model.chatCapable && !model.deprecated)
-  const withQuota = chat.find((model) => model.remainingFraction !== 0)
-  return (withQuota || chat[0])?.id || ''
+  const usable = chat.filter((model) => model.remainingFraction !== 0)
+  const preferred = TEST_MODEL_PREFERENCE.map((id) => usable.find((model) => model.id === id)).find(Boolean)
+  return (preferred || usable[0] || chat[0])?.id || ''
 }
+
+const TEST_MODEL_PREFERENCE = Object.freeze(['gemini-4-hydrogen-low', 'gemini-4-hydrogen-medium'])
 
 /**
  * 端到端自我測試：自動挑一個模型，從**本機閘道**真的送一則訊息出去。

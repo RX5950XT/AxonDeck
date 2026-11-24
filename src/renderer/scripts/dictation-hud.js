@@ -82,6 +82,10 @@ function fire(action) {
 
 document.getElementById('hudCancel').addEventListener('click', () => fire('cancel'))
 document.getElementById('hudStop').addEventListener('click', () => fire('stop'))
+// 視窗平常整片讓滑鼠穿過去（main 的 setIgnoreMouseEvents），只有游標進到藥丸才收回來，
+// 錄音中使用者才點得到底下的輸入框、換位置填字。
+pill.addEventListener('mouseenter', () => window.electronAPI?.dictation?.hudAction('pointerIn'))
+pill.addEventListener('mouseleave', () => window.electronAPI?.dictation?.hudAction('pointerOut'))
 
 window.electronAPI?.dictation?.onHud(render)
 reset()

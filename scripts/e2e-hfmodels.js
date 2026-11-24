@@ -161,6 +161,9 @@ async function main() {
     ok('儀表板量得到生成速度', Number(dash?.metrics?.predictedTps) > 0,
       `predictedTps=${dash?.metrics?.predictedTps} promptTps=${dash?.metrics?.promptTps}`)
     ok('儀表板不外流金鑰', !JSON.stringify(dash).includes('apiKey'))
+    const onGpu = (await hfmodels.listDevices()).length > 0
+    ok('儀表板列出顯卡上的模型', dash.gpuModels.some((row) => row.label === MODEL_ID) === onGpu,
+      JSON.stringify(dash.gpuModels))
 
     ok('unload 成功', await hfmodels.unloadModel(MODEL_ID) === true)
 

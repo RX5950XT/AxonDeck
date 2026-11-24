@@ -1,0 +1,4 @@
+{
+  "web": ["html", "htm", "xhtml"],
+  "table": ["csv", "tsv"]
+}

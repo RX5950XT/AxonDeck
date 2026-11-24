@@ -21,6 +21,7 @@
 
 #![windows_subsystem = "windows"]
 
+mod apps;
 mod claude_hook;
 mod detail;
 mod dirsize;

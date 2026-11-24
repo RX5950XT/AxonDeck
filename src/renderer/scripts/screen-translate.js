@@ -16,7 +16,7 @@ function paint(state) {
   document.getElementById('language').textContent = `${LANGUAGES[state.sourceLang]} → ${LANGUAGES[state.targetLang]}`
   statusLabel.textContent = state.error || STAGES[state.stage] || '準備中…'
   statusLabel.dataset.stage = state.error ? 'error' : state.stage
-  statusLabel.title = `${statusLabel.textContent}\nOCR：PaddleOCR-VL · 翻譯：${state.model}`
+  statusLabel.title = `${statusLabel.textContent}\nOCR：Unlimited-OCR-2 · 翻譯：${state.model}`
   const mode = state.error ? 'retry' : paused ? 'play' : 'pause'
   pauseButton.dataset.mode = mode
   pauseButton.setAttribute('aria-label', PAUSE_LABELS[mode])

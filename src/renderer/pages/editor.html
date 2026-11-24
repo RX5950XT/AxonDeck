@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; img-src 'self' data: blob: vi-media: https:; connect-src 'self'; media-src 'self' vi-media:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; img-src 'self' data: blob: vi-media: https:; connect-src 'self'; media-src 'self' vi-media:; frame-src vi-preview:"
     />
     <title>AxonDeck 編輯器</title>
     <link rel="stylesheet" href="../styles/themes.css" />
@@ -26,6 +26,9 @@
           <button type="button" data-mode="preview" title="只顯示預覽（Ctrl+Shift+V 切換）">預覽</button>
         </div>
         <button type="button" class="ed-tool" id="edWrap" aria-pressed="false" title="自動換行（Alt+Z）">換行</button>
+        <button type="button" class="ed-tool ed-more" id="edMore" aria-haspopup="menu" title="更多：開啟、另存新檔、比較變更、在檔案頁顯示…" aria-label="更多">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
+        </button>
         <button type="button" class="btn btn-secondary btn-sm ed-save" id="edSave" disabled title="儲存（Ctrl+S）">儲存</button>
       </div>
     </header>
@@ -35,15 +38,23 @@
     </div>
     <main class="ed-main" id="edMain" data-mode="edit">
       <div class="ed-source" id="edSource"></div>
-      <article class="ed-preview" id="edPreview" aria-label="Markdown 預覽"></article>
+      <article class="ed-preview" id="edPreview" aria-label="預覽"></article>
+      <section class="ed-diff" id="edDiff" hidden aria-label="比較未儲存的變更">
+        <div class="ed-diff-bar">
+          <span>左：磁碟上的版本　右：編輯中的內容（可以直接改）</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="edDiffClose">關閉比較</button>
+        </div>
+        <div class="ed-diff-host" id="edDiffHost"></div>
+      </section>
       <div class="ed-fatal" id="edFatal" hidden></div>
     </main>
     <footer class="ed-status">
-      <span id="edCursor"></span>
+      <button type="button" class="ed-stat" id="edCursor" title="跳到某一行（Ctrl+G）"></button>
       <span class="ed-status-msg" id="edMsg" role="status"></span>
-      <span id="edLang"></span>
-      <span id="edEncoding"></span>
-      <span id="edEol"></span>
+      <button type="button" class="ed-stat" id="edIndent" title="縮排：空格或 Tab、寬度"></button>
+      <button type="button" class="ed-stat" id="edEncoding" title="以其他編碼重新開啟或儲存"></button>
+      <button type="button" class="ed-stat" id="edEol" title="換行字元"></button>
+      <button type="button" class="ed-stat" id="edLang" title="選擇語言模式"></button>
     </footer>
     <script type="module" src="../scripts/editor-window.js"></script>
   </body>

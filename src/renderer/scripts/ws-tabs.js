@@ -33,7 +33,7 @@ import {
  * 借 Orca 的 tab 模型，適配於本機單一工作區。支援分頁持久化與 Hot Exit
  * （未存檔草稿安全網），切換專案或重新啟動後自動還原。
  *
- * 畫面上六種內容各只有一份 DOM（`#termHost` / `#wsEditor` / `#wsBrowser` / `#wsDiff` / `#wsAiSession` / `#wsCcTools`），
+ * 畫面上五種內容各只有一份 DOM（`#termHost` / `#wsEditor` / `#wsBrowser` / `#wsDiff` / `#wsAiSession`），
  * 切分頁時把狀態搬進搬出。終端機是例外：每個工作階段有自己的 `.term-pane`，
  * 那份由 `terminal-page.js` 管，這裡只負責「現在該不該顯示 `#termHost`」。
  */
@@ -44,7 +44,7 @@ const MAX_TAB_TITLE = 28
 /**
  * @typedef {{
  *   id: string,
- *   kind: 'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'cc-tools',
+ *   kind: 'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session',
  *   title: string,
  *   projectId?: string,
  *   relPath?: string,
@@ -137,6 +137,13 @@ async function call(promise, fallbackMessage) {
   throw new Error(result?.error?.message || fallbackMessage)
 }
 
+/** 還原上次的分頁用：檔案已被刪掉是預期中的事，失敗只丟例外、不跳錯誤提示 */
+async function quietCall(promise) {
+  const result = await promise
+  if (result && result.ok) return result.data
+  throw new Error(result?.error?.message || '')
+}
+
 /**
  * @param {string} value
  * @returns {string}
@@ -149,17 +156,21 @@ function shortTitle(value) {
 /**
  * 哪一塊內容該顯示。**單一擁有者**——終端機那邊也走這支，
  * 不然開編輯器分頁時 `#termHost` 會留在畫面上疊著。
- * @param {'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'cc-tools' | 'empty'} kind
+ * @param {'terminal' | 'editor' | 'browser' | 'diff' | 'ai-session' | 'empty'} kind
  */
 export function showSurface(kind) {
   if (el.termHost) el.termHost.inert = false
   el.termHost?.classList.toggle('hidden', kind !== 'terminal')
   el.termEmpty?.classList.toggle('hidden', kind !== 'empty')
   if (el.editor) el.editor.hidden = kind !== 'editor'
-  if (el.browser) el.browser.hidden = kind !== 'browser'
+  if (el.browser) {
+    // 藏起來是停放在底下（見 .ws-browser[hidden]），不是 display:none，所以要另外擋 focus
+    el.browser.hidden = kind !== 'browser'
+    el.browser.inert = kind !== 'browser'
+    if (kind !== 'browser') closeBrowserFind(false)
+  }
   if (el.diff) el.diff.hidden = kind !== 'diff'
   if (el.aiSession) el.aiSession.hidden = kind !== 'ai-session'
-  if (el.ccTools) el.ccTools.hidden = kind !== 'cc-tools'
   if (kind !== 'ai-session') {
     closeAiSessionFind(el.aiSessionBody)
     el.aiSessionBody?.replaceChildren()
@@ -787,6 +798,7 @@ function stash() {
     else if (el.editorText.dataset.held !== '1') tab.content = /** @type {HTMLTextAreaElement} */ (el.editorText).value
   }
   if (tab.kind === 'browser') {
+    closeBrowserFind(false)
     const live = liveBrowserUrl(tab)
     if (live) tab.url = live
     else if (el.browserUrl) tab.url = /** @type {HTMLInputElement} */ (el.browserUrl).value
@@ -830,12 +842,9 @@ async function activate(id) {
       paint: () => { if (activeId === tab.id && findTab(tab.id) === tab) paintAiSessionTab(tab) },
       body: () => el.aiSessionBody
     })
-  } else if (tab.kind === 'cc-tools') {
-    showSurface('cc-tools')
-    void import('./ccswitch-page.js').then((mod) => mod.refreshCcTools())
   } else {
-    paintBrowser(tab)
     showSurface('browser')
+    paintBrowser(tab)
   }
   // 讓檔案樹知道現在開的是哪一個檔案（用事件不用 import：workspace-page 已經 import 了這裡）
   document.dispatchEvent(new CustomEvent('ws:active-file', {
@@ -939,6 +948,7 @@ export async function closeTab(id) {
   if (bigView?.id === id) releaseBig()
   // 關掉的瀏覽器分頁那顆 webview 也要收：留著的話那個網頁還在背景跑
   if (tab.kind === 'browser') {
+    if (activeId === id) closeBrowserFind(false)
     parkedBrowsers.delete(guestKey(browserProjectId(tab), tab.id))
     pruneBrowserGuests()
   }
@@ -2497,6 +2507,8 @@ async function paintDiffBody(tab) {
     monacoTried = true
     monaco = await loadMonaco()
     monacoFailed = !monaco
+    // 等載入期間已經切到別的分頁：共用的 diff 區現在是它的，不可以把這一份畫上去
+    if (findTab(activeId) !== tab) return
   }
   if (!monaco || findTab(activeId) !== tab) {
     fallback()
@@ -2728,14 +2740,6 @@ export async function openBrowserTab(url = '') {
   await activate(id)
 }
 
-/** MCP 與 Skills 跟專案無關，一個專案最多一個這種分頁：已經開著就切過去 */
-export async function openCcToolsTab() {
-  const existing = tabs.find((tab) => tab.kind === 'cc-tools')
-  if (existing) return activate(existing.id)
-  tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: project?.id || '' })
-  await activate('cc-tools')
-}
-
 // ===== 內建瀏覽器（<webview>）=====
 //
 // 比照 Orca：guest 不掛 preload、`partition` 用持久 session（登入狀態留著）、
@@ -2843,6 +2847,13 @@ function ensureBrowserGuest(tab) {
     target.loadError = `${detail.errorDescription || '載入失敗'}（${detail.errorCode}）`
     if (activeId === target.id) paintBrowserChrome(target)
   })
+  guest.addEventListener('found-in-page', (event) => {
+    const target = own()
+    if (!target || activeId !== target.id || !el.browserFind || el.browserFind.hidden) return
+    const result = /** @type {any} */ (event).result
+    if (!result || !el.browserFindCount) return
+    el.browserFindCount.textContent = result.matches > 0 ? `${result.activeMatchOrdinal} / ${result.matches}` : '找不到'
+  })
   host.appendChild(guest)
   return guest
 }
@@ -2876,6 +2887,7 @@ function pruneBrowserGuests() {
  */
 function syncBrowserLocation(tab, url) {
   if (!tab || tab.kind !== 'browser' || !url || url === 'about:blank') return
+  if (activeId === tab.id && tab.url !== url && !isBlankPage(url)) closeBrowserFind(false)
   const guest = browserGuestOf(tab)
   if (guest) guest.dataset.src = url
   if (url === NEWTAB_URL) {
@@ -2938,7 +2950,7 @@ function paintBrowserChrome(tab) {
   if (el.browserFwdBtn) el.browserFwdBtn.disabled = !forward
   if (el.browserReloadBtn) {
     el.browserReloadBtn.textContent = loading ? '✕' : '⟳'
-    el.browserReloadBtn.title = loading ? '停止載入' : '重新整理 (Ctrl+R)'
+    el.browserReloadBtn.title = loading ? '停止載入' : '重新整理 (Ctrl+R / F5)'
     el.browserReloadBtn.setAttribute('aria-label', loading ? '停止載入' : '重新整理')
   }
   if (el.browserProgress) el.browserProgress.hidden = !loading
@@ -2956,6 +2968,7 @@ function paintBrowserChrome(tab) {
  * @param {WsTab} tab
  */
 function paintBrowser(tab) {
+  closeBrowserFind(false)
   const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
   const guest = ensureBrowserGuest(tab)
   if (input) input.value = tab.url || ''
@@ -2996,6 +3009,7 @@ function navigateBrowser() {
     showToast('只支援 http 與 https 的網址', 'error')
     return
   }
+  closeBrowserFind(false)
   tab.url = href
   tab.loadError = ''
   input.value = href
@@ -3023,7 +3037,7 @@ function activeGuestId() {
 
 /**
  * 工具列與快捷鍵共用的一組動作。
- * @param {'back' | 'forward' | 'reload' | 'devtools'} action
+ * @param {'back' | 'forward' | 'reload' | 'reload-hard' | 'devtools'} action
  */
 function browserAction(action) {
   const tab = findTab(activeId)
@@ -3033,12 +3047,13 @@ function browserAction(action) {
   try {
     if (action === 'back' && guest.canGoBack()) guest.goBack()
     else if (action === 'forward' && guest.canGoForward()) guest.goForward()
-    else if (action === 'reload') {
+    else if (action === 'reload' || action === 'reload-hard') {
       // 同一顆鈕：正在載入時是「停止」
-      if (guest.isLoading()) guest.stop()
+      if (action === 'reload' && guest.isLoading()) guest.stop()
       else {
         tab.loadError = ''
-        guest.reload()
+        if (action === 'reload-hard') guest.reloadIgnoringCache()
+        else guest.reload()
       }
     } else if (action === 'devtools') {
       if (guest.isDevToolsOpened()) guest.closeDevTools()
@@ -3048,6 +3063,140 @@ function browserAction(action) {
     // webview 還沒 attach：這一次就當沒按到
   }
   paintBrowserChrome(tab)
+}
+
+let browserFindActive = false
+
+function openBrowserFind() {
+  const tab = findTab(activeId)
+  if (!tab || tab.kind !== 'browser' || !el.browserFind) return
+  el.browserFind.hidden = false
+  const input = /** @type {HTMLInputElement | null} */ (el.browserFindInput)
+  input?.focus()
+  input?.select()
+  if (input?.value) runBrowserFind(true, false)
+}
+
+/**
+ * @param {boolean} [forward]
+ * @param {boolean} [followUp] true＝在既有搜尋中找下一筆／上一筆（Electron 的 findNext=false）
+ */
+function runBrowserFind(forward = true, followUp = false) {
+  const tab = findTab(activeId)
+  const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+  const input = /** @type {HTMLInputElement | null} */ (el.browserFindInput)
+  const query = input?.value || ''
+  if (!guest) return
+  try {
+    if (!query) {
+      browserFindActive = false
+      guest.stopFindInPage('clearSelection')
+      if (el.browserFindCount) el.browserFindCount.textContent = ''
+      return
+    }
+    const startNew = !followUp || !browserFindActive
+    browserFindActive = true
+    guest.findInPage(query, { forward, findNext: startNew })
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {boolean} [focusGuest] */
+function closeBrowserFind(focusGuest = false) {
+  browserFindActive = false
+  if (!el.browserFind) return
+  el.browserFind.hidden = true
+  if (el.browserFindCount) el.browserFindCount.textContent = ''
+  const tab = findTab(activeId)
+  const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+  try {
+    guest?.stopFindInPage('clearSelection')
+    if (focusGuest) guest?.focus()
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {number} delta 0＝重設 100%，其餘以 0.5 zoomLevel 增減 */
+function browserZoom(delta) {
+  const tab = findTab(activeId)
+  const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+  if (!guest) return
+  try {
+    if (delta === 0) { guest.setZoomLevel(0); return }
+    const next = Math.max(-3, Math.min(3, Math.round((guest.getZoomLevel() + delta) * 2) / 2))
+    guest.setZoomLevel(next)
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {number} n 1..8 取對應分頁；9 取最後一個分頁 */
+function activateTabByIndex(n) {
+  const target = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1]
+  if (target) void activate(target.id)
+}
+
+/** @param {string} action */
+function handleWorkspaceBrowserShortcut(action) {
+  if (action === 'back' || action === 'forward' || action === 'reload' || action === 'reload-hard' || action === 'devtools') {
+    browserAction(action)
+  } else if (action === 'zoom-in') {
+    browserZoom(0.5)
+  } else if (action === 'zoom-out') {
+    browserZoom(-0.5)
+  } else if (action === 'zoom-reset') {
+    browserZoom(0)
+  } else if (action === 'focus-url') {
+    const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
+    input?.focus()
+    input?.select()
+  } else if (action === 'find') {
+    openBrowserFind()
+  } else if (action === 'find-next' || action === 'find-prev') {
+    const query = /** @type {HTMLInputElement | null} */ (el.browserFindInput)?.value
+    if (el.browserFind && !el.browserFind.hidden && query) runBrowserFind(action === 'find-next', true)
+    else openBrowserFind()
+  } else if (action === 'new-tab') {
+    void openBrowserTab()
+  } else if (action === 'close-tab') {
+    void closeActiveTab()
+  } else if (action === 'next-tab' || action === 'prev-tab') {
+    void cycleTab(action === 'next-tab' ? 1 : -1)
+  } else if (/^tab-[1-9]$/.test(action)) {
+    activateTabByIndex(Number(action.slice(4)))
+  } else if (action === 'new-terminal') {
+    void newShellTerminal()
+  } else if (action === 'command-palette') {
+    document.dispatchEvent(new CustomEvent('ws:open-command-palette'))
+  }
+}
+
+/** 外層 DOM 焦點時的瀏覽器快捷鍵（Ctrl+W／Tab／Shift+T／Shift+P 已有工作區全域監聽接手） @param {KeyboardEvent} event */
+function matchOuterBrowserShortcut(event) {
+  const ctrl = (event.ctrlKey || event.metaKey) && !event.altKey
+  const alt = event.altKey && !event.ctrlKey && !event.metaKey
+  const plain = !event.ctrlKey && !event.altKey && !event.metaKey
+  const shift = event.shiftKey
+  const lower = event.key.toLowerCase()
+  const code = event.code || ''
+
+  if (ctrl && (code === 'Equal' || code === 'NumpadAdd' || event.key === '+' || event.key === '=')) return 'zoom-in'
+  if (ctrl && !shift && (code === 'Minus' || code === 'NumpadSubtract' || event.key === '-')) return 'zoom-out'
+  if (event.repeat) return ''
+  if (ctrl && !shift && (code === 'Digit0' || code === 'Numpad0')) return 'zoom-reset'
+  if (alt && !shift && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return event.key === 'ArrowLeft' ? 'back' : 'forward'
+  if ((plain && !shift && event.key === 'F12') || (ctrl && shift && (code === 'KeyI' || lower === 'i'))) return 'devtools'
+  if (event.key === 'F5' && !event.altKey && !event.metaKey) return (shift || event.ctrlKey) ? 'reload-hard' : 'reload'
+  if (ctrl && (code === 'KeyR' || lower === 'r')) return shift ? 'reload-hard' : 'reload'
+  if ((ctrl && !shift && (code === 'KeyL' || lower === 'l')) || (alt && !shift && (code === 'KeyD' || lower === 'd'))) return 'focus-url'
+  if (ctrl && !shift && (code === 'KeyF' || lower === 'f')) return 'find'
+  if (plain && event.key === 'F3') return shift ? 'find-prev' : 'find-next'
+  if (ctrl && !shift && (code === 'KeyT' || lower === 't')) return 'new-tab'
+  if (ctrl && !shift && (event.key === 'PageDown' || event.key === 'PageUp')) return event.key === 'PageDown' ? 'next-tab' : 'prev-tab'
+  if (ctrl && !shift && (/^Digit([1-9])$/.test(code) || /^Numpad([1-9])$/.test(code))) return `tab-${code.slice(-1)}`
+  return ''
 }
 
 // ===== AI 會話結構化分頁（不需 resume） =====
@@ -3201,13 +3350,125 @@ function newMenuItem(icon, label) {
 
 /** @type {HTMLElement | null} */
 let menuEl = null
+/** 滑鼠碰到「＋」就開的選單；滑出去會自己收。點擊開的不會。 */
+let menuByHover = false
+let menuCloseTimer = 0
+/** @type {Promise<Array<{ key: string, label: string, available: boolean }>> | null} */
+let shellsPromise = null
 
 function closeMenu() {
+  clearTimeout(menuCloseTimer)
   menuEl?.remove()
   menuEl = null
+  menuByHover = false
   el.newBtn?.setAttribute('aria-expanded', 'false')
   window.removeEventListener('pointerdown', onOutsideMenu, true)
   window.removeEventListener('keydown', onMenuKey, true)
+}
+
+/** 滑到「＋」上：自動展開 */
+function onNewBtnEnter() {
+  clearTimeout(menuCloseTimer)
+  if (menuEl) return
+  openMenu()
+  menuByHover = true
+}
+
+/** 滑出「＋」與選單：稍等一下再收（中間經過的空隙不要一碰就關） */
+function onMenuLeave() {
+  if (!menuByHover) return
+  clearTimeout(menuCloseTimer)
+  menuCloseTimer = setTimeout(closeMenu, 280)
+}
+
+function onMenuEnter() {
+  clearTimeout(menuCloseTimer)
+}
+
+/** 裝了哪些 shell（PowerShell 7／Windows PowerShell／命令提示字元），開過一次就記著 */
+let supportsAdmin = false
+function loadShells() {
+  shellsPromise ||= electronAPI.terminal.catalog()
+    .then((res) => {
+      supportsAdmin = Boolean(res?.ok && res.data?.supportsAdmin)
+      return res?.ok && Array.isArray(res.data?.shells) ? res.data.shells.filter((s) => s.available) : []
+    })
+    .catch(() => {
+      supportsAdmin = false
+      return []
+    })
+  return shellsPromise
+}
+
+/**
+ * 固定定位的面板放在 x 往右展開；右邊放不下就貼齊視窗右緣。
+ * @param {HTMLElement} panel
+ * @param {number} left
+ * @param {number} top
+ * @param {number} [flipRight] 放不下時改把右緣對齊到這個 x（子選單往左翻）
+ */
+function placePanel(panel, left, top, flipRight) {
+  const width = panel.offsetWidth
+  const height = panel.offsetHeight
+  let x = left
+  if (x + width > window.innerWidth - 8) {
+    x = flipRight !== undefined ? flipRight - width : window.innerWidth - 8 - width
+  }
+  panel.style.left = `${Math.max(8, Math.round(x))}px`
+  panel.style.top = `${Math.round(Math.max(8, Math.min(top, window.innerHeight - 8 - height)))}px`
+}
+
+/**
+ * 「終端機」那列的子選單：選要開哪一種 shell，每一列右邊可以直接用系統管理員身分開。
+ * @param {HTMLElement} row
+ */
+async function openShellSubmenu(row) {
+  if (!menuEl || menuEl.querySelector('.ws-new-sub')) return
+  const owner = menuEl
+  const shells = await loadShells()
+  if (menuEl !== owner || owner.querySelector('.ws-new-sub')) return
+  const sub = document.createElement('div')
+  sub.className = 'ws-new-menu ws-new-sub'
+  sub.setAttribute('role', 'menu')
+  const list = shells.length ? shells : [{ key: '', label: '終端機' }]
+  for (const shell of list) {
+    const line = document.createElement('div')
+    line.className = 'ws-new-shell'
+    const open = newMenuItem('shell', shell.label)
+    open.dataset.shell = shell.key
+    open.addEventListener('click', () => {
+      closeMenu()
+      void newTerminal('shell', false, undefined, shell.key)
+    })
+    if (supportsAdmin) {
+      const admin = document.createElement('button')
+      admin.type = 'button'
+      admin.className = 'ws-new-admin-btn'
+      admin.dataset.shell = shell.key
+      const shield = toolIcon('shield')
+      if (shield) admin.appendChild(shield)
+      admin.title = `以系統管理員身分開 ${shell.label}（會跳一次 UAC）`
+      admin.setAttribute('aria-label', `以系統管理員身分開 ${shell.label}`)
+      admin.addEventListener('click', () => {
+        closeMenu()
+        void newTerminal('shell', true, undefined, shell.key)
+      })
+      line.append(open, admin)
+    } else {
+      line.append(open)
+    }
+    sub.appendChild(line)
+  }
+  owner.appendChild(sub)
+  const rowRect = row.getBoundingClientRect()
+  const menuRect = owner.getBoundingClientRect()
+  placePanel(sub, menuRect.right + 2, rowRect.top - 7, menuRect.left - 2)
+  row.setAttribute('aria-expanded', 'true')
+}
+
+function closeShellSubmenu() {
+  menuEl?.querySelector('.ws-new-sub')?.remove()
+  menuEl?.querySelector('.ws-new-has-sub')?.setAttribute('aria-expanded', 'false')
 }
 
 /** 跟右鍵選單（ws-menu.js）一樣，Esc 關得掉 @param {KeyboardEvent} event */
@@ -3227,30 +3488,50 @@ function onOutsideMenu(event) {
   closeMenu()
 }
 
+/** 點「＋」：滑過去自動開的就把它固定住；本來就是點開的再點一次才收 */
 function toggleMenu() {
+  if (menuEl && menuByHover) {
+    menuByHover = false
+    clearTimeout(menuCloseTimer)
+    return
+  }
   if (menuEl) {
     closeMenu()
     return
   }
+  openMenu()
+}
+
+function openMenu() {
   const anchor = el.newBtn
   if (!anchor) return
+  void loadShells()
   menuEl = document.createElement('div')
   menuEl.className = 'ws-new-menu'
   menuEl.setAttribute('role', 'menu')
-
-  const admin = document.createElement('label')
-  admin.className = 'ws-new-admin'
-  const adminInput = document.createElement('input')
-  adminInput.type = 'checkbox'
-  adminInput.id = 'wsNewAdmin'
-  admin.append(adminInput, document.createTextNode('以系統管理員身分執行'))
+  menuEl.addEventListener('pointerenter', onMenuEnter)
+  menuEl.addEventListener('pointerleave', onMenuLeave)
 
   for (const item of NEW_ITEMS) {
     const btn = newMenuItem(item.preset, item.label)
+    if (item.preset === 'shell') {
+      // 「終端機」：直接點＝預設 shell；滑過去展開子選單選 shell／系統管理員
+      btn.classList.add('ws-new-has-sub')
+      btn.setAttribute('aria-haspopup', 'menu')
+      btn.setAttribute('aria-expanded', 'false')
+      btn.addEventListener('pointerenter', () => void openShellSubmenu(btn))
+      btn.addEventListener('focus', () => void openShellSubmenu(btn))
+      btn.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowRight') return
+        event.preventDefault()
+        void openShellSubmenu(btn).then(() => menuEl?.querySelector('.ws-new-sub button')?.focus())
+      })
+    } else {
+      btn.addEventListener('pointerenter', closeShellSubmenu)
+    }
     btn.addEventListener('click', () => {
-      const asAdmin = adminInput.checked
       closeMenu()
-      void newTerminal(item.preset, asAdmin)
+      void newTerminal(item.preset, false)
     })
     menuEl.appendChild(btn)
   }
@@ -3259,25 +3540,18 @@ function toggleMenu() {
   sep.className = 'ws-new-sep'
   menuEl.appendChild(sep)
 
-  // 「自訂…」是選 shell 與工作目錄的唯一入口（側欄那顆「＋ 終端機」收掉之後）
-  const customBtn = newMenuItem('custom', '終端機（自訂…）')
-  customBtn.id = 'wsNewCustomTerm'
-  customBtn.addEventListener('click', () => {
-    closeMenu()
-    void import('./terminal-page.js').then((mod) => mod.openNewTerminalDialog(project?.path || ''))
-  })
-
   const browserBtn = newMenuItem('browser', '瀏覽器')
+  browserBtn.addEventListener('pointerenter', closeShellSubmenu)
   browserBtn.addEventListener('click', () => {
     closeMenu()
     void openBrowserTab()
   })
-  menuEl.append(customBtn, browserBtn, admin)
+  menuEl.append(browserBtn)
 
-  const rect = anchor.getBoundingClientRect()
-  menuEl.style.top = `${Math.round(rect.bottom + 4)}px`
-  menuEl.style.right = `${Math.round(window.innerWidth - rect.right)}px`
   document.body.appendChild(menuEl)
+  // 往右展開：左緣對齊「＋」，右邊放不下才貼齊視窗右緣
+  const rect = anchor.getBoundingClientRect()
+  placePanel(menuEl, rect.left, rect.bottom + 4)
   anchor.setAttribute('aria-expanded', 'true')
   window.addEventListener('pointerdown', onOutsideMenu, true)
   window.addEventListener('keydown', onMenuKey, true)
@@ -3286,10 +3560,13 @@ function toggleMenu() {
 /**
  * @param {string} preset
  * @param {boolean} admin
+ * @param {() => boolean} [isActive]
+ * @param {string} [shell] 指定 shell 的 key；空字串＝main 的預設
  */
-async function newTerminal(preset, admin, isActive) {
+async function newTerminal(preset, admin, isActive, shell = '') {
   try {
     const created = await call(electronAPI.terminal.create({
+      ...(shell ? { shell } : {}),
       preset,
       // 有選專案就在專案裡開；沒有的話 main 會退回家目錄
       cwd: project?.path || '',
@@ -3411,7 +3688,7 @@ async function restoreProjectTabs(proj, generation) {
         }
       } else if (item.kind === 'editor' && item.relPath) {
         try {
-          const file = await call(electronAPI.workspace.readFile(proj.id, item.relPath), '')
+          const file = await quietCall(electronAPI.workspace.readFile(proj.id, item.relPath))
           if (generation !== projectSwitch) return
           if (file.nativeMedia && !item.dirty) continue
           const hasDraft = typeof item.draftContent === 'string'
@@ -3452,7 +3729,7 @@ async function restoreProjectTabs(proj, generation) {
         }
       } else if (item.kind === 'diff' && item.relPath) {
         try {
-          const diffData = await call(electronAPI.workspace.gitDiff(proj.id, item.relPath, item.staged), '')
+          const diffData = await quietCall(electronAPI.workspace.gitDiff(proj.id, item.relPath, item.staged))
           if (generation !== projectSwitch) return
           tabs.push({
             id: item.id,
@@ -3477,11 +3754,9 @@ async function restoreProjectTabs(proj, generation) {
           url: item.url || '',
           projectId: proj.id
         })
-      } else if (item.kind === 'cc-tools' && !tabs.some((t) => t.kind === 'cc-tools')) {
-        tabs.push({ id: 'cc-tools', kind: 'cc-tools', title: 'MCP 與 Skills', projectId: proj.id })
       } else if (item.kind === 'ai-session' && item.sessionRow) {
         try {
-          const detail = await call(electronAPI.workspace.agentSessionDetail(proj.id, item.sessionRow.agent, item.sessionRow.id), '')
+          const detail = await quietCall(electronAPI.workspace.agentSessionDetail(proj.id, item.sessionRow.agent, item.sessionRow.id))
           if (generation !== projectSwitch) return
           tabs.push({
             id: item.id,
@@ -3507,15 +3782,25 @@ async function restoreProjectTabs(proj, generation) {
   }
 }
 
+/** 有幾次切換正卡在「存目前專案的分頁」這一步（project 還沒換過去） */
+let switchingAway = 0
+
 /**
  * @param {{ id: string, name: string, path: string } | null} next
  */
 export async function setActiveProject(next) {
-  if (project?.id === next?.id) return true
+  if (project?.id === next?.id) {
+    // 正要切去別的專案（還在存分頁）時又點回原本這個：把那次切換作廢，不然分頁區會換過去、側欄卻留在這裡
+    if (switchingAway) projectSwitch += 1
+    return true
+  }
   const generation = ++projectSwitch
   window.clearTimeout(persistTimer)
   if (project?.id) {
-    if (await persistTabsNow() === false) return false
+    switchingAway += 1
+    let saved
+    try { saved = await persistTabsNow() } finally { switchingAway -= 1 }
+    if (saved === false) return false
   }
   if (generation !== projectSwitch) return false
   const hadProject = Boolean(project?.id)
@@ -3608,10 +3893,15 @@ export function initWsTabs() {
   el.browserProgress = document.getElementById('wsBrowserProgress')
   el.browserError = document.getElementById('wsBrowserError')
   el.browserErrorNote = document.getElementById('wsBrowserErrorNote')
+  el.browserFind = document.getElementById('wsBrowserFind')
+  el.browserFindInput = document.getElementById('wsBrowserFindInput')
+  el.browserFindCount = document.getElementById('wsBrowserFindCount')
+  el.browserFindPrev = document.getElementById('wsBrowserFindPrev')
+  el.browserFindNext = document.getElementById('wsBrowserFindNext')
+  el.browserFindClose = document.getElementById('wsBrowserFindClose')
 
   // AI 會話元素
   el.aiSession = document.getElementById('wsAiSession')
-  el.ccTools = document.getElementById('wsCcTools')
   el.aiSessionBar = document.getElementById('wsAiSessionBar')
   el.aiSessionTitle = document.getElementById('wsAiSessionTitle')
   el.aiSessionMeta = document.getElementById('wsAiSessionMeta')
@@ -3676,6 +3966,8 @@ export function initWsTabs() {
   el.reviewCloseBtn = document.getElementById('wsReviewCloseBtn')
 
   el.newBtn?.addEventListener('click', toggleMenu)
+  el.newBtn?.addEventListener('pointerenter', onNewBtnEnter)
+  el.newBtn?.addEventListener('pointerleave', onMenuLeave)
 
   const onEditorChange = () => {
     const tab = findTab(activeId)
@@ -3961,40 +4253,53 @@ export function initWsTabs() {
     if (event.key === 'Enter') {
       event.preventDefault()
       navigateBrowser()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      const tab = findTab(activeId)
+      const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
+      if (input && tab?.kind === 'browser') input.value = tab.url || ''
+      const guest = tab && tab.kind === 'browser' ? /** @type {any} */ (browserGuestOf(tab)) : null
+      if (guest && !isBlankPage(tab?.url)) {
+        try { guest.focus() } catch { /* 還沒 attach */ }
+      }
     }
+  })
+  el.browserFindInput?.addEventListener('input', () => runBrowserFind(true, false))
+  el.browserFindInput?.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.keyCode === 229) return
+    if (event.key === 'Enter' || event.key === 'F3') {
+      event.preventDefault()
+      event.stopPropagation()
+      runBrowserFind(!event.shiftKey, true)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeBrowserFind(true)
+    }
+  })
+  el.browserFindPrev?.addEventListener('click', () => runBrowserFind(false, true))
+  el.browserFindNext?.addEventListener('click', () => runBrowserFind(true, true))
+  el.browserFindClose?.addEventListener('click', () => closeBrowserFind(true))
+  electronAPI.workspace.onBrowserShortcut?.((action, target) => {
+    const main = document.getElementById('termMain')
+    if (!main || main.offsetParent === null || document.querySelector('dialog[open]')) return
+    const tab = findTab(activeId)
+    if (!tab || tab.kind !== 'browser' || activeGuestId() !== target) return
+    handleWorkspaceBrowserShortcut(action)
   })
   // 瀏覽器的快捷鍵。**只在瀏覽器分頁、而且工作區真的看得見時**才收，
   // 不然會把別頁的 Alt+← 與 Ctrl+R 吃掉。
-  // 注意：焦點在 webview 裡面時這些事件根本不會傳到這裡（guest 有自己的
-  // 事件迴圈），所以按鈕本身仍然是主要入口。
   document.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+    if (document.querySelector('dialog[open]')) return
     const tab = findTab(activeId)
     if (!tab || tab.kind !== 'browser') return
     const main = document.getElementById('termMain')
     if (!main || main.offsetParent === null) return
-    if (event.altKey && !event.ctrlKey && !event.metaKey
-      && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      event.preventDefault()
-      browserAction(event.key === 'ArrowLeft' ? 'back' : 'forward')
-      return
-    }
-    if (event.key === 'F12') {
-      event.preventDefault()
-      browserAction('devtools')
-      return
-    }
-    if (event.key === 'F5' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r')) {
-      event.preventDefault()
-      browserAction('reload')
-      return
-    }
-    // Ctrl+L＝跳到網址列（跟一般瀏覽器一樣），順手把整段選起來
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
-      event.preventDefault()
-      const input = /** @type {HTMLInputElement | null} */ (el.browserUrl)
-      input?.focus()
-      input?.select()
-    }
+    const action = matchOuterBrowserShortcut(event)
+    if (!action) return
+    event.preventDefault()
+    handleWorkspaceBrowserShortcut(action)
   })
 
   window.addEventListener('focus', () => void checkActiveFileExternalChange())

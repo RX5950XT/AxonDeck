@@ -179,7 +179,9 @@ async function listTranscripts() {
   // 非同步：每一場都整份讀（每次 upsert 都追加一行，長場次動輒好幾 MB），同步讀會卡住主程序
   const items = await Promise.all(names.map(async (n) => {
     const full = path.join(dir, n)
-    const [text, stat] = await Promise.all([fs.promises.readFile(full, 'utf8'), fs.promises.stat(full)])
+    let text, stat
+    // 單一場次讀不到（剛被刪／被鎖）不該拖垮整份清單
+    try { [text, stat] = await Promise.all([fs.promises.readFile(full, 'utf8'), fs.promises.stat(full)]) } catch { return null }
     const rows = parseTranscript(text)
     return {
       id: n.slice(0, -6),
@@ -189,7 +191,7 @@ async function listTranscripts() {
       preview: (rows[0]?.translation || rows[0]?.source || '').slice(0, 80)
     }
   }))
-  return items.filter((t) => t.count > 0)
+  return items.filter((t) => t && t.count > 0)
 }
 
 function readTranscript(id) {

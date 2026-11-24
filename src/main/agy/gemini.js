@@ -7,6 +7,14 @@
  * usage 的新舊格式判斷只要有一邊漏掉，統計就會悄悄少算 thinking token。
  */
 
+/**
+ * 歷史裡的 functionCall 要附 thoughtSignature，否則 Gemini 3 以上一律 400
+ * "Function call is missing a thought_signature"。客戶端不會回傳原始簽章，
+ * 用 Google 文件給的略過值；Claude 上游也接受（2026-10-29 實測）。
+ * shortcut: 沒保留真簽章，Google 說可能稍降品質；要更好就以 call id 快取上游回的簽章。
+ */
+const SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'
+
 /** 上游 SSE 每一格都包一層 `response`，非串流則直接是本體 */
 function unwrapEnvelope(payload) {
   if (!payload || typeof payload !== 'object') return null
@@ -76,9 +84,16 @@ function splitParts(candidate) {
   let text = ''
   let reasoning = ''
   const calls = []
+  const images = []
 
   for (const part of parts) {
     if (!part || typeof part !== 'object') continue
+    const data = part.inlineData
+    if (data && typeof data.data === 'string' && typeof data.mimeType === 'string') {
+      // 思考過程的草稿圖不給客戶端
+      if (part.thought !== true) images.push({ mimeType: data.mimeType, data: data.data })
+      continue
+    }
     if (part.functionCall && typeof part.functionCall === 'object') {
       const name = typeof part.functionCall.name === 'string' ? part.functionCall.name : ''
       if (name) {
@@ -92,7 +107,11 @@ function splitParts(candidate) {
     else text += part.text
   }
 
-  return { text, reasoning, calls }
+  // 聊天協議沒有圖片輸出欄位；markdown data URI 是聊天客戶端最普遍會直接顯示的形式
+  for (const image of images) {
+    text += `${text ? '\n\n' : ''}![image](data:${image.mimeType};base64,${image.data})`
+  }
+  return { text, reasoning, calls, images }
 }
 
 /** Gemini finishReason → 兩套協議各自的終止原因由呼叫端再翻譯 */
@@ -271,6 +290,7 @@ function sanitizeSchema(raw, depth = 0, inheritType = '') {
 }
 
 module.exports = {
+  SKIP_THOUGHT_SIGNATURE,
   extractUsage,
   finishReasonOf,
   firstCandidate,

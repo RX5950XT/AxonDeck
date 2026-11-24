@@ -46,7 +46,7 @@ assert.notEqual(pairs[0].key, pairs[1].key, '重複提示詞仍是不同輪')
 pairs = api.appendConversation(pairs, [{ role: 'assistant', text: '尾段', continued: true, cursor: cursor(5, 3) }])
 assert.equal(pairs[1].answer, '回答二尾段', '跨頁接續不能少字')
 const long = api.appendConversation([], [{ role: 'user', text: '長'.repeat(80000), cursor: cursor(9) }])
-assert(long[0].prompt.length <= 2000, '導覽只留短預覽，全文按需讀')
+assert(long[0].prompt.length <= 20000, '導覽顯示完整內容，但超長的一則仍有上限')
 assert(long[0].promptTruncated)
 const lines = [
   ['› 同一個提問', false], ['回答一接續', false], ['', false],
@@ -134,6 +134,7 @@ console.log('PASS 對話篩選、跨頁、重複提問、預覽上限與 xterm �
     let live = []
     const openSource = service.slice(service.indexOf('async function openSession('), service.indexOf('async function hostState('))
     const open = vm.runInNewContext(openSource + '\n;openSession', {
+      IN_PROCESS: false, terminal: { sessionStates: () => live, openSessionWithMeta: async () => ({ seq: 0, buffer: 'live output' }) },
       store: { get: async () => ({ id: 'mine', ...meta }) }, bridgeTakesOver: () => false,
       agentResume: { prepare: async item => item, begin: async () => {} },
       claudeHooks: { prepareResume: async item => item }, activity: { follow() {} }, links: { noteCwd() {} },

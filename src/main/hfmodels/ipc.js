@@ -34,8 +34,9 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   })
 
   // ---- 探索 ----
-  ipcMain.handle('hfmodels:search', (event, query, sort) => (
-    invoke(event, () => service.search({ query: str(query), sort: str(sort) }))
+  ipcMain.handle('hfmodels:search', (event, query, sort, filters) => (
+    invoke(event, () => service.search({ query: str(query), sort: str(sort), kind: str(filters?.kind),
+      maxParamsB: Math.max(0, Math.min(10000, Number(filters?.maxParamsB) || 0)) }))
   ))
   ipcMain.handle('hfmodels:inspect', (event, repoId) => (
     invoke(event, () => service.inspect(str(repoId)))
@@ -75,7 +76,6 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('hfmodels:autoTune', (event, id) => invoke(event, () => service.autoTune(str(id))))
 
   // ---- 執行環境 ----
-  ipcMain.handle('hfmodels:runtimeReady', (event) => invoke(event, () => service.runtimeReady()))
   ipcMain.handle('hfmodels:runtimeStatus', (event) => invoke(event, () => service.runtimeStatus()))
   ipcMain.handle('hfmodels:startRuntime', (event) => invoke(event, () => service.startRuntime()))
   ipcMain.handle('hfmodels:stopRuntime', (event) => invoke(event, () => service.stopRuntime()))
@@ -90,7 +90,6 @@ function registerHfModelsIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('hfmodels:unloadModel', (event, id) => (
     invoke(event, () => service.unloadModel(str(id)))
   ))
-  ipcMain.handle('hfmodels:refreshModels', (event) => invoke(event, () => service.refreshModels()))
   // 儀表板：GPU／用量／端點／log；金鑰不出 main
   ipcMain.handle('hfmodels:dashboard', (event) => invoke(event, () => service.dashboard()))
 }

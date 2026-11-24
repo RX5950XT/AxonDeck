@@ -407,6 +407,12 @@ test('工具往返帶 id（Claude 模型上游要 tool_use.id，少了第二輪 
   ] }, 'claude-sonnet-4-6').contents.flatMap((c) => c.parts)
   assert.strictEqual(viaOpenai.find((p) => p.functionCall).functionCall.id, 'call_1')
   assert.strictEqual(viaOpenai.find((p) => p.functionResponse).functionResponse.id, 'call_1')
+  const split = gemini.splitParts({ content: { parts: [{ text: '好' }, { inlineData: { mimeType: 'image/png', data: 'QQ==' } }] } })
+  assert.strictEqual(split.text, '好\n\n![image](data:image/png;base64,QQ==)')
+  assert.strictEqual(split.images.length, 1)
+  // Gemini 3+ 歷史工具呼叫缺簽章會 400
+  assert.ok(parts.find((p) => p.functionCall).thoughtSignature)
+  assert.ok(viaOpenai.find((p) => p.functionCall).thoughtSignature)
 })
 
 test('空 object 補 properties，避免上游 400', () => {
@@ -683,7 +689,7 @@ test('非串流回應：thinking 在前、usage 帶快取讀取數', () => {
   const response = anthropic.toResponse(collector)
   assert.strictEqual(response.content[0].type, 'thinking')
   assert.strictEqual(response.content[1].text, '答')
-  assert.strictEqual(response.usage.input_tokens, 9)
+  assert.strictEqual(response.usage.input_tokens, 6) // 9 含快取讀取的 3，Anthropic 的 input_tokens 不含
   assert.strictEqual(response.usage.cache_read_input_tokens, 3)
 })
 
@@ -693,7 +699,7 @@ test('Claude 池（含 GPT OSS）在 Gemini 之前，Gemini 由新到舊', () =>
   const shuffled = [
     'gemini-pro-agent',
     'gemini-3.6-flash-low',
-    'gpt-oss-120b-medium',
+    'gpt-oss-20b-medium',
     'gemini-3-flash',
     'claude-sonnet-4-6',
     'gemini-3.1-flash-lite',
@@ -707,11 +713,13 @@ test('Claude 池（含 GPT OSS）在 Gemini 之前，Gemini 由新到舊', () =>
   for (const id of shuffled) {
     models[id] = { maxTokens: 1_000_000, maxOutputTokens: 65536, modelProvider: 'MODEL_PROVIDER_GOOGLE' }
   }
+  // 使用者移除的模型直接不進型錄
+  models['gpt-oss-120b-medium'] = models['gemini-2.5-pro'] = models['gemini-3-flash']
   const ids = catalog.parseCatalog({ models }).models.map((row) => row.id)
   assert.deepStrictEqual(ids, [
     'claude-opus-4-6-thinking',
     'claude-sonnet-4-6',
-    'gpt-oss-120b-medium',
+    'gpt-oss-20b-medium',
     'gemini-3.10-flash',
     'gemini-3.6-flash-high',
     'gemini-3.6-flash-low',
@@ -759,6 +767,34 @@ test('Gemini 思考強度：high > medium > tiered > low > extra-low > lite', ()
     'gemini-3.7-flash-extra-low',
     'gemini-3.7-flash-lite'
   ])
+})
+
+test('Gemini 4 同代照上游推薦排模型線、檔位相鄰，停用的不能對話', () => {
+  const entry = { maxTokens: 1_048_576, maxOutputTokens: 262_144 }
+  const { models } = catalog.parseCatalog({
+    models: {
+      'gemini-4-hydrogen-low': entry,
+      'gemini-4-argon-high': entry,
+      'gemini-4-neon-high': entry,
+      'gemini-4-hydrogen-xhigh': entry,
+      'gemini-4-neon-xhigh': entry,
+      'gemini-4-carbon-disabled': { ...entry, disabled: true }
+    },
+    agentModelSorts: [{ groups: [{ modelIds: ['gemini-4-neon-high', 'gemini-4-argon-high', 'gemini-4-hydrogen-high'] }] }]
+  })
+  assert.deepStrictEqual(models.map((row) => row.id), [
+    'gemini-4-neon-xhigh',
+    'gemini-4-neon-high',
+    'gemini-4-argon-high',
+    'gemini-4-hydrogen-xhigh',
+    'gemini-4-hydrogen-low',
+    'gemini-4-carbon-disabled'
+  ])
+  const byId = Object.fromEntries(models.map((row) => [row.id, row]))
+  assert.deepStrictEqual([byId['gemini-4-neon-xhigh'].line, byId['gemini-4-neon-xhigh'].variant], ['gemini-4-neon', 'xhigh'])
+  assert.strictEqual(byId['gemini-4-argon-high'].pool, 'gemini')
+  assert.strictEqual(byId['gemini-4-neon-high'].pool, 'gemini')
+  assert.strictEqual(byId['gemini-4-carbon-disabled'].chatCapable, false)
 })
 
 console.log(`\n${passed} passed, ${failures.length} failed\n`)

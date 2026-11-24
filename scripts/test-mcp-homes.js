@@ -121,12 +121,12 @@ try {
   console.log('\n[A] 家目錄清單')
   {
     const all = homes.homes()
-    ok('四家', all.length === 4 && all.every((row) => row.id && row.label && row.path))
+    ok('五家', all.length === 5 && all.every((row) => row.id && row.label && row.path))
     ok('codex 標 stdio-only', all.find((row) => row.id === 'codex').stdioOnly === true)
     ok('codex 指到 CODEX_HOME', all.find((row) => row.id === 'codex').path.startsWith(codexHome))
     let threw = ''
     try {
-      await homes.list('agy')
+      await homes.list('nope')
     } catch (error) { threw = error.code }
     ok('未知家目錄擋掉', threw === 'MCP_HOME_UNKNOWN', threw)
   }
@@ -238,6 +238,24 @@ try {
     ok('command 拼得回去', local && local.spec.command === 'npx' && local.spec.args[0] === '-y')
     await homes.toggle('opencode', 'remote1', true)
     ok('重開寫回 enabled', JSON.parse(fs.readFileSync(file, 'utf8')).mcp.remote1.enabled === true)
+  }
+  console.log('\n[E2] Antigravity JSON（serverUrl／disabled，其他鍵不動）')
+  {
+    const file = path.join(ocHome, '.gemini', 'config', 'mcp_config.json')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ mcpServers: { old: { serverUrl: 'https://x/mcp', timeoutSeconds: 9 } }, other: 1 }))
+    ok('agy 指到 ~/.gemini/config', homes.homes().find((row) => row.id === 'agy').path === file)
+    await homes.upsert('agy', 'local1', { type: 'stdio', command: 'npx', args: ['-y', 'pkg'], env: { K: 'v' } }, true)
+    await homes.toggle('agy', 'old', false)
+    const root = JSON.parse(fs.readFileSync(file, 'utf8'))
+    ok('其他鍵還在', root.other === 1 && root.mcpServers.old.timeoutSeconds === 9)
+    ok('stdio 原樣存', root.mcpServers.local1.command === 'npx' && root.mcpServers.local1.env.K === 'v' && root.mcpServers.local1.disabled === false)
+    ok('http 存 serverUrl＋disabled', root.mcpServers.old.serverUrl === 'https://x/mcp' && root.mcpServers.old.disabled === true)
+    const listed = await homes.list('agy')
+    const old = listed.servers.find((item) => item.id === 'old')
+    ok('讀回 http 與停用', old && old.spec.type === 'http' && old.spec.url === 'https://x/mcp' && old.enabled === false)
+    await homes.remove('agy', 'local1')
+    ok('刪得掉', !('local1' in JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers))
   }
   console.log('\n[F] TOML 局部寫回保留原文')
   for (const eol of ['\n', '\r\n']) {

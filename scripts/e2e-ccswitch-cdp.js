@@ -910,18 +910,16 @@ async function main() {
     await cdp.eval(`window.electronAPI.ccswitch.deleteProvider(${JSON.stringify(createdId)})`)
     createdId = ''
 
-    // ===== MCP 與 Skills：右側欄第五顆按鈕開成專案分頁（唯讀，不寫使用者的 ~/.claude.json） =====
-    await cdp.eval("document.getElementById('wsCcToolsBtn').click()")
+    // ===== MCP 與 Skills：左側欄專案面板的按鈕開成獨立主畫面（唯讀，不寫使用者的 ~/.claude.json） =====
+    await cdp.eval("document.getElementById('projCcToolsBtn').click()")
     await waitFor(
-      () => cdp.eval("!document.getElementById('wsCcTools').hidden || null"),
+      () => cdp.eval("!document.getElementById('wsCcTools').classList.contains('hidden') || null"),
       10_000,
-      'MCP 與 Skills 分頁打得開'
+      'MCP 與 Skills 主畫面打得開'
     )
-    await cdp.eval("document.getElementById('wsCcToolsBtn').click()")
-    await sleep(300)
     assert(
-      await cdp.eval("document.querySelectorAll('#wsTabStrip .ws-tab[data-kind=\"cc-tools\"]').length === 1"),
-      'MCP 與 Skills 開成一個專案分頁，再按一次不重開'
+      await cdp.eval("document.getElementById('wsShell').classList.contains('hidden') && !document.querySelector('#wsTabStrip .ws-tab[data-kind=\"cc-tools\"]')"),
+      'MCP 與 Skills 是獨立主畫面，不是專案分頁'
     )
     await waitFor(
       () => cdp.eval("document.getElementById('ccMcpPath').textContent.includes('.claude.json')"),
@@ -985,19 +983,19 @@ async function main() {
     const skillHomeCount = await waitFor(
       () => cdp.eval(`(() => {
         const btns = document.querySelectorAll('#ccHomes .cc-home-btn')
-        return btns.length === 5 ? btns.length : null
+        return btns.length === 6 ? btns.length : null
       })()`),
       10_000,
-      'Skills 五家切換器'
+      'Skills 六家切換器'
     )
-    assert(skillHomeCount === 5, 'Skills 有五家切換器')
+    assert(skillHomeCount === 6, 'Skills 有六家切換器')
     const memFileCount = await cdp.eval("document.querySelectorAll('#ccMemoryFiles .cc-home-btn').length")
     assert(memFileCount >= 1, '記憶檔按鈕有列出來', `files=${memFileCount}`)
     assert(
       await cdp.eval("document.getElementById('ccMemoryEdit') !== null"),
       '記憶檔編輯框在'
     )
-    // 五家切換在整頁最上面，MCP、Skills、記憶三塊都在同一頁
+    // 六家切換在整頁最上面，MCP、Skills、記憶三塊都在同一頁
     assert(
       await cdp.eval(`(() => {
         const page = document.getElementById('wsCcTools')
@@ -1007,7 +1005,7 @@ async function main() {
         const after = Node.DOCUMENT_POSITION_FOLLOWING
         return parts.every((node) => (homes.compareDocumentPosition(node) & after) !== 0)
       })()`),
-      '五家切換在上，MCP、Skills 與記憶同一頁'
+      '六家切換在上，MCP、Skills 與記憶同一頁'
     )
     // 兩顆「開資料夾」都在
     assert(
@@ -1025,7 +1023,7 @@ async function main() {
       '按開資料夾跳到檔案頁新分頁'
     )
     await cdp.eval("document.querySelector('.nav-tab[data-page=\"chat\"]').click()")
-    await cdp.eval("document.getElementById('wsCcToolsBtn').click()")
+    await cdp.eval("document.getElementById('projCcToolsBtn').click()")
     // .agents 共用家：只留 Skills，記憶與 MCP 整塊藏起來
     await cdp.eval(`document.querySelector('#ccHomes .cc-home-btn[data-home="agents"]').click()`)
     assert(

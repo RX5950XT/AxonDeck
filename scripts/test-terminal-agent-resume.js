@@ -21,8 +21,9 @@ for (const [agent, command] of Object.entries(commands)) {
 }
 assert.equal(store.startupCommand('shell', undefined, id), '')
 const { shellEnvironment } = require('../src/main/terminal/pty')
-assert.equal(shellEnvironment('', '', 't_test', 'codex', 'D:/own-runtime').CODEX_HOME, 'D:/own-runtime')
-assert.equal(shellEnvironment('', '', 't_test', 'claude', 'D:/own-runtime').CLAUDE_CONFIG_DIR, 'D:/own-runtime')
+const agentHome = process.platform === 'win32' ? 'D:/own-runtime' : '/opt/own-runtime'
+assert.equal(shellEnvironment('', '', 't_test', 'codex', agentHome).CODEX_HOME, agentHome)
+assert.equal(shellEnvironment('', '', 't_test', 'claude', agentHome).CLAUDE_CONFIG_DIR, agentHome)
 assert.notEqual(shellEnvironment('', '', 't_test', 'codex', '../untrusted').CODEX_HOME, '../untrusted')
 assert.equal(shellEnvironment('', '', 't_test', 'claude', require('node:path').join(os.homedir(), '.claude')).CLAUDE_CONFIG_DIR, undefined, 'Claude 預設 home 不可改找 .claude/.claude.json')
 assert.equal(shellEnvironment('', '', 't_test', 'shell').AXONDECK_NAV_JUMP, undefined, '不在 staged 宿主時不猜跳轉檔路徑')

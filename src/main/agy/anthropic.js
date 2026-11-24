@@ -2,6 +2,7 @@
 
 const stream = require('../anthropic-stream')
 const {
+  SKIP_THOUGHT_SIGNATURE,
   finishReasonOf,
   firstCandidate,
   schemaFor,
@@ -77,7 +78,10 @@ function blocksToParts(content, toolNames) {
       if (typeof block.id === 'string') toolNames.set(block.id, block.name)
       const args = block.input && typeof block.input === 'object' ? block.input : {}
       // Claude 模型的上游把 functionCall／functionResponse 轉回 tool_use／tool_result，id 是必填
-      parts.push({ functionCall: { name: block.name, args, ...(typeof block.id === 'string' && block.id ? { id: block.id } : {}) } })
+      parts.push({
+        functionCall: { name: block.name, args, ...(typeof block.id === 'string' && block.id ? { id: block.id } : {}) },
+        thoughtSignature: SKIP_THOUGHT_SIGNATURE
+      })
       continue
     }
     if (block.type === 'tool_result') {

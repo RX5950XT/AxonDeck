@@ -91,7 +91,7 @@ for (const selector of [
   // 這一輪新增的：可收合的工具細節、對話內容、審閱意見、對話歸屬
   'ws-ai-fold', 'ws-ai-fold-head', 'ws-ai-fold-body', 'ws-ai-note',
   'ws-ai-turns', 'ws-ai-turn', 'ws-ai-turn-role', 'ws-ai-turn-text',
-  'ws-ai-turn-tool', 'ws-agent-source', 'ws-agent-resume',
+  'ws-ai-turn-tool', 'proj-sessions-toggle', 'proj-sess', 'proj-sess-btn',
   'ws-review-bar', 'ws-review-files', 'ws-review-file', 'ws-review-panel',
   'ws-review-head', 'ws-review-list', 'ws-review-item', 'ws-review-where',
   'ws-review-text', 'ws-review-del'
@@ -351,7 +351,7 @@ function gitStatusBarChecks() {
  */
 function gitActionsWrapChecks() {
   console.log('\n[F3] Git 動作鈕跟著側欄寬度走')
-  const actions = css.slice(css.indexOf('.ws-git-actions {'), css.indexOf('/* ── AI 對話記錄 ── */'))
+  const actions = css.slice(css.indexOf('.ws-git-actions {'), css.indexOf('/* ── AI 會話卡片裡的可收合區塊 ── */'))
   check('動作鈕會換行', /flex-wrap:\s*wrap/.test(actions))
   check('按鈕不准縮到比字窄（縮了就是字疊在一起）',
     /flex:\s*1 1 auto/.test(actions) && !/min-width:\s*0/.test(actions))

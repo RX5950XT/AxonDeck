@@ -152,7 +152,7 @@ async function main() {
     assert.equal((await projects()).filter(p => p.folderId === work)[0].id, 'w_folder_1')
     console.log('PASS 右鍵分類、拖入展開／收合分類、跨分類／移回未分類、專案與分類排序')
 
-    await page.eval(`document.querySelector('${folderSelector(work)} .proj-folder-btn').click()`)
+    await page.eval(`document.querySelector('${folderSelector(work)} .chat-folder-head').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,clientX:150,clientY:300}))`)
     await choose('重新命名')
     await wait(() => page.eval(`!!document.querySelector('#projList .chat-list-rename')`), 'inline rename')
     await page.eval(`document.querySelector('#projList .chat-list-rename').value = '程式開發'`)
@@ -193,7 +193,7 @@ async function main() {
         const expected = getComputedStyle(probe).color; probe.remove()
         return getComputedStyle(document.querySelector('#projList .chat-folder-head')).color === expected
       })()`), 'theme transition settled')
-      assert.equal(await page.eval(`document.querySelectorAll('#projList .proj-list-item .proj-folder-btn').length`), 0, '專案列不能出現分類按鈕')
+      assert.equal(await page.eval(`document.querySelectorAll('#projList .proj-folder-btn').length`), 0, '分類和專案列都不出現三點按鈕')
       const shot = await page.send('Page.captureScreenshot', { format: 'png' })
       fs.writeFileSync(path.join(__dirname, `../dist/workspace-folders-${theme}.png`), Buffer.from(shot.data, 'base64'))
     }
@@ -208,8 +208,8 @@ async function main() {
     await openProjectFolderMenu('w_folder_0')
     await choose('未分類')
     await wait(async () => (await projects()).find(p => p.id === 'w_folder_0').folderId === '', 'move out')
-    await wait(() => page.eval(`!!document.querySelector('${folderSelector(work)} .proj-folder-btn')`), 'folder ready for removal')
-    await page.eval(`document.querySelector('${folderSelector(work)} .proj-folder-btn').click()`)
+    await wait(() => page.eval(`!!document.querySelector('${folderSelector(work)} .chat-folder-head')`), 'folder ready for removal')
+    await page.eval(`document.querySelector('${folderSelector(work)} .chat-folder-head').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,clientX:150,clientY:300}))`)
     await choose('刪除資料夾（專案移回未分類）')
     await wait(async () => !(await folders()).some(f => f.id === work), 'removed folder')
     assert((await projects()).every(p => !p.folderId))

@@ -434,7 +434,7 @@ function start(next) {
       })
     })
     instance.on('error', (error) => {
-      server = null
+      if (server === instance) server = null
       reject(error)
     })
     instance.listen(settings.port, HOST, () => {

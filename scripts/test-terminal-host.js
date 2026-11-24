@@ -211,8 +211,23 @@ if (!process.versions.electron) {
     fs.mkdirSync(legacyStale)
     fs.writeFileSync(path.join(legacyStale, 'VoiceInkTerminalHost.exe'), 'x')
     fs.writeFileSync(path.join(legacyStale, 'ready'), 'native')
+    // 收到一半的殘骸（沒有 ready）不能擋住重建，也要被清掉
+    const halfPruned = path.join(hostRoot, 'runtime-000000000000000000halfgone')
+    fs.mkdirSync(halfPruned)
     const current = stageRuntime(hostRoot)
     assert.ok(fs.existsSync(current.exe), '目前使用的執行環境不可以被清掉')
+    assert.equal(fs.existsSync(halfPruned), false, '沒有 ready 的殘骸要清掉')
+    {
+      // 目前這一版的資料夾若只剩空殼，重建要成功而不是撞名失敗
+      const probe = tempDir('terminal-rt-shell-')
+      try {
+        const emptyRoot = path.join(probe, 'terminal-host')
+        fs.mkdirSync(path.join(emptyRoot, runtimeName().name), { recursive: true })
+        const rebuilt = stageRuntime(emptyRoot)
+        assert.ok(fs.existsSync(rebuilt.exe), '空殼資料夾要能重建出執行環境')
+        assert.ok(fs.existsSync(path.join(rebuilt.dir, 'ready')))
+      } finally { removeTree(probe) }
+    }
     assert.equal(fs.existsSync(stale), false, '沒人使用的舊執行環境要清掉')
     assert.equal(fs.existsSync(legacyStale), false, '舊名 exe 所在的閒置 runtime 也要清掉')
     console.log('PASS 舊版執行環境會被清掉，目前這份留著')

@@ -47,7 +47,7 @@ async function main() {
   })
   await check('檔案樹有效拖放會搬檔，禁止搬進自己底下', async () => {
     let moves = 0
-    const context = { dragging: ['file.txt'], projectSeq: 1, clearDropMarks() {}, dropDirOf: entry => entry.rel,
+    const context = { dragging: ['file.txt'], draggingAbs: new Set(), filePaths: () => [], projectSeq: 1, clearDropMarks() {}, dropDirOf: entry => entry.rel,
       canDropInto: dir => context.dragging.length > 0 && context.dragging.every(rel => !dir.startsWith(rel)),
       electronAPI: { workspace: { moveEntry: async () => { moves++; return { rel: 'folder/file.txt' } } } },
       call: async value => value, retargetTabs() {}, expanded: new Set(), isCurrentProject: () => true,

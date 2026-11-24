@@ -66,35 +66,32 @@ def spans(page):
 
 
 class FixturePipeline:
+    """PP-DocLayoutV3（predict）＋ Unlimited-OCR-2（recognize）的替身；OCR 輸出照真模型格式。"""
+
     def __init__(self, source):
         with fitz.open(source) as doc:
-            self.spots = spans(doc[0])
-            self.inline = doc[0].search_for("E = mc^2")[-1]
-            self.spots = [s for s in self.spots if not s["text"].startswith("Energy ")]
-            for text in ("Energy", "E = mc^2", "remains."):
-                self.spots.append({"text": text, "rect": doc[0].search_for(text)[-1], "dir": (1, 0)})
+            page = doc[0]
+            self.inline = page.search_for("E = mc^2")[-1]
+            first, second = page.search_for("First paragraph line.")[0], page.search_for("Second paragraph line.")[0]
+            self.ocr_blocks = [
+                ("title<LEVEL1>", page.search_for("Document title")[0], "# **Document title**"),
+                ("text", first | second, "First paragraph line.\n<MERGE>\nSecond paragraph line."),
+                ("equation", fitz.Rect(25, 110, 170, 134), "$$\nE = mc^2\n$$"),
+                ("table", fitz.Rect(25, 160, 330, 225), "<table><tr><td>Region</td><td>Revenue</td></tr></table>"),
+                ("image", fitz.Rect(30, 265, 330, 432), ""),
+                ("page_number", fitz.Rect(380, 500, 400, 515), "12"),
+                ("text", page.search_for("Energy E = mc^2 remains.")[0], "*Energy* $E = mc^2$ remains.")]
         self.calls = 0
-        self.regions = []
+        self.ocr_calls = 0
+
+    def recognize(self, png):
+        assert png.startswith(b"\x89PNG"), "OCR 要收 PNG"
+        self.ocr_calls += 1
+        box = lambda r: f"[{round(r.x0 / 420 * 1000)}, {round(r.y0 / 540 * 1000)}, {round(r.x1 / 420 * 1000)}, {round(r.y1 / 540 * 1000)}]"  # noqa: E731
+        return "<PAGE>" + "\n".join(f"<BLOCK>{label}{box(rect)}<FORK>{text}" for label, rect, text in self.ocr_blocks), False
 
     def predict(self, image, **kwargs):
         height, width = image.shape[:2]
-        if kwargs.get("prompt_label") == "spotting":
-            candidates = [(r, sx, sy) for r, sx, sy in self.regions
-                          if abs(round(r.width * sx) - width) < 3
-                          and abs(round(r.height * sy) - height) < 3]
-            assert candidates, (width, height)
-            rect, sx, sy = candidates[0]
-            polys, texts = [], []
-            for record in self.spots:
-                box = record["rect"]
-                if (box & rect).get_area() < box.get_area() * 0.9:
-                    continue
-                # 真 Paddle spotting 的旋轉縱軸也回水平順序的 axis-aligned polygon。
-                points = [(box.x0, box.y0), (box.x1, box.y0),
-                          (box.x1, box.y1), (box.x0, box.y1)]
-                polys.append([[(x - rect.x0) * sx, (y - rect.y0) * sy] for x, y in points])
-                texts.append(record["text"])
-            return iter([{"res": {"spotting_res": {"rec_polys": polys, "rec_texts": texts}}}])
         self.calls += 1
         if self.calls > 2:
             return iter([{"res": {"boxes": []}}])
@@ -103,15 +100,6 @@ class FixturePipeline:
                   ("display_formula", (25, 110, 170, 134)),
                   ("table", (25, 160, 330, 225)), ("chart", (30, 265, 330, 432)),
                   ("text", (25, 455, 270, 490)), ("inline_formula", tuple(self.inline))]
-        self.regions = [(fitz.Rect(rect), sx, sy) for label, rect in blocks if "formula" not in label]
-        # scan 行內公式所在文字區分成上下、公式左右四個可讀區。
-        mixed = fitz.Rect(25, 455, 270, 490)
-        formula = self.inline
-        self.regions.extend([(r, sx, sy) for r in (
-            fitz.Rect(mixed.x0, mixed.y0, mixed.x1, formula.y0),
-            fitz.Rect(mixed.x0, formula.y1, mixed.x1, mixed.y1),
-            fitz.Rect(mixed.x0, formula.y0, formula.x0, formula.y1),
-            fitz.Rect(formula.x1, formula.y0, mixed.x1, formula.y1))])
         return iter([{"res": {"boxes": [
             {"label": label, "coordinate": [rect[0] * sx, rect[1] * sy, rect[2] * sx, rect[3] * sy]}
             for label, rect in blocks]}}])
@@ -138,7 +126,7 @@ class Replies:
         mapping = {"Document title": "文件標題", "First paragraph line. Second paragraph line.": "第一段文字。第二行內容。",
                    "Region": "區域", "Revenue": "營收", "North": "北區", "Time": "時間",
                    "Temperature": "溫度", "Rotated label": "旋轉標籤"}
-        mapping.update({"Energy ": "能量", " remains.": "保持。"})
+        mapping.update({"Energy ": "能量", " remains.": "保持。", "Energy E = mc^(2) remains.": "能量 E = mc^(2) 保持。"})
         mapping.update({"Energy": "能量", "remains.": "保持。"})
         text = "many words " * 2000 if message["text"] == "Tiny" else mapping.get(message["text"], "譯文")
         return json.dumps({"id": message["id"], "text": text}, ensure_ascii=False) + "\n"
@@ -147,7 +135,7 @@ class Replies:
 def config(source, output, layout):
     return {"inputPath": str(source), "outputPath": str(output), "layoutDir": str(layout),
             "endpoint": {"baseUrl": "http://127.0.0.1:8080/v1", "apiKey": "test-only"},
-            "ocrModel": "paddleocrvl16", "targetLang": "zh-TW", "sourceLang": "en"}
+            "ocrModel": "unlimitedocr2q8", "targetLang": "zh-TW", "sourceLang": "en"}
 
 
 def test_pdf(root):
@@ -160,7 +148,8 @@ def test_pdf(root):
     worker.run(config(source, output, root), reply, stream, fixture, fixture)
     done = json.loads(stream.getvalue().splitlines()[-1])
     assert done["type"] == "done" and done["pages"] == 4, done
-    assert done["translatedBlocks"] >= 15, done
+    assert done["translatedBlocks"] >= 12, done
+    assert fixture.ocr_calls == 1, "只有掃描頁要整頁 OCR 一次"
     assert {w["code"] for w in done["warnings"]} >= {"overflow"}, done
     assert "E = mc^2" not in reply.requests and "100" not in reply.requests
     assert "First paragraph line. Second paragraph line." in reply.requests
@@ -173,16 +162,19 @@ def test_pdf(root):
         for source_text in ("Document title", "Region", "Revenue", "North", "Time", "Temperature"):
             assert source_text not in native_text, (source_text, native_text)
         for target_text in ("文件標題", "區域", "營收", "北區", "時間", "溫度"):
-            assert target_text in native_text and target_text in scan_text, (target_text, native_text, scan_text)
+            assert target_text in native_text, (target_text, native_text)
+        # 掃描頁：標題、段落、含行內公式的段落、表格的字翻；表格的數字、圖、公式、頁碼留原樣（Unlimited-OCR-2 不輸出圖內文字）
+        flat = "".join(scan_text.split())
+        assert "文件標題" in flat and "第一段文字。第二行內容。" in flat and "能量E=mc2保持。" in flat, scan_text
+        assert "區域" in scan_text and "營收" in scan_text and "12" not in scan_text, scan_text
         assert "E = mc^2" in native_text and "100" in native_text
         assert native_text.count("E = mc^2") == 2 and "Energy" not in native_text and "remains" not in native_text
-        assert "能量" in scan_text and "保持。" in scan_text
-        assert "Energy" in reply.requests and "remains." in reply.requests
+        assert "Energy " in reply.requests and "Energy E = mc^(2) remains." in reply.requests, reply.requests
         old_paths = [d["items"] for d in original[0].get_drawings()]
         new_paths = [d["items"] for d in doc[0].get_drawings()]
         assert all(items in new_paths for items in old_paths), "公式／圖表／表格線條遺失"
-        # 掃描頁公式和資料線保持像素原樣。
-        for rect in (fitz.Rect(25, 110, 170, 134), fitz.Rect(100, 295, 275, 380), original[0].search_for("E = mc^2")[-1]):
+        # 掃描頁公式和資料線保持像素原樣（表格的字會換成譯文，不在此列）。
+        for rect in (fitz.Rect(25, 110, 170, 134), fitz.Rect(100, 295, 275, 380)):
             old = original[1].get_pixmap(matrix=fitz.Matrix(2, 2), clip=rect)
             new = doc[1].get_pixmap(matrix=fitz.Matrix(2, 2), clip=rect)
             assert old.samples == new.samples, "掃描頁公式／資料曲線遭改動"
@@ -195,7 +187,7 @@ def test_pdf(root):
         assert len(links) == 1 and links[0]["page"] == 3 and links[0]["from"] == original[0].get_links()[0]["from"]
         doc[0].get_pixmap(matrix=fitz.Matrix(2, 2)).save(root / "native-preview.png")
         doc[1].get_pixmap(matrix=fitz.Matrix(2, 2)).save(root / "scan-preview.png")
-    print("PASS 4 頁 PDF：原文替換、段落、掃描頁、行內公式、表格、圖表座標、旋轉、溢出、原檔、書籤、跨頁連結")
+    print("PASS 4 頁 PDF：原文替換、段落、掃描頁整頁 OCR、行內公式、表格、圖表座標、旋轉、溢出、原檔、書籤、跨頁連結")
 
 
 def test_incremental(root):
@@ -268,6 +260,27 @@ def test_validation(root):
     assert worker.translatable("Model") and not worker.translatable("100")
     assert not any(map(worker.translatable, ("cos", "exp", "Mdx", "ydy", ", sin", "cos x, exp"))) and worker.translatable("Add")
     assert worker.translatable("the max value") and worker.translatable("sinusoidal wave")
+    plain, prose = worker.ocr_plain(r"**Question 5.** The *average* $\langle j^2 \rangle = \sum_{j=0}^{\infty} j^2 P(j)$ and $\frac{\hbar^2}{2m}$, $\psi_n$")
+    assert plain == "**Question 5.** The average ⟨j^(2)⟩ = ∑_(j=0)^(∞) j^(2) P(j) and (ℏ^(2))/(2m), ψ_(n)", plain
+    markup = worker.text_html("e^（-iE_(n)t）與 a_b", {"size": 11, "color": 0, "flags": 0, "raster": True}, "zh-TW")
+    assert "e<sup>-iE<sub>n</sub>t</sup>與 a_b" in markup, markup
+    markup = worker.text_html(r"常數 V_0（與 x 無關）。相位因子：\exp(-iV_0t/\hbar)。my_file", {"size": 11, "color": 0, "flags": 0, "raster": True}, "zh-TW")
+    assert "V<sub>0</sub>（與" in markup and "exp(-iV<sub>0</sub>t/ℏ)。my_file" in markup, markup
+    markup = worker.text_html(r"價格 $5 與 $10；$\partial x/\partial t = 0$、$x$、$V_0$", {"size": 11, "color": 0, "flags": 0, "raster": True}, "zh-TW")
+    assert "價格 $5 與 $10；∂x/∂t = 0、x、V<sub>0</sub>" in markup, markup
+    plain, prose = worker.ocr_plain("**Problem 1.13** Suppose *classical* $V_0$")
+    assert plain == "**Problem 1.13** Suppose classical V_(0)" and "*" not in prose, (plain, prose)
+    markup = worker.text_html("**習題 1.13** 假設 **古典", {"size": 11, "color": 0, "flags": 0, "raster": True}, "zh-TW")
+    assert "<b>習題 1.13</b> 假設 古典" in markup, markup
+    assert worker.translatable(prose) and not worker.translatable(worker.ocr_plain("$x = 3$ [1.8]")[1])
+
+    class Cut:
+        def recognize(self, _png):
+            return "<PAGE><BLOCK>text[0, 0, 1000, 500]<FORK>Complete words here.<BLOCK>text[0, 500, 1000, 1000]<FORK>Trunc", True
+    import numpy as np
+    cut_warnings = Counter()
+    found = worker.ocr_units(Cut(), np.full((100, 100, 3), 255, np.uint8), 1, 1, fitz.Rect(0, 0, 100, 100), [], [], None, cut_warnings)
+    assert [u["text"] for u in found] == ["Complete words here."] and cut_warnings["OCR_TEXT_NOT_LOCATED"] == 1, found
     warnings = Counter()
     assert worker.checked_rect([0, 0, float("nan"), 100], fitz.Rect(0, 0, 100, 100), warnings) is None
     assert warnings["OCR_BOX_INVALID"] == 1
@@ -400,6 +413,38 @@ def test_flow(root):
     print("PASS 接段：雙欄換欄、跨頁接著翻再切回；頁碼範圍；雙語對照與書籤")
 
 
+def test_tables():
+    """掃描表格：格子推得出來逐格換字（每欄對齊、整表一個字級）；推不出來整張重排；OCR 多拆一格的列不動"""
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=140)
+    rows = [("Name", "Count", "Status"), ("Apple tree", "12", "Healthy plant"), ("Pine", "7", "Dry soil")]
+    for r, row in enumerate(rows):
+        for c, text in enumerate(row):
+            page.insert_text((20 + c * 95, 40 + r * 25), text, fontsize=11)
+    page.draw_line((15, 47), (290, 47), width=1)
+    image, sx, sy = worker.page_image(page)
+    rect = fitz.Rect(10, 20, 295, 100)
+    content = "<table>" + "".join("<tr>" + "".join(f"<td>{t}</td>" for t in row) + "</tr>" for row in rows) + "</table>"
+    units = worker.table_units(content, rect, image, sx, sy)
+    # 數字格不翻；其他每格一段，位置在自己那格
+    assert [u["text"] for u in units] == ["Name", "Count", "Status", "Apple tree", "Healthy plant", "Pine", "Dry soil"], units
+    assert all("table" not in u and u["align"] == "left" for u in units), units
+    # 11pt 英文的墨水高 × 0.85（中文字滿版，看起來跟原本一樣高）
+    assert len({u["size"] for u in units}) == 1 and 8 <= units[0]["size"] <= 11, units[0]["size"]
+    assert units[3]["rect"].x0 < 25 < units[3]["rect"].x1 and units[4]["rect"].x0 > 180, (units[3]["rect"], units[4]["rect"])
+    # 有一列被 OCR 多拆一格：欄數照多數列，那列不動，其他照樣逐格
+    odd = content.replace("<td>Dry soil</td>", "<td>Dry</td><td>soil</td>")
+    units = worker.table_units(odd, rect, image, sx, sy)
+    assert "Dry" not in [u["text"] for u in units] and "Healthy plant" in [u["text"] for u in units], units
+    # 欄數對不上圖（OCR 只給兩欄）：整張重排，排成一張含合併格的 HTML 表
+    merged = "<table><tr><td colspan=\"2\">Name and count</td></tr><tr><td>Apple tree</td><td>12</td></tr></table>"
+    units = worker.table_units(merged, rect, image, sx, sy)
+    assert units and all(u["table"] is units[0]["table"] for u in units), units
+    result = worker.prepare_table(units[0]["table"], {0: "名稱與數量", 1: "蘋果樹"}, "zh-TW", Counter())
+    assert result and 'colspan="2"' in result["markup"] and "蘋果樹" in result["markup"] and ">12<" in result["markup"], result
+    print("PASS 表格：逐格換字、每欄對齊、多拆一格的列不動、對不上就整張重排")
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -412,6 +457,7 @@ def main():
         test_image(root)
         test_incremental(root)
         test_flow(root)
+        test_tables()
         test_validation(root)
         print(f"PREVIEW {root}", flush=True)
         if "--preview" in sys.argv:

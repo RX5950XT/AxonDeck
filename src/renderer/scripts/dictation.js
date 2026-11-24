@@ -285,6 +285,8 @@ async function stopRecording() {
 }
 
 function cancelRecording() {
+  // 還在等麥克風時取消：作廢那次啟動，不然麥克風一回來照樣開始錄
+  startSeq += 1
   if (!recording) {
     emit('idle')
     return

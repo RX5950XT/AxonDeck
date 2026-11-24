@@ -2,13 +2,16 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { BoxRenderable, ScrollBoxRenderable } from '@opentui/core'
 
 export const id = 'axondeck-navigation'
-export default { id, tui }
+// 同一支檔案給兩代用：1.x 讀 `tui`（OPENCODE_TUI_CONFIG），2.x 讀 `setup`（OPENCODE_CLI_CONFIG_CONTENT，見下方）。
+export default { id, tui, setup }
 
-// 使用訊息 ID 對應原生畫面，不靠相似文字或模擬滾輪猜位置。
+const isScroll = node => node instanceof ScrollBoxRenderable || (typeof node?.scrollTo === 'function' && Boolean(node.verticalScrollBar))
+
+// 使用訊息 ID 對應原生畫面，不靠相似文字猜位置。
 function transcript(root, ids) {
   for (const child of root.getChildren()) {
     if (child.id?.startsWith('axondeck-nav')) continue
-    if (child instanceof ScrollBoxRenderable && child.getChildren().some(item => ids.has(item.id))) return child
+    if (isScroll(child) && child.getChildren().some(item => ids.has(item.id))) return child
     const found = transcript(child, ids)
     if (found) return found
   }
@@ -154,4 +157,127 @@ export async function tui(api) {
     clearInterval(timer); unregister(); track.destroyRecursively()
     for (const [view, visible] of bars) if (!view.isDestroyed) view.verticalScrollBar.visible = visible
   })
+}
+
+// ───── OpenCode 2.x（@opencode/plugin/tui 的 `{ id, setup }`）─────
+// 每則提問／回答都是以訊息 ID 命名的節點；但開啟時只載最近一頁，畫面也只長出約 40 則。
+// 較早的用官方 `session.first` 一次載完；不在畫面上的，先捲到那一側邊緣再送一下滾輪，
+// 讓 OpenCode 自己的滾動處理往那邊多長一段（程式捲動與翻頁指令都不會觸發，2.3.0 實測）。
+const JUMP_WAIT_MS = 6000
+
+function textOf(message) {
+  if (message?.type === 'user') return String(message.text || '').trim()
+  const parts = Array.isArray(message?.content) ? message.content : []
+  return parts.filter(part => part?.type === 'text').map(part => String(part.text || '')).join('\n').trim()
+}
+
+function entriesV2(ctx, sessionID) {
+  const result = []
+  for (const message of ctx.data.session.message.list(sessionID) || []) {
+    const role = message?.type
+    const text = textOf(message)
+    if (!text || (role !== 'user' && role !== 'assistant')) continue
+    // 已完成的工具回合不是最後回答；還沒寫完的留著，清單才跟得上最新一句。
+    if (role === 'assistant' && message.time?.completed && message.finish === 'tool-calls') continue
+    result.push({ id: message.id, role, text, title: `${role === 'user' ? '你' : 'AI'}：${text.replace(/\s+/g, ' ').slice(0, 160)}` })
+  }
+  return result
+}
+
+/** 目標已在畫面上就停過去並回 true；否則往它那邊多長一段，回 false 等下一輪。 */
+function revealV2(ctx, scroll, sessionID, messageID) {
+  const node = findById(scroll, messageID)
+  if (node && node !== scroll) return place(scroll, node)
+  const order = ctx.data.session.message.list(sessionID).map(item => item.id)
+  const target = order.indexOf(messageID)
+  const shown = scroll.getChildren().map(item => order.indexOf(item.id)).filter(index => index >= 0)
+  if (target < 0 || !shown.length) return false
+  const down = target > Math.max(...shown)
+  const view = scroll.viewport || scroll
+  scroll.scrollTo(down ? Math.max(0, (scroll.scrollHeight || 0) - (view.height || 0)) : 0)
+  // SGR 滾輪：64 往上、65 往下；座標從 1 起算，落在對話區裡
+  const x = Math.max(0, Number(view.x) || 0) + 2, y = Math.max(0, Number(view.y) || 0) + 2
+  process.stdin.emit('data', Buffer.from(`\x1b[<${down ? 65 : 64};${x};${y}M`))
+  return false
+}
+
+function readJump(file, seen) {
+  if (!file) return null
+  let req
+  try { req = JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
+  return req && typeof req.nonce === 'string' && req.ok == null && req.nonce !== seen ? req : null
+}
+
+function answerJump(file, req, ok) {
+  try { writeFileSync(file, JSON.stringify({ ...req, ok })) } catch { /* 檔案被收掉：App 那頭逾時就當沒跳到 */ }
+}
+
+export function setup(ctx) {
+  const renderer = ctx.renderer, file = process.env.AXONDECK_NAV_JUMP
+  const loaded = new Set(), bars = new Map()
+  let currentSession = '', scroll, seenJump = '', pending = null
+  // find() 在整串載完後才算：回傳目標訊息 ID，空字串＝不存在
+  const begin = (find, answer) => {
+    if (!currentSession || !scroll) return answer(false)
+    pending = { find, answer, sessionID: currentSession, until: Date.now() + JUMP_WAIT_MS, count: -1, settled: 0 }
+    if (!loaded.has(currentSession)) { loaded.add(currentSession); ctx.keymap.dispatch('session.first') }
+  }
+  const finish = ok => { const { answer } = pending; pending = null; answer(ok) }
+  const step = () => {
+    const req = pending ? null : readJump(file, seenJump)
+    if (req) {
+      seenJump = req.nonce
+      const role = req.role === 'prompt' ? 'user' : req.role === 'answer' ? 'assistant' : ''
+      begin(() => entriesV2(ctx, currentSession).filter(row => row.role === role && sameText(req.text, row.text))[req.index]?.id || '',
+        ok => answerJump(file, req, ok))
+    }
+    if (!pending) return
+    if (Date.now() > pending.until || pending.sessionID !== currentSession || !scroll) return finish(false)
+    // 等 session.first 載完：筆數連兩輪沒變
+    const count = ctx.data.session.message.list(pending.sessionID).length
+    pending = { ...pending, settled: count === pending.count ? pending.settled + 1 : 0, count }
+    if (pending.settled < 2) return
+    const messageID = pending.find()
+    if (!messageID) return finish(false)
+    if (revealV2(ctx, scroll, pending.sessionID, messageID)) finish(true)
+  }
+  const track = new BoxRenderable(renderer, {
+    id: 'axondeck-scroll', position: 'absolute', right: 0, top: 1, width: 2, height: 1,
+    zIndex: 980, backgroundColor: ctx.theme?.background?.raised?.base, visible: false,
+    onMouseDown: event => dragTo(scroll, event),
+    onMouseDrag: event => dragTo(scroll, event),
+    onMouseUp: event => dragTo(scroll, event),
+  })
+  renderer.root.add(track)
+  const warn = ok => { if (!ok) ctx.ui.toast.show({ message: '這則訊息尚未出現在終端機畫面。', variant: 'warning' }) }
+  ctx.keymap.layer(() => ({ commands: [{
+    id: 'axondeck.navigation', title: '對話紀錄', group: 'Session', palette: true,
+    run: () => {
+      if (!currentSession || !scroll) return
+      const options = entriesV2(ctx, currentSession).map(row => ({ title: row.title, value: row.id }))
+      ctx.ui.dialog.select({ title: '對話紀錄', options }).then(value => { if (value) begin(() => value, warn) })
+    },
+  }] }))
+  const sync = () => {
+    for (const view of bars.keys()) if (view.isDestroyed) bars.delete(view)
+    const route = ctx.ui.router.current()
+    currentSession = route?.type === 'session' ? route.sessionID : ''
+    scroll = currentSession ? transcript(renderer.root, new Set(ctx.data.session.message.list(currentSession).map(item => item.id))) : undefined
+    track.visible = Boolean(scroll)
+    if (track.visible) track.height = Math.max(1, renderer.height - 1)
+    if (scroll && !bars.has(scroll)) {
+      bars.set(scroll, scroll.verticalScrollBar.visible)
+      scroll.verticalScrollBar.visible = true
+    }
+    try { step() } catch (error) {
+      // 宿主改版讓節點／資料形狀對不上：這次跳轉算失敗，不讓計時器每輪丟同一個例外
+      if (pending) finish(false)
+      console.error('[axondeck-navigation]', error)
+    }
+  }
+  const timer = setInterval(sync, 150)
+  return () => {
+    clearInterval(timer); track.destroyRecursively()
+    for (const [view, visible] of bars) if (!view.isDestroyed) view.verticalScrollBar.visible = visible
+  }
 }

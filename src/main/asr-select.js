@@ -101,7 +101,8 @@ function transcribe(scope, req) {
   return pick(scope).transcribe({
     samples: req?.samples,
     sampleRate: req?.sampleRate,
-    lang: req?.lang
+    lang: req?.lang,
+    autoDetect: req?.autoDetect === true
   })
 }
 

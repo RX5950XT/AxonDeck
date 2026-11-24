@@ -9,7 +9,7 @@
  * 回 `{ groups: [{ title, facts: [[標籤, 值]] }] }`；拿不到就少那段，不報錯。
  */
 
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 const path = require('path')
 const fs = require('../raw-fs')
 const paths = require('./paths')

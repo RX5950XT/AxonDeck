@@ -17,7 +17,7 @@ const SORT_KEYS = new Set(['name', 'date', 'size', 'type'])
  * 方格檢視的圖示邊長（px）。Ctrl+滾輪一次跳一級，像檔案總管的
  * 小圖示→中圖示→大圖示→特大圖示。renderer 也認同一份（`explorer-page.js`）。
  */
-const TILE_SIZES = [48, 64, 96, 128, 180, 256]
+const TILE_SIZES = [48, 64, 96, 128, 180, 256, 360, 512]
 const DEFAULT_TILE = 96
 const RECYCLE_CWD = 'recyclebin'
 const THIS_PC = 'thispc'
@@ -327,19 +327,9 @@ function writeState(patch) {
         tabs
       )
     }
-    s.set('lastPath', next.lastPath)
-    s.set('view', next.view)
-    s.set('tile', next.tile)
-    s.set('sort', next.sort)
-    s.set('sortDesc', next.sortDesc)
-    s.set('showHidden', next.showHidden)
-    s.set('folderSizes', next.folderSizes)
-    s.set('dualPane', next.dualPane)
-    s.set('uffsAuto', next.uffsAuto)
-    s.set('places', next.places)
-    s.set('folderViews', next.folderViews)
-    s.set('tabs', next.tabs)
-    s.set('activeTabId', next.activeTabId)
+    // 每個 set 都是一次同步寫檔＋fsync（切頁就存一次，13 次疊起來主程序會頓 100ms），只寫有變的、合成一次
+    const changed = Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(s.get(key)) !== JSON.stringify(value)))
+    if (Object.keys(changed).length) s.set(changed)
     return next
   })
 }

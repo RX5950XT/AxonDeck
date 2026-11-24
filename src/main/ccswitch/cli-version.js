@@ -33,6 +33,7 @@ const TOOLS = Object.freeze([
 ])
 
 // 來源：https://antigravity.google/cli/install.ps1（2026-10-06 唯讀查證）
+// Linux：https://antigravity.google/cli/install.sh 用同一個 base 的 linux_<arch>.json（2026-10-08 查證）
 const AGY_MANIFEST_BASE = 'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests'
 
 /**
@@ -121,7 +122,9 @@ function validVersion(value) {
 async function fetchAgyLatest(options = {}) {
   const arch = options.arch || process.arch
   if (!['x64', 'arm64'].includes(arch)) return ''
-  const platform = arch === 'arm64' ? 'windows_arm64' : 'windows_amd64'
+  // Linux 用官方 install.sh 同一份 manifest（linux_amd64／linux_arm64）
+  const os = (options.platform || process.platform) === 'linux' ? 'linux' : 'windows'
+  const platform = `${os}_${arch === 'arm64' ? 'arm64' : 'amd64'}`
   const data = await shared.fetchJson(`${AGY_MANIFEST_BASE}/${platform}.json`, {
     label: 'Antigravity CLI', retries: 2, timeoutMs: 10000, maxBytes: 64 * 1024, fetchImpl: options.fetchImpl
   })

@@ -11,12 +11,71 @@ const PYTHON_VERSION = '3.12.12'
 const COMMON = ['paddleocr[doc-parser]==3.7.0', 'pymupdf==1.28.2']
 // GPU 版只差 Paddle 本體與它要的 CUDA 函式庫（cu129 才支援 RTX 50 系列），版面偵測約快 45 倍。
 // 其餘套件照 requirements-<variant>.txt 的版本＋官方 SHA-256 安裝。
-const VARIANTS = Object.freeze({
+const WIN_VARIANTS = Object.freeze({
   cpu: { wheel: 'paddlepaddle-3.3.1-cp312-cp312-win_amd64.whl', index: 'cpu/paddlepaddle', bytes: 104794793,
     sha256: '324b5122cf3887dfbd15db17f36e2421ef923fd4569d26111bf1a21fe84d442b', paddle: 'paddlepaddle' },
   gpu: { wheel: 'paddlepaddle_gpu-3.3.1-cp312-cp312-win_amd64.whl', index: 'cu129/paddlepaddle-gpu', bytes: 809980301,
     sha256: 'f5b26250b46f1f7fe8f51571392d2e8f9c07c1e32fa127f4ca563fe1a0d01103', paddle: 'paddlepaddle-gpu' }
 })
+// Linux：Paddle 官方 linux_x86_64／aarch64 wheel（CPU 的 x64 與 PyPI manylinux 相同雜湊）。
+const LINUX_VARIANTS = Object.freeze({
+  cpu: {
+    x64: { wheel: 'paddlepaddle-3.3.1-cp312-cp312-manylinux1_x86_64.whl', index: 'cpu/paddlepaddle', bytes: 194839332,
+      sha256: '9016fc497213e1101261684321fbb31ef5960019ef39cb07ded27bc70e2a9858', paddle: 'paddlepaddle',
+      origin: 'https://files.pythonhosted.org/packages/a0/03/f59f706902aad55a1f216c98fc55187945/' },
+    arm64: { wheel: 'paddlepaddle-3.3.1-cp312-cp312-linux_aarch64.whl', index: 'cpu/paddlepaddle', paddle: 'paddlepaddle',
+      origin: 'https://www.paddlepaddle.org.cn/packages/stable/cpu/paddlepaddle/' }
+  },
+  gpu: {
+    x64: { wheel: 'paddlepaddle_gpu-3.3.1-cp312-cp312-linux_x86_64.whl', index: 'cu129/paddlepaddle-gpu', paddle: 'paddlepaddle-gpu',
+      origin: 'https://www.paddlepaddle.org.cn/packages/stable/cu129/paddlepaddle-gpu/' },
+    arm64: { wheel: 'paddlepaddle_gpu-3.3.1-cp312-cp312-linux_aarch64.whl', index: 'cu129/paddlepaddle-gpu', paddle: 'paddlepaddle-gpu',
+      origin: 'https://www.paddlepaddle.org.cn/packages/stable/cu129/paddlepaddle-gpu/' }
+  }
+})
+const VARIANTS = WIN_VARIANTS
+
+const UV_ASSETS = Object.freeze({
+  win32: { name: 'uv-x86_64-pc-windows-msvc.zip', bytes: 15722003,
+    sha256: '088962f9e7b7bd9ea740c04c650b2a21c8928c345bd99ac24350dc924dba656c' },
+  linux_x64: { name: 'uv-x86_64-unknown-linux-gnu.tar.gz', bytes: 17380567,
+    sha256: '1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154' },
+  linux_arm64: { name: 'uv-aarch64-unknown-linux-gnu.tar.gz', bytes: 16501347,
+    sha256: '3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3' }
+})
+
+function isWin() { return process.platform === 'win32' }
+function linuxArch() { return process.arch === 'arm64' ? 'arm64' : 'x64' }
+
+function variantSpec(variant) {
+  if (isWin()) return VARIANTS[variant]
+  const family = LINUX_VARIANTS[variant]
+  return family ? family[linuxArch()] : undefined
+}
+
+function uvAsset() {
+  if (isWin()) return UV_ASSETS.win32
+  return process.arch === 'arm64' ? UV_ASSETS.linux_arm64 : UV_ASSETS.linux_x64
+}
+
+function uvBinary(dir) { return path.join(dir, isWin() ? 'uv.exe' : 'uv') }
+
+function hostPython(dir) {
+  if (isWin()) return path.join(dir, 'python', `cpython-${PYTHON_VERSION}-windows-x86_64-none`, 'python.exe')
+  const triple = process.arch === 'arm64' ? 'linux-aarch64-gnu' : 'linux-x86_64-gnu'
+  return path.join(dir, 'python', `cpython-${PYTHON_VERSION}-${triple}`, 'bin', 'python')
+}
+
+function wheelUrl(spec) {
+  if (spec.origin) return spec.origin.replace(/\/?$/, '/') + spec.wheel
+  return `https://paddle-whl.cdn.bcebos.com/stable/${spec.index}/${spec.wheel}`
+}
+
+function requirementsFile(variant) {
+  const linux = path.join(__dirname, `requirements-${variant}-linux.txt`)
+  if (!isWin() && fs.existsSync(linux)) return linux
+  return path.join(__dirname, `requirements-${variant}.txt`)
+}
 // PyPI 官方在亞洲常只有 0.1 MB/s（GPU 版 2.3 GB 的 CUDA 函式庫要好幾小時）；清華實測 22 MB/s。
 // 鏡像只是換下載點：每個檔案都要對上鎖定清單裡的官方 SHA-256（--require-hashes），對不上 uv 就拒裝。
 // files 是同一個測速檔（nvidia-cuda-runtime，3.5 MB）在各鏡像的位置，官方放最後當退路。
@@ -29,7 +88,8 @@ const PYPI_INDEXES = Object.freeze([
 ])
 
 function packagesOf(variant) {
-  return [`${VARIANTS[variant].paddle}==3.3.1`, ...COMMON]
+  const spec = variantSpec(variant)
+  return [`${spec.paddle}==3.3.1`, ...COMMON]
 }
 
 /** 抓測速檔前 3 MB、最多 5 秒，回 bytes／秒。量 256 KB 只量到連線延遲（會挑到 4 MB/s 的騰訊而不是 22 MB/s 的清華） */
@@ -62,7 +122,9 @@ async function rankedIndexes(signal) {
 
 function stampOf(variant) { return JSON.stringify({ python: PYTHON_VERSION, packages: packagesOf(variant) }) }
 
-function pythonExe(dir) { return path.join(dir, 'venv', 'Scripts', 'python.exe') }
+function pythonExe(dir) {
+  return isWin() ? path.join(dir, 'venv', 'Scripts', 'python.exe') : path.join(dir, 'venv', 'bin', 'python')
+}
 
 /**
  * PDF 用的 Python 程序一律帶這些：`import paddle` 會在家目錄建 .cache/paddle、paddlex 預設寫 ~/.paddlex，
@@ -71,15 +133,23 @@ function pythonExe(dir) { return path.join(dir, 'venv', 'Scripts', 'python.exe')
 function isolatedEnv(dir) {
   // 家目錄不存在時 Paddle 改寫系統暫存資料夾，所以先建好
   fs.mkdirSync(path.join(dir, 'home'), { recursive: true })
-  return { USERPROFILE: path.join(dir, 'home'), PADDLE_PDX_CACHE_HOME: path.join(dir, 'paddle-cache'),
-    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: 'True' }
+  if (isWin()) {
+    return { USERPROFILE: path.join(dir, 'home'), PADDLE_PDX_CACHE_HOME: path.join(dir, 'paddle-cache'),
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: 'True' }
+  }
+  return {
+    HOME: path.join(dir, 'home'),
+    XDG_CACHE_HOME: path.join(dir, 'cache-home'),
+    PADDLE_PDX_CACHE_HOME: path.join(dir, 'paddle-cache'),
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: 'True'
+  }
 }
 
 function isReady(dir, variant = 'cpu') {
   try {
     return fs.readFileSync(path.join(dir, 'ready.json'), 'utf8') === stampOf(variant)
       && fs.statSync(pythonExe(dir)).isFile()
-      && fs.existsSync(path.join(dir, 'python', `cpython-${PYTHON_VERSION}-windows-x86_64-none`, 'python.exe'))
+      && fs.existsSync(hostPython(dir))
   } catch { return false }
 }
 
@@ -92,9 +162,13 @@ function run(exe, args, { dir, signal, env, stage, minutes = 45 }) {
     child.stderr.on('data', data => { stderr = (stderr + data.toString('utf8')).slice(-8192) })
     const stop = () => {
       if (!child.pid) return
-      const killer = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'),
-        ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
-      killer.on('error', () => child.kill())
+      if (isWin()) {
+        const killer = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'),
+          ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+        killer.on('error', () => child.kill())
+      } else {
+        try { process.kill(child.pid, 'SIGTERM') } catch { child.kill() }
+      }
     }
     const timer = setTimeout(() => { timedOut = true; stop() }, minutes * 60_000)
     signal?.addEventListener('abort', stop, { once: true })
@@ -124,7 +198,7 @@ function run(exe, args, { dir, signal, env, stage, minutes = 45 }) {
 
 /** 所有 Python、套件與快取都在這個模型資料夾，不改 PATH 或 Windows 登錄檔。 */
 async function install({ dir, signal, onProgress = () => {}, variant = 'cpu' }) {
-  const spec = VARIANTS[variant]
+  const spec = variantSpec(variant)
   if (!spec) throw new Error('未知的 PDF 執行環境')
   if (isReady(dir, variant)) return
   await fsp.mkdir(dir, { recursive: true })
@@ -136,41 +210,52 @@ async function install({ dir, signal, onProgress = () => {}, variant = 'cpu' }) 
     PYTHONUTF8: '1', PYTHONNOUSERSITE: '1', ...isolatedEnv(dir) })
   // 使用者既有 Python／uv 設定不參與這份隔離環境。
   const report = stage => onProgress({ stage, cancellable: true })
-  const uv = path.join(dir, 'uv.exe')
-  const zip = path.join(dir, 'uv.zip')
+  const uv = uvBinary(dir)
+  const uvPack = uvAsset()
+  const uvArchive = path.join(dir, isWin() ? 'uv.zip' : uvPack.name)
   report('下載 PDF 安裝工具…')
-  await downloadFile({ url: `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-pc-windows-msvc.zip`,
-    dest: zip, expectedBytes: 15722003,
-    sha256: '088962f9e7b7bd9ea740c04c650b2a21c8928c345bd99ac24350dc924dba656c', signal,
+  await downloadFile({ url: `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${uvPack.name}`,
+    dest: uvArchive, expectedBytes: uvPack.bytes, sha256: uvPack.sha256, signal,
     onProgress: ({ received, total }) => onProgress({ receivedBytes: received, totalBytes: total,
       stage: '下載 PDF 安裝工具…', cancellable: true }) })
-  const quote = value => value.replace(/['\u2018-\u201b]/g, '$&$&')
-  await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    ['-NoProfile', '-NonInteractive', '-Command',
-      `Expand-Archive -LiteralPath '${quote(zip)}' -DestinationPath '${quote(dir)}' -Force`],
-    { dir, env, signal, stage: '解壓安裝工具' })
-  await fsp.rm(zip, { force: true })
+  if (isWin()) {
+    const quote = value => value.replace(/['\u2018-\u201b]/g, '$&$&')
+    await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      ['-NoProfile', '-NonInteractive', '-Command',
+        `Expand-Archive -LiteralPath '${quote(uvArchive)}' -DestinationPath '${quote(dir)}' -Force`],
+      { dir, env, signal, stage: '解壓安裝工具' })
+  } else {
+    await run('tar', ['-xf', uvArchive, '-C', dir, '--strip-components=1'], { dir, env, signal, stage: '解壓安裝工具' })
+  }
+  await fsp.rm(uvArchive, { force: true })
   report('安裝 PDF 專用 Python…')
-  await run(uv, ['--no-config', 'python', 'install', PYTHON_VERSION, '--no-bin', '--no-registry'],
-    { dir, env, signal, stage: '安裝 Python' })
-  const basePython = path.join(dir, 'python', `cpython-${PYTHON_VERSION}-windows-x86_64-none`, 'python.exe')
+  const pythonInstall = isWin()
+    ? ['--no-config', 'python', 'install', PYTHON_VERSION, '--no-bin', '--no-registry']
+    : ['--no-config', 'python', 'install', PYTHON_VERSION, '--no-bin']
+  await run(uv, pythonInstall, { dir, env, signal, stage: '安裝 Python' })
+  const basePython = hostPython(dir)
   await run(uv, ['--no-config', 'venv', '--python', basePython, '--no-python-downloads',
     '--allow-existing', path.join(dir, 'venv')], { dir, env, signal, stage: '建立 Python 環境' })
   report('下載文件辨識引擎…')
-  await downloadFile({ url: `https://paddle-whl.cdn.bcebos.com/stable/${spec.index}/${spec.wheel}`,
-    dest: path.join(dir, 'wheelhouse', spec.wheel), expectedBytes: spec.bytes, sha256: spec.sha256, signal,
+  const wheelOpts = { url: wheelUrl(spec), dest: path.join(dir, 'wheelhouse', spec.wheel), signal,
     onProgress: ({ received, total }) => onProgress({ receivedBytes: received, totalBytes: total,
-      stage: '下載文件辨識引擎…', cancellable: true }) })
+      stage: '下載文件辨識引擎…', cancellable: true }) }
+  if (spec.bytes) wheelOpts.expectedBytes = spec.bytes
+  if (spec.sha256) wheelOpts.sha256 = spec.sha256
+  await downloadFile(wheelOpts)
   report('挑選最快的套件下載點…')
   // uv 讀不到 asar 裡的檔案，鎖定清單先寫到環境資料夾
   const requirements = path.join(dir, 'requirements.txt')
-  await fsp.writeFile(requirements, fs.readFileSync(path.join(__dirname, `requirements-${variant}.txt`)))
+  await fsp.writeFile(requirements, fs.readFileSync(requirementsFile(variant)))
+  const hashFlags = isWin() || fs.existsSync(path.join(__dirname, `requirements-${variant}-linux.txt`))
+    ? ['--require-hashes', '--only-binary', ':all:']
+    : []
   let lastError
   for (const index of await rankedIndexes(signal)) {
     report(`安裝 PaddleOCR 與 PDF 套件（${new URL(index.simple).hostname}）…`)
     try {
-      await run(uv, ['--no-config', 'pip', 'install', '--python', pythonExe(dir), '--require-hashes', '-r', requirements,
-        '--default-index', index.simple, '--find-links', path.join(dir, 'wheelhouse'), '--only-binary', ':all:'],
+      await run(uv, ['--no-config', 'pip', 'install', '--python', pythonExe(dir), ...hashFlags, '-r', requirements,
+        '--default-index', index.simple, '--find-links', path.join(dir, 'wheelhouse')],
       // GPU 版有 2.3 GB 的 CUDA 函式庫，慢速網路 45 分鐘不夠
       { dir, env, signal, stage: '安裝文件辨識套件', minutes: variant === 'gpu' ? 120 : 45 })
       lastError = null
@@ -201,9 +286,9 @@ async function install({ dir, signal, onProgress = () => {}, variant = 'cpu' }) 
  */
 async function prune(dir) {
   // uv 只在安裝時用（重裝會重新下載），requirements.txt 是安裝時從 App 寫出來的
-  for (const name of ['wheelhouse', 'cache', 'prefetch-wheels.js', 'requirements.txt', 'uv.exe', 'uvw.exe', 'uvx.exe']) {
+  for (const name of ['wheelhouse', 'cache', 'prefetch-wheels.js', 'requirements.txt', 'uv.exe', 'uvw.exe', 'uvx.exe', 'uv', 'uvx']) {
     await fsp.rm(path.join(dir, name), { recursive: true, force: true }).catch(() => {})
   }
 }
 
-module.exports = { install, isReady, pythonExe, isolatedEnv, rankedIndexes, prune }
+module.exports = { install, isReady, pythonExe, isolatedEnv, rankedIndexes, prune, variantSpec, uvAsset, uvBinary, hostPython, wheelUrl, requirementsFile, isWin }

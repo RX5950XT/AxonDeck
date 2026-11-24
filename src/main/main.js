@@ -2507,10 +2507,11 @@ registerMiroxenIpc({
   isMainSender: assertMainWindowSender
 })
 
-/** PDF 版面翻譯的 Python 執行環境（paddlepaddle＋uv）目前只鎖了 Windows wheel；其他平台回固定中文說明。 */
-const PDF_TRANSLATE_UNSUPPORTED = 'Linux 版暫不支援 PDF／圖片保留版面翻譯：版面辨識的 Python 執行環境目前只提供 Windows 版。一般文字翻譯不受影響。'
+/** PDF 版面翻譯的 Python 執行環境：Windows 用官方 win_amd64 wheel，Linux 用 manylinux／官方 linux wheel；其他平台回固定中文說明。 */
+const PDF_TRANSLATE_SUPPORTED = process.platform === 'win32' || process.platform === 'linux'
+const PDF_TRANSLATE_UNSUPPORTED = '此平台暫不支援 PDF／圖片保留版面翻譯：版面辨識的 Python 執行環境目前提供 Windows 與 Linux。一般文字翻譯不受影響。'
 async function loadPdfTranslateChecked() {
-  if (process.platform !== 'win32') {
+  if (!PDF_TRANSLATE_SUPPORTED) {
     throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: PDF_TRANSLATE_UNSUPPORTED })
   }
   return loadPdfTranslate()

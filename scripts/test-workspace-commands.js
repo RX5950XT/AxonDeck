@@ -313,7 +313,7 @@ test('指令項目呼叫既有操作，含停止的目前專案終端機與全�
   assert.deepEqual(calls, [['project', 'p1'], ['project', 'p2'],
     ['terminal', options.sessions[0]], ['terminal', options.sessions[1]],
     ...options.presets.map((preset) => ['new', preset.key]), ['worktree'],
-    ['panel', 'git'], ['panel', 'agents'], ['files-view', 'tree'], ['panel', 'files'], ['quick', options.project]])
+    ['panel', 'git'], ['files-view', 'tree'], ['panel', 'files'], ['quick', options.project]])
 })
 
 test('沒選專案時只提供切換專案', () => {

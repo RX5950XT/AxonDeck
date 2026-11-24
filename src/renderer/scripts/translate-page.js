@@ -486,14 +486,23 @@ function resolveInputSpeakLang() {
   return detectScriptLang(el.input?.value || '')
 }
 
+let translateStarting = false
+
 async function runTranslate() {
   // 翻譯中再按＝停止（長文分段可能跑很久）
   if (isTranslating) {
     el._translateRequestId = 0
     return
   }
-  settings = await getSettings()
-  await refreshUiState()
+  // 下面兩個 await 期間再按一次（連按、按住 Ctrl+Enter）會同時跑出兩輪
+  if (translateStarting) return
+  translateStarting = true
+  try {
+    settings = await getSettings()
+    await refreshUiState()
+  } finally {
+    translateStarting = false
+  }
   if (el.runBtn?.disabled) {
     showToast(el.bannerText?.textContent || '翻譯尚未就緒，請到設定檢查', 'error')
     return

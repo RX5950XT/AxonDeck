@@ -62,7 +62,7 @@ function pathUnder(child, parent) {
   if (here === root) return true
   return here.startsWith(root + '/') || here.startsWith(root + '\\')
 }
-const TILE_SIZES = [48, 64, 96, 128, 180, 256]
+const TILE_SIZES = [48, 64, 96, 128, 180, 256, 360, 512]
 const DEFAULT_TILE = 96
 const BROWSE_PAGE_SIZE = typeof BROWSE_PAGE_SIZE_IMPORT === 'number' ? BROWSE_PAGE_SIZE_IMPORT : 500
 
@@ -278,8 +278,6 @@ let selected = new Set()
 let anchor = ''
 /** 方向鍵的游標位置。跟 `anchor`（Shift 連選的錨點）是兩件事 */
 let cursor = ''
-/** 上一次剪下／複製了什麼——貼上要復原時得知道是搬過去還是拷過去的 */
-let lastClip = { mode: 'copy', paths: [] }
 /** @type {Array<{ name: string, path: string, dir: boolean, size: number, mtimeMs: number, ext?: string }>} */
 let entries = []
 let directoryTotal = 0
@@ -740,6 +738,7 @@ function bindOnce() {
     secondPane.search = ''
     secondPane.hits = []
     secondPane.searchSeq += 1
+    secondPane.searching = false
     saveSecondPaneState()
     paintSecondPane()
   })
@@ -826,7 +825,7 @@ function bindOnce() {
     // 比的是「要去的資料夾」不是 cwd：正在切換的時候拿舊 cwd 重讀會把切換蓋回去
     const here = navTarget || cwd
     if (pathKey(payload.path) === pathKey(here) && !inSearch()) {
-      void loadDir(here, { silent: true, keepSelection: true })
+      void loadDir(here, { silent: true, keepSelection: true, keepScroll: true })
     }
     if (dualPane && payload.path === secondPane.cwd) void loadSecond(secondPane.cwd, { pushHistory: false, keepSelection: true })
   })
@@ -1193,11 +1192,13 @@ function paintList() {
     after.className = 'ex-virtual-spacer'
     after.style.height = `${range.after}px`
     host.appendChild(after)
-    host.scrollTop = scrollTop
   } else {
     // 超過一頁的資料夾，還沒載到的那幾頁是空位；碰到就丟例外，整個 paintList 停在要縮圖之前
     for (const entry of rows) if (entry) host.appendChild(rowEl(entry))
   }
+  // 兩種畫法都要擺回去：一般清單／方格漏擺的話，資料夾監看每重畫一次就跳回最上面
+  // （WinRAR 壓縮中檔案大小一直變，畫面會一直往上彈）。
+  host.scrollTop = scrollTop
   paintFileIcons(host, (target) => electronAPI.explorer.fileIcon(target))
   paintStatus()
   paintCmdBar()
@@ -1532,6 +1533,7 @@ function setSecondScope(mode) {
   }
   secondPane.hits = []
   secondPane.searchSeq += 1
+  secondPane.searching = false
   saveSecondPaneState()
   paintSecondPane()
   if (secondPane.searchMode === 'global' && secondPane.search.trim()) scheduleSecondSearch()
@@ -1544,6 +1546,7 @@ function scheduleSecondSearch() {
   if (!query) {
     secondPane.hits = []
     secondPane.searchSeq += 1
+    secondPane.searching = false
     if (hint) hint.textContent = ''
     paintSecondPane()
     return
@@ -1698,7 +1701,7 @@ function secondRowEl(entry) {
   icon.className = 'ex-row-icon'
   paintDefaultFileIcon(icon, entry)
   icon.setAttribute('aria-hidden', 'true')
-  icon.classList.toggle('is-shortcut', entry.ext === 'lnk')
+  icon.classList.toggle('is-shortcut', entry.ext === 'lnk' || entry.link === true)
   // 跟左欄一樣跟殼層要真的縮圖／類型圖示，方格檢視才不會只剩 emoji。
   if (entry.path) {
     icon.dataset.path = entry.path
@@ -1961,6 +1964,7 @@ async function secondNavigate(dirPath) {
     secondPane.search = ''
     secondPane.hits = []
     secondPane.searchSeq += 1
+    secondPane.searching = false
   }
   await loadSecond(dirPath)
 }
@@ -2135,7 +2139,7 @@ function rowEl(entry) {
   icon.className = 'ex-row-icon'
   paintDefaultFileIcon(icon, entry)
   icon.setAttribute('aria-hidden', 'true')
-  icon.classList.toggle('is-shortcut', entry.ext === 'lnk')
+  icon.classList.toggle('is-shortcut', entry.ext === 'lnk' || entry.link === true)
   if (!inRecycle() && entry.path) {
     icon.dataset.path = entry.path
     icon.dataset.iconKey = `${entry.path}:${entry.mtimeMs || 0}:${entry.dir ? 'd' : 'f'}`
@@ -2686,6 +2690,7 @@ async function loadDir(dirPath, opts = {}) {
   navTarget = String(dirPath || '')
   if (pathKey(dirPath) === THIS_PC) return loadHome(opts)
   const seq = ++navSeq
+  const keepScroll = Boolean(opts.keepScroll) && !restoreScrollTop && pathKey(dirPath) === pathKey(cwd)
   // 這個資料夾自己記的排序／檢視；讀成功才套上，失敗時畫面還是上一個資料夾的樣子
   const pref = folderPrefs(dirPath)
   let data
@@ -2736,8 +2741,11 @@ async function loadDir(dirPath, opts = {}) {
     paintList()
     // 一律照 tab 記下的位置擺：新資料夾就是 0，還原的分頁就是原本捲到的地方。
     // paintList() 現在會保留重畫前的捲動位置，這裡不補 0 的話會沿用上一個資料夾的位置。
+    // 同一個資料夾的重讀（監看、操作後重整）例外：留在原位，只把捲到的那幾頁補回來。
     const listHost = $('exList')
-    if (listHost) listHost.scrollTop = restoreScrollTop
+    if (keepScroll) {
+      if (truncated) void loadVisiblePages()
+    } else if (listHost) listHost.scrollTop = restoreScrollTop
   }
   if (restoreSearch) {
     const input = /** @type {HTMLInputElement | null} */ ($('exSearch'))
@@ -3150,7 +3158,6 @@ async function clipboard(items, mode) {
   // 壓縮檔裡剪不走：一律當複製，貼上＝解壓縮（main 也照這樣存）
   if (mode === 'cut' && items.some((item) => item.zip || item.phone)) mode = 'copy'
   try {
-    lastClip = { mode, paths: items.map((i) => i.path) }
     await call(
       electronAPI.explorer.setClipboard(items.map((i) => i.path), mode),
       '無法放入剪貼簿'
@@ -3239,7 +3246,7 @@ async function refreshAfterMutate() {
       return
     }
   }
-  await loadDir(cwd, { silent: true })
+  await loadDir(cwd, { silent: true, keepScroll: true })
 }
 
 async function pasteHere() {
@@ -3248,9 +3255,10 @@ async function pasteHere() {
   try {
     const done = await call(electronAPI.explorer.paste(target), '貼上失敗')
     const landed = (done && done.paths) || []
-    if (landed.length && lastClip.paths.length) {
-      pushUndo(lastClip.mode === 'cut' ? '搬移' : '複製',
-        lastClip.mode === 'cut' ? undoMove(landed, done.sources || lastClip.paths) : undoCopy(landed))
+    // 剪貼簿可能是專案檔案樹放的：模式與來源一律以 main 回報為準
+    const moved = done && done.mode === 'cut'
+    if (landed.length) {
+      pushUndo(moved ? '搬移' : '複製', moved ? undoMove(landed, done.sources || []) : undoCopy(landed))
     }
     await refreshAfterMutate()
   } catch {

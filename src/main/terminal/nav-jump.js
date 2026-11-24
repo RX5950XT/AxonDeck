@@ -29,7 +29,8 @@ async function requestJump(dir, id, req, wait = sleep) {
   if (!file || !body) return false
   await fs.promises.mkdir(path.dirname(file), { recursive: true })
   await fs.promises.writeFile(file, JSON.stringify(body))
-  const deadline = Date.now() + 1000
+  // OpenCode 2 要先載完舊訊息、再往目標那邊多長一段畫面，長對話要幾秒（外掛最多等 6 秒）
+  const deadline = Date.now() + 6500
   while (Date.now() < deadline) {
     await wait(80)
     let parsed

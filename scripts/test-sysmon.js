@@ -511,6 +511,30 @@ console.log('\n[整機 CPU]')
   ok('總量是每核心平均', near(r.total, 50))
   ok('沒有前一筆時回 0', m.cpuUsage(null, curr).total === 0)
   ok('時間沒前進時回 0 不是 NaN', m.cpuUsage(curr, curr).total === 0)
+  // Windows：中斷時間已含在 sys 裡，irq 不能再加一次
+  const withIrq = (irq) => ({ times: { user: 0, nice: 0, sys: 100, idle: 900, irq } })
+  ok('irq 不重複計算', near(m.cpuUsage([withIrq(0)], [{ times: { user: 0, nice: 0, sys: 200, idle: 1800, irq: 60 } }]).total, 10))
+}
+
+// ===== 前台應用程式／背景、合併邊界 =====
+console.log('\n[應用程式與合併]')
+{
+  const P = (pid, name, cpu, started) => `P|${pid}|${name}|${cpu}|${1e7 + cpu}|0|0|1|0|0|0|0||${started}|100`
+  const prev = m.parseTick(['T|0', P(10, 'chrome', 0, 111), P(20, 'svchost', 0, 222)])
+  // pid 10 被同名的新程序重用（建立時間不同）：不可拿舊的累計值相減
+  const curr = m.parseTick(['T|1000', P(10, 'chrome', 5e6, 999), P(20, 'svchost', 5e6, 222), 'W|10'])
+  ok('W 行收進 appPids', curr.appPids.join(',') === '10')
+  const d = m.diffSamples(prev, curr, 1)
+  const chrome = d.processes.find((p) => p.pid === 10)
+  const svc = d.processes.find((p) => p.pid === 20)
+  ok('有視窗的標成應用程式', chrome.app === true && svc.app === false)
+  ok('pid 被重用時不跟舊程序相減', chrome.cpu === 0, String(chrome.cpu))
+  ok('同一個程序照常算 CPU', svc.cpu > 0)
+  const merged = m.mergeProcesses([
+    { pid: 1, name: 'chrome', cpu: 0, memory: 0, privateMemory: 0, threads: 0, handles: 0, diskRead: 0, diskWrite: 0, gpu: 0, gpuMemory: 0, network: 100, app: false },
+    { pid: 2, name: 'chrome', cpu: 0, memory: 0, privateMemory: 0, threads: 0, handles: 0, diskRead: 0, diskWrite: 0, gpu: 0, gpuMemory: 0, network: null, app: true }
+  ])
+  ok('組裡任一個有視窗就算應用程式', merged[0].app === true)
 }
 
 // ===== nvidia-smi =====

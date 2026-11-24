@@ -4,7 +4,10 @@
   "config": [
     "yaml", "yml", "toml", "ini", "cfg", "conf", "config", "properties", "env", "editorconfig",
     "gitattributes", "gitconfig", "gitignore", "npmignore", "bowerrc", "jshintrc", "jscsrc", "eyaml", "eyml",
-    "xml", "xaml", "plist", "dtd", "csproj", "wxi", "wxl", "wxs"
+    "xml", "xaml", "plist", "dtd", "csproj", "wxi", "wxl", "wxs",
+    "dockerignore", "prettierrc", "eslintrc", "babelrc", "stylelintrc", "npmrc", "yarnrc", "nvmrc", "browserslistrc",
+    "htaccess", "gitmodules", "lock", "props", "targets", "vcxproj", "vbproj", "fsproj", "resx", "nuspec",
+    "xsd", "xsl", "xslt", "wsdl", "hjson", "cson", "kdl", "ron", "tfvars"
   ],
   "code": [
     "c", "cc", "cpp", "cxx", "c++", "h", "hh", "hpp", "hxx", "h++", "cs", "csx", "vb", "fs", "fsi", "fsx", "fsscript",
@@ -13,7 +16,12 @@
     "coffee", "clj", "cljs", "cljx", "clojure", "edn", "groovy", "gradle", "gemspec", "ml", "mli",
     "css", "scss", "sass", "less", "ps1", "psm1", "psd1", "cmake", "mk", "makefile", "dockerfile", "containerfile",
     "bashrc", "bash_profile", "bash_login", "bash_logout", "profile", "handlebars", "hbs", "jade", "erb", "cshtml",
-    "asp", "aspx", "ascx", "jsp", "jshtm", "ctp", "diff", "patch", "graphql", "gql", "proto", "tf", "hcl", "tex", "bib", "cls"
+    "asp", "aspx", "ascx", "jsp", "jshtm", "ctp", "diff", "patch", "graphql", "gql", "proto", "tf", "hcl", "tex", "bib", "cls",
+    "sh", "bash", "zsh", "fish", "ksh", "zig", "nim", "ex", "exs", "erl", "hrl", "hs", "lhs", "jl", "elm", "rkt", "scm", "lisp", "el",
+    "f90", "f95", "f03", "f08", "pas", "sv", "svh", "vhd", "vhdl", "asm", "nasm", "sol", "prisma", "astro", "mdx", "http", "rest",
+    "ejs", "njk", "twig", "liquid", "pug", "haml", "slim", "styl", "wgsl", "glsl", "vert", "frag", "hlsl", "cu", "cuh", "metal",
+    "mm", "nix", "rego", "bicep", "jsonnet", "libsonnet", "sbt", "cabal", "rake", "podspec", "ninja", "gn", "gni", "bzl", "bazel",
+    "qml", "awk", "tcl", "vim", "gd", "gdshader", "nsi", "nsh", "mmd", "mermaid"
   ],
-  "text": ["txt", "log", "rst"]
+  "text": ["txt", "log", "rst", "srt", "vtt", "lrc", "ass", "ssa", "adoc", "asciidoc", "org", "textile"]
 }

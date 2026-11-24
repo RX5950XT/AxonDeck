@@ -14,6 +14,7 @@ const os = require('os')
 const path = require('path')
 const host = require('./shell-host')
 const platform = require('../platform')
+const { execFile } = require('../proc-broker')
 
 function electronApis() {
   try {
@@ -84,7 +85,7 @@ function toPng(icon) {
   if (!icon || !icon.bgra || !icon.w || !icon.h) return ''
   const width = icon.w | 0
   const height = icon.h | 0
-  if (width < 1 || height < 1 || width > 256 || height > 256) return ''
+  if (width < 1 || height < 1 || width > 512 || height > 512) return ''
   let buffer
   try {
     buffer = Buffer.from(icon.bgra, 'base64')
@@ -284,7 +285,7 @@ async function thumbOf(full, size, folderPreview = false) {
   const s = await ensure()
   if (!s || !full) return { url: '' }
   const px = Number(size)
-  const edge = Number.isInteger(px) && px >= 16 ? Math.min(px, 256) : 96
+  const edge = Number.isInteger(px) && px >= 16 ? Math.min(px, 512) : 96
   try {
     const result = await s.send({ op: 'thumb', path: full, size: edge, ...(folderPreview ? { folderPreview: true } : {}) })
     // 逾時不等於沒有縮圖（NAS 上的影片常要好幾秒）：標 pending 讓 renderer 晚點再問，不要把類型圖示當成最終結果快取起來
@@ -308,6 +309,75 @@ async function thumbOf(full, size, folderPreview = false) {
   } catch {
     return { url: '' }
   }
+}
+
+/**
+ * 同步標記（Google Drive 綠勾／雲朵）：自家快取的縮圖不經過殼層，標記另外問。沒有回空字串。
+ * @param {string} full
+ * @param {number} size
+ * @returns {Promise<string>}
+ */
+async function badgeOf(full, size) {
+  const s = await ensure()
+  if (!s || !full) return ''
+  const result = await s.send({ op: 'badge', path: full, size })
+  return result.ok && result.data ? toPng(result.data.overlay) : ''
+}
+
+/**
+ * 這個副檔名雙擊會怎樣：有預設程式／只有候選／沒人接手。sidecar 不在或問不到回 null（呼叫端照舊交給 Windows）。
+ * @param {string} ext 含點（`.foo`），沒有副檔名給空字串
+ * @returns {Promise<'default'|'choices'|'none'|null>}
+ */
+/** 副檔名（含點或否）對到 /etc/mime.types 的 MIME；問不到回空字串。 */
+let mimeMap
+function mimeOfExt(ext) {
+  const name = String(ext || '').replace(/^\./, '').toLowerCase()
+  if (!name) return ''
+  if (!mimeMap) {
+    mimeMap = new Map()
+    try {
+      const fs = require('fs')
+      for (const line of fs.readFileSync('/etc/mime.types', 'utf8').split(/\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const parts = trimmed.split(/\s+/)
+        const mime = parts[0]
+        for (const item of parts.slice(1)) mimeMap.set(item.toLowerCase(), mime)
+      }
+    } catch { /* 沒有 mime.types 就只靠下面幾個常見對照 */ }
+    for (const [item, mime] of Object.entries({
+      txt: 'text/plain', md: 'text/markdown', html: 'text/html', htm: 'text/html',
+      css: 'text/css', js: 'text/javascript', json: 'application/json', xml: 'application/xml',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+      svg: 'image/svg+xml', pdf: 'application/pdf', zip: 'application/zip'
+    })) if (!mimeMap.has(item)) mimeMap.set(item, mime)
+  }
+  return mimeMap.get(name) || ''
+}
+
+function xdgMimeDefault(mime) {
+  if (!mime) return Promise.resolve('')
+  return new Promise((resolve) => {
+    execFile('xdg-mime', ['query', 'default', mime], { timeout: 3000 }, (error, stdout) => {
+      resolve(error ? '' : String(stdout || '').trim())
+    })
+  })
+}
+
+async function associationOf(ext) {
+  if (!ext) return 'none'
+  if (!platform.isWindows) {
+    const mime = mimeOfExt(ext)
+    if (!mime) return 'none'
+    const def = await xdgMimeDefault(mime)
+    return def ? 'default' : 'none'
+  }
+  const s = await ensure()
+  if (!s) return null
+  const result = await s.send({ op: 'assoc', ext })
+  const state = result.ok ? result.data?.state : ''
+  return state === 'default' || state === 'choices' || state === 'none' ? state : null
 }
 
 /**
@@ -352,6 +422,9 @@ module.exports = {
   iconInfoOf,
   genericIconOf,
   thumbOf,
+  badgeOf,
+  associationOf,
+  mimeOfExt,
   attrsOf,
   propsOf,
   hwndOf

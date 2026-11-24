@@ -39,7 +39,7 @@ function parse(html) {
  * @param {(raw: string) => string} resolveImage 回空字串＝這張圖不准載
  * @returns {HTMLElement | null}
  */
-export function cleanElement(src, resolveImage) {
+function cleanElement(src, resolveImage) {
   const tag = src.tagName.toLowerCase()
   if (!TAGS.has(tag)) return null
   if (tag === 'a') {

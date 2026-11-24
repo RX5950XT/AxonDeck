@@ -297,8 +297,8 @@ const MODELS = {
     check: _llamaVulkan.check,
     binary: _llamaVulkan.binary
   },
-  // Miroxen 只有 Windows 版（miroxen-win-x64.zip＋cuBLAS DLL），其他平台不列引擎也不列生成模型
-  ...(HOST.platform === 'win32' ? {
+  // Miroxen：Windows 用官方 win-x64 zip；Linux 認 miroxen-linux-x64.tar.gz（尚無發行檔時下載會說明如何用 build.sh 編譯）
+  ...((HOST.platform === 'win32' || HOST.platform === 'linux') ? {
   /** Miroxen 引擎：跟著 GitHub latest release 走（`miroxen/runtime.js` 自己裝），只給 CUDA 13 驅動的 NVIDIA 卡 */
   miroxenruntime: {
     label: 'Miroxen 圖片影像引擎',

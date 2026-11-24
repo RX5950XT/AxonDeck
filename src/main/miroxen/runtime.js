@@ -16,10 +16,15 @@ const { downloadFile } = require('../hfmodels/download')
 const { removeTreeSync } = require('../safe-rm')
 
 const REPO = 'RX5950XT/Miroxen'
-const ENGINE = 'miroxen-win-x64.zip'
-const DEPS = 'miroxen-deps-win-x64.zip'
-const ENGINE_FILES = ['miroxen.exe', 'web/index.html']
-const DEPS_FILES = ['cublas64_13.dll', 'cublasLt64_13.dll', 'ffmpeg.exe', 'ffprobe.exe']
+function isWin() { return process.platform === 'win32' }
+function linuxArchName() { return process.arch === 'arm64' ? 'arm64' : 'x64' }
+const ENGINE = isWin() ? 'miroxen-win-x64.zip' : `miroxen-linux-${linuxArchName()}.tar.gz`
+const DEPS = isWin() ? 'miroxen-deps-win-x64.zip' : `miroxen-deps-linux-${linuxArchName()}.tar.gz`
+const ENGINE_FILES = isWin() ? ['miroxen.exe', 'web/index.html'] : ['miroxen', 'web/index.html']
+const DEPS_FILES = isWin()
+  ? ['cublas64_13.dll', 'cublasLt64_13.dll', 'ffmpeg.exe', 'ffprobe.exe']
+  : ['lib/libcudart.so', 'ffmpeg', 'ffprobe']
+const LINUX_MISSING = '目前 GitHub Release 還沒有 Linux 引擎檔（需要 miroxen-linux-x64.tar.gz）。Miroxen 原始碼附 build.sh，需 CUDA ≥ 13.3 在本機編譯後放到執行環境資料夾，或等發行檔上傳。不會改用其他生圖後端。'
 const CHECK_TTL_MS = 30 * 60 * 1000
 const TAG = /^v\d+\.\d+\.\d+$/
 
@@ -67,7 +72,8 @@ function parseRelease(json) {
     const asset = Array.isArray(json.assets) ? json.assets.find((item) => item?.name === name) : null
     if (!asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest || '') || typeof asset.browser_download_url !== 'string'
       || !asset.browser_download_url.startsWith(prefix) || !Number.isSafeInteger(asset.size) || asset.size <= 0) {
-      throw new Error(`Miroxen ${tag} 缺少 ${name}`)
+      const hint = process.platform === 'linux' ? LINUX_MISSING : `Miroxen ${tag} 缺少 ${name}`
+      throw new Error(hint)
     }
     assets[name] = { url: asset.browser_download_url, size: asset.size, sha256: asset.digest.slice(7) }
   }
@@ -125,4 +131,4 @@ async function install({ dir, signal, expand, onProgress }) {
   if (!isReady(dir)) throw new Error('解壓完成但缺少必要檔案')
 }
 
-module.exports = { isReady, installedVersion, isNewer, latestRelease, parseRelease, install, REPO }
+module.exports = { isReady, installedVersion, isNewer, latestRelease, parseRelease, install, REPO, ENGINE, DEPS, ENGINE_FILES, DEPS_FILES, engineName: () => ENGINE_FILES[0], LINUX_MISSING }

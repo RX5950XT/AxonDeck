@@ -37,23 +37,24 @@ function claude() {
 
 function miroxen() {
   const models = require('../src/main/models')
+  const runtime = require('../src/main/miroxen/runtime')
   const keys = Object.keys(models.MODELS).filter((key) => key.startsWith('miroxen'))
   if (process.platform === 'win32') {
     assert.ok(keys.includes('miroxenruntime'), 'Windows 照舊列 Miroxen')
+    assert.equal(runtime.ENGINE, 'miroxen-win-x64.zip')
+    assert.ok(runtime.ENGINE_FILES.includes('miroxen.exe'))
+  } else if (process.platform === 'linux') {
+    assert.ok(keys.includes('miroxenruntime'), 'Linux 也列 Miroxen 引擎')
+    assert.match(runtime.ENGINE, /^miroxen-linux-(x64|arm64)\.tar\.gz$/)
+    assert.ok(runtime.ENGINE_FILES.includes('miroxen'))
+    assert.doesNotMatch(runtime.ENGINE, /win-x64/)
   } else {
-    assert.deepEqual(keys, [], 'Linux 不列 Miroxen 引擎與生成模型')
-    assert.deepEqual(models.MIROXEN_MODEL_KEYS, [])
+    assert.deepEqual(keys, [])
   }
   const main = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')
-  assert.match(main, /const MIROXEN_UNSUPPORTED = 'Linux 版暫不支援「生成圖片影像」/)
-  assert.match(main, /const MIROXEN_SUPPORTED = process\.platform === 'win32'/)
-  assert.match(main, /status: async \(options\) => MIROXEN_SUPPORTED\n\s+\? loadMiroxen\(\)\.status\(options\)/, 'Windows 照舊走 Miroxen 模組')
-  assert.match(main, /if \(!MIROXEN_SUPPORTED\) throw miroxenUnsupported\(\)\n\s+return loadMiroxen\(\)/, '其他動作在非 Windows 直接回中文錯誤')
-  for (const name of ['start', 'openOutput', 'api', 'setLan']) {
-    assert.match(main, new RegExp(`${name}: async \\([^)]*\\) => \\(await loadMiroxenChecked\\(\\)\\)\\.${name}\\(`), `${name} 要先過平台檢查`)
-  }
+  assert.match(main, /const MIROXEN_SUPPORTED = process\.platform === 'win32' \|\| process\.platform === 'linux'/)
   const page = fs.readFileSync(path.join(root, 'src/renderer/scripts/imagegen-page.js'), 'utf8')
-  assert.match(page, /status\.supported === false/, '生成圖片影像頁顯示平台說明')
+  assert.match(page, /status\.supported === false/, '沒有發行檔或非支援平台時頁面仍能顯示說明')
 }
 
 function screenTranslate() {

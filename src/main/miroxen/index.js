@@ -167,12 +167,12 @@ async function launch() {
   const port = host === '0.0.0.0' ? await freePort(LAN_PORT, host).catch(() => freePort(0, host)) : await freePort(0, host)
   const key = apiKey()
   const h3 = path.join(home, 'video', 'minimax-h3', 'hf')
-  const env = { ...process.env, PATH: `${dir};${process.env.PATH || ''}`,
+  const env = { ...process.env, PATH: process.platform === 'win32' ? `${dir};${process.env.PATH || ''}` : `${dir}${path.delimiter}${dir}/lib${path.delimiter}${process.env.PATH || ''}`,
     MX_H3_VIDEO_VAE_CONFIG: path.join(h3, 'vae', 'config.json'),
     MX_H3_AUDIO_VAE_CONFIG: path.join(h3, 'audio_vae', 'config.json') }
   const args = ['serve', '--host', host, '--port', String(port), '--api-key', key,
     '--models', home, '--loras', path.join(home, 'loras'), '--out', outDir(), '--web', path.join(dir, 'web')]
-  const child = spawn(path.join(dir, 'miroxen.exe'), args, { cwd: home, env, windowsHide: true, shell: false,
+  const child = spawn(path.join(dir, process.platform === 'win32' ? 'miroxen.exe' : 'miroxen'), args, { cwd: home, env, windowsHide: true, shell: false,
     stdio: ['ignore', 'ignore', 'pipe'] })
   stderrTail = ''
   child.stderr.on('data', (chunk) => { stderrTail = (stderrTail + chunk.toString('utf8')).slice(-2000) })

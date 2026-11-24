@@ -1,5 +1,5 @@
 # AxonDeck todo
-最後更新：2026-11-22
+最後更新：2026-11-24
 
 > 交接、現況、待辦都在本檔（嚴格 ≤100 行）；規則與地雷見 [AGENTS.md](../AGENTS.md)，判斷原則見 [lessons.md](./lessons.md)，功能說明見 README。壓縮前的完整歷史：`git log -- CONTEXT.md tasks/todo.md`。
 
@@ -32,7 +32,7 @@
 - 工作區：檔案樹與檔案頁共用剪貼簿（`pasteAny` 比系統剪貼簿簽章），拖曳走 `explorer.startDrag`。AI 記錄五家（OpenCode 2 讀 `session_v2`，用量兩表合讀）。終端機 PTY 在獨立宿主，重開只斷線；WebGL 最多 8 個，不可切走就 dispose。
 - 編輯器：一檔一窗、存檔帶 mtime、暫存檔再 rename；>256MB 唯讀分段；HTML 預覽走不開 CORS 的 `vi-preview://`；改 `editor-formats.json` 要重編 `axondeck-media.exe` 並升 marker（現在 '4'）。
 - 檔案頁：>300 項改 Rust `list-dir`；縮圖 mpv／magick＋`thumb-cache`（512 MB）；預設關聯寫 UserChoice＋Latest Hash，備份在 `association-backups/`。
-- 額度／用量：quota-watch 5 分鐘 tick、30 分鐘同步；記憶體一律算獨占量。用量游標記 `contrib`、刪檔進 `archive`；Grok 子代理預設跳過（`resolveSubagents`），Claude resume／fork 跨檔去重。AGY：歷史工具呼叫附 `thoughtSignature`；生圖不可帶 `maxOutputTokens`；`USER_AGENT` 須報 `antigravity/cli/x.y.z`。Gemini 4 Neon／Hydrogen 在 Gemini 池、Argon（Pro）獨立週池；單模型 quotaInfo 是「卡住它的那道」，靠重置時間分 5h／週；prod 端點是另一組舊額度，以 sandbox／daily 為準；連線測試用 hydrogen-low。 Grok 反代：上游 `cli-chat-proxy.grok.com` 只收 Responses 串流（chat/completions 403），Chat／Anthropic 本機轉換；憑證讀 `~/.grok/auth.json`；`<模型>-<強度>` 別名對 `reasoning.effort`；402＝週額度用完；日誌 `grok-proxy-logs.db`（`agy/logs.js` 的 `createLogStore`）；測試 `test-grok-proxy.js`。
+- 額度／用量：quota-watch 5 分鐘 tick、30 分鐘同步；記憶體一律算獨占量。用量游標記 `contrib`、刪檔進 `archive`；Grok 子代理預設跳過（`resolveSubagents`），Claude resume／fork 跨檔去重。AGY：歷史工具呼叫附 `thoughtSignature`；生圖不可帶 `maxOutputTokens`；`USER_AGENT` 須報 `antigravity/cli/x.y.z`。Gemini 池（Neon／Carbon／Argon／Hydrogen／3.8 Flash，2026-11-24 起 Argon 不再獨立）與 Claude／GPT 池各有 5h＋週兩道，額度說明照抄上游 group description；Argon／3.8 Flash／GPT-OSS 上游預告 11/30 下架；單模型 quotaInfo 是「卡住它的那道」，靠重置時間分 5h／週；prod 端點是另一組舊額度，以 sandbox／daily 為準；連線測試用 hydrogen-low。 Grok 反代：上游 `cli-chat-proxy.grok.com` 只收 Responses 串流（chat/completions 403），Chat／Anthropic 本機轉換；憑證讀 `~/.grok/auth.json`；`<模型>-<強度>` 別名對 `reasoning.effort`；402＝週額度用完；日誌 `grok-proxy-logs.db`（`agy/logs.js` 的 `createLogStore`）；測試 `test-grok-proxy.js`。
 - Local SI：llama.cpp 固定 b11913＋Unlimited-OCR-2 疊加包（HF `RX5950XT/Unlimited-OCR-2-GGUF` 的 `llama.cpp-bin/`）；推論一律 llama-server router；NVIDIA ≥8184 MiB 用 GPU；`archs.js` 升 llama 要重抄；`MOE_ARCHS` 新架構要補。
 - 翻譯：PDF worker 逐頁 PP-DocLayoutV3→翻譯→替換；OCR 只能單序列（`parallel = 1`、`special = on`）；掃描擦字用蓋色矩形；`pdfruntime` 固定 Python 3.12.12／Paddle 3.3.1／PyMuPDF 1.28.2，`--require-hashes`。`node-edge-tts` 固定 1.2.11。
 - 文字轉語音：Breeze 只聽 loopback 隨機埠、不進 router；每句過 `audio-clean.js`（runaway 換種子重做 ≤2 次）；串流 `speech-stream.js`；版本最多 50。

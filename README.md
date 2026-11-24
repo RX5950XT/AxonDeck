@@ -4,9 +4,9 @@
 
 Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言模型、語音轉文字、翻譯、文字轉語音、生成圖片影像、系統監控，全部放在同一個 App。語音與翻譯可以完全離線跑本地模型，也能改用雲端 API。
 
-**目前版本 v1.85.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
+**目前版本 v1.85.1** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
 
-> **v1.85.0**：內建瀏覽器補上常用快捷鍵：Ctrl+F 頁內尋找（Enter／Shift+Enter／F3 切換、顯示第幾筆）、Ctrl+加減／0 縮放、F5／Ctrl+R 重整（加 Shift 略過快取）、Ctrl+L 跳網址列、Ctrl+T／W 開關分頁、Ctrl+Tab 切分頁；焦點在網頁裡也能用。擴充功能管理頁的「鍵盤快速鍵」獨立成一頁。
+> **v1.85.1**：AGY 額度依 Google 新口徑更新：Gemini 4 Argon 併入 Gemini 共用池（不再有獨立每週額度），額度儀表板只顯示 Gemini 與 Claude／GPT 兩池各 5 小時＋每週兩道，說明直接列出上游每池包含的模型；AGY 設定頁模型清單拿掉 Argon 分組，內建型錄補上 Pro 方案新開放的 Gemini 4 Carbon。
 >
 > **v1.84.1**：網站要求帳號密碼（HTTP 驗證，例如本機服務或路由器管理頁）時，Browser 與網頁版 AI 會跳出「登入以存取此網站」視窗，不再直接被擋成 401。
 >

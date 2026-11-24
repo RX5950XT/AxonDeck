@@ -64,8 +64,8 @@ function parseCatalog(payload) {
       id,
       line,
       variant,
-      // Claude／GPT、Gemini 兩池；Pro 方案的 Argon 另有獨立每週額度（Ultra 併在 Gemini 池）
-      pool: /argon/i.test(id) ? 'argon' : poolRank(parseModelId(id).family) === 0 ? 'claude' : 'gemini',
+      // Claude／GPT、Gemini 兩池（Argon 已併進 Gemini 池，2026-11-24 實測）
+      pool: poolRank(parseModelId(id).family) === 0 ? 'claude' : 'gemini',
       // 型錄列著但方案用不了（gemini-4-carbon-disabled 只給 Ultra，生成回 404，2026-11-19 實測）
       disabled: entry.disabled === true,
       note: typeof entry.tagDescription === 'string' ? entry.tagDescription.slice(0, 200) : '',

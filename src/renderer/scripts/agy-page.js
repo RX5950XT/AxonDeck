@@ -590,7 +590,6 @@ function renderModelCatalog() {
 const MODEL_GROUPS = Object.freeze([
   { key: 'claude', title: 'Claude／GPT 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
   { key: 'gemini', title: 'Gemini 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
-  { key: 'argon', title: 'Gemini 4 Argon', hint: 'Pro 方案獨立的每週額度（Ultra 併在 Gemini 池）' },
   { key: 'image', title: '生圖', hint: '聊天端點回 markdown 圖片，另有 /v1/images/generations' },
   { key: 'internal', title: 'IDE 內部／方案不可用', hint: '不能拿來對話' }
 ])
@@ -602,12 +601,12 @@ const MODEL_GROUPS = Object.freeze([
 function modelGroupOf(model) {
   if (model.image) return 'image'
   if (!model.chatCapable) return 'internal'
-  return model.pool === 'claude' || model.pool === 'argon' ? model.pool : 'gemini'
+  return model.pool === 'claude' ? 'claude' : 'gemini'
 }
 
 /**
  * 上游的單模型數字是「目前卡住它的那一道」：平常是 5 小時，每週用掉較多時改回每週。
- * 看重置時間離現在多遠才分得出是哪一道（Argon 那池本來就只有每週）。
+ * 看重置時間離現在多遠才分得出是哪一道。
  * @param {Array<object>} models
  * @returns {{ text: string, title: string, low: boolean } | null}
  */

@@ -792,7 +792,7 @@ test('Gemini 4 同代照上游推薦排模型線、檔位相鄰，停用的不�
   ])
   const byId = Object.fromEntries(models.map((row) => [row.id, row]))
   assert.deepStrictEqual([byId['gemini-4-neon-xhigh'].line, byId['gemini-4-neon-xhigh'].variant], ['gemini-4-neon', 'xhigh'])
-  assert.strictEqual(byId['gemini-4-argon-high'].pool, 'argon')
+  assert.strictEqual(byId['gemini-4-argon-high'].pool, 'gemini')
   assert.strictEqual(byId['gemini-4-neon-high'].pool, 'gemini')
   assert.strictEqual(byId['gemini-4-carbon-disabled'].chatCapable, false)
 })

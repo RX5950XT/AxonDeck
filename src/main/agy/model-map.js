@@ -27,7 +27,10 @@ const UPSTREAM_MODELS = Object.freeze([
   'gemini-4-hydrogen-high',
   'gemini-4-hydrogen-medium',
   'gemini-4-hydrogen-low',
-  // Pro 方案是獨立每週額度，Ultra 併在 Gemini 池；要報 agy CLI 的 User-Agent 才給（見 usage/antigravity.js）
+  // 2026-11-24 實測：Carbon 開放給 Pro、Argon 併進 Gemini 池；要報 agy CLI 的 User-Agent 才給（見 usage/antigravity.js）
+  'gemini-4-carbon-high',
+  'gemini-4-carbon-medium',
+  'gemini-4-carbon-low',
   'gemini-4-argon-high',
   'gemini-4-argon-medium',
   'gemini-4-argon-low',

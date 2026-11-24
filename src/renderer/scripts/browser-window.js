@@ -59,5 +59,81 @@ api.onShortcut?.((action) => {
     $('bwUrl').select()
   } else if (action === 'close-tab') {
     window.close()
+  } else if (action === 'find' || action === 'find-next' || action === 'find-prev') {
+    handleFindShortcut(action)
   }
+})
+
+let findActive = false
+
+function findInput() {
+  return /** @type {HTMLInputElement | null} */ ($('bwFindInput'))
+}
+
+async function setFindOpen(open) {
+  const bar = $('bwFind')
+  if (!bar) return
+  bar.hidden = !open
+  await api.setFindOpen?.(open)
+  if (open) {
+    findInput()?.focus()
+    findInput()?.select()
+  }
+}
+
+/** @param {boolean} [forward] @param {boolean} [followUp] */
+async function runFind(forward = true, followUp = false) {
+  const query = findInput()?.value || ''
+  const count = $('bwFindCount')
+  if (!query) {
+    findActive = false
+    await api.stopFindInPage?.()
+    if (count) count.textContent = ''
+    return
+  }
+  const startNew = !followUp || !findActive
+  findActive = true
+  await api.findInPage?.(query, { forward, findNext: startNew })
+}
+
+async function closeFind() {
+  findActive = false
+  const count = $('bwFindCount')
+  if (count) count.textContent = ''
+  await api.stopFindInPage?.()
+  await setFindOpen(false)
+}
+
+function handleFindShortcut(action) {
+  const query = findInput()?.value
+  const bar = $('bwFind')
+  if (action === 'find') {
+    void setFindOpen(true).then(() => { if (findInput()?.value) void runFind(true, false) })
+  } else if (bar && !bar.hidden && query) {
+    void runFind(action === 'find-next', true)
+  } else {
+    void setFindOpen(true)
+  }
+}
+
+$('bwFindInput')?.addEventListener('input', () => { void runFind(true, false) })
+$('bwFindInput')?.addEventListener('keydown', (event) => {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    void runFind(!event.shiftKey, true)
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    void closeFind()
+  }
+})
+$('bwFindPrev')?.addEventListener('click', () => void runFind(false, true))
+$('bwFindNext')?.addEventListener('click', () => void runFind(true, true))
+$('bwFindClose')?.addEventListener('click', () => void closeFind())
+
+api.onFoundInPage?.((result) => {
+  const bar = $('bwFind')
+  const count = $('bwFindCount')
+  if (!bar || bar.hidden || !count || !result) return
+  count.textContent = result.matches > 0 ? `${result.activeMatchOrdinal} / ${result.matches}` : '找不到'
 })

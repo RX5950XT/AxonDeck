@@ -22,6 +22,13 @@
       <div id="bwActions" class="ws-browser-actions" role="group" aria-label="擴充功能圖示" hidden></div>
       <button type="button" id="bwExt" class="btn-icon" title="擴充功能" aria-label="擴充功能">🧩</button>
     </div>
+    <div class="ws-browser-find bw-find" id="bwFind" hidden role="search">
+      <input type="text" class="input input-sm ws-browser-find-input" id="bwFindInput" placeholder="在網頁中尋找" aria-label="在網頁中尋找" maxlength="200" />
+      <span class="ws-browser-find-count" id="bwFindCount" aria-live="polite"></span>
+      <button type="button" id="bwFindPrev" class="btn-icon" title="上一個 (Shift+Enter)" aria-label="上一個">↑</button>
+      <button type="button" id="bwFindNext" class="btn-icon" title="下一個 (Enter)" aria-label="下一個">↓</button>
+      <button type="button" id="bwFindClose" class="btn-icon" title="關閉 (Esc)" aria-label="關閉尋找">✕</button>
+    </div>
     <script type="module" src="../scripts/browser-window.js"></script>
   </body>
 </html>

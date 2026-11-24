@@ -34,5 +34,13 @@ contextBridge.exposeInMainWorld('browserWindowAPI', {
     const handler = (_event, extensionId) => callback(String(extensionId), null)
     ipcRenderer.on('browserWindow:extensionCommand', handler)
     return () => ipcRenderer.removeListener('browserWindow:extensionCommand', handler)
+  },
+  setFindOpen: (open) => ipcRenderer.invoke('browserWindow:setFindOpen', open),
+  findInPage: (query, options) => ipcRenderer.invoke('browserWindow:findInPage', query, options),
+  stopFindInPage: () => ipcRenderer.invoke('browserWindow:stopFindInPage'),
+  onFoundInPage: (callback) => {
+    const handler = (_event, result) => callback(result)
+    ipcRenderer.on('browserWindow:foundInPage', handler)
+    return () => ipcRenderer.removeListener('browserWindow:foundInPage', handler)
   }
 })

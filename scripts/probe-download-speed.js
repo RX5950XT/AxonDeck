@@ -11,7 +11,7 @@ const { downloadFile } = require(path.join(moduleRoot, 'src/main/hfmodels/downlo
 const SAMPLE = 32 * 1024 * 1024
 const urls = {
   HF: 'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf',
-  llama: 'https://github.com/ggml-org/llama.cpp/releases/download/b10666/llama-b10666-bin-win-vulkan-x64.zip',
+  llama: 'https://github.com/ggml-org/llama.cpp/releases/download/b11913/llama-b11913-bin-win-vulkan-x64.zip',
   CUDA: 'https://developer.download.nvidia.com/compute/cuda/13.3.1/local_installers/cuda_13.3.1_windows.exe'
 }
 async function main() {

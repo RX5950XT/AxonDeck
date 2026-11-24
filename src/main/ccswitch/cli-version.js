@@ -27,7 +27,7 @@ const TOOLS = Object.freeze([
   { key: 'claude', label: 'Claude Code', exe: 'claude', pkg: '@anthropic-ai/claude-code' },
   { key: 'codex', label: 'Codex CLI', exe: 'codex', pkg: '@openai/codex' },
   { key: 'grok', label: 'Grok CLI', exe: 'grok', pkg: '@xai-official/grok' },
-  { key: 'opencode', label: 'OpenCode', exe: 'opencode', pkg: 'opencode-ai' },
+  { key: 'opencode', label: 'OpenCode', exe: 'opencode', pkg: '@opencode/cli' },
   // 官方 install.ps1 使用公開平台 manifest，沒有 npm 套件。
   { key: 'agy', label: 'Antigravity CLI', exe: 'agy', pkg: '' }
 ])

@@ -22,13 +22,16 @@ function fakeProc() {
 }
 
 const probes = []
+function makeProbe() {
+  const proc = fakeProc()
+  probes.push(proc)
+  return proc
+}
+
 const service = createSysmonService({
   samplerDeps: {
-    spawnFn() {
-      const proc = fakeProc()
-      probes.push(proc)
-      return proc
-    },
+    spawnFn: makeProbe,
+    createLinuxProbeChild: makeProbe,
     cpusFn: () => [{ times: { user: 1, nice: 0, sys: 0, idle: 1, irq: 0 } }]
   },
   gpuDeps: { spawnFn: () => fakeProc() },

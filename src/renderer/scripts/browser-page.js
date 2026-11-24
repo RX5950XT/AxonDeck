@@ -798,6 +798,27 @@ function bind() {
   const list = $('browserTabList')
   if (list) bindListDrop(list)
   electronAPI.workspace.onBrowserDock(dock)
+  electronAPI.workspace.onBrowserShortcut?.((action, target) => {
+    if (getChatPaneMode() !== 'browser' || target !== activeGuestId()) return
+    if (action === 'focus-url') {
+      const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
+      input?.focus()
+      input?.select()
+    } else if (action === 'new-tab') {
+      newTab()
+    } else if (action === 'close-tab' && activeId) {
+      closeTab(activeId)
+    } else if ((action === 'next-tab' || action === 'prev-tab') && tabs.length > 1) {
+      const at = tabs.findIndex((t) => t.id === activeId)
+      const delta = action === 'next-tab' ? 1 : -1
+      const next = tabs[(((at < 0 ? 0 : at) + delta) % tabs.length + tabs.length) % tabs.length]
+      if (next) activate(next.id)
+    } else if (/^tab-[1-9]$/.test(action)) {
+      const n = Number(action.slice(4))
+      const targetTab = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1]
+      if (targetTab) activate(targetTab.id)
+    }
+  })
   $('browserPinBtn')?.addEventListener('click', togglePinned)
   $('browserNewTabBtn')?.addEventListener('click', () => newTab())
   $('browserBackBtn')?.addEventListener('click', () => act('back'))

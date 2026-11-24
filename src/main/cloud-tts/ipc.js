@@ -7,7 +7,6 @@ function registerCloudTtsIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('cloudTts:status', (event) => invoke(event, () => service.status()))
   ipcMain.handle('cloudTts:generate', (event, options) => invoke(event, () => service.generate(options)))
   ipcMain.handle('cloudTts:cancel', (event, options) => invoke(event, () => service.cancel(options)))
-  ipcMain.handle('cloudTts:saveAudio', (event, options) => invoke(event, () => service.saveAudio(options)))
 }
 
 module.exports = { registerCloudTtsIpc }

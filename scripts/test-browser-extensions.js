@@ -3,10 +3,14 @@
 const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const { storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml } = require('../src/main/browser-extensions')
+const { matchBrowserShortcut } = require('../src/main/browser-shortcuts')
 
 const ID = 'ddkjiahejlhfcafbddmgiahcphecmpfh'
-const { EXTENSIONS_PAGE_URL, isInternalBrowserUrl, isExtensionManagerUrl } = require('../src/shared/browser-url.mjs')
+const { EXTENSIONS_PAGE_URL, isInternalBrowserUrl, isExtensionManagerUrl, isExtensionShortcutsUrl } = require('../src/shared/browser-url.mjs')
 assert.ok(isExtensionManagerUrl(EXTENSIONS_PAGE_URL + '?extension=' + ID))
+assert.equal(isExtensionShortcutsUrl(EXTENSIONS_PAGE_URL + '?extension=' + ID), false)
+assert.ok(isExtensionShortcutsUrl(EXTENSIONS_PAGE_URL + '?view=shortcuts&theme=dark'))
+assert.equal(isExtensionShortcutsUrl('axon-extensions://evil/pages/browser-extensions.html?view=shortcuts'), false)
 assert.ok(isInternalBrowserUrl(`chrome-extension://${ID}/options.html`))
 for (const url of ['file:///C:/x.html', 'javascript:alert(1)', 'chrome-extension://invalid/options.html',
   'axon-extensions://evil/pages/browser-extensions.html', 'axon-extensions://manager/scripts/browser-extensions-page.js',
@@ -47,6 +51,41 @@ const xml = '<gupdate><app appid="ddkjiahejlhfcafbddmgiahcphecmpfh" status="ok">
   + '<app appid="eimadpbcbfnmbkopoojfekhnkhdbieeh" status="ok"><updatecheck status="noupdate"/></app></gupdate>'
 assert.deepEqual([...parseUpdateXml(xml)], [['ddkjiahejlhfcafbddmgiahcphecmpfh', '2026.1012.1545']])
 assert.equal(parseUpdateXml('not xml').size, 0)
+
+// 工作區瀏覽器快捷鍵比對
+const keyIn = (over) => ({ type: 'keyDown', key: '', code: '', control: false, alt: false, shift: false, meta: false, isAutoRepeat: false, ...over })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'ArrowLeft', alt: true })), { scope: 'page', action: 'back' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'ArrowRight', alt: true })), { scope: 'page', action: 'forward' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'F5' })), { scope: 'page', action: 'reload' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'r', code: 'KeyR', control: true })), { scope: 'page', action: 'reload' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'R', code: 'KeyR', control: true, shift: true })), { scope: 'page', action: 'reload-hard' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'F5', control: true })), { scope: 'page', action: 'reload-hard' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'F5', shift: true })), { scope: 'page', action: 'reload-hard' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'F12' })), { scope: 'page', action: 'devtools' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'I', code: 'KeyI', control: true, shift: true })), { scope: 'page', action: 'devtools' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'l', code: 'KeyL', control: true })), { scope: 'host', action: 'focus-url', focusHost: true })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'd', code: 'KeyD', alt: true })), { scope: 'host', action: 'focus-url', focusHost: true })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'f', code: 'KeyF', control: true })), { scope: 'host', action: 'find', focusHost: true })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'F3' })), { scope: 'host', action: 'find-next' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'F3', shift: true })), { scope: 'host', action: 'find-prev' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 't', code: 'KeyT', control: true })), { scope: 'host', action: 'new-tab', focusHost: true })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'w', code: 'KeyW', control: true })), { scope: 'host', action: 'close-tab' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'Tab', code: 'Tab', control: true })), { scope: 'host', action: 'next-tab' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'Tab', code: 'Tab', control: true, shift: true })), { scope: 'host', action: 'prev-tab' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'PageDown', control: true })), { scope: 'host', action: 'next-tab' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'PageUp', control: true })), { scope: 'host', action: 'prev-tab' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: '1', code: 'Digit1', control: true })), { scope: 'host', action: 'tab-1' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: '9', code: 'Numpad9', control: true })), { scope: 'host', action: 'tab-9' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: '=', code: 'Equal', control: true })), { scope: 'page', action: 'zoom-in' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: '-', code: 'Minus', control: true })), { scope: 'page', action: 'zoom-out' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: '0', code: 'Digit0', control: true })), { scope: 'page', action: 'zoom-reset' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'T', code: 'KeyT', control: true, shift: true })), { scope: 'host', action: 'new-terminal', focusHost: true })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'W', code: 'KeyW', control: true, shift: true })), { scope: 'host', action: 'close-tab' })
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: 'P', code: 'KeyP', control: true, shift: true })), { scope: 'host', action: 'command-palette', focusHost: true })
+assert.equal(matchBrowserShortcut(keyIn({ key: 'l', code: 'KeyL', control: true, alt: true })), null, 'AltGr (Ctrl+Alt) 不誤判')
+assert.equal(matchBrowserShortcut(keyIn({ key: 't', code: 'KeyT', control: true, isAutoRepeat: true })), null, '一般快捷鍵不重複觸發')
+assert.deepEqual(matchBrowserShortcut(keyIn({ key: '=', code: 'Equal', control: true, isAutoRepeat: true })), { scope: 'page', action: 'zoom-in' }, '縮放允許長按重複')
+assert.equal(matchBrowserShortcut(keyIn({ type: 'keyUp', key: 'F5' })), null)
 
 // Linux：解壓改用 bsdtar／unzip（Windows 照舊 tar.exe）
 async function linuxUnzip() {

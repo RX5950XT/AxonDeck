@@ -12,7 +12,7 @@ const {
 } = require('./shared')
 
 const execFileAsync = promisify(execFile)
-// 上游看 User-Agent 決定給哪些模型：報 agy CLI 才拿得到 Gemini 4 Argon（舊的 vscode UA 型錄沒有、generate 回 404，2026-10-20 實測）
+// 上游看 User-Agent 決定給哪些模型：報 agy CLI 才拿得到 Gemini 4 系列（舊的 vscode UA 型錄沒有 Argon、generate 回 404，2026-10-20 實測）
 const USER_AGENT = 'antigravity/cli/1.4.2'
 const EXPECTED_WINDOWS = Object.freeze([
   // 上游把 Claude 與 GPT-OSS 放同一池（「Claude and GPT models」）
@@ -20,10 +20,6 @@ const EXPECTED_WINDOWS = Object.freeze([
   ['antigravity-claude-weekly', 'Claude／GPT', 'weekly'],
   ['antigravity-gemini-5h', 'Gemini', 'rolling-5h'],
   ['antigravity-gemini-weekly', 'Gemini', 'weekly']
-])
-// Pro 方案的 Argon 獨立一池、只有每週上限；Ultra 併在 Gemini 池裡、上游不回這組，所以不補空槽
-const OPTIONAL_WINDOWS = Object.freeze([
-  ['antigravity-argon-weekly', 'Gemini 4 Argon', 'weekly']
 ])
 
 function parseCredential(text) {
@@ -166,8 +162,6 @@ function tokenIsStale(expiry, nowMs) {
 function familyFor(groupName, bucketId) {
   const group = String(groupName || '').toLowerCase()
   const bucketName = String(bucketId || '').toLowerCase()
-  // 「Gemini 4 Argon」名字也含 gemini，要先挑出來，不然會跟 Gemini 池取最小值混在一起
-  if (group.includes('argon') || bucketName.includes('argon')) return 'argon'
   if (group.includes('gemini')) return 'gemini'
   if (group.includes('claude') || group.includes('gpt') || group.includes('third')) return 'claude'
   if (bucketName.includes('gemini')) return 'gemini'
@@ -209,23 +203,31 @@ function parseQuotaSummary(summary, slots = new Map()) {
   return slots
 }
 
-function parseModelsFallback(modelsResponse, slots = new Map()) {
+/**
+ * 單模型 quotaInfo 是「目前卡住它的那一道」：Gemini 平常回 5 小時，
+ * Claude／GPT 每週用掉一半後改回每週（2026-11-19 實測）。看重置時間離現在多遠才分得出是哪道。
+ */
+function fallbackSlot(resetAt, nowMs) {
+  const resetMs = Date.parse(resetAt)
+  return Number.isFinite(resetMs) && resetMs - nowMs > 6 * 60 * 60 * 1000 ? 'weekly' : '5h'
+}
+
+function parseModelsFallback(modelsResponse, slots = new Map(), nowMs = Date.now()) {
   const models = modelsResponse?.models
   if (!models || typeof models !== 'object' || Array.isArray(models)) return slots
   const fallback = new Map()
   for (const [name, model] of Object.entries(models)) {
-    // Argon 的 quotaInfo 是它自己的每週池，不能當 Gemini 5 小時的備援
-    const family = name.startsWith('claude')
+    // 停用的（如 gemini-4-carbon-disabled）沒有額度可言
+    if (model?.disabled === true) continue
+    const family = name.startsWith('claude') || name.startsWith('gpt-oss')
       ? 'claude'
-      : name.startsWith('gemini') && !name.includes('argon')
-        ? 'gemini'
-        : ''
+      : name.startsWith('gemini') ? 'gemini' : ''
     if (!family) continue
     const remaining = Number(model?.quotaInfo?.remainingFraction)
     upsertSlot(
       fallback,
       family,
-      '5h',
+      fallbackSlot(model?.quotaInfo?.resetTime, nowMs),
       Number.isFinite(remaining) ? remaining : 0,
       model?.quotaInfo?.resetTime
     )
@@ -237,7 +239,7 @@ function parseModelsFallback(modelsResponse, slots = new Map()) {
 }
 
 function windowsFromSlots(slots) {
-  return [...EXPECTED_WINDOWS, ...OPTIONAL_WINDOWS].flatMap(([id, label, kind]) => {
+  return EXPECTED_WINDOWS.flatMap(([id, label, kind]) => {
     const family = id.split('-')[1]
     const slot = id.endsWith('-5h') ? '5h' : 'weekly'
     const value = slots.get(`${family}:${slot}`)
@@ -247,15 +249,29 @@ function windowsFromSlots(slots) {
   })
 }
 
+/** 上游每組的 description 寫著「Models within this group: …」，照抄成說明，模型換代不用改碼 */
+function poolModelsText(summary) {
+  const groups = Array.isArray(summary?.groups) ? summary.groups : []
+  return groups.flatMap((group) => {
+    const matched = /models within this group:\s*(.+)$/i.exec(String(group?.description || ''))
+    const family = familyFor(group?.displayName, '')
+    if (!matched || !family) return []
+    const label = family === 'claude' ? 'Claude／GPT' : 'Gemini'
+    return [`${label} 池：${matched[1].trim().slice(0, 200)}`]
+  }).join('；')
+}
+
 function applyAntigravityQuota({ summary, models, tier, nowMs }) {
   const account = createBaseAccount('antigravity', nowMs)
   const slots = parseQuotaSummary(summary)
-  parseModelsFallback(models, slots)
+  parseModelsFallback(models, slots, nowMs)
   account.status = 'available'
   account.accuracy = 'official'
   account.planName = tier ? `Antigravity ${String(tier).slice(0, 120)}` : 'Antigravity'
-  // 上游口徑：同池模型共用 5 小時與每週兩道上限，依 token 成本比例扣（貴的模型扣得快）
-  account.notes = '已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini 與 Claude／GPT 各一池，依 token 成本比例扣 5 小時與每週額度；Pro 方案的 Gemini 4 Argon 另有獨立每週額度。'
+  // 上游口徑（2026-11-24 實測）：Gemini 與 Claude／GPT 兩池，同池模型共用 5 小時與每週兩道上限，
+  // 依 token 成本比例扣（貴的模型扣得快）；Argon 已併進 Gemini 池，不再有獨立每週池
+  const pools = poolModelsText(summary)
+  account.notes = `已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini 與 Claude／GPT 各一池，同池共用 5 小時與每週額度，依 token 成本比例扣${pools ? `（${pools}）` : ''}。`
   account.windows = windowsFromSlots(slots)
   if (!account.windows.length) {
     account.status = 'connected'
@@ -265,15 +281,13 @@ function applyAntigravityQuota({ summary, models, tier, nowMs }) {
 }
 
 function mergeExpectedWindows(current, previous) {
-  const expected = EXPECTED_WINDOWS.map(([id, label, kind]) => {
+  return EXPECTED_WINDOWS.map(([id, label, kind]) => {
     const fresh = current.find((window) => window.id === id)
     if (fresh) return { ...fresh }
     const cached = previous?.windows?.find((window) => window.id === id)
     if (cached) return { ...cached, id, label, kind }
     return createWindow(id, label, kind, 100, 100, '')
   })
-  const optional = current.filter((window) => OPTIONAL_WINDOWS.some(([id]) => id === window.id))
-  return [...expected, ...optional.map((window) => ({ ...window }))]
 }
 
 function antigravityHeaders(token) {

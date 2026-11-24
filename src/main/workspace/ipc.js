@@ -77,6 +77,10 @@ function registerWorkspaceIpc({ ipcMain, service, isMainSender, dialog, getWindo
   ipcMain.handle('workspace:moveEntry', (event, id, fromRel, toRelDir) => (
     invoke(event, () => service.moveEntry(id, fromRel, toRelDir))
   ))
+  ipcMain.handle('workspace:pasteClipboard', (event, id, relDir, systemPaths) => (
+    invoke(event, () => service.pasteClipboard(id, relDir, systemPaths))
+  ))
+  ipcMain.handle('workspace:triggerPaste', (event) => invoke(event, () => service.triggerPaste(event.sender)))
   ipcMain.handle('workspace:importDropped', (event, id, relDir, paths) => (
     invoke(event, () => service.importDropped(id, relDir, paths))
   ))

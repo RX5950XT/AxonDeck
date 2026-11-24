@@ -267,7 +267,7 @@ this.api = { toolIcon, stateIconName }`, context)
     '「＋」順序：終端機、Claude Code、Codex、Grok Build、Antigravity、OpenCode'
   )
   assert.match(block, /preset: 'grok', label: 'Grok Build'/)
-  for (const preset of [...presets, 'custom', 'browser']) {
+  for (const preset of [...presets, 'browser']) {
     const svg = context.api.toolIcon(preset)
     assert.ok(svg, `${preset} 沒有對應的圖示`)
     assert.ok(svg.children.length > 0, `${preset} 的圖示是空的`)

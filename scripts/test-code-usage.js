@@ -43,6 +43,9 @@ console.log('\n[A] 模型正規化與單價')
   ok('-latest 剝掉', pricing.normalizeModel('gpt-5.6-sol-latest') === 'gpt-5.6-sol')
   ok('別名合併（Grok 端點名）', pricing.normalizeModel('grok-4.6-build') === 'grok-4.6')
   ok('多層前綴只取最後一段', pricing.normalizeModel('openrouter/anthropic/claude-opus-5') === 'claude-opus-5')
+  ok('Gemini 4 檔位收回本體（xhigh／tiered-high／sonar）', ['gemini-4-neon-xhigh', 'gemini-4-hydrogen-tiered-high', 'gemini-4-hydrogen-sonar']
+    .map(pricing.normalizeModel).join() === 'gemini-4-neon,gemini-4-hydrogen,gemini-4-hydrogen')
+  ok('Flash-Lite 仍是另一顆', pricing.normalizeModel('gemini-3.5-flash-lite') === 'gemini-3.5-flash-lite')
   // Claude Code 實際寫 `claude-haiku-4-5-20251001`，公開報價寫 `claude-haiku-4.5`
   ok('大版本-小版本收斂成小數點', pricing.normalizeModel('claude-haiku-4-5-20251001') === 'claude-haiku-4.5')
   ok('收斂後對得到內建單價', pricing.priceFor(pricing.normalizeModel('claude-haiku-4-5'))?.input === 1)

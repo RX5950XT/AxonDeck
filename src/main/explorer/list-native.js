@@ -8,7 +8,7 @@
  * 所以只有項目夠多才值得（`fs.js` 判斷），小資料夾照舊。
  */
 
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 const { resolveProbeExe } = require('../native-probe')
 
 /** 超過這麼多項才走原生版 */

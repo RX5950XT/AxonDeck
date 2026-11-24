@@ -26,7 +26,8 @@ function titledRows(rows, title) {
   const nameOf = row => row.sessionTitle || row.title || ''
   const exact = rows.filter(row => nameOf(row) === title)
   if (exact.length) return exact
-  const stem = title.endsWith('...') ? title.slice(0, -3).trimEnd() : ''
+  // OpenCode 1.x 截斷用 '...'，2.x 改成單一字元 '…'
+  const stem = title.endsWith('...') ? title.slice(0, -3).trimEnd() : title.endsWith('…') ? title.slice(0, -1).trimEnd() : ''
   if (stem.length < 8) return []
   return rows.filter(row => nameOf(row).startsWith(stem))
 }

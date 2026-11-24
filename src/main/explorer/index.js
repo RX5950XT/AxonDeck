@@ -69,20 +69,12 @@ async function listPlaces() {
 async function bootstrap() {
   const state = await store.readState()
   const [listed, disks] = await Promise.all([listPlaces(), drives.listDrives()])
-  // 沒存過就落在「本機」首頁（＝Windows 檔案總管的預設畫面）。
-  let cwd = state.lastPath || drives.THIS_PC
-  if (!recycle.isRecyclePath(cwd) && !drives.isThisPc(cwd)) {
-    // 先非同步問一次：上次停在睡著的網路磁碟時，同步的 resolveExisting 會把整個 App 卡住。
-    // 太慢就照原路徑交給 renderer（listDir 是非同步的，慢也只慢那一格）
-    const reachable = await drives.isDirSoon(cwd).catch(() => false)
-    try {
-      if (!reachable) throw new Error('gone')
-      paths.resolveAbs(cwd)
-    } catch {
-      cwd = listed[0] ? listed[0].path : (disks[0] ? disks[0].path : 'C:\\')
-    }
-  }
-  return { ...state, lastPath: cwd, places: listed, drives: disks }
+  const { sessionFallback, restoreBrowseSession } = require('./restore-session')
+  // 沒存過、或上次停的資料夾已經沒了：落在「本機」首頁（＝Windows 檔案總管的預設畫面）。
+  // 分頁路徑也要一起改，否則 renderer 還是會去開那個已消失的 cwd，跳出「讀不到這個資料夾」。
+  const fallback = sessionFallback(listed, disks, 'C:\\')
+  const restored = await restoreBrowseSession(state, { fallback })
+  return { ...state, lastPath: restored.lastPath, tabs: restored.tabs, places: listed, drives: disks }
 }
 
 function saveState(patch) {

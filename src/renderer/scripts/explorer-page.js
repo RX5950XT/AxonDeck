@@ -2671,7 +2671,9 @@ async function loadDir(dirPath, opts = {}) {
   if (seq !== navSeq) return false
   if (!data) {
     navTarget = cwd
-    showToast('讀不到這個資料夾', 'error')
+    // 啟動還原用 silent：資料夾已消失時不要跳出紅字，必要時改回「本機」
+    if (!opts.silent) showToast('讀不到這個資料夾', 'error')
+    if (opts.fallbackHome && pathKey(dirPath) !== THIS_PC) return loadHome({ ...opts, fallbackHome: false })
     return false
   }
   cwd = data.path
@@ -4382,7 +4384,7 @@ export async function refreshExplorerPage() {
     showView(view)
     paintSidebar(places, disks)
     if (!tabs.length && !job) await newTab(boot.lastPath || THIS_PC)
-    else if (!job) await loadDir(cwd, { silent: true, keepSelection: true })
+    else if (!job) await loadDir(cwd, { silent: true, keepSelection: true, fallbackHome: true })
     if (dualPane && !job) {
       const restored = restoreSecondPaneState()
       ensureSecondTabs()

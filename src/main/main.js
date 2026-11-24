@@ -2796,19 +2796,20 @@ function attachWebMenu(contents, hostWindow, isBrowser) {
   if (!isBrowser) return
   const { isExtensionShortcutsUrl } = require('../shared/browser-url.mjs')
   const { shortcutFromInput } = require('./crx-commands')
-  require('./browser-shortcuts').attachBrowserShortcuts(contents, {
+  const { attachBrowserShortcuts, resolveShortcutHost, resolveShortcutGuest, resolveShortcutGuestId } = require('./browser-shortcuts')
+  attachBrowserShortcuts(contents, {
     shouldSkip: (input, url) => (
       (isExtensionShortcutsUrl(url) && Boolean(shortcutFromInput(input)))
       || Boolean(browserExtensions?.hasCommandShortcut(input, url))
     ),
     onHostAction: (matched, tab) => {
-      const host = tab.hostWebContents
+      const host = resolveShortcutHost(tab)
       if (host && !host.isDestroyed()) {
         if (matched.focusHost) host.focus()
-        host.send('workspace:browserShortcut', matched.action, tab.id)
+        host.send('workspace:browserShortcut', matched.action, resolveShortcutGuestId(tab))
         return
       }
-      const bar = browserWindow.barOf(tab)
+      const bar = browserWindow.barOf(tab) || browserWindow.barOf(resolveShortcutGuest(tab))
       if (!bar || bar.isDestroyed()) return
       if (matched.focusHost) bar.focus()
       bar.send('browserWindow:shortcut', matched.action)
@@ -2832,6 +2833,14 @@ app.on('web-contents-created', (_event, contents) => {
     }
     attachWebMenu(contents, hostWindow, isBrowser)
     if (!isBrowser) require('./ai-web').installRenderBoost(contents, aiWebPartitions.get(contents.session).slice('persist:ai-'.length))
+  } else if (aiWebPartitions.get(contents.session) === 'persist:wsbrowser') {
+    // 擴充功能選項頁的 sandbox iframe 是獨立 webContents，焦點在裡面時按鍵
+    // 不會冒泡到外層 webview，要自己接快捷鍵，再交給最外層分頁的宿主。
+    const { resolveShortcutHost } = require('./browser-shortcuts')
+    attachWebMenu(contents, () => {
+      const host = resolveShortcutHost(contents)
+      return host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null
+    }, true)
   }
   // Telegram：訊息上的右鍵 Web A 自己接（複製所選文字等）；其他地方（輸入框、標題、連結、反白的字）沒選單，補上同一套
   if (contents.getType() === 'webview' && contents.session === session.fromPartition('persist:telegram')) {

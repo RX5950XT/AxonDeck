@@ -189,11 +189,13 @@ function ensureTick() {
  */
 function shellCommand(shellKey) {
   const fallbackKey = store.DEFAULT_SHELL
-  const shell = store.SHELLS[shellKey] || store.SHELLS[fallbackKey]
+  const extra = store.shellDef && store.shellDef(shellKey)
+  const shell = (extra && extra.exe) ? extra : (store.SHELLS[shellKey] || store.SHELLS[fallbackKey])
   const integrated = shellKey === 'pwsh' || shellKey === 'powershell'
+  const extraArgs = Array.isArray(shell.args) ? shell.args : []
   return {
     exe: store.resolveExe(shell.exe) || shell.exe,
-    args: integrated ? ['-NoLogo', '-NoExit', '-Command', PS_INTEGRATION] : [],
+    args: integrated ? ['-NoLogo', '-NoExit', '-Command', PS_INTEGRATION] : extraArgs,
     integrated
   }
 }

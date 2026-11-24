@@ -17,6 +17,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const platform = require('../platform')
+const linuxContainers = require('./linux-containers')
 
 /** 最多幾個工作階段（每個都是一顆真的 conhost，沒有上限會把機器吃光） */
 const MAX_SESSIONS = 20
@@ -133,12 +134,41 @@ function resolveExe(name) {
  * 目前這台機器裝了哪些 shell（給 renderer 填下拉選單）。
  * @returns {Array<{ key: string, label: string, available: boolean }>}
  */
+/** 測試可注入；正式路徑用 linux-containers.listContainersSync。 */
+let listLinuxContainers = () => linuxContainers.listContainersSync()
+/** @type {Array<{ key: string, exe: string, args?: string[] }>} */
+let lastContainerShells = []
+function setListLinuxContainers(fn) {
+  listLinuxContainers = typeof fn === 'function' ? fn : () => linuxContainers.listContainersSync()
+}
+
+/**
+ * 內建 shell 或 distrobox／toolbox 容器。
+ * @param {unknown} key
+ * @returns {{ label: string, exe: string, args?: string[] } | null}
+ */
+function shellDef(key) {
+  if (typeof key === 'string' && SHELLS[key]) return SHELLS[key]
+  const parsed = linuxContainers.parseKey(key)
+  if (!parsed || platform.isWindows) return null
+  return linuxContainers.commandFor(key)
+}
+
 function availableShells() {
-  return Object.entries(SHELLS).map(([key, def]) => ({
+  const base = Object.entries(SHELLS).map(([key, def]) => ({
     key,
     label: def.label,
     available: Boolean(resolveExe(def.exe))
   }))
+  if (platform.isWindows) return base
+  let extras = []
+  try { extras = listLinuxContainers() || [] } catch { extras = [] }
+  lastContainerShells = extras
+  return base.concat(extras.map((item) => ({
+    key: item.key,
+    label: item.label,
+    available: true
+  })))
 }
 
 /**
@@ -154,6 +184,9 @@ function availablePresets() {
  * @returns {string}
  */
 function normalizeShell(key) {
+  if (!platform.isWindows && typeof key === 'string' && lastContainerShells.some((item) => item.key === key)) return key
+  const extra = shellDef(key)
+  if (extra && !SHELLS[key] && (resolveExe(extra.exe) || linuxContainers.hasCommand(extra.exe))) return key
   if (typeof key === 'string' && SHELLS[key] && resolveExe(SHELLS[key].exe)) return key
   for (const candidate of SHELL_FALLBACKS) {
     if (SHELLS[candidate] && resolveExe(SHELLS[candidate].exe)) return candidate
@@ -514,6 +547,8 @@ module.exports = {
   SHELL_FALLBACKS,
   PRESETS,
   availableShells,
+  shellDef,
+  setListLinuxContainers,
   availablePresets,
   resolveExe,
   normalizeShell,

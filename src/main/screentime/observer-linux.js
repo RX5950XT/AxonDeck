@@ -8,7 +8,7 @@
  * - X11：`xprop -root _NET_ACTIVE_WINDOW` → `xprop -id <wid> _NET_WM_PID`（視窗 → PID 有快取，平常每秒一支 xprop）
  * - Wayland／Hyprland：`hyprctl activewindow -j`
  * - Wayland／Sway：`swaymsg -t get_tree -r` 找 focused 節點
- * - Wayland／KDE Plasma：`kdotool getactivewindow getwindowpid`（要另裝 kdotool）
+ * - Wayland／KDE Plasma：優先 `kdotool`；沒裝時用 KWin Scripting D-Bus（gdbus，不必另裝 kdotool）
  * - Wayland／GNOME：Window Calls 擴充套件的 D-Bus `org.gnome.Shell.Extensions.Windows.List`；
  *   退而求其次 `org.gnome.Shell.Eval`（GNOME 41 起預設關閉，只有 unsafe mode 才行）
  * 都不行就回 supported:false 與原因，UI 照實顯示，不假裝在記。
@@ -72,6 +72,13 @@ function parseGnomeEval(out) {
   if (!/^\s*\(true,/.test(String(out))) return null
   const text = gvariantString(out)
   return text !== null && /^\d+$/.test(text) ? Number(text) : null
+}
+
+/** KWin queryWindowInfo／腳本輸出裡的 PID */
+function parseKwinPid(out) {
+  const text = String(out || '')
+  const m = /(?:\bpid\b|"pid"|'pid')\s*[:=]\s*(\d+)/i.exec(text) || /AXD_PID=(\d+)/.exec(text)
+  return m ? Number(m[1]) : 0
 }
 
 function findSwayFocused(node) {
@@ -161,6 +168,16 @@ function createLinuxObserver(deps = {}) {
       try { return findSwayFocused(JSON.parse(await run('swaymsg', ['-t', 'get_tree', '-r']) || '{}')) } catch { return 0 }
     },
     kdotool: async () => Number(String(await run('kdotool', ['getactivewindow', 'getwindowpid']) || '').trim()) || 0,
+    'kwin-script': async () => {
+      const info = await run('gdbus', ['call', '--session', '--dest', 'org.kde.KWin', '--object-path', '/KWin',
+        '--method', 'org.kde.KWin.queryWindowInfo'])
+      const direct = parseKwinPid(info)
+      if (direct) return direct
+      const ev = await run('gdbus', ['call', '--session', '--dest', 'org.kde.KWin', '--object-path', '/Scripting',
+        '--method', 'org.kde.kwin.Scripting.interactiveEvaluate',
+        'print("AXD_PID=" + ((workspace.activeWindow||workspace.activeClient||{}).pid || 0))'])
+      return parseKwinPid(ev) || 0
+    },
     'gnome-window-calls': async () => parseWindowCalls(await run('gdbus', ['call', ...WINDOW_CALLS])) || 0,
     'gnome-eval': async () => parseGnomeEval(await run('gdbus', ['call', ...GNOME_EVAL])) || 0
   }
@@ -180,7 +197,8 @@ function createLinuxObserver(deps = {}) {
     if (env.SWAYSOCK && has('swaymsg')) return ok('sway')
     if (desktop.includes('kde') || desktop.includes('plasma')) {
       if (has('kdotool')) return ok('kdotool')
-      return no('KDE Plasma（Wayland）需要安裝 kdotool 才能觀測前景視窗；或改用 X11 工作階段。')
+      if (has('gdbus')) return ok('kwin-script')
+      return no('KDE Plasma（Wayland）需要 kdotool 或 gdbus（才能呼叫 KWin Scripting D-Bus）才能觀測前景視窗；或改用 X11 工作階段。')
     }
     if (desktop.includes('gnome') || desktop.includes('ubuntu')) {
       if (!has('gdbus')) return no('GNOME（Wayland）需要 gdbus（libglib2.0-bin）才能觀測前景視窗。')
@@ -188,7 +206,7 @@ function createLinuxObserver(deps = {}) {
       if (parseGnomeEval(await run('gdbus', ['call', ...GNOME_EVAL])) !== null) return ok('gnome-eval')
       return no('GNOME（Wayland）不開放查詢前景視窗：請安裝「Window Calls」擴充套件（extensions.gnome.org），或改用 X11 工作階段。')
     }
-    return no(`這個 Wayland 桌面（${desktop || '未知'}）沒有可用的前景視窗查詢方式；目前支援 X11、GNOME（Window Calls）、KDE（kdotool）、Hyprland、Sway。`)
+    return no(`這個 Wayland 桌面（${desktop || '未知'}）沒有可用的前景視窗查詢方式；目前支援 X11、GNOME（Window Calls）、KDE（kdotool 或 KWin D-Bus）、Hyprland、Sway。`)
   }
 
   function detect() {
@@ -238,6 +256,7 @@ module.exports = {
   parseWmPid,
   parseWindowCalls,
   parseGnomeEval,
+  parseKwinPid,
   findSwayFocused,
   SHELL_NAMES
 }

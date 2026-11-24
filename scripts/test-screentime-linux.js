@@ -64,13 +64,19 @@ async function main() {
     assert.equal(no.supported, false)
     assert.match(no.note, /DISPLAY/)
   })
+  await check('KWin D-Bus 輸出解析 PID', async () => {
+    assert.equal(obs.parseKwinPid("{ 'pid': 4321, 'caption': 'Code' }"), 4321)
+    assert.equal(obs.parseKwinPid("AXD_PID=99"), 99)
+    assert.equal(obs.parseKwinPid(''), 0)
+  })
   await check('偵測：Wayland Hyprland／Sway／KDE（kdotool）', async () => {
     assert.equal((await detect({ XDG_SESSION_TYPE: 'wayland', HYPRLAND_INSTANCE_SIGNATURE: 'x', PATH: fakePath(['hyprctl']) })).backend, 'hyprland')
     assert.equal((await detect({ WAYLAND_DISPLAY: 'wayland-0', SWAYSOCK: '/run/s', PATH: fakePath(['swaymsg']) })).backend, 'sway')
     assert.equal((await detect({ XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'KDE', PATH: fakePath(['kdotool']) })).backend, 'kdotool')
+    assert.equal((await detect({ XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'KDE', PATH: fakePath(['gdbus']) })).backend, 'kwin-script')
     const kde = await detect({ XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'KDE', PATH: fakePath([]) })
     assert.equal(kde.supported, false)
-    assert.match(kde.note, /kdotool/)
+    assert.match(kde.note, /KWin|kdotool|gdbus/)
   })
   await check('偵測：GNOME Wayland → Window Calls、Eval、都沒有就說明原因', async () => {
     const env = { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'ubuntu:GNOME', PATH: fakePath(['gdbus']) }

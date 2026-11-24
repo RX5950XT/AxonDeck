@@ -79,3 +79,34 @@ const id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
     console.log('PASS 真實程序歸屬、Claude PID 記錄、恢復參數與無效資料守衛')
   } finally { removeTree(home) }
 })().catch(error => { console.error(error); process.exitCode = 1 })
+
+// Linux：/proc 程序表（假 /proc）、程序名稱推斷、preset 比對
+;(async () => {
+  if (process.platform !== 'linux') return
+  const { linuxProcessSnapshot, linuxProcessName, isPresetProcess } = require('../src/main/terminal/agent-processes')
+  const { tempDir: makeTemp } = require('./lib/test-temp')
+  const root = makeTemp('agent-proc-')
+  const proc = (pid, ppid, comm, argv, ticks) => {
+    fs.mkdirSync(path.join(root, String(pid)))
+    fs.writeFileSync(path.join(root, String(pid), 'stat'), `${pid} (${comm}) S ${ppid} 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${ticks} 0 0`)
+    fs.writeFileSync(path.join(root, String(pid), 'cmdline'), argv.join('\0') + '\0')
+  }
+  fs.writeFileSync(path.join(root, 'stat'), 'cpu 1 2 3\nbtime 1790000000\n')
+  proc(10, 1, 'bash', ['/bin/bash'], 100)
+  proc(30, 10, 'claude (x)', ['claude', '--resume', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], 500)
+  proc(31, 10, 'node', ['/usr/bin/node', '/usr/lib/node_modules/@openai/codex/bin/codex.js', 'resume'], 600)
+  fs.mkdirSync(path.join(root, 'self'))
+  const rows = await linuxProcessSnapshot(root)
+  const claude = rows.find(row => row.ProcessId === 30)
+  assert.equal(claude.ParentProcessId, 10, 'comm 含空白與括號也切得對')
+  assert.equal(claude.Name, 'claude')
+  assert.match(claude.CommandLine, /--resume aaaaaaaa/)
+  assert.ok(Date.parse(claude.StartedAt) > 1790000000 * 1000, 'StartedAt 由 btime＋starttime 換算')
+  assert.equal(rows.find(row => row.ProcessId === 31).Name, 'codex', 'node 跑的 CLI 取腳本名稱')
+  assert.equal(linuxProcessName(['/home/u/.local/share/claude/versions/2.1.3']), 'claude')
+  assert.ok(isPresetProcess({ Name: 'claude' }, 'claude', 'linux'))
+  assert.ok(!isPresetProcess({ Name: 'claude' }, 'claude', 'win32'), 'Windows 仍只認 claude.exe')
+  const found = await identifySessions([{ id: 't1', pid: 10 }], [{ id: 't1', preset: 'claude', cwd: '' }], [], async () => rows)
+  assert.equal(found.get('t1'), 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'Linux 也從 --resume 參數認回對話')
+  console.log('PASS Linux /proc 程序表與 CLI 名稱推斷')
+})().catch(error => { console.error(error); process.exitCode = 1 })

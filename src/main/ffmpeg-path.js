@@ -20,7 +20,8 @@ function resolveFfmpegPath() {
   // spawn 不能執行 asar 內檔案，第一次轉錄拷到 userData。
   if (/app\.asar(?!\.unpacked)/.test(bin)) {
     const { app } = require('electron')
-    const dest = path.join(app.getPath('userData'), 'native', 'ffmpeg.exe')
+    const ffmpegName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+    const dest = path.join(app.getPath('userData'), 'native', ffmpegName)
     // 大小對不上＝上次複製到一半被砍，或 App 升級換了 ffmpeg 版本
     if (!fs.existsSync(dest) || fs.statSync(dest).size !== fs.statSync(bin).size) {
       fs.mkdirSync(path.dirname(dest), { recursive: true })

@@ -24,6 +24,7 @@ const zip = require('./zip')
 const mediaPlayer = require('../media-player')
 
 const PREFIX = 'mtp:'
+
 /** 相機資料夾幾百張要列 3～4 秒，幾千張會更久 */
 const LIST_TIMEOUT_MS = 2 * 60 * 1000
 /** 使用者的複製可以很大（影片），Windows 自己的進度視窗有取消鈕 */

@@ -60,15 +60,23 @@ const maximum = (values) => values.length ? Math.max(...values) : null
 export function processTotals(s = {}) {
   const ready = s.countersReady !== false
   const nets = s.nets || []
-  const linksKnown = nets.length > 0 && nets.every((n) => n.linkSpeed > 0 && Number.isFinite(n.rx) && Number.isFinite(n.tx))
+  // 只拿有 linkSpeed 的介面算占用%（Linux 虛擬網卡常是 0）；都沒有就改顯示吞吐
+  const linked = nets.filter((n) => n.linkSpeed > 0 && Number.isFinite(n.rx) && Number.isFinite(n.tx))
+  const netBytes = nets.reduce((n, x) => n + (Number(x.rx) || 0) + (Number(x.tx) || 0), 0)
   const cards = s.gpu?.cards || []
   const vramKnown = cards.length > 0 && cards.every((c) => Number.isFinite(c.memoryUsed) && c.memoryTotal > 0)
   const gpus = [...Object.values(s.gpuAdapterUtil || {}), ...cards.map((c) => c.utilization)].filter(Number.isFinite)
   return {
     cpu: pct(ready ? s.cpu?.total : null),
     memory: pct(s.memory && s.totalMemory > 0 ? (1 - s.memory.available / s.totalMemory) * 100 : null),
+    // 表頭 I/O：各程序讀寫加總（含快取命中與管道，不是實體磁碟占用）
     diskTotal: ready ? ioRate((s.processes || []).reduce((n, p) => n + (p.diskRead || 0) + (p.diskWrite || 0), 0)) : '—',
-    network: pct(ready && linksKnown ? nets.reduce((n, x) => n + x.rx + x.tx, 0) * 800 / nets.reduce((n, x) => n + x.linkSpeed, 0) : null),
+    // 只拿有 linkSpeed 的介面算占用%（Linux 虛擬網卡常是 0）；都沒有就改顯示吞吐
+    network: linked.length
+      ? pct(ready
+        ? linked.reduce((n, x) => n + x.rx + x.tx, 0) * 800 / linked.reduce((n, x) => n + x.linkSpeed, 0)
+        : null)
+      : (ready && nets.length ? networkRate(netBytes) : '—'),
     gpu: pct(ready ? maximum(gpus) : null),
     gpuMemory: pct(vramKnown ? cards.reduce((n, c) => n + c.memoryUsed, 0) / cards.reduce((n, c) => n + c.memoryTotal, 0) * 100 : null),
     pid: String((s.processes || []).reduce((n, p) => n + (p.count || 1), 0)),

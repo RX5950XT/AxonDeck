@@ -1,13 +1,17 @@
 'use strict'
 
 /**
- * 專案內全文搜尋（Main Process）。
+ * 專案內搜尋（Main Process）。
  *
- * 有 axondeck-probe.exe 就走原生版 `search`（native/axondeck-probe/src/search.rs：平行讀檔，
+ * 兩種模式：
+ * - `name`：只比對檔名（UFFS／檔案總管替代；Candy → Candy Circuit.wav）
+ * - `content`：逐檔掃文字行（原行為；不依賴 ripgrep）
+ *
+ * `content` 模式：有 axondeck-probe.exe 就走原生版 `search`（native/axondeck-probe/src/search.rs：平行讀檔，
  * 本 repo 查不到的字從 3.7～8.5 秒降到約 0.6 秒）；沒建或起不來才退回下面自己走目錄逐檔比對。
  * 兩邊上限、跳過規則與命中格式相同；回歸 `test-search-memory.js`（有 exe 時跑的是原生版）。
  *
- * 邊界一律在這裡收：`resolveIn` 決定走得到哪裡，其餘四個上限決定會不會把 UI 弄死。
+ * 邊界一律在這裡收：`resolveIn` 決定走得到哪裡，其餘上限決定會不會把 UI 弄死。
  */
 
 const fsp = require('../raw-fs').promises
@@ -90,28 +94,93 @@ function trimLine(line, at) {
 }
 
 /**
- * 在專案裡找一段文字。**純字串比對，不收 regex**——收 regex 等於讓 renderer
- * 送一個會災難性回溯的 pattern 把 main 卡死（ReDoS）。
+ * @param {unknown} raw
+ * @returns {'name'|'content'}
+ */
+function normalizeMode(raw) {
+  return raw === 'name' || raw === 'filename' || raw === 'file' ? 'name' : 'content'
+}
+
+/**
+ * 專案內搜尋。**純字串比對，不收 regex**（防 ReDoS）。
  *
  * @param {string} root 專案根目錄
  * @param {unknown} rawQuery
  * @param {unknown} rawCaseSensitive
- * @returns {Promise<{ query: string, hits: Array<{ rel: string, line: number, text: string }>, truncated: boolean, scanned: number }>}
+ * @param {unknown} [rawMode] `'name'` 檔名／`'content'` 內容（預設）
+ * @returns {Promise<{ query: string, mode: string, hits: Array<{ rel: string, line: number, text: string, kind?: string }>, truncated: boolean, scanned: number, cancelled?: boolean }>}
  */
-async function search(root, rawQuery, rawCaseSensitive) {
+async function search(root, rawQuery, rawCaseSensitive, rawMode) {
+  const mode = normalizeMode(rawMode)
   const query = typeof rawQuery === 'string' ? rawQuery.trim() : ''
-  if (query.length < 2) throw fail('BAD_QUERY', '至少要輸入兩個字')
+  const minLen = mode === 'name' ? 1 : 2
+  if (query.length < minLen) {
+    throw fail('BAD_QUERY', mode === 'name' ? '請輸入要找的檔名' : '至少要輸入兩個字')
+  }
   if (query.length > 200) throw fail('BAD_QUERY', '搜尋字串太長')
   const version = ++searchVersion
   if (nativeChild) nativeChild.kill()
   const previous = searchInflight
   const pending = (async () => {
     await previous.catch(() => {}) // 前一輪的錯誤由它自己的 caller 處理。
+    if (mode === 'name') return searchNamesOnce(root, query, rawCaseSensitive, version)
     return searchOnce(root, query, rawCaseSensitive, version)
   })()
   searchInflight = pending
   try { return await pending } finally {
     if (searchInflight === pending) searchInflight = Promise.resolve()
+  }
+}
+
+/**
+ * 只比對檔名（basename 含子字串；大小寫可關）。
+ * @param {string} root
+ * @param {string} query
+ * @param {unknown} rawCaseSensitive
+ * @param {number} version
+ */
+async function searchNamesOnce(root, query, rawCaseSensitive, version) {
+  const caseSensitive = rawCaseSensitive === true
+  const needle = caseSensitive ? query : query.toLowerCase()
+  const base = files.resolveIn(root, '')
+  const state = { scanned: 0, deadline: Date.now() + TIMEOUT_MS, version }
+  /** @type {string[]} */
+  const candidates = []
+  await walk(root, base, candidates, state)
+
+  /** @type {Array<{ rel: string, line: number, text: string, kind: string }>} */
+  const hits = []
+  let truncated = candidates.length >= MAX_SCAN_FILES
+  for (const full of candidates) {
+    if (hits.length >= MAX_HITS || isStopped(state)) {
+      truncated = true
+      break
+    }
+    state.scanned += 1
+    const name = path.basename(full)
+    const hay = caseSensitive ? name : name.toLowerCase()
+    if (!hay.includes(needle)) continue
+    const rel = files.toRel(root, full)
+    hits.push({ rel, line: 0, text: name, kind: 'name' })
+  }
+  // 檔名完全符合／開頭符合排前面
+  hits.sort((a, b) => {
+    const an = caseSensitive ? a.text : a.text.toLowerCase()
+    const bn = caseSensitive ? b.text : b.text.toLowerCase()
+    const sa = an === needle ? 0 : an.startsWith(needle) ? 1 : 2
+    const sb = bn === needle ? 0 : bn.startsWith(needle) ? 1 : 2
+    if (sa !== sb) return sa - sb
+    return a.rel.localeCompare(b.rel, 'zh-Hant', { numeric: true, sensitivity: 'base' })
+  })
+  if (version !== searchVersion) {
+    return { query, mode: 'name', hits: [], truncated: false, scanned: state.scanned, cancelled: true }
+  }
+  return {
+    query,
+    mode: 'name',
+    hits,
+    truncated: truncated || Date.now() > state.deadline,
+    scanned: state.scanned
   }
 }
 
@@ -160,8 +229,8 @@ async function searchOnce(root, query, rawCaseSensitive, version) {
     hits.push(...fileHits)
     if (hits.length >= MAX_HITS) truncated = true
   }
-  if (version !== searchVersion) return { query, hits: [], truncated: false, scanned: state.scanned, cancelled: true }
-  return { query, hits, truncated: truncated || Date.now() > state.deadline, scanned: state.scanned }
+  if (version !== searchVersion) return { query, mode: 'content', hits: [], truncated: false, scanned: state.scanned, cancelled: true }
+  return { query, mode: 'content', hits, truncated: truncated || Date.now() > state.deadline, scanned: state.scanned }
 }
 
 /**
@@ -277,6 +346,7 @@ module.exports = {
   MAX_FILE_BYTES,
   MAX_LINE_CHARS,
   trimLine,
+  normalizeMode,
   search,
   listFiles
 }

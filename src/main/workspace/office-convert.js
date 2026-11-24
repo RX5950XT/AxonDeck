@@ -55,6 +55,10 @@ function run(exe, args, env) {
 let detected = null
 /** 找轉檔程式（結果記住，這輩子只查一次） */
 function detect() {
+  if (!detected && process.platform !== 'win32') {
+    // Linux：沒有 Office COM，只找 LibreOffice（發行版套件、/opt 官方包、snap）
+    detected = Promise.resolve({ office: new Set(), soffice: findLinuxSoffice() })
+  }
   if (!detected) {
     detected = (async () => {
       const office = new Set()
@@ -73,6 +77,23 @@ function detect() {
     })()
   }
   return detected
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {(file: string) => boolean} [exists]
+ * @returns {string} soffice 絕對路徑；沒裝回空字串
+ */
+function findLinuxSoffice(env = process.env, exists = (file) => fs.existsSync(file)) {
+  const fromPath = String(env.PATH || '').split(path.delimiter).filter(Boolean)
+    .flatMap((dir) => [path.join(dir, 'soffice'), path.join(dir, 'libreoffice')])
+  let opt = []
+  try {
+    opt = fs.readdirSync('/opt').filter((name) => /^libreoffice/i.test(name)).sort().reverse()
+      .map((name) => path.join('/opt', name, 'program', 'soffice'))
+  } catch { /* 沒有 /opt */ }
+  return [...fromPath, '/usr/lib/libreoffice/program/soffice', ...opt, '/snap/bin/libreoffice']
+    .find((file) => exists(file)) || ''
 }
 
 /**
@@ -121,7 +142,9 @@ async function convertWithOffice(kind, src, dst, target) {
 }
 
 async function convertWithLibreOffice(soffice, src, dst, target, work) {
-  const profile = `file:///${path.join(cacheDir(), 'lo-profile').replace(/\\/g, '/')}`
+  const profile = process.platform === 'win32'
+    ? `file:///${path.join(cacheDir(), 'lo-profile').replace(/\\/g, '/')}`
+    : require('url').pathToFileURL(path.join(cacheDir(), 'lo-profile')).href
   await run(soffice, [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', target, '--outdir', work, src])
   const produced = path.join(work, `${path.parse(src).name}.${target}`)
   await fsp.rename(produced, dst)
@@ -150,7 +173,11 @@ async function convert(full, target) {
   if (pending) return pending
   const job = queue.then(async () => {
     const tools = await detect()
-    if (!tools.office.has(kind) && !tools.soffice) throw fail('NO_CONVERTER', '需要 Microsoft Office 或 LibreOffice 才能顯示原始版面')
+    if (!tools.office.has(kind) && !tools.soffice) {
+      throw fail('NO_CONVERTER', process.platform === 'win32'
+        ? '需要 Microsoft Office 或 LibreOffice 才能顯示原始版面'
+        : '需要 LibreOffice 才能顯示原始版面（例如 sudo apt install libreoffice），目前先用簡易預覽')
+    }
     await fsp.mkdir(cacheDir(), { recursive: true })
     void prune()
     const work = await fsp.mkdtemp(path.join(cacheDir(), 'job-'))
@@ -202,4 +229,4 @@ function fail(code, message) {
   return Object.assign(new Error(code), { code, userMessage: message })
 }
 
-module.exports = { APP_OF, convert, cachedPath, setCacheDir, detect }
+module.exports = { APP_OF, convert, cachedPath, setCacheDir, detect, findLinuxSoffice }

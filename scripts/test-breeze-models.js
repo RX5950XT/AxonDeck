@@ -23,7 +23,8 @@ async function main() {
   assert.equal(models.isAsrKey('breezetts2q8'), false)
   assert.equal(model.totalBytes, 3568844480)
   const runtime = models.MODELS.breezeruntime
-  assert.match(runtime.binary, /breeze-server\.exe$/)
+  const WIN = process.platform === 'win32'
+  assert.match(runtime.binary, WIN ? /breeze-server\.exe$/ : /linux-x64-vulkan\/breeze-server$/)
   const runtimeDir = models.modelDir('breezeruntime')
   for (const name of runtime.check) {
     const dest = path.join(runtimeDir, name)
@@ -31,8 +32,8 @@ async function main() {
     fs.writeFileSync(dest, 'runtime')
   }
   assert.equal(models.isDownloaded('breezeruntime'), true)
-  fs.rmSync(path.join(runtimeDir, runtime.check.find(name => name.endsWith('libbreeze.dll'))))
-  assert.equal(models.isDownloaded('breezeruntime'), false, '缺 DLL 不算安裝完成')
+  fs.rmSync(path.join(runtimeDir, runtime.check.find(name => name.endsWith(WIN ? 'libbreeze.dll' : 'breeze-cli'))))
+  assert.equal(models.isDownloaded('breezeruntime'), false, '缺必要檔案不算安裝完成')
 
   const payload = Buffer.from('complete model')
   const sha256 = createHash('sha256').update(payload).digest('hex')
@@ -96,7 +97,7 @@ async function main() {
     assert.equal(api.status().models.breezetts2q8.downloading, true)
     assert.equal(api.status().models.breezetts2q8.downloaded, false, 'hash 驗證前不標為已下載')
   })
-  assert.match(calls[0], /windows-x64-vulkan\.zip$/)
+  assert.match(calls[0], process.platform === 'win32' ? /windows-x64-vulkan\.zip$/ : /linux-x64-vulkan\.tar\.gz$/)
   assert.match(calls[1], /q8_0\.gguf$/)
   assert.equal(api.isDownloaded('breezetts2q8'), true)
   fs.writeFileSync(api.filePath('breezetts2q8', 'gguf'), 'truncated')

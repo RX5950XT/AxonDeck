@@ -120,7 +120,11 @@ export function createAudioInput({ root, kind, pickId, nameId, call, onChange, o
     if (recorder) return stopRecording()
     let stream
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }) }
-    catch { return report(new Error('無法使用麥克風，請到 Windows 隱私權設定允許麥克風。')) }
+    catch {
+      return report(new Error(/Linux/.test(navigator.userAgent)
+        ? '無法使用麥克風：請確認有輸入裝置，並在 PipeWire／PulseAudio 的音量設定（pavucontrol）允許輸入。'
+        : '無法使用麥克風，請到 Windows 隱私權設定允許麥克風。'))
+    }
     const chunks = []
     recorder = new MediaRecorder(stream)
     recorder.addEventListener('dataavailable', (event) => { if (event.data.size) chunks.push(event.data) })

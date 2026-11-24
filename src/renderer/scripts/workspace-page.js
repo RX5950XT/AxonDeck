@@ -69,6 +69,8 @@ let dragging = []
 let draggingAbs = new Set()
 /** 檔案面板現在是「檔案樹」還是「搜尋」 */
 let filesView = 'tree'
+/** 右側檔案面板放大鏡：'name' 檔名（預設）／'content' 內容 */
+let searchMode = 'name'
 /** 搜尋輸入的節流計時器（打字時不要每個鍵都去掃一次磁碟） */
 let searchTimer = 0
 /** 搜尋的世代編號：慢回來的舊結果不可以蓋掉新的 */
@@ -381,10 +383,21 @@ function startRename(row, item) {
  * @param {HTMLElement} row
  * @param {{ id: string, name: string, path: string }} item
  */
+let projectSupportsAdmin = false
+let projectCatalogLoaded = false
+function ensureProjectCatalog() {
+  if (projectCatalogLoaded) return
+  projectCatalogLoaded = true
+  void electronAPI.terminal.catalog().then((res) => {
+    projectSupportsAdmin = Boolean(res?.ok && res.data?.supportsAdmin)
+  }).catch(() => { projectSupportsAdmin = false })
+}
+
 function showProjectMenu(at, row, item) {
+  ensureProjectCatalog()
   showMenu(at, [
     { label: '在此開啟終端機', onSelect: () => void launchProjectTerminal(item, false) },
-    { label: '以管理員身分開啟終端機', onSelect: () => void launchProjectTerminal(item, true) },
+    ...(projectSupportsAdmin ? [{ label: '以管理員身分開啟終端機', onSelect: () => void launchProjectTerminal(item, true) }] : []),
     { label: '重新命名', onSelect: () => startRename(row, item) },
     { label: '移至資料夾…', onSelect: () => projectFolders.moveMenu(row, item, at) },
     {
@@ -1901,6 +1914,30 @@ function onTreeClipboardKey(event) {
 // ===== 專案內搜尋 =====
 
 /**
+ * @param {'name'|'content'} [mode]
+ */
+function setSearchMode(mode) {
+  searchMode = mode === 'content' ? 'content' : 'name'
+  const nameBtn = document.getElementById('wsSearchModeName')
+  const contentBtn = document.getElementById('wsSearchModeContent')
+  nameBtn?.classList.toggle('is-on', searchMode === 'name')
+  contentBtn?.classList.toggle('is-on', searchMode === 'content')
+  nameBtn?.setAttribute('aria-pressed', searchMode === 'name' ? 'true' : 'false')
+  contentBtn?.setAttribute('aria-pressed', searchMode === 'content' ? 'true' : 'false')
+  const input = /** @type {HTMLInputElement | null} */ (el.searchInput)
+  if (input) {
+    if (searchMode === 'name') {
+      input.placeholder = '找檔名…（例如 Candy）'
+      input.setAttribute('aria-label', '搜尋檔名')
+    } else {
+      input.placeholder = '在這個專案裡找內容…（至少兩個字）'
+      input.setAttribute('aria-label', '搜尋內容')
+    }
+  }
+  if (filesView === 'search' && input?.value.trim()) queueSearch()
+}
+
+/**
  * 打字時節流 300ms 再送——每個鍵都去掃一次磁碟等於一直在做白工。
  */
 function queueSearch() {
@@ -1914,17 +1951,21 @@ async function runSearch() {
   const input = /** @type {HTMLInputElement | null} */ (el.searchInput)
   if (!isCurrentProject(project, projectToken) || !input || !el.searchResults) return
   const query = input.value.trim()
-  // 先換世代：字刪到不足兩個時，還在路上的舊搜尋也要作廢
+  // 先換世代：字刪到不足長度時，還在路上的舊搜尋也要作廢
   const seq = searchSeq + 1
   searchSeq = seq
-  if (query.length < 2) {
+  const minLen = searchMode === 'name' ? 1 : 2
+  if (query.length < minLen) {
     el.searchResults.replaceChildren()
     return
   }
   el.searchResults.replaceChildren(note('搜尋中…'))
   let found
   try {
-    found = await call(electronAPI.workspace.search(project.id, query, false), '搜尋失敗')
+    found = await call(
+      electronAPI.workspace.search(project.id, query, false, searchMode),
+      '搜尋失敗'
+    )
   } catch {
     if (seq === searchSeq && isCurrentProject(project, projectToken)) el.searchResults.replaceChildren()
     return
@@ -1946,29 +1987,41 @@ function note(text) {
 
 /**
  * @param {{ id: string, name: string }} project
- * @param {{ query: string, hits: Array<{ rel: string, line: number, text: string }>, truncated: boolean, scanned: number }} found
+ * @param {{ query: string, mode?: string, hits: Array<{ rel: string, line: number, text: string, kind?: string }>, truncated: boolean, scanned: number }} found
  */
 function renderSearchHits(project, found) {
   const host = el.searchResults
   if (!host) return
   host.replaceChildren()
+  const byName = found.mode === 'name' || found.hits.some((h) => h.kind === 'name')
   if (!found.hits.length) {
-    host.appendChild(note(`掃了 ${found.scanned} 個檔案，沒有找到。`))
+    host.appendChild(note(
+      byName
+        ? `掃了 ${found.scanned} 個檔案，沒有符合的檔名。`
+        : `掃了 ${found.scanned} 個檔案，沒有找到。`
+    ))
     return
   }
   for (const hit of found.hits) {
+    const nameHit = hit.kind === 'name' || byName
     const row = document.createElement('button')
     row.type = 'button'
     row.className = 'ws-search-hit'
-    row.title = `${hit.rel}:${hit.line}`
+    row.title = nameHit ? hit.rel : `${hit.rel}:${hit.line}`
     const where = document.createElement('span')
     where.className = 'ws-search-where'
-    where.textContent = `${hit.rel}:${hit.line}`
-    const text = document.createElement('span')
-    text.className = 'ws-search-text'
-    text.textContent = hit.text.trim()
-    row.append(where, text)
-    row.addEventListener('click', () => void openEditorTab(project, hit.rel, hit.line))
+    where.textContent = nameHit ? hit.rel : `${hit.rel}:${hit.line}`
+    row.append(where)
+    if (!nameHit) {
+      const text = document.createElement('span')
+      text.className = 'ws-search-text'
+      text.textContent = hit.text.trim()
+      row.append(text)
+    }
+    row.addEventListener('click', () => {
+      if (nameHit) void openEditorTab(project, hit.rel, 0)
+      else void openEditorTab(project, hit.rel, hit.line)
+    })
     host.appendChild(row)
   }
   if (found.truncated) host.appendChild(note('命中太多，只列出前面一部分。'))
@@ -3128,6 +3181,7 @@ function setGitSection(btn, body, open) {
 function initWorkspacePage() {
   if (initialized) return
   initialized = true
+  ensureProjectCatalog()
   initWsTabs()
 
   worktreeFlow = createWorktreeFlow({
@@ -3214,7 +3268,10 @@ function initWorkspacePage() {
   document.getElementById('wsFilesSearchBtn')?.addEventListener('click', () => {
     setFilesView(filesView === 'search' ? 'tree' : 'search')
     if (filesView === 'tree') void renderTree()
+    else setSearchMode(searchMode)
   })
+  document.getElementById('wsSearchModeName')?.addEventListener('click', () => setSearchMode('name'))
+  document.getElementById('wsSearchModeContent')?.addEventListener('click', () => setSearchMode('content'))
   el.tree?.setAttribute('role', 'tree')
   el.tree?.addEventListener('keydown', onTreeKeydown)
   // 樹的空白處＝專案根目錄（拖到最外層要有地方放）

@@ -5,12 +5,17 @@
  * 安裝檔下載會經 `update-mirrors.js` 先走代理（GitHub CDN 在 APAC 會限速到幾十 KB/s）。
  *
  * 為什麼不是 Electron 內建的 autoUpdater：內建那顆在 Windows 上只吃 Squirrel.Windows，
- * 我們打的是 NSIS。electron-updater 讀的是 electron-builder 產出的 `latest.yml`
- * （sha512 在裡面，下載完會自己驗），所以**發行時 latest.yml 一定要跟 .exe 一起上傳**。
+ * 我們打的是 NSIS。electron-updater 讀的是 electron-builder 產出的清單：
+ *   - Windows：`latest.yml`（與 Setup .exe 一同上傳）
+ *   - Linux AppImage：`latest-linux.yml`（與 .AppImage 一同上傳）
+ * sha512 在清單裡，下載完會自己驗，所以**發行時對應平台的 yml 一定要跟產物一起上傳**。
  *
  * 另一個坑：`autoInstallOnAppQuit` 在這個 App 上**沒有作用**——它掛的是 `app.once('quit')`，
  * 而我們的 `before-quit` 收完子程序是走 `app.exit(0)`（不發 quit 事件）。
  * 所以「結束時順便裝好」改由 main.js 在 exit 前呼叫 `installOnQuit()`。
+ *
+ * Linux：請用官方 AppImage 執行（`APPIMAGE` 環境變數）；`linux-unpacked` 目錄版
+ * 即使有 app-update.yml，套用更新也可能失敗——此時狀態回 error／unsupported，不 crash。
  */
 
 const { app } = require('electron')
@@ -37,9 +42,40 @@ function emit(patch) {
   notify(status())
 }
 
-/** @returns {{state: UpdateState, version: string, percent: number, message: string, currentVersion: string, autoUpdate: boolean}} */
+function isLinux() {
+  return process.platform === 'linux'
+}
+
+/** 是否以 AppImage 執行（electron-updater 的 Linux 套用路徑）。 */
+function isAppImageRuntime() {
+  return Boolean(process.env.APPIMAGE)
+}
+
+function downloadedMessage(version) {
+  const ver = version || state.version || ''
+  if (isLinux()) {
+    return `v${ver} 已下載，重新啟動即可套用更新（AppImage）。`
+  }
+  return `v${ver} 已下載完成，重新啟動即可完成安裝。`
+}
+
+function runtimeSupportNote() {
+  if (!app.isPackaged) return '開發模式不檢查更新（只有安裝版才會自動更新）。'
+  if (isLinux() && !isAppImageRuntime()) {
+    return '目前不是 AppImage 執行中：可檢查更新，但套用可能失敗；請使用官方 AppImage。'
+  }
+  return ''
+}
+
+/** @returns {{state: UpdateState, version: string, percent: number, message: string, currentVersion: string, autoUpdate: boolean, packageKind: string, note: string}} */
 function status() {
-  return { ...state, currentVersion: app.getVersion(), autoUpdate: autoEnabled }
+  return {
+    ...state,
+    currentVersion: app.getVersion(),
+    autoUpdate: autoEnabled,
+    packageKind: isLinux() ? (isAppImageRuntime() ? 'appimage' : 'linux') : 'nsis',
+    note: runtimeSupportNote()
+  }
 }
 
 function get() {
@@ -48,7 +84,18 @@ function get() {
   if (app.isPackaged && process.env.LOCALAPPDATA) {
     require('fs').rm(require('path').join(process.env.LOCALAPPDATA, 'voiceink-updater'), { recursive: true, force: true }, () => {})
   }
-  const { autoUpdater } = require('electron-updater')
+  let autoUpdater
+  try {
+    ;({ autoUpdater } = require('electron-updater'))
+  } catch (err) {
+    console.error('[updater] electron-updater 載入失敗')
+    emit({
+      state: 'unsupported',
+      percent: 0,
+      message: '此版本未內建自動更新模組。'
+    })
+    throw err
+  }
   autoUpdater.autoDownload = autoEnabled
   // 差分下載在這個 App 上是**反向優化**，一定要關（實測 v1.22.0 → v1.23.0）：
   // blockmap 把 406MB 的安裝檔切成 2 萬塊，比對後仍有 1963 段要下載（220MB），
@@ -65,7 +112,9 @@ function get() {
     state: autoEnabled ? 'downloading' : 'available',
     version: info?.version || '',
     percent: 0,
-    message: autoEnabled ? `發現新版本 v${info?.version}，開始下載…` : `發現新版本 v${info?.version}，按「下載更新」開始下載。`
+    message: autoEnabled
+      ? `發現新版本 v${info?.version}，開始下載…`
+      : `發現新版本 v${info?.version}，按「下載更新」開始下載。`
   }))
   autoUpdater.on('update-not-available', () => emit({ state: 'none', percent: 0, message: '已經是最新版本。' }))
   autoUpdater.on('download-progress', (p) => emit({
@@ -77,20 +126,30 @@ function get() {
     state: 'downloaded',
     version: info?.version || state.version,
     percent: 100,
-    message: `v${info?.version || state.version} 已下載完成，重新啟動即可完成安裝。`
+    message: downloadedMessage(info?.version || state.version)
   }))
   autoUpdater.on('error', (err) => {
     console.error('[updater] update failed')
     const wasDownloading = state.state === 'downloading'
+    const msg = String(err?.message || err || '')
+    const missingArtifact = /latest(-linux)?\.yml|404|ENOENT|Cannot find channel|no published versions/i.test(msg)
     emit({
-      state: 'error',
+      state: missingArtifact && !wasDownloading ? 'unsupported' : 'error',
       percent: 0,
       message: wasDownloading
         ? '下載更新失敗，請稍後再按「檢查更新」重試。'
-        : '檢查更新失敗（無法連線到 GitHub，或這個版本沒有附帶更新資訊）。'
+        : missingArtifact
+          ? (isLinux()
+            ? '此版本沒有 Linux 更新資訊（需要 GitHub 上的 latest-linux.yml 與 AppImage）。'
+            : '此版本沒有附帶更新資訊（需要 latest.yml）。')
+          : '檢查更新失敗（無法連線到 GitHub，或這個版本沒有附帶更新資訊）。'
     })
   })
-  downloadWithFallback(autoUpdater.httpExecutor)
+  try {
+    downloadWithFallback(autoUpdater.httpExecutor)
+  } catch (err) {
+    console.error('[updater] mirror wrap failed')
+  }
   updater = autoUpdater
   return updater
 }
@@ -122,7 +181,11 @@ async function check() {
   if (state.state === 'downloading' || state.state === 'checking') return status()
   if (state.state === 'available' && updater) {
     emit({ state: 'downloading', percent: 0, message: `開始下載 v${state.version}…` })
-    updater.downloadUpdate().catch(() => {}) // 失敗由 'error' 事件回報
+    try {
+      updater.downloadUpdate().catch(() => {}) // 失敗由 'error' 事件回報
+    } catch {
+      emit({ state: 'error', percent: 0, message: '下載更新失敗，請稍後再試。' })
+    }
     return status()
   }
   if (!hasUpdateConfig()) {
@@ -133,7 +196,17 @@ async function check() {
     await get().checkForUpdates()
   } catch (err) {
     console.error('[updater] check failed')
-    emit({ state: 'error', percent: 0, message: '檢查更新失敗（無法連線到 GitHub，或這個版本沒有附帶更新資訊）。' })
+    const msg = String(err?.message || err || '')
+    const missingArtifact = /latest(-linux)?\.yml|404|ENOENT|Cannot find channel|no published versions/i.test(msg)
+    emit({
+      state: missingArtifact ? 'unsupported' : 'error',
+      percent: 0,
+      message: missingArtifact
+        ? (isLinux()
+          ? '此版本沒有 Linux 更新資訊（需要 GitHub 上的 latest-linux.yml 與 AppImage）。'
+          : '此版本沒有附帶更新資訊（需要 latest.yml）。')
+        : '檢查更新失敗（無法連線到 GitHub，或這個版本沒有附帶更新資訊）。'
+    })
   }
   return status()
 }
@@ -149,11 +222,26 @@ function checkQuietly() {
  *
  * 不可以改回靜默（`/S`）：App 一關就兩三分鐘什麼都看不到，實測使用者以為壞了去重開機，
  * 安裝被打斷在「舊版已刪、新版只解一半」，App 整個消失。
+ *
+ * Linux AppImage：electron-updater 會替換 AppImage 後重啟；非 AppImage 執行時回 false。
  */
 function quitAndInstall() {
   if (!app.isPackaged || state.state !== 'downloaded') return false
-  get().quitAndInstall(false, true)
-  return true
+  if (isLinux() && !isAppImageRuntime()) {
+    emit({
+      state: 'error',
+      message: '請使用官方 AppImage 執行後再套用更新。'
+    })
+    return false
+  }
+  try {
+    get().quitAndInstall(false, true)
+    return true
+  } catch (err) {
+    console.error('[updater] quitAndInstall failed')
+    emit({ state: 'error', percent: 0, message: '無法啟動安裝程序，請稍後再試。' })
+    return false
+  }
 }
 
 /**
@@ -167,6 +255,7 @@ function quitAndInstall() {
 function installOnQuit(sessionEnding = false) {
   if (sessionEnding) return false
   if (!app.isPackaged || !autoEnabled || state.state !== 'downloaded' || !updater) return false
+  if (isLinux() && !isAppImageRuntime()) return false
   try {
     return updater.install(true, false)
   } catch (err) {
@@ -175,4 +264,14 @@ function installOnQuit(sessionEnding = false) {
   }
 }
 
-module.exports = { configure, check, checkQuietly, quitAndInstall, installOnQuit, status }
+module.exports = {
+  configure,
+  check,
+  checkQuietly,
+  quitAndInstall,
+  installOnQuit,
+  status,
+  hasUpdateConfig,
+  isAppImageRuntime,
+  downloadedMessage
+}

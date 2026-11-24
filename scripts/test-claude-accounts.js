@@ -149,7 +149,7 @@ const readConfig = (home) => JSON.parse(fs.readFileSync(path.join(home, '.claude
     const home = makeHome()
     login(home, 'a')
     fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true })
-    fs.writeFileSync(path.join(home, '.local', 'bin', 'claude.exe'), '')
+    fs.writeFileSync(path.join(home, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'), '')
     let spawned = null
     accounts.configure({
       spawnImpl: (exe, args, options) => {

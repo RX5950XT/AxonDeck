@@ -134,6 +134,7 @@ console.log('PASS 對話篩選、跨頁、重複提問、預覽上限與 xterm �
     let live = []
     const openSource = service.slice(service.indexOf('async function openSession('), service.indexOf('async function hostState('))
     const open = vm.runInNewContext(openSource + '\n;openSession', {
+      IN_PROCESS: false, terminal: { sessionStates: () => live, openSessionWithMeta: async () => ({ seq: 0, buffer: 'live output' }) },
       store: { get: async () => ({ id: 'mine', ...meta }) }, bridgeTakesOver: () => false,
       agentResume: { prepare: async item => item, begin: async () => {} },
       claudeHooks: { prepareResume: async item => item }, activity: { follow() {} }, links: { noteCwd() {} },

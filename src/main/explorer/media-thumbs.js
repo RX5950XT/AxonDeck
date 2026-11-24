@@ -7,7 +7,7 @@
  * 影片不先問殼層：沒裝編碼器的格式（FLV、部分 HEVC）殼層只會給類型圖示；mpv 什麼都解得開，
  * 從 10% 處取一格也比較不會抓到片頭黑畫面。圖片仍先問殼層，一般照片它更快。
  *
- * 找不到 mpv／magick（沒跑 `build:media`）回 null，呼叫端照舊走殼層。
+ * 找不到 mpv／magick（Windows 沒跑 `build:media`；Linux 系統沒裝）回 null，呼叫端照舊走殼層。
  */
 
 const crypto = require('crypto')
@@ -39,10 +39,34 @@ let trimScheduled = false
 
 const cacheDir = () => path.join(app.getPath('userData'), 'thumb-cache')
 const edgeOf = (size) => (Number(size) > 256 ? 512 : 256)
-const toolDir = () => path.dirname(resolveProbeExe({ folder: 'media', name: 'mpv.exe' }) || '.')
+function findOnPath(name) {
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    if (!dir) continue
+    const full = path.join(dir, name)
+    try { if (require('fs').statSync(full).isFile()) return full } catch { /* 下一筆 */ }
+  }
+  return ''
+}
+
+/** Windows 用內建 media 包的 mpv.exe／magick.exe；Linux 用系統的 mpv／magick（或 convert）。 */
+function thumbTools() {
+  if (process.platform === 'win32') {
+    const mpv = resolveProbeExe({ folder: 'media', name: 'mpv.exe' })
+    const magick = resolveProbeExe({ folder: 'media', name: 'magick.exe' })
+    const dir = path.dirname(mpv || magick || '.')
+    return { dir, mpv, magick, bundled: true }
+  }
+  return {
+    dir: '',
+    mpv: findOnPath('mpv'),
+    magick: findOnPath('magick') || findOnPath('convert'),
+    bundled: false
+  }
+}
 
 function keyOf(file, stat, edge) {
-  return crypto.createHash('sha1').update(`${file.toLowerCase()}|${stat.size}|${stat.mtimeMs}|${edge}`).digest('hex')
+  const id = process.platform === 'win32' ? file.toLowerCase() : file
+  return crypto.createHash('sha1').update(`${id}|${stat.size}|${stat.mtimeMs}|${edge}`).digest('hex')
 }
 
 function exists(file) {
@@ -87,12 +111,21 @@ async function produce(job) {
   await fsp.mkdir(work, { recursive: true })
   try {
     const video = job.kind !== 'image'
-    const exe = path.join(toolDir(), video ? 'mpv.exe' : 'magick.exe')
+    const tools = thumbTools()
+    const exe = video ? tools.mpv : tools.magick
+    if (!exe) {
+      failedThisRun.add(job.key)
+      return
+    }
     const out = path.join(work, 'out.webp')
     const result = await runProcess({
       file: exe,
       args: video ? mpvArgs(job.kind, job.file, job.edge, work) : magickArgs(job.file, job.edge, out),
-      env: video ? {} : { MAGICK_CONFIGURE_PATH: toolDir(), MAGICK_TEMPORARY_PATH: work },
+      env: video
+        ? {}
+        : (tools.bundled
+          ? { MAGICK_CONFIGURE_PATH: tools.dir, MAGICK_TEMPORARY_PATH: work }
+          : { MAGICK_TEMPORARY_PATH: work }),
       maxChars: 65536,
       timeoutMs: TIMEOUT_MS
     })
@@ -167,8 +200,8 @@ async function describe(file, size) {
 }
 
 function enqueue(job) {
-  const tool = job.kind === 'image' ? 'magick.exe' : 'mpv.exe'
-  if (!resolveProbeExe({ folder: 'media', name: tool })) return null
+  const tools = thumbTools()
+  if (!(job.kind === 'image' ? tools.magick : tools.mpv)) return null
   queued.delete(job.key)
   queued.set(job.key, job)
   if (queued.size > MAX_QUEUE) queued.delete(queued.keys().next().value)

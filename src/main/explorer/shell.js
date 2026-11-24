@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * 檔案總管的 Windows 殼層 sidecar 門面。
+ * 檔案總管的殼層 sidecar 門面。Windows＝COM sidecar；Linux＝xdg-open／gio 最小選單。
  *
  * 右鍵選單裡的 7-Zip／WinRAR／「傳送到」／「內容」，以及 Google Drive 綠勾，
  * 都要真的去問殼層。這裡把 `shell-host.js` 的行協定收成幾個函式，並把 BGRA
@@ -12,8 +12,18 @@
 
 const os = require('os')
 const path = require('path')
-const { nativeImage, BrowserWindow } = require('electron')
 const host = require('./shell-host')
+const platform = require('../platform')
+const { execFile } = require('../proc-broker')
+
+function electronApis() {
+  try {
+    return require('electron')
+  } catch {
+    return null
+  }
+}
+
 const paths = require('./paths')
 
 /** @type {null | { ok: boolean, send: Function, stop: Function, alive: Function }} */
@@ -26,6 +36,11 @@ let missing = false
  * @returns {Promise<object|null>}
  */
 async function ensure() {
+  // Linux／非 Windows：沒有 COM 殼層 sidecar，全部回空（右鍵／縮圖降級，不 crash）
+  if (!platform.isWindows) {
+    missing = true
+    return null
+  }
   if (missing) return null
   if (session && typeof session.alive === 'function' && session.alive()) return session
   if (starting) return starting
@@ -48,6 +63,10 @@ async function ensure() {
 }
 
 function shutdown() {
+  if (!platform.isWindows) {
+    try { require('./shell-linux').shutdown() } catch {}
+    return
+  }
   starting = null
   if (!session) return
   try {
@@ -75,7 +94,7 @@ function toPng(icon) {
   }
   if (buffer.length !== width * height * 4) return ''
   try {
-    const image = nativeImage.createFromBitmap(buffer, { width, height })
+    const image = (electronApis()?.nativeImage)?.createFromBitmap(buffer, { width, height })
     if (!image || image.isEmpty()) return ''
     return image.toDataURL()
   } catch {
@@ -102,6 +121,8 @@ function mapNode(node) {
 }
 
 function hwndOf() {
+  const BrowserWindow = electronApis()?.BrowserWindow
+  if (!BrowserWindow) return '0'
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
   if (!win || win.isDestroyed()) return '0'
   try {
@@ -123,6 +144,7 @@ function absPath(target) {
  * @returns {Promise<{ token: number, items: object[] }>}
  */
 async function menu(spec) {
+  if (!platform.isWindows) return require('./shell-linux').menu(spec)
   const s = await ensure()
   if (!s) return { token: 0, items: [] }
   try {
@@ -168,6 +190,7 @@ async function menu(spec) {
  * @param {unknown} dir
  */
 async function invoke(token, cmd, dir) {
+  if (!platform.isWindows) return require('./shell-linux').invoke(token, cmd)
   const s = await ensure()
   const id = Number(token)
   const command = Number(cmd)
@@ -183,6 +206,7 @@ async function invoke(token, cmd, dir) {
  * @param {unknown} token
  */
 async function release(token) {
+  if (!platform.isWindows) return require('./shell-linux').release(token)
   const s = await ensure()
   const id = Number(token)
   if (!s || !Number.isInteger(id) || id < 1) return { released: true }
@@ -305,8 +329,50 @@ async function badgeOf(full, size) {
  * @param {string} ext 含點（`.foo`），沒有副檔名給空字串
  * @returns {Promise<'default'|'choices'|'none'|null>}
  */
+/** 副檔名（含點或否）對到 /etc/mime.types 的 MIME；問不到回空字串。 */
+let mimeMap
+function mimeOfExt(ext) {
+  const name = String(ext || '').replace(/^\./, '').toLowerCase()
+  if (!name) return ''
+  if (!mimeMap) {
+    mimeMap = new Map()
+    try {
+      const fs = require('fs')
+      for (const line of fs.readFileSync('/etc/mime.types', 'utf8').split(/\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const parts = trimmed.split(/\s+/)
+        const mime = parts[0]
+        for (const item of parts.slice(1)) mimeMap.set(item.toLowerCase(), mime)
+      }
+    } catch { /* 沒有 mime.types 就只靠下面幾個常見對照 */ }
+    for (const [item, mime] of Object.entries({
+      txt: 'text/plain', md: 'text/markdown', html: 'text/html', htm: 'text/html',
+      css: 'text/css', js: 'text/javascript', json: 'application/json', xml: 'application/xml',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+      svg: 'image/svg+xml', pdf: 'application/pdf', zip: 'application/zip'
+    })) if (!mimeMap.has(item)) mimeMap.set(item, mime)
+  }
+  return mimeMap.get(name) || ''
+}
+
+function xdgMimeDefault(mime) {
+  if (!mime) return Promise.resolve('')
+  return new Promise((resolve) => {
+    execFile('xdg-mime', ['query', 'default', mime], { timeout: 3000 }, (error, stdout) => {
+      resolve(error ? '' : String(stdout || '').trim())
+    })
+  })
+}
+
 async function associationOf(ext) {
   if (!ext) return 'none'
+  if (!platform.isWindows) {
+    const mime = mimeOfExt(ext)
+    if (!mime) return 'none'
+    const def = await xdgMimeDefault(mime)
+    return def ? 'default' : 'none'
+  }
   const s = await ensure()
   if (!s) return null
   const result = await s.send({ op: 'assoc', ext })
@@ -358,6 +424,7 @@ module.exports = {
   thumbOf,
   badgeOf,
   associationOf,
+  mimeOfExt,
   attrsOf,
   propsOf,
   hwndOf

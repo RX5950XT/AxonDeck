@@ -3386,10 +3386,17 @@ function onMenuEnter() {
 }
 
 /** 裝了哪些 shell（PowerShell 7／Windows PowerShell／命令提示字元），開過一次就記著 */
+let supportsAdmin = false
 function loadShells() {
   shellsPromise ||= electronAPI.terminal.catalog()
-    .then((res) => (res?.ok && Array.isArray(res.data?.shells) ? res.data.shells.filter((s) => s.available) : []))
-    .catch(() => [])
+    .then((res) => {
+      supportsAdmin = Boolean(res?.ok && res.data?.supportsAdmin)
+      return res?.ok && Array.isArray(res.data?.shells) ? res.data.shells.filter((s) => s.available) : []
+    })
+    .catch(() => {
+      supportsAdmin = false
+      return []
+    })
   return shellsPromise
 }
 
@@ -3433,19 +3440,23 @@ async function openShellSubmenu(row) {
       closeMenu()
       void newTerminal('shell', false, undefined, shell.key)
     })
-    const admin = document.createElement('button')
-    admin.type = 'button'
-    admin.className = 'ws-new-admin-btn'
-    admin.dataset.shell = shell.key
-    const shield = toolIcon('shield')
-    if (shield) admin.appendChild(shield)
-    admin.title = `以系統管理員身分開 ${shell.label}（會跳一次 UAC）`
-    admin.setAttribute('aria-label', `以系統管理員身分開 ${shell.label}`)
-    admin.addEventListener('click', () => {
-      closeMenu()
-      void newTerminal('shell', true, undefined, shell.key)
-    })
-    line.append(open, admin)
+    if (supportsAdmin) {
+      const admin = document.createElement('button')
+      admin.type = 'button'
+      admin.className = 'ws-new-admin-btn'
+      admin.dataset.shell = shell.key
+      const shield = toolIcon('shield')
+      if (shield) admin.appendChild(shield)
+      admin.title = `以系統管理員身分開 ${shell.label}（會跳一次 UAC）`
+      admin.setAttribute('aria-label', `以系統管理員身分開 ${shell.label}`)
+      admin.addEventListener('click', () => {
+        closeMenu()
+        void newTerminal('shell', true, undefined, shell.key)
+      })
+      line.append(open, admin)
+    } else {
+      line.append(open)
+    }
     sub.appendChild(line)
   }
   owner.appendChild(sub)

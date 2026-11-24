@@ -31,7 +31,25 @@ const ocrOverlay = {
   sha256: { [OCR_OVERLAY]: '931f4842d9c261d0aa57ce6469f4f8297da4f9a7eb02852464478d8754a1d06d' }
 }
 const BREEZE_BUILD = 'v0.1.0'
-const BREEZE_DIR = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
+/**
+ * Breeze-TTS-2 官方預建：Windows x64 zip、Linux x64 tar.gz（glibc ≥ 2.35，需 libvulkan1；沒 GPU 會退 CPU）。
+ * 官方沒有 Linux arm64／macOS 產物，這些平台不列 Breeze。
+ */
+function breezeRuntime() {
+  if (HOST.platform === 'win32') {
+    const dir = `breeze-tts-2-${BREEZE_BUILD}-windows-x64-vulkan`
+    return { dir, file: `${dir}.zip`, totalBytes: 73809893,
+      check: ['breeze-server.exe', 'breeze-cli.exe', 'libbreeze.dll'], binary: 'breeze-server.exe',
+      sha256: '1c5178577a9fb90e84b43269880d17acafd466030abf615c6df4ccc163eac0d8' }
+  }
+  if (HOST.platform === 'linux' && HOST.arch === 'x64') {
+    const dir = `breeze-tts-2-${BREEZE_BUILD}-linux-x64-vulkan`
+    return { dir, file: `${dir}.tar.gz`, totalBytes: 72195854,
+      check: ['breeze-server', 'breeze-cli'], binary: 'breeze-server',
+      sha256: '41f309bea160cdeb3c01721f97ea66125b4047a5726b01fd5559f1abb608b2a0' }
+  }
+  return null
+}
 
 /**
  * Miroxen 的模型都放在同一個 `models/miroxen/`（引擎用 `--models` 指過去，資料夾結構照 Miroxen README）。
@@ -80,7 +98,73 @@ function miroxenFiles(list) {
  * archive: true 表示下載到的是 zip，下載後解壓到模型資料夾根層
  * check: 有值時以「這些檔案都在」判定已安裝（archive 解壓後檔名跟下載名不同）
  */
+
+/** 執行平台；測試用 vm 沙盒沒有 process 時視為原本的 Windows 行為。 */
+const HOST = (typeof process === 'object' && process) ? process : { platform: 'win32', arch: 'x64' }
+
+/**
+ * llama.cpp 官方 release 依平台選產物；非 win32 絕不下 Windows zip。
+ * @returns {{ files: string[], check: string[], binary: string, totalBytes: number, labelSuffix: string }}
+ */
+function llamaVulkanRuntime() {
+  if (HOST.platform === 'win32') {
+    return {
+      labelSuffix: 'Vulkan',
+      totalBytes: 37140477 + OCR_OVERLAY_BYTES,
+      files: [`llama-${LLAMA_BUILD}-bin-win-vulkan-x64.zip`, OCR_OVERLAY],
+      check: ['llama-server.exe', 'ggml-vulkan.dll', 'mtmd.dll', OCR_OVERLAY_MARK],
+      binary: 'llama-server.exe',
+      overlay: ocrOverlay
+    }
+  }
+  if (HOST.platform === 'linux') {
+    const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
+    return {
+      labelSuffix: 'Vulkan',
+      totalBytes: 33_000_000,
+      files: [`llama-${LLAMA_BUILD}-bin-ubuntu-vulkan-${arch}.tar.gz`],
+      check: ['llama-server'],
+      binary: 'llama-server'
+    }
+  }
+  // darwin
+  const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
+  return {
+    labelSuffix: 'Metal／CPU',
+    totalBytes: 11_000_000,
+    files: [`llama-${LLAMA_BUILD}-bin-macos-${arch}.tar.gz`],
+    check: ['llama-server'],
+    binary: 'llama-server'
+  }
+}
+
+function llamaCudaRuntime() {
+  // CUDA 官方預建目前以 Windows zip 為主；Linux 產物由 linux/local-si-cuda 補。
+  if (HOST.platform !== 'win32') return null
+  return {
+    label: `llama.cpp 執行環境 · CUDA 13.4（${LLAMA_BUILD}）`,
+    kind: 'runtime',
+    totalBytes: 164710119 + 423535356 + OCR_OVERLAY_BYTES,
+    base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
+    files: [
+      `llama-${LLAMA_BUILD}-bin-win-cuda-13.4-x64.zip`,
+      'cudart-llama-bin-win-cuda-13.4-x64.zip',
+      OCR_OVERLAY
+    ],
+    ...ocrOverlay,
+    archive: true,
+    check: ['llama-server.exe', 'ggml-cuda.dll', OCR_OVERLAY_MARK],
+    binary: 'llama-server.exe'
+  }
+}
+
+const _llamaVulkan = llamaVulkanRuntime()
+const _llamaCuda = llamaCudaRuntime()
+const _breeze = breezeRuntime()
+
 const MODELS = {
+  // Unlimited-OCR-2 要疊 Windows 的 llama.dll 補丁（主線不認這個架構），Linux 不列
+  ...(HOST.platform === 'win32' ? {
   unlimitedocr2q8: {
     label: 'Unlimited-OCR-2 · Q8_0 · 文件辨識',
     kind: 'ocr',
@@ -98,6 +182,9 @@ const MODELS = {
       'mmproj-Unlimited-OCR-2-F16.gguf': 'd56faafeaa28600567ee088509bad94fd1e133f185bb6aeaab2c6828fc0914d6'
     }
   },
+  } : {}),
+  // PDF 版面翻譯的 Python 執行環境只鎖了 Windows wheel（paddlepaddle win_amd64＋uv.exe），其他平台不列
+  ...(HOST.platform === 'win32' ? {
   ppdoclayoutv3: {
     label: 'PP-DocLayoutV3 · 版面辨識',
     kind: 'ocr',
@@ -131,6 +218,8 @@ const MODELS = {
     totalBytes: 5000000000,
     files: []
   },
+  } : {}),
+  ...(_breeze ? {
   breezetts2q8: {
     label: 'Breeze-TTS-2 · Q8_0',
     kind: 'tts',
@@ -149,14 +238,15 @@ const MODELS = {
     kind: 'runtime',
     runtime: 'breeze',
     description: '語音生成專用；Vulkan 與 CPU，和 llama.cpp 分開。',
-    totalBytes: 73809893,
+    totalBytes: _breeze.totalBytes,
     base: `https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/${BREEZE_BUILD}/`,
-    files: [`${BREEZE_DIR}.zip`],
+    files: [_breeze.file],
     archive: true,
-    check: ['breeze-server.exe', 'breeze-cli.exe', 'libbreeze.dll'].map(name => `${BREEZE_DIR}/${name}`),
-    binary: `${BREEZE_DIR}/breeze-server.exe`,
-    sha256: { [`${BREEZE_DIR}.zip`]: '1c5178577a9fb90e84b43269880d17acafd466030abf615c6df4ccc163eac0d8' }
+    check: _breeze.check.map(name => `${_breeze.dir}/${name}`),
+    binary: `${_breeze.dir}/${_breeze.binary}`,
+    sha256: { [_breeze.file]: _breeze.sha256 }
   },
+  } : {}),
   qwen3asr: {
     label: 'Qwen3-ASR 0.6B · Q8_0',
     kind: 'asr',
@@ -194,34 +284,21 @@ const MODELS = {
    * 隨 CUDA 小版本會變）。cudart 沒解開的症狀是「啟動失敗」，`runtime.js` 的
    * stderr 尾巴看得到，不會靜默錯。
    */
-  llamaruntimecuda: {
-    label: `llama.cpp 執行環境 · CUDA 13.4（${LLAMA_BUILD}）`,
-    kind: 'runtime',
-    totalBytes: 164710119 + 423535356 + OCR_OVERLAY_BYTES,
-    base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
-    // 疊加包放最後：依序解壓，後解的蓋掉官方的 llama.dll／mtmd.dll
-    files: [
-      `llama-${LLAMA_BUILD}-bin-win-cuda-13.4-x64.zip`,
-      'cudart-llama-bin-win-cuda-13.4-x64.zip',
-      OCR_OVERLAY
-    ],
-    ...ocrOverlay,
-    archive: true,
-    check: ['llama-server.exe', 'ggml-cuda.dll', OCR_OVERLAY_MARK],
-    binary: 'llama-server.exe'
-  },
-  /** GPU ASR 的執行檔（llama-server）；zip 內是扁平結構，解壓即用 */
+  ...(_llamaCuda ? { llamaruntimecuda: _llamaCuda } : {}),
+  /** GPU ASR 的執行檔（llama-server）；archive 內是扁平結構，解壓即用 */
   llamaruntime: {
-    label: `llama.cpp 執行環境 · Vulkan（${LLAMA_BUILD}）`,
+    label: `llama.cpp 執行環境 · ${_llamaVulkan.labelSuffix}（${LLAMA_BUILD}）`,
     kind: 'runtime',
-    totalBytes: 37140477 + OCR_OVERLAY_BYTES,
+    totalBytes: _llamaVulkan.totalBytes,
     base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/`,
-    files: [`llama-${LLAMA_BUILD}-bin-win-vulkan-x64.zip`, OCR_OVERLAY],
-    ...ocrOverlay,
+    files: _llamaVulkan.files,
+    ...(_llamaVulkan.overlay || {}),
     archive: true,
-    check: ['llama-server.exe', 'ggml-vulkan.dll', 'mtmd.dll', OCR_OVERLAY_MARK],
-    binary: 'llama-server.exe'
+    check: _llamaVulkan.check,
+    binary: _llamaVulkan.binary
   },
+  // Miroxen 只有 Windows 版（miroxen-win-x64.zip＋cuBLAS DLL），其他平台不列引擎也不列生成模型
+  ...(HOST.platform === 'win32' ? {
   /** Miroxen 引擎：跟著 GitHub latest release 走（`miroxen/runtime.js` 自己裝），只給 CUDA 13 驅動的 NVIDIA 卡 */
   miroxenruntime: {
     label: 'Miroxen 圖片影像引擎',
@@ -284,6 +361,7 @@ const MODELS = {
         'minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors'), 1383677808, '9bac880b1a5d7ac052171cf6cce769f0cceaaa42ffa51de4b8e41143a2bdd2d2']
     ])
   },
+  } : {}),
   /** 微調：繁中／英文／日文三語翻譯（v5e Q4_K_M） */
   linguaforge08q4: {
     label: 'LinguaForge 0.8B · Q4_K_M（繁中/英/日）',
@@ -316,7 +394,7 @@ const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
 
 /** 只有 GGUF OCR 送進 router；版面模型由 PDF 執行環境載入。 */
-const OCR_MODEL_KEYS = ['unlimitedocr2q8']
+const OCR_MODEL_KEYS = HOST.platform === 'win32' ? ['unlimitedocr2q8'] : []
 
 /** 已換掉、不再使用的模型資料夾（PaddleOCR-VL-1.6 → Unlimited-OCR-2）：啟動時清掉，省 1.8 GB */
 const RETIRED_MODEL_DIRS = ['paddleocrvl16']
@@ -452,25 +530,41 @@ function psQuote(s) {
 }
 
 /**
- * 解壓 zip 到模型資料夾根層，成功後刪掉 zip。
- * 用 PowerShell 的 Expand-Archive：Windows 內建，不必為了一次解壓加一個依賴。
- * @param {string} zipPath
+ * 解壓 archive 到模型資料夾根層。
+ * Windows：PowerShell Expand-Archive（僅 .zip）。
+ * 其他平台：tar（.tar.gz／.tgz）或 unzip（.zip）；絕不呼叫 powershell。
+ * @param {string} archivePath
  * @param {string} destDir
  * @returns {Promise<void>}
  */
-function expandArchive(zipPath, destDir) {
+function expandArchive(archivePath, destDir) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-Command',
-        `Expand-Archive -LiteralPath '${psQuote(zipPath)}' -DestinationPath '${psQuote(destDir)}' -Force`
-      ],
-      { windowsHide: true, stdio: 'ignore' }
-    )
+    const lower = String(archivePath).toLowerCase()
+    /** @type {string} */
+    let file
+    /** @type {string[]} */
+    let args
+    if (HOST.platform === 'win32') {
+      if (!lower.endsWith('.zip')) {
+        reject(new Error('Windows 僅支援解壓 .zip'))
+        return
+      }
+      file = 'powershell.exe'
+      args = [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+        `Expand-Archive -LiteralPath '${psQuote(archivePath)}' -DestinationPath '${psQuote(destDir)}' -Force`
+      ]
+    } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+      file = 'tar'
+      args = ['-xzf', archivePath, '-C', destDir]
+    } else if (lower.endsWith('.zip')) {
+      file = 'unzip'
+      args = ['-o', archivePath, '-d', destDir]
+    } else {
+      reject(new Error(`不支援的壓縮格式：${path.basename(archivePath)}`))
+      return
+    }
+    const child = spawn(file, args, { windowsHide: true, stdio: 'ignore' })
     child.on('error', reject)
     child.on('close', (code) => {
       if (code === 0) resolve()
@@ -571,6 +665,9 @@ async function download(key, onProgress) {
         await fsp.rm(zipPath, { force: true })
       }
       if (!isDownloaded(key)) throw new Error('解壓完成但缺少必要檔案')
+      if (HOST.platform !== 'win32' && def.binary) {
+        try { fs.chmodSync(path.join(modelDir(key), def.binary), 0o755) } catch { /* 沒有也無妨 */ }
+      }
     }
   } catch (err) {
     // .part 留給下次續傳；只有明確移除模型時才一併刪掉。

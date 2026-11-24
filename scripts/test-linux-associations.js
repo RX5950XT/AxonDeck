@@ -78,8 +78,10 @@ async function main() {
     }
   }
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'))
-  assert.ok(pkg.build.linux.desktop.MimeType.includes('video/mp4'))
-  assert.ok(pkg.build.linux.desktop.MimeType.includes('text/plain'))
+  const desktop = pkg.build.linux.desktop || {}
+  const mime = desktop.MimeType || (desktop.entry && desktop.entry.MimeType) || ''
+  assert.ok(mime.includes('video/mp4'))
+  assert.ok(mime.includes('text/plain'))
   console.log('test-linux-associations: all passed')
 }
 

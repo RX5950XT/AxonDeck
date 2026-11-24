@@ -4606,14 +4606,25 @@ body.is-col-resizing webview {
   margin: 0;
   overflow: hidden;
   background-color: var(--surface-solid);
+  display: flex;
+  flex-direction: column;
 }
 
-/* 高度要跟 main/browser-window.js 的 BAR_HEIGHT 一致：網頁從這條下面開始疊 */
+/* 高度要跟 main/browser-window.js 的 BAR_HEIGHT 一致：網頁從工具列（＋尋找列）下面開始疊 */
 .bw-bar {
   box-sizing: border-box;
   height: 44px;
   padding: 0 8px;
   flex-wrap: nowrap;
+}
+
+/* 獨立視窗的尋找列：跟工作區／Chat 瀏覽器同一套樣式，高度對齊 FIND_BAR_HEIGHT */
+.bw-find {
+  flex: none;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 8px;
+  border-top: 1px solid var(--border-color);
 }
 
 .chat-browser-url {

@@ -2763,6 +2763,9 @@ ipcMain.handle('workspace:browserPopout', async (event, url, title, guestId, slo
 
 // 彈出視窗的工具列：只能操作自己那扇窗的網頁
 ipcMain.handle('browserWindow:navigate', (event, action, url) => browserWindow.navigate(event.sender, action, url))
+ipcMain.handle('browserWindow:setFindOpen', (event, open) => browserWindow.setFindOpen(event.sender, open))
+ipcMain.handle('browserWindow:findInPage', (event, query, options) => browserWindow.findInPage(event.sender, query, options))
+ipcMain.handle('browserWindow:stopFindInPage', (event) => browserWindow.stopFindInPage(event.sender))
 ipcMain.handle('browserWindow:extensionActions', (event) => {
   const page = browserWindow.pageOf(event.sender)
   return page && browserExtensions ? browserExtensions.actions(page.id) : []

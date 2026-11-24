@@ -18,6 +18,13 @@ const { BrowserWindow, WebContentsView } = require('electron')
 
 /** 工具列高度（DIP），跟 browser-window.html 的 .bw-bar 一致 */
 const BAR_HEIGHT = 44
+/** 尋找列高度，跟 .bw-find 一致；開著時網頁往下讓 */
+const FIND_BAR_HEIGHT = 36
+
+/** 工具列加上（可選）尋找列的總高度 */
+function chromeHeight(findOpen) {
+  return BAR_HEIGHT + (findOpen ? FIND_BAR_HEIGHT : 0)
+}
 
 /** 在原分頁裡跑：量「現在」的捲動、表單欄位、影音進度（密碼與檔案欄位不帶） */
 const COLLECT_SCRIPT = `(() => {
@@ -123,16 +130,21 @@ async function open(url, title = '', guest = null, slot = 0, compatible = false)
   })
   win.contentView.addChildView(view)
   const layout = () => {
+    const entry = entries.get(barId)
+    const chrome = chromeHeight(entry?.findOpen)
     const [width, height] = win.getContentSize()
-    view.setBounds({ x: 0, y: BAR_HEIGHT, width, height: Math.max(0, height - BAR_HEIGHT) })
+    view.setBounds({ x: 0, y: chrome, width, height: Math.max(0, height - chrome) })
   }
-  layout()
-  win.on('resize', layout)
   const page = view.webContents
   const bar = win.webContents
   const barId = bar.id
-  entries.set(barId, { win, view })
+  entries.set(barId, { win, view, findOpen: false, layout })
+  layout()
+  win.on('resize', layout)
   options.attach(page, win)
+  page.on('found-in-page', (_event, result) => {
+    if (!bar.isDestroyed()) bar.send('browserWindow:foundInPage', result)
+  })
 
   const push = () => {
     if (bar.isDestroyed() || page.isDestroyed()) return
@@ -245,4 +257,49 @@ function broadcast(channel) {
   }
 }
 
-module.exports = { configure, open, pageOf, windowOf, barOf, navigate, broadcast, BAR_HEIGHT }
+/**
+ * 開／關尋找列：改工具列佔的高度，網頁跟著讓位。
+ * @param {Electron.WebContents} sender
+ * @param {unknown} open
+ */
+function setFindOpen(sender, open) {
+  const entry = entries.get(sender.id)
+  if (!entry) return false
+  entry.findOpen = Boolean(open)
+  if (!entry.win.isDestroyed()) entry.layout()
+  return true
+}
+
+/**
+ * 在這扇窗的網頁裡尋找（工具列自己沒有網頁可搜）。
+ * @param {Electron.WebContents} sender
+ * @param {unknown} query
+ * @param {{ forward?: boolean, findNext?: boolean }} [options]
+ */
+function findInPage(sender, query, options = {}) {
+  const page = pageOf(sender)
+  if (!page) return false
+  const text = String(query || '').slice(0, 200)
+  if (!text) {
+    page.stopFindInPage('clearSelection')
+    return true
+  }
+  page.findInPage(text, {
+    forward: options.forward !== false,
+    findNext: options.findNext === true
+  })
+  return true
+}
+
+/** @param {Electron.WebContents} sender */
+function stopFindInPage(sender) {
+  const page = pageOf(sender)
+  if (!page) return false
+  page.stopFindInPage('clearSelection')
+  return true
+}
+
+module.exports = {
+  configure, open, pageOf, windowOf, barOf, navigate, broadcast,
+  setFindOpen, findInPage, stopFindInPage, chromeHeight, BAR_HEIGHT, FIND_BAR_HEIGHT
+}

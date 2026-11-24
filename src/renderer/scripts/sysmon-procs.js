@@ -66,10 +66,6 @@ export function processTotals(s = {}) {
   const cards = s.gpu?.cards || []
   const vramKnown = cards.length > 0 && cards.every((c) => Number.isFinite(c.memoryUsed) && c.memoryTotal > 0)
   const gpus = [...Object.values(s.gpuAdapterUtil || {}), ...cards.map((c) => c.utilization)].filter(Number.isFinite)
-  const diskBusy = maximum((s.disks || []).map((d) => d.busy).filter(Number.isFinite))
-  const diskBytes = (s.disks || [])
-    .filter((d) => d.name !== '_Total')
-    .reduce((n, d) => n + (Number(d.read) || 0) + (Number(d.write) || 0), 0)
   return {
     cpu: pct(ready ? s.cpu?.total : null),
     memory: pct(s.memory && s.totalMemory > 0 ? (1 - s.memory.available / s.totalMemory) * 100 : null),

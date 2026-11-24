@@ -12,6 +12,7 @@ const fs = require('../raw-fs')
 const path = require('path')
 const { execFile } = require('../proc-broker')
 const paths = require('./paths')
+const clipFmt = require('./clipboard-formats')
 const platform = require('../platform')
 const store = require('./store')
 const files = require('./fs')
@@ -740,7 +741,7 @@ async function paste(toDir) {
 
 // ===== 系統剪貼簿（Windows 檔案總管複製／剪下的檔案）=====
 // Electron 讀不到 CF_HDROP 整份清單：清單由 renderer 的 paste 事件給（`clipboardData.files`），
-// main 這邊只用 FileNameW（第一個檔）判斷「有沒有檔案」、Preferred DropEffect 判斷剪下還是複製。
+// main 這邊用 FileNameW（Windows）或 GNOME／text/uri-list（Linux）判斷「有沒有檔案」，再用 Preferred DropEffect 或 cut 標記判斷剪下還是複製。
 
 function systemClipboard() {
   // require 寫在函式裡：單元測試用 Module._load mock electron
@@ -752,29 +753,33 @@ function systemClipSig() {
   const cb = systemClipboard()
   if (!cb) return ''
   try {
-    return [cb.availableFormats().join(','), cb.readBuffer('FileNameW').toString('hex'), cb.readText()].join('|')
+    let win = ''
+    try { win = cb.readBuffer('FileNameW').toString('hex') } catch { /* Linux 沒有這個格式 */ }
+    return [cb.availableFormats().join(','), win, clipFmt.linuxClipSig(cb), cb.readText()].join('|')
   } catch {
     return ''
   }
 }
 
 function systemHasFiles() {
+  const cb = systemClipboard()
+  if (!cb) return false
   try {
-    return systemClipboard().readBuffer('FileNameW').length > 0
-  } catch {
-    return false
-  }
+    if (cb.readBuffer('FileNameW').length > 0) return true
+  } catch { /* 不是 Windows 檔案總管那份 */ }
+  return clipFmt.linuxHasFiles(cb)
 }
 
-/** Preferred DropEffect：2＝剪下（DROPEFFECT_MOVE），5／1＝複製；讀不到當複製 */
+/** Preferred DropEffect：2＝剪下（DROPEFFECT_MOVE），5／1＝複製；讀不到再看 Linux 的 cut 標記 */
 function systemClipMode() {
   try {
     const buf = systemClipboard().readBuffer('Preferred DropEffect')
-    const effect = buf.length >= 4 ? buf.readUInt32LE(0) : 0
-    return (effect & 2) && !(effect & 1) ? 'cut' : 'copy'
-  } catch {
-    return 'copy'
-  }
+    if (buf.length >= 4) {
+      const effect = buf.readUInt32LE(0)
+      return (effect & 2) && !(effect & 1) ? 'cut' : 'copy'
+    }
+  } catch { /* Linux 沒有這個格式 */ }
+  return clipFmt.linuxClipMode(systemClipboard())
 }
 
 /** 系統剪貼簿是不是比 App 自己那份新 */
@@ -803,9 +808,7 @@ async function pasteAny(toDir, systemPaths) {
   const sources = []
   for (const item of list.slice(0, 50)) {
     const full = paths.resolveExisting(item)
-    const a = full.toLowerCase()
-    const b = destination.toLowerCase()
-    if (b === a || b.startsWith(a + path.sep)) throw paths.fail('BAD_PATH', '不能把資料夾貼進它自己底下')
+    if (clipFmt.pathContains(full, destination)) throw paths.fail('BAD_PATH', '不能把資料夾貼進它自己底下')
     sources.push(full)
   }
   const mode = systemClipMode()

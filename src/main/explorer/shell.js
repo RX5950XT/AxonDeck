@@ -14,6 +14,7 @@ const os = require('os')
 const path = require('path')
 const host = require('./shell-host')
 const platform = require('../platform')
+const { execFile } = require('../proc-broker')
 
 function electronApis() {
   try {
@@ -328,8 +329,50 @@ async function badgeOf(full, size) {
  * @param {string} ext 含點（`.foo`），沒有副檔名給空字串
  * @returns {Promise<'default'|'choices'|'none'|null>}
  */
+/** 副檔名（含點或否）對到 /etc/mime.types 的 MIME；問不到回空字串。 */
+let mimeMap
+function mimeOfExt(ext) {
+  const name = String(ext || '').replace(/^\./, '').toLowerCase()
+  if (!name) return ''
+  if (!mimeMap) {
+    mimeMap = new Map()
+    try {
+      const fs = require('fs')
+      for (const line of fs.readFileSync('/etc/mime.types', 'utf8').split(/\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const parts = trimmed.split(/\s+/)
+        const mime = parts[0]
+        for (const item of parts.slice(1)) mimeMap.set(item.toLowerCase(), mime)
+      }
+    } catch { /* 沒有 mime.types 就只靠下面幾個常見對照 */ }
+    for (const [item, mime] of Object.entries({
+      txt: 'text/plain', md: 'text/markdown', html: 'text/html', htm: 'text/html',
+      css: 'text/css', js: 'text/javascript', json: 'application/json', xml: 'application/xml',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+      svg: 'image/svg+xml', pdf: 'application/pdf', zip: 'application/zip'
+    })) if (!mimeMap.has(item)) mimeMap.set(item, mime)
+  }
+  return mimeMap.get(name) || ''
+}
+
+function xdgMimeDefault(mime) {
+  if (!mime) return Promise.resolve('')
+  return new Promise((resolve) => {
+    execFile('xdg-mime', ['query', 'default', mime], { timeout: 3000 }, (error, stdout) => {
+      resolve(error ? '' : String(stdout || '').trim())
+    })
+  })
+}
+
 async function associationOf(ext) {
   if (!ext) return 'none'
+  if (!platform.isWindows) {
+    const mime = mimeOfExt(ext)
+    if (!mime) return 'none'
+    const def = await xdgMimeDefault(mime)
+    return def ? 'default' : 'none'
+  }
   const s = await ensure()
   if (!s) return null
   const result = await s.send({ op: 'assoc', ext })
@@ -381,6 +424,7 @@ module.exports = {
   thumbOf,
   badgeOf,
   associationOf,
+  mimeOfExt,
   attrsOf,
   propsOf,
   hwndOf

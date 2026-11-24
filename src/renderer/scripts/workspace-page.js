@@ -383,10 +383,21 @@ function startRename(row, item) {
  * @param {HTMLElement} row
  * @param {{ id: string, name: string, path: string }} item
  */
+let projectSupportsAdmin = false
+let projectCatalogLoaded = false
+function ensureProjectCatalog() {
+  if (projectCatalogLoaded) return
+  projectCatalogLoaded = true
+  void electronAPI.terminal.catalog().then((res) => {
+    projectSupportsAdmin = Boolean(res?.ok && res.data?.supportsAdmin)
+  }).catch(() => { projectSupportsAdmin = false })
+}
+
 function showProjectMenu(at, row, item) {
+  ensureProjectCatalog()
   showMenu(at, [
     { label: '在此開啟終端機', onSelect: () => void launchProjectTerminal(item, false) },
-    { label: '以管理員身分開啟終端機', onSelect: () => void launchProjectTerminal(item, true) },
+    ...(projectSupportsAdmin ? [{ label: '以管理員身分開啟終端機', onSelect: () => void launchProjectTerminal(item, true) }] : []),
     { label: '重新命名', onSelect: () => startRename(row, item) },
     { label: '移至資料夾…', onSelect: () => projectFolders.moveMenu(row, item, at) },
     {
@@ -3170,6 +3181,7 @@ function setGitSection(btn, body, open) {
 function initWorkspacePage() {
   if (initialized) return
   initialized = true
+  ensureProjectCatalog()
   initWsTabs()
 
   worktreeFlow = createWorktreeFlow({

@@ -118,6 +118,7 @@ async function main() {
           writeFile: async () => {}
         } }
         if (name === 'electron') return { shell: { openPath: async (file) => { calls2.push({ system: file }); return '' } } }
+        if (name === './explorer/shell') return { associationOf: async () => 'default' }
         if (name === 'child_process') return { spawn: () => { throw new Error('should not spawn media exe') } }
         throw new Error(name)
       }

@@ -419,22 +419,34 @@ function inProcessNavFile(terminalId) {
 }
 
 let inProcessTui
-function inProcessTuiConfig() {
-  if (inProcessTui !== undefined) return inProcessTui
-  inProcessTui = ''
+let inProcessPlugin
+function inProcessPluginDir() {
+  if (inProcessPlugin !== undefined) return inProcessPlugin
+  inProcessPlugin = ''
   const userData = inProcessUserData()
-  if (!userData) return inProcessTui
+  if (!userData) return inProcessPlugin
   try {
     const fsx = require('node:fs')
     const dir = path.join(userData, 'terminal-opencode')
     fsx.mkdirSync(dir, { recursive: true })
     const plugin = path.join(dir, 'navigation.mjs')
     fsx.writeFileSync(plugin, fsx.readFileSync(path.join(__dirname, 'opencode/navigation.mjs')))
+    // OpenCode 2 的本機外掛是資料夾，入口寫在 package.json 的 `./tui`（同 host-runtime.js）
+    fsx.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'axondeck-navigation', version: '0.0.0', type: 'module', exports: { './tui': './navigation.mjs' }
+    }))
     const config = path.join(dir, 'tui.json')
     fsx.writeFileSync(config, JSON.stringify({ plugin: [require('node:url').pathToFileURL(plugin).href] }))
     inProcessTui = config
-  } catch { inProcessTui = '' }
-  return inProcessTui
+    inProcessPlugin = dir
+  } catch { inProcessTui = ''; inProcessPlugin = '' }
+  return inProcessPlugin
+}
+
+function inProcessTuiConfig() {
+  if (inProcessTui !== undefined) return inProcessTui
+  inProcessPluginDir()
+  return inProcessTui || ''
 }
 
 /**
@@ -456,7 +468,6 @@ function opencodeCliConfig(env, pluginDir) {
     if (error?.code !== 'ENOENT') return ''
   }
   return JSON.stringify({ plugins: plugins.includes(pluginDir) ? plugins : [...plugins, pluginDir] })
-}
 }
 
 function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
@@ -494,7 +505,7 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   if (config && !Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_TUI_CONFIG' && env[key])) {
     env.OPENCODE_TUI_CONFIG = config
   }
-  const cliConfig = opencodeCliConfig(env, path.join(__dirname, 'opencode'))
+  const cliConfig = opencodeCliConfig(env, inProcessPluginDir() || path.join(__dirname, 'opencode'))
   if (cliConfig) env.OPENCODE_CLI_CONFIG_CONTENT = cliConfig
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
   const homeAbsOk = typeof agentHome === 'string' && (

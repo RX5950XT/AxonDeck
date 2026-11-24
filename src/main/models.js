@@ -163,6 +163,8 @@ const _llamaCuda = llamaCudaRuntime()
 const _breeze = breezeRuntime()
 
 const MODELS = {
+  // Unlimited-OCR-2 要疊 Windows 的 llama.dll 補丁（主線不認這個架構），Linux 不列
+  ...(HOST.platform === 'win32' ? {
   unlimitedocr2q8: {
     label: 'Unlimited-OCR-2 · Q8_0 · 文件辨識',
     kind: 'ocr',
@@ -180,6 +182,7 @@ const MODELS = {
       'mmproj-Unlimited-OCR-2-F16.gguf': 'd56faafeaa28600567ee088509bad94fd1e133f185bb6aeaab2c6828fc0914d6'
     }
   },
+  } : {}),
   // PDF 版面翻譯的 Python 執行環境只鎖了 Windows wheel（paddlepaddle win_amd64＋uv.exe），其他平台不列
   ...(HOST.platform === 'win32' ? {
   ppdoclayoutv3: {
@@ -391,7 +394,7 @@ const LLM_MODEL_KEYS = ['linguaforge08q4', 'indextranslate2b']
 const ASR_MODEL_KEYS = ['qwen3asr', 'qwen3asrgpu']
 
 /** 只有 GGUF OCR 送進 router；版面模型由 PDF 執行環境載入。 */
-const OCR_MODEL_KEYS = ['unlimitedocr2q8']
+const OCR_MODEL_KEYS = HOST.platform === 'win32' ? ['unlimitedocr2q8'] : []
 
 /** 已換掉、不再使用的模型資料夾（PaddleOCR-VL-1.6 → Unlimited-OCR-2）：啟動時清掉，省 1.8 GB */
 const RETIRED_MODEL_DIRS = ['paddleocrvl16']

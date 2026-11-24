@@ -23,8 +23,10 @@ const runtime = require('../src/main/pdf-translate/runtime')
 async function main() {
   if (process.platform !== 'win32') {
     // Linux／macOS：PDF 執行環境只鎖了 Windows wheel，registry 不列 pdfruntime／版面模型
-    for (const key of ['pdfruntime', 'pdfruntimegpu', 'ppdoclayoutv3']) assert.equal(models.MODELS[key], undefined, `${key} 只在 Windows 列出`)
-    assert.ok(models.MODELS.paddleocrvl16, 'PaddleOCR-VL 仍是 llama 模型')
+    for (const key of ['pdfruntime', 'pdfruntimegpu', 'ppdoclayoutv3', 'unlimitedocr2q8']) {
+      assert.equal(models.MODELS[key], undefined, `${key} 只在 Windows 列出`)
+    }
+    assert.deepEqual(models.OCR_MODEL_KEYS, [])
     removeTree(dir)
     console.log('PASS 非 Windows 不列 PDF 執行環境（Windows 專用）')
     return

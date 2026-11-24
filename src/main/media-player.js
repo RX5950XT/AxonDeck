@@ -29,7 +29,7 @@ function fail(message) {
 }
 function setThemeGetter(getter) { theme = getter }
 function setEditorOpener(opener) { editorOpener = opener }
-const openEditor = (file) => editorOpener(file)
+const openEditor = (file, opts) => editorOpener(file, opts)
 async function initializedMarker(file, expected = ASSOCIATION_MARKER) {
   let handle
   try {
@@ -67,7 +67,8 @@ async function initializeAssociations(options = {}) {
     const exe = path.join(resourcesPath, 'media', 'axondeck-media.exe')
     // 媒體與文字／程式碼編輯器各記各的：舊版已初始化媒體的使用者，更新後仍要補一次編輯器
     // 編輯器 '3'：.ts 從媒體移交給編輯器，1.46.0 已初始化過的要再跑一次（Rust 只改還指著媒體的那幾個）
-    for (const [name, args, version] of [['media-associations-initialized', ['--initialize'], ASSOCIATION_MARKER], ['editor-associations-initialized', ['--editor', '--initialize'], '3']]) {
+    // 編輯器 '4'：多了一批格式與只進「開啟方式」的 HTML／CSV，要重新登記（已初始化過的不改預設）
+    for (const [name, args, version] of [['media-associations-initialized', ['--initialize'], ASSOCIATION_MARKER], ['editor-associations-initialized', ['--editor', '--initialize'], '4']]) {
       const marker = path.join(userDataPath, name)
       if (await initializedMarker(marker, version)) continue
       await fs.access(exe)
@@ -127,6 +128,29 @@ async function openMedia(file, options = {}) {
   return true
 }
 
+/** 開頭 64KB 看起來是文字嗎：跟編輯器的 `decode` 同一個判斷（NUL＝二進位），再擋控制字元很多的。 */
+async function looksLikeText(file) {
+  let handle
+  try {
+    handle = await fs.open(file, 'r')
+    const buffer = Buffer.alloc(64 * 1024)
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+    const head = buffer.subarray(0, bytesRead)
+    if (head[0] === 0xff && head[1] === 0xfe) return true
+    if (head.includes(0)) return false
+    const control = head.reduce((count, byte) => count + (byte < 9 || (byte > 13 && byte < 32 && byte !== 27) ? 1 : 0), 0)
+    return control <= bytesRead * 0.02
+  } catch {
+    return false
+  } finally { if (handle) await handle.close() }
+}
+const associationOf = (file) => require('./explorer/shell').associationOf(path.extname(file))
+/** 沒有預設程式、但內容是文字（`.foo`、沒有副檔名的 LICENSE…）。 */
+async function isUnknownText(file) {
+  const state = await associationOf(file)
+  return (state === 'none' || state === 'choices') && await looksLikeText(file)
+}
+
 /**
  * 系統預設程式開啟（Electron shell.openPath；無 Electron 時 Linux 用 xdg-open）。
  * @param {string} file
@@ -146,21 +170,25 @@ async function openWithSystem(file) {
   return 'UNSUPPORTED'
 }
 
-/** 與 shell.openPath 的回傳方式相同；所有開檔入口共用這條分流（媒體→播放器、文字→編輯器、其餘→系統）。 */
-async function openPath(file) {
-  if (await openMedia(file)) return ''
-  if (await openEditor(file)) return ''
-  return openWithSystem(file)
+/**
+ * 交給系統開；沒有預設程式時 Windows 只會跳「要用什麼開啟」，所以先攔下來：文字開自家編輯器。
+ * 二進位檔有候選程式才讓系統問（那個清單有用），完全沒人接手就回 App 內的訊息。
+ * associationOf 問不到時（Linux 尚未查 MIME、或 sidecar 不在）照舊交給系統開啟。
+ * @param {string} target 實際要開的路徑（捷徑就是捷徑本身，啟動參數才不會被跳過）
+ * @param {string} [real] 判斷關聯與內容用的真實檔案
+ */
+async function openSystem(target, real = target) {
+  const state = await associationOf(real)
+  if (state !== 'none' && state !== 'choices') return openWithSystem(target)
+  if (await looksLikeText(real) && await editorOpener(real, { force: true })) return ''
+  if (state === 'choices') return openWithSystem(target)
+  throw Object.assign(fail('沒有程式能開這種檔案，它也不是文字檔。要指定程式請用右鍵選單的「開啟檔案」。'), { code: 'NO_APP' })
 }
-
+/** 與 shell.openPath 的回傳方式相同；所有開檔入口共用這條分流（媒體→播放器、文字→編輯器）。 */
+async function openPath(file) {
+  return await openMedia(file) || await openEditor(file) ? '' : openSystem(file)
+}
 module.exports = {
-  mediaKind,
-  openMedia,
-  openEditor,
-  openPath,
-  openWithSystem,
-  resolveMediaExe,
-  setThemeGetter,
-  setEditorOpener,
-  initializeAssociations
+  mediaKind, openMedia, openEditor, openSystem, openWithSystem, isUnknownText, looksLikeText,
+  openPath, resolveMediaExe, setThemeGetter, setEditorOpener, initializeAssociations
 }

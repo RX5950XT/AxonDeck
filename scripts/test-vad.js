@@ -133,6 +133,50 @@ test('強制切段後下一段不含 pre-roll 靜音（不重複送同一段音�
   assert.ok(total <= 24 * FRAME, `切出總長 ${total} 超過輸入 ${24 * FRAME}`)
 })
 
+test('softCut：在最安靜的 frame 切，之後的音訊留給下一段，一個 sample 都不少', () => {
+  const vad = createVad({ sampleRate: SR, maxUtteranceMs: 1280, softCutMs: 640, hangoverMs: 5000 })
+  // 10 frame 到上限。倒數第 3 個很小聲（但沒到靜音），應該切在它後面
+  const levels = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.01, 0.2, 0.2]
+  let cut = null
+  for (const amp of levels) {
+    const r = vad.push(voiceFrame(amp))
+    if (r.utterance) cut = r.utterance
+  }
+  assert.ok(cut, '到上限要切')
+  assert.strictEqual(cut.length, 8 * FRAME, `應切在第 8 個 frame 後，實得 ${cut.length / FRAME}`)
+  assert.strictEqual(vad.speaking, true)
+  assert.strictEqual(vad.bufferedSamples, 2 * FRAME, '剩下兩個 frame 留在緩衝')
+})
+
+test('softCut：下一段從留下的音訊接著算，總長不超過輸入', () => {
+  const vad = createVad({ sampleRate: SR, maxUtteranceMs: 640, softCutMs: 320 })
+  const out = feed(vad, rep('v', 30))
+  const total = out.reduce((n, u) => n + u.length, 0) + vad.bufferedSamples
+  assert.strictEqual(total, 30 * FRAME, `總長 ${total}`)
+  for (const u of out) assert.ok(u.length <= 640 * 16 + FRAME, `段落 ${u.length} 超過上限`)
+})
+
+test('relativeOff：背景音樂蓋住真靜音時，講話停下來也切得出句子', () => {
+  const music = 0.01
+  const withGate = createVad({ sampleRate: SR, relativeOff: 0.12 })
+  const noGate = createVad({ sampleRate: SR })
+  const pattern = [...Array(15).fill(0.2), ...Array(6).fill(music)]
+  const run = (vad) => pattern.map((amp) => vad.push(voiceFrame(amp)).utterance).filter(Boolean).length
+  assert.strictEqual(run(withGate), 1, '有相對門檻要切出一句')
+  assert.strictEqual(run(noGate), 0, '沒有就一直算在講話')
+})
+
+test('snapshot：回傳目前這句的複本，不影響之後切句', () => {
+  const vad = createVad({ sampleRate: SR, preRollMs: 0 })
+  assert.strictEqual(vad.snapshot(), null, '沒在講話回 null')
+  feed(vad, rep('v', 3))
+  const snap = vad.snapshot()
+  assert.strictEqual(snap.length, vad.bufferedSamples)
+  snap.fill(9)
+  const [utt] = feed(vad, [...rep('v', 5), ...rep('s', 4)])
+  assert.ok(utt.every((v) => v !== 9), '改複本不能動到原本的音訊')
+})
+
 test('reset 清空狀態', () => {
   const vad = createVad({ sampleRate: SR })
   feed(vad, [...rep('s', 2), ...rep('v', 4)])

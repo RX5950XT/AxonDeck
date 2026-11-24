@@ -3,7 +3,8 @@
  *
  * 字幕寫入在 `live-caption.js`：每次字幕 upsert 就 append 一行到 main 的 `live-transcripts/`。
  * 轉錄寫入在 `transcribe.js`：轉完存一份到 `file-transcripts/`。
- * 兩份清單長得一樣：列出、展開看全文、複製／下載／刪除。
+ * 兩份清單長得一樣：列出、看全文、複製／下載／刪除。字幕是一句一句的，用閱讀視窗看；
+ * 轉錄是一整篇，留在清單裡展開（轉完直接打開，不該跳一個視窗蓋住畫面）。
  */
 
 import { showToast, electronAPI, cleanIpcError } from './app.js'
@@ -12,7 +13,7 @@ import { showToast, electronAPI, cleanIpcError } from './app.js'
  * @typedef {{ id: string, startedAt: number, endedAt?: number, count: number, preview: string, name?: string }} Session
  * @typedef {{ listId: string, label: string, empty: string, list: () => Promise<any>, read: (id: string) => Promise<any>,
  *   remove: (id: string) => Promise<any>, meta: (s: Session) => string, fileName: (s: Session) => string,
- *   bound?: boolean, sessions?: Session[] }} Kind
+ *   reader?: boolean, bound?: boolean, sessions?: Session[] }} Kind
  */
 
 const api = () => electronAPI.sttArchive
@@ -26,7 +27,8 @@ const KINDS = {
     read: (id) => api().readTranscript(id),
     remove: (id) => api().deleteTranscript(id),
     meta: (s) => `${formatDuration((s.endedAt || s.startedAt) - s.startedAt)} · ${s.count} 句`,
-    fileName: (s) => `字幕_${stamp(s.startedAt)}.txt`
+    fileName: (s) => `字幕_${stamp(s.startedAt)}.txt`,
+    reader: true
   },
   file: {
     listId: 'txHistoryList',
@@ -196,6 +198,9 @@ async function onClick(kind, e) {
       await call(kind.remove(s.id))
       return await refreshHistory(kind)
     }
+    if (act === 'view' && kind.reader) {
+      return openReader(kind, s, await call(kind.read(s.id)))
+    }
     if (act === 'view' && row.querySelector('.live-history-body')) {
       row.querySelector('.live-history-body').remove()
       btn.textContent = '查看'
@@ -233,6 +238,63 @@ function renderBody(rows) {
     }
   }
   return body
+}
+
+/** @param {number} ms */
+function clock(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const pad = (n) => String(n).padStart(2, '0')
+  const hours = Math.floor(total / 3600)
+  const minutes = pad(Math.floor(total / 60) % 60)
+  return hours ? `${hours}:${minutes}:${pad(total % 60)}` : `${minutes}:${pad(total % 60)}`
+}
+
+/**
+ * 一句一列：左邊第幾分第幾秒，右邊有譯文時譯文為主、原文小字在上（跟字幕視窗同一個層次）
+ * @param {{ source: string, translation: string, t?: number }} r
+ * @param {number} startedAt
+ */
+function renderReaderRow(r, startedAt) {
+  const row = document.createElement('div')
+  row.className = 'stt-reader-row'
+  const time = document.createElement('span')
+  time.className = 'stt-reader-time'
+  time.textContent = r.t ? clock(r.t - startedAt) : ''
+  const text = document.createElement('div')
+  if (r.translation && r.source) {
+    const source = document.createElement('p')
+    source.className = 'stt-reader-source'
+    source.textContent = r.source
+    text.append(source)
+  }
+  const main = document.createElement('p')
+  main.className = 'stt-reader-main'
+  main.textContent = r.translation || r.source
+  text.append(main)
+  row.append(time, text)
+  return row
+}
+
+/**
+ * @param {Kind} kind
+ * @param {Session} s
+ * @param {{ source: string, translation: string, t?: number }[]} rows
+ */
+function openReader(kind, s, rows) {
+  const dialog = /** @type {HTMLDialogElement | null} */ ($('sttReader'))
+  if (!dialog) return
+  $('sttReaderTitle').textContent = new Date(s.startedAt).toLocaleString()
+  $('sttReaderMeta').textContent = kind.meta(s)
+  $('sttReaderBody').replaceChildren(...rows.map((r) => renderReaderRow(r, s.startedAt)))
+  $('sttReaderCopy').onclick = () => navigator.clipboard.writeText(toText(rows))
+    .then(() => showToast('已複製逐字稿'))
+    .catch((error) => showToast(cleanIpcError(error), 'error'))
+  $('sttReaderSave').onclick = () => download(kind.fileName(s), toText(rows))
+  $('sttReaderClose').onclick = () => dialog.close()
+  // 點視窗外面（backdrop 的事件 target 是 dialog 自己）也關
+  dialog.onclick = (e) => { if (e.target === dialog) dialog.close() }
+  dialog.showModal()
+  $('sttReaderBody').scrollTop = 0
 }
 
 /**

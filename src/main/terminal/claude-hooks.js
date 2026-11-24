@@ -413,6 +413,8 @@ function startWatch() {
   if (watcher || stopped) return
   try {
     const fsWatcher = fs.watch(eventsDir(), () => { scan() })
+    // 沒人接的 error 會變成主程序未處理例外，靠下面的輪詢兜底
+    fsWatcher.on('error', (error) => log(error.code || 'WATCH'))
     const timer = setInterval(() => { scan() }, 5000)
     if (typeof timer.unref === 'function') timer.unref()
     watcher = { close() { fsWatcher.close(); clearInterval(timer) } }

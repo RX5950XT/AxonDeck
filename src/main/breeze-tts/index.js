@@ -10,6 +10,7 @@ const models = require('../models')
 const { detectGpuCapability } = require('../gpu-capability')
 const { fail, text, voiceId, validate, wavInfo, wavHeader, wavToMono16k, wavPeaks, savedVoice, MAX_AUDIO_BYTES } = require('./protocol')
 const { createTakes } = require('./takes')
+const { hasRunaway, cleanReference } = require('./audio-clean')
 
 const MAX_RESULT_BYTES = 128 * 1024 * 1024
 // 逐句生成時各句先留在記憶體等合併，總量超過就丟最舊的
@@ -325,7 +326,7 @@ async function collectAudio(response, reqId, signal) {
   keepResult(resultId, pcm)
   emit('breeze:progress', { reqId, phase: 'done', seconds: size / (rate * 2) })
   return { resultId, audioBase64: bytes.toString('base64'), mimeType: 'audio/wav', sampleRate: rate,
-    duration: size / (rate * 2), bytes: bytes.length }
+    duration: size / (rate * 2), bytes: bytes.length, runaway: hasRunaway(pcm) }
 }
 
 function keepResult(id, pcm) {
@@ -358,12 +359,22 @@ async function pickAudio(options = {}) {
     properties: ['openFile'], filters: [{ name: '錄音', extensions: AUDIO_EXTENSIONS }] })
   if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true }
   const filename = selected.filePaths[0]
-  const audio = await withTimeout(readAudio(filename), '讀取錄音逾時')
+  let audio = await withTimeout(readAudio(filename), '讀取錄音逾時')
+  // 參考音要整理，不是 24kHz 單聲道的 WAV 先過 ffmpeg 統一格式
+  if (options.kind === 'reference' && !isPlainWav(audio.bytes)) audio = await withTimeout(convertToWav({ path: filename }), '讀取錄音逾時')
   return registerInput(options.kind, path.basename(filename), { path: filename }, audio)
 }
 
+/** 跟 Breeze 輸出同規格（44 bytes 檔頭＋24kHz 單聲道 16-bit）的 WAV，才能直接拿 PCM 來整理。 */
+function isPlainWav(bytes) { return bytes.length > 44 && bytes.subarray(0, 44).equals(wavHeader(bytes.length - 44, 24000)) }
+
 /** 收下一段錄音：同用途的舊錄音作廢，參考音順便自動辨識逐字稿。 */
 async function registerInput(kind, name, origin, { bytes, meta }) {
+  if (kind === 'reference' && isPlainWav(bytes)) {
+    const pcm = cleanReference(bytes.subarray(44))
+    bytes = Buffer.concat([wavHeader(pcm.length, 24000), pcm])
+    meta = wavInfo(bytes)
+  }
   for (const [id, previous] of inputs) if (previous.kind === kind) inputs.delete(id)
   const audioId = randomUUID()
   inputs.set(audioId, { bytes, kind, name, origin })
@@ -493,8 +504,8 @@ async function saveAudio(options = {}) {
 }
 
 /**
- * 把這次生成（或重做）的各句合成一個新版本。parts 每項是剛生成的 resultId，
- * 或沿用舊版本的某一句 { takeId, index }。
+ * 把這次生成（或重做）的各句合成一個新版本。parts 每項是剛生成的 resultId、
+ * 沿用舊版本的某一句 { takeId, index }，或雲端語音解好的 { pcm }。
  */
 async function saveTake(options = {}) {
   if (!Array.isArray(options.parts)) throw fail('INVALID_INPUT', '沒有可以合併的語音')
@@ -507,6 +518,10 @@ async function saveTake(options = {}) {
       pcm = results.get(part.resultId)
       if (!pcm) throw fail('AUDIO_MISSING', '語音結果已失效，請重新生成')
       used.push(part.resultId)
+    } else if (part.pcm instanceof Uint8Array) {
+      // 雲端語音：renderer 已把 MP3 解成 24 kHz 單聲道 16-bit
+      if (!part.pcm.length || part.pcm.length % 2 || part.pcm.length > MAX_RESULT_BYTES) throw fail('INVALID_INPUT', '語音資料格式不符')
+      pcm = Buffer.from(part.pcm.buffer, part.pcm.byteOffset, part.pcm.length)
     } else pcm = await takes.segmentPcm(part.takeId, part.index)
     parts.push({ pcm, text: part.text, speaker: part.speaker, at: part.at, gap: part.gap })
   }

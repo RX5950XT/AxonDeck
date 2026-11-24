@@ -22,6 +22,8 @@
 export function parseUnifiedDiff(raw) {
   if (!raw || !raw.trim()) return []
   const lines = raw.split('\n')
+  // 結尾換行切出來的空字串不是內容，留著會多畫一列假的空白行
+  if (lines.at(-1) === '') lines.pop()
   const result = []
 
   let oldNum = 0

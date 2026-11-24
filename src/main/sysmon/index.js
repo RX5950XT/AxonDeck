@@ -147,12 +147,15 @@ function createSysmonService(deps = {}) {
   let intervalKey = 'normal'
   /** 最近一筆取樣，效能調整儀表拿 CPU% 與 nvidia-smi 補 sidecar 還沒到的欄位 */
   let lastFeed = null
+  /** 沒合併同名的程序清單（有 parentPid）：額度條的「資源」靠它找 App 的子程序 */
+  let lastRaw = { at: 0, list: [] }
 
   sampler.setSampleHandler((sample) => {
     const network = sensors.read().processNetwork
     const processes = (sample.processes || []).map((p) => ({
       ...p, network: processNetworkRate(network, p)
     }))
+    lastRaw = { at: Date.now(), list: processes }
     const data = {
       ...sample,
       processes: metrics.mergeProcesses(processes).map((p) => ({ ...p, icon: icons.read(p.exePath) })),
@@ -254,6 +257,8 @@ function createSysmonService(deps = {}) {
       sampler.idle()
       return { running: sampler.isRunning(), intervalKey }
     },
+
+    rawProcesses: () => lastRaw,
 
     status() {
       return {

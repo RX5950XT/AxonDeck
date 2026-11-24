@@ -1,3 +1,4 @@
+import { adminCopy, setAdminCopy } from './terminal-admin-copy.js'
 import { electronAPI, showToast, hideToast, setChatPaneMode, openInFilesPage } from './app.js'
 import { initBrowserActions, refreshBrowserActions } from './browser-actions.js'
 import { showGuest } from './webview-warm.js'
@@ -70,6 +71,7 @@ const MAX_TAB_TITLE = 28
  *   state?: string,
  *   stateLabel?: string,
  *   admin?: boolean,
+ *   badge?: string,
  *   cwd?: string,
  *   unread?: boolean,
  *   context?: { used: number, max: number | null } | null,
@@ -394,6 +396,13 @@ function renderTabs() {
       led.setAttribute('aria-hidden', 'true')
       open.appendChild(led)
     }
+    // Linux root 分頁：紅底「root」標記（Windows 不帶 badge，不顯示）
+    if (tab.kind === 'terminal' && tab.admin && tab.badge) {
+      const badge = document.createElement('span')
+      badge.className = 'ws-tab-root'
+      badge.textContent = tab.badge
+      open.appendChild(badge)
+    }
     const label = document.createElement('span')
     label.className = 'ws-tab-label'
     label.textContent = tab.kind === 'terminal' ? terminalLabel(tab.title, MAX_TAB_TITLE) : shortTitle(tab.title)
@@ -461,7 +470,7 @@ function tabTooltip(tab) {
   if (tab.kind !== 'terminal') return tab.title
   const parts = [tab.title]
   if (tab.stateLabel) parts.push(tab.stateLabel)
-  if (tab.admin) parts.push('管理員')
+  if (tab.admin) parts.push(tab.badge ? `${tab.badge}（系統管理員權限）` : '管理員')
   if (tab.context) {
     const { used, max } = tab.context
     parts.push(`上下文 ${used.toLocaleString()}${max ? ` / ${max.toLocaleString()}` : ''} tokens`)
@@ -1045,7 +1054,7 @@ export function ensureLiveTerminalTabs(sessions) {
 /**
  * 把終端機現在的樣子畫到分頁上（`terminal-page.js` 每次狀態變動都會推過來）。
  * @param {string} id
- * @param {{ title: string, state: string, stateLabel: string, admin: boolean, cwd: string, split: boolean, unread: boolean }} meta
+ * @param {{ title: string, state: string, stateLabel: string, admin: boolean, badge?: string, cwd: string, split: boolean, unread: boolean }} meta
  */
 export function paintTerminalTab(id, meta) {
   const tab = findTab(id)
@@ -1053,13 +1062,20 @@ export function paintTerminalTab(id, meta) {
   // 有沒有在並排顯示只影響右鍵選單那一行字，不必重畫分頁
   tab.split = meta.split === true
   const before = `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}|${contextText(tab.context)}`
+  const badgeBefore = tab.badge || ''
   tab.title = meta.title || tab.title
   tab.state = meta.state
   tab.stateLabel = meta.stateLabel
   tab.admin = meta.admin
+  tab.badge = meta.badge || ''
   tab.cwd = meta.cwd
   tab.unread = meta.unread
   tab.context = meta.context || null
+  // root 標記是新元素，不是改字：有變就整列重畫（Windows 永遠沒有 badge，不會走到）
+  if (badgeBefore !== tab.badge) {
+    renderTabs()
+    return
+  }
   if (before === `${tab.title}|${tab.state}|${tab.unread}|${tab.stateLabel}|${contextText(tab.context)}`) return
   const row = el.strip?.querySelector(`.ws-tab[data-id="${CSS.escape(id)}"]`)
   const open = row?.querySelector('.ws-tab-open')
@@ -3391,6 +3407,7 @@ function loadShells() {
   shellsPromise ||= electronAPI.terminal.catalog()
     .then((res) => {
       supportsAdmin = Boolean(res?.ok && res.data?.supportsAdmin)
+      if (res?.ok) setAdminCopy(res.data)
       return res?.ok && Array.isArray(res.data?.shells) ? res.data.shells.filter((s) => s.available) : []
     })
     .catch(() => {
@@ -3447,8 +3464,8 @@ async function openShellSubmenu(row) {
       admin.dataset.shell = shell.key
       const shield = toolIcon('shield')
       if (shield) admin.appendChild(shield)
-      admin.title = `以系統管理員身分開 ${shell.label}（會跳一次 UAC）`
-      admin.setAttribute('aria-label', `以系統管理員身分開 ${shell.label}`)
+      admin.title = `${adminCopy().menu}（${shell.label}）`
+      admin.setAttribute('aria-label', `${adminCopy().menu}（${shell.label}）`)
       admin.addEventListener('click', () => {
         closeMenu()
         void newTerminal('shell', true, undefined, shell.key)

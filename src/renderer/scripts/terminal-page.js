@@ -1,3 +1,4 @@
+import { setAdminCopy, adminCopy } from './terminal-admin-copy.js'
 import { electronAPI, showToast, setChatPaneMode } from './app.js'
 import { terminalStatusLabel, setTerminalStatuses } from './ws-terminal-status.js'
 import { registerTermLinks, oscLinkHandler } from './term-links.js'
@@ -165,6 +166,8 @@ function pushTabState(id) {
     state: viewOf(item),
     stateLabel: stateLabel(item),
     admin: Boolean(item.admin),
+    // Linux 的 root 分頁要看得出來（Windows 沒有 badge，維持原樣）
+    badge: item.admin ? adminCopy().badge : '',
     // 前景 shell 報到哪就顯示哪（OSC 7）；沒報過才退回開起來時的那個目錄
     cwd: item.liveCwd || item.cwd || '',
     split: isTerminalSplit(id),
@@ -1420,6 +1423,7 @@ function initTerminalPage() {
       // 字級要在第一個分頁開起來之前讀好，不然會先用預設值畫一次再跳大小
       applyFontSize(await electronAPI.store.get('termFontSize', FONT_DEFAULT), false)
       catalog = await call(electronAPI.terminal.catalog(), '讀取設定失敗')
+      setAdminCopy(catalog)
       await reloadList()
       await restorePreviousTerminals()
     } catch {

@@ -15,7 +15,7 @@
  *    git 會安安靜靜地等一個永遠不會來的輸入，UI 看起來就是「按了沒反應」。
  */
 
-const { spawn } = require('child_process')
+const { runProcess } = require('../proc-broker')
 const fsp = require('../raw-fs').promises
 const store = require('./store')
 const files = require('./files')
@@ -50,78 +50,26 @@ function fail(code, message) {
  *   幾百 MB 的檔案 diff／show 出來的字串會撐爆記憶體（V8 字串上限約 5 億字）
  * @returns {Promise<{ code: number, stdout: string, stderr: string, truncated?: boolean }>}
  */
-function run(cwd, args, input, maxChars = Infinity) {
-  return new Promise((resolve, reject) => {
-    let child
-    try {
-      child = spawn('git', args, {
-        cwd,
-        shell: false,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          // 要密碼時直接失敗，不要卡在那裡等一個沒有終端機可以輸入的提示
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_ASKPASS: '',
-          SSH_ASKPASS: '',
-          GCM_INTERACTIVE: 'Never',
-          GIT_OPTIONAL_LOCKS: '0'
-        }
-      })
-    } catch {
-      reject(fail('GIT_MISSING', '找不到 git，請先安裝'))
-      return
+async function run(cwd, args, input, maxChars = Infinity) {
+  const res = await runProcess({
+    file: 'git',
+    args,
+    cwd,
+    input,
+    maxChars,
+    timeoutMs: TIMEOUT_MS,
+    env: {
+      // 要密碼時直接失敗，不要卡在那裡等一個沒有終端機可以輸入的提示
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ASKPASS: '',
+      SSH_ASKPASS: '',
+      GCM_INTERACTIVE: 'Never',
+      GIT_OPTIONAL_LOCKS: '0'
     }
-    if (typeof input === 'string') {
-      // 對面先結束時 stdin 會 EPIPE，沒接住整個 process 會掛掉
-      child.stdin.on('error', () => {})
-      child.stdin.end(input)
-    }
-    let stdout = ''
-    let stderr = ''
-    let done = false
-    const timer = setTimeout(() => {
-      if (done) return
-      done = true
-      try {
-        child.kill()
-      } catch {
-        // 已經死了就算了
-      }
-      reject(fail('GIT_TIMEOUT', 'git 沒有在時間內回應'))
-    }, TIMEOUT_MS)
-    // setEncoding 會把切在兩個 chunk 之間的中文字接回來，逐塊 toString 會變亂碼
-    child.stdout.setEncoding('utf8')
-    child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk) => {
-      if (done) return
-      stdout += chunk
-      if (stdout.length <= maxChars) return
-      done = true
-      clearTimeout(timer)
-      try {
-        child.kill()
-      } catch {
-        // 已經死了就算了
-      }
-      resolve({ code: 0, stdout: stdout.slice(0, maxChars), stderr, truncated: true })
-    })
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk
-    })
-    child.on('error', () => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      reject(fail('GIT_MISSING', '找不到 git，請先安裝'))
-    })
-    child.on('close', (code) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      resolve({ code: code === null ? -1 : code, stdout, stderr })
-    })
   })
+  if (res.error === 'TIMEOUT') throw fail('GIT_TIMEOUT', 'git 沒有在時間內回應')
+  if (res.error) throw fail('GIT_MISSING', '找不到 git，請先安裝')
+  return res
 }
 
 /**
@@ -427,7 +375,15 @@ async function commit(projectId, message, stageAll) {
  */
 async function push(projectId) {
   const cwd = await rootOf(projectId)
-  const res = await run(cwd, ['push'])
+  let args = ['push']
+  const upstream = await run(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+  if (upstream.code !== 0) {
+    // 沒有上游＝新分支第一次推：直接幫它設上游（origin 優先），不要讓使用者去終端機打 -u
+    const remotes = (await run(cwd, ['remote'])).stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    if (!remotes.length) throw fail('PUSH_FAILED', '這個儲存庫沒有遠端（先 git remote add）')
+    args = ['push', '-u', remotes.includes('origin') ? 'origin' : remotes[0], 'HEAD']
+  }
+  const res = await run(cwd, args)
   if (res.code !== 0) throw fail('PUSH_FAILED', '推送失敗（可能是沒有權限或需要先 pull，細節看終端機）')
   return { pushed: true }
 }

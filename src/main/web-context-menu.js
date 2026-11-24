@@ -78,7 +78,7 @@ function buildTemplate(contents, params, { openUrl, isWebUrl, extraItems }) {
  * @param {{ openUrl: (url: string) => void, isWebUrl: (url: string) => boolean, extraItems?: (params: Electron.ContextMenuParams) => any[] }} opts
  */
 function attachWebContextMenu(contents, opts) {
-  attachReloadKeys(contents)
+  if (opts.reloadKeys !== false) attachReloadKeys(contents)
   contents.on('context-menu', (_event, params) => {
     const host = contents.hostWebContents
     const window = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null

@@ -337,7 +337,8 @@ async function extractFile(archive, entry, dest) {
     return
   }
   if (!entry.csize) throw paths.fail('BAD_ZIP', '壓縮檔已損毀')
-  const part = `${dest}.part`
+  // 同一個檔可能同時被解兩次（預覽＋詳細資訊），暫存檔各用各的才不會互搶
+  const part = `${dest}.${crypto.randomBytes(4).toString('hex')}.part`
   const start = await dataStart(archive, entry)
   const steps = [fs.createReadStream(archive, { start, end: start + entry.csize - 1 })]
   if (entry.method === 8) steps.push(zlib.createInflateRaw())

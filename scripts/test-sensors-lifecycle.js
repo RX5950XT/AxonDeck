@@ -102,5 +102,59 @@ async function main() {
       await bridge.stop()
     }
   }
+
+  {
+    // 重拉時排程工作偶爾觸發失敗（schtasks 逾時）：不能停在「關」，要繼續重試
+    const inner = fakeTask((client) => { client.write('{"h":[],"c":[]}\n') })
+    let failNext = 0
+    const task = { clients: inner.clients, run: (pipe) => (failNext-- > 0 ? Promise.resolve(false) : inner.run(pipe)) }
+    const bridge = createSensorBridge({
+      resolveExe: () => __filename,
+      reconnectDelayMs: 25,
+      task,
+      onLost: () => { bridge.enable({ elevate: false }).catch(() => undefined) }
+    })
+    try {
+      await bridge.enable({ elevate: false })
+      assert.equal(bridge.status().state, 'on')
+      failNext = 2
+      const before = task.clients.length
+      task.clients.at(-1).destroy()
+      const deadline = Date.now() + 2000
+      while ((bridge.status().state !== 'on' || task.clients.length === before) && Date.now() < deadline) await sleep(20)
+      assert.equal(bridge.status().state, 'on', `排程工作失敗後仍要重試到接回（${bridge.status().state}）`)
+      console.log('PASS 重拉時排程工作失敗會繼續重試')
+    } finally {
+      for (const c of task.clients) try { c.destroy() } catch { /* 已斷 */ }
+      await bridge.stop()
+    }
+  }
+
+  {
+    // 跑過一陣子後重拉遇到一次驅動錯誤（上一顆還沒放開）：不是真的被系統擋，要繼續重試
+    let driverNext = 0
+    const task = fakeTask((client) => {
+      if (driverNext-- > 0) { client.end('{"error":"driver"}\n'); return }
+      client.write('{"h":[],"c":[]}\n')
+    })
+    const bridge = createSensorBridge({
+      resolveExe: () => __filename,
+      reconnectDelayMs: 25,
+      task,
+      onLost: () => { bridge.enable({ elevate: false }).catch(() => undefined) }
+    })
+    try {
+      await bridge.enable({ elevate: false })
+      driverNext = 1
+      task.clients.at(-1).destroy()
+      const deadline = Date.now() + 2000
+      while ((bridge.status().state !== 'on' || task.clients.length < 3) && Date.now() < deadline) await sleep(20)
+      assert.equal(bridge.status().state, 'on', `重拉遇到一次驅動錯誤仍要接回（${bridge.status().state}）`)
+      console.log('PASS 重拉時的一次性驅動錯誤會繼續重試')
+    } finally {
+      for (const c of task.clients) try { c.destroy() } catch { /* 已斷 */ }
+      await bridge.stop()
+    }
+  }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

@@ -212,12 +212,19 @@ function readClaudeJson() {
 }
 
 /**
- * 只換掉 mcpServers，其他欄位（專案歷史、各種旗標）原樣寫回。
- * @param {Record<string, Record<string, unknown>>} servers
+ * 只動 mcpServers 裡的這一台，其他欄位（專案歷史、各種旗標）與其他台都原樣寫回。
+ * 不可以拿 readLive() 的結果整份蓋回去：那是清洗過的版本，別台我們不認得的欄位
+ * （oauth、headersHelper、timeout…）會被洗掉。
+ * @param {string} id
+ * @param {Record<string, unknown> | null} spec null＝拿掉這一台
  */
-function writeLive(servers) {
+function writeLive(id, spec) {
   const file = claudeSettings.claudeJsonPath()
   const root = readClaudeJson()
+  const raw = root.mcpServers
+  const servers = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {}
+  if (spec) servers[id] = spec
+  else delete servers[id]
   claudeSettings.backupFile(file, 'claude-json')
   claudeSettings.writeJsonFile(file, { ...root, mcpServers: servers })
 }
@@ -234,12 +241,21 @@ async function readDisabled() {
   return sanitizeMap(store.get('disabledMcp', {}))
 }
 
+/** 停用清單的原始內容（沒清洗過）；寫回只動目標那一台，理由同 writeLive */
+function rawMap(raw) {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {}
+}
+
 /**
- * @param {Record<string, Record<string, unknown>>} map
+ * @param {string} id
+ * @param {Record<string, unknown> | null} spec null＝拿掉這一台
  */
-async function writeDisabled(map) {
+async function writeDisabled(id, spec) {
   if (!getStore) return
   const store = await getStore()
+  const map = rawMap(store.get('disabledMcp', {}))
+  if (spec) map[id] = spec
+  else delete map[id]
   store.set('disabledMcp', map)
 }
 
@@ -267,11 +283,13 @@ async function list() {
  * @param {object} rawSpec
  * @param {boolean} enabled
  */
-async function upsert(rawId, rawSpec, enabled = true) {
+async function upsert(rawId, rawSpec, enabled = true, original = null) {
   const id = sanitizeId(rawId)
-  const spec = sanitizeSpec(rawSpec)
+  const checked = sanitizeSpec(rawSpec)
+  // 開關（toggle）時搬的是原始設定：清洗過的版本只拿來驗證，寫回用原本那份，
+  // 不然停用再啟用，我們不認得的欄位（oauth、timeout…）就沒了
+  const spec = original ? { ...original } : checked
   const live = readLive()
-  const disabled = await readDisabled()
 
   if (enabled) {
     if (!(id in live) && Object.keys(live).length >= MAX_SERVERS) {
@@ -281,16 +299,11 @@ async function upsert(rawId, rawSpec, enabled = true) {
       throw error
     }
     // 先寫進 live 再從停用清單拿掉：live 寫失敗時設定還留在停用清單
-    writeLive({ ...live, [id]: wrapForWindows(spec) })
-    delete disabled[id]
-    await writeDisabled(disabled)
+    writeLive(id, wrapForWindows(spec))
+    await writeDisabled(id, null)
   } else {
-    if (id in live) {
-      const next = { ...live }
-      delete next[id]
-      writeLive(next)
-    }
-    await writeDisabled({ ...disabled, [id]: spec })
+    if (id in live) writeLive(id, null)
+    await writeDisabled(id, spec)
   }
   return { id, enabled }
 }
@@ -311,7 +324,11 @@ async function toggle(rawId, enabled) {
     error.userMessage = '找不到這台 MCP 伺服器'
     throw error
   }
-  return upsert(id, spec, Boolean(enabled))
+  const store = getStore ? await getStore() : null
+  const original = live[id]
+    ? rawMap(readClaudeJson().mcpServers)[id]
+    : rawMap(store?.get('disabledMcp', {}))[id]
+  return upsert(id, spec, Boolean(enabled), original && typeof original === 'object' ? original : null)
 }
 
 /**
@@ -320,16 +337,9 @@ async function toggle(rawId, enabled) {
 async function remove(rawId) {
   const id = sanitizeId(rawId)
   const live = readLive()
-  if (id in live) {
-    const next = { ...live }
-    delete next[id]
-    writeLive(next)
-  }
+  if (id in live) writeLive(id, null)
   const disabled = await readDisabled()
-  if (id in disabled) {
-    delete disabled[id]
-    await writeDisabled(disabled)
-  }
+  if (id in disabled) await writeDisabled(id, null)
   return true
 }
 

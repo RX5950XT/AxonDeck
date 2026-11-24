@@ -607,7 +607,7 @@ async function main() {
     await cdp.eval(`[...document.querySelectorAll('.ws-new-menu .ws-new-item')]
       .find((b) => b.textContent === '瀏覽器').click()`)
     ok('[F] 開得出瀏覽器分頁',
-      await waitInPage(cdp, `document.getElementById('wsBrowser').offsetHeight > 0`, 8000))
+      await waitInPage(cdp, `!document.getElementById('wsBrowser').hidden && document.getElementById('wsBrowser').offsetHeight > 0`, 8000))
     ok('[F] X-Frame-Options 警示已移除',
       await cdp.eval(`!document.getElementById('wsBrowserNote')`))
     const guestSrc = () => `(document.querySelector('#wsBrowserFrame webview')?.dataset.src || '')`
@@ -916,16 +916,17 @@ async function main() {
       fs.rmSync(outside) // temp-ok: 自己種的單一檔案
     }
 
-    // ===== [J] 埠號面板 =====
-    await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="ports"]').click()`)
+    // ===== [J] 埠號面板（額度條的 Port 抽屜） =====
+    await cdp.eval(`document.getElementById('quotaPortsBtn').click()`)
     ok('[J] 埠號面板顯示出來',
-      await waitInPage(cdp, `document.getElementById('wsPanelPorts').offsetHeight > 0`, 5000))
+      await waitInPage(cdp, `document.getElementById('quotaDrawerPorts').offsetHeight > 0`, 5000))
     // 這台機器上 App 自己就在聽 CDP 的埠，所以一定至少有一筆
     ok('[J] 列得出本機在聽的埠',
       await waitInPage(cdp, `document.querySelectorAll('#wsPortList .ws-port-row').length > 0`, 15000))
     ok('[J] 每一列都有埠號',
       await cdp.eval(`[...document.querySelectorAll('#wsPortList .ws-port-num')]
         .every((n) => /^[0-9]+$/.test(n.textContent.trim()))`))
+    await cdp.eval(`document.getElementById('quotaPortsBtn').click()`)
     await cdp.eval(`document.querySelector('.ws-right-tab[data-panel="files"]').click()`)
 
     // ===== [K] PDF 預覽 =====
@@ -999,7 +1000,7 @@ async function main() {
     // ===== [G] 內容不會疊在一起 ＋ main 的路徑守衛 =====
     const stacked = await cdp.eval(`(() => ({
       editor: document.getElementById('wsEditor').offsetHeight,
-      browser: document.getElementById('wsBrowser').offsetHeight,
+      browser: document.getElementById('wsBrowser').hidden ? 0 : document.getElementById('wsBrowser').offsetHeight,
       termHost: document.getElementById('termHost').offsetHeight,
       empty: document.getElementById('termEmpty').offsetHeight
     }))()`)

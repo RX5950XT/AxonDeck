@@ -22,7 +22,7 @@ assert.equal(metrics.mergeProcesses([p, { ...p, pid: 13, exePath: 'C:\\demo.exe'
 
 const source = fs.readFileSync('src/renderer/scripts/sysmon-procs.js', 'utf8').replace(/^export /gm, '')
 const context = vm.createContext({ btoa })
-vm.runInContext(source + '\nthis.api = { normalizeOrder, moveColumn, processTotals, networkRate, safeIcon, sortProcessRows, createProcessTable };', context)
+vm.runInContext(source + '\nthis.api = { normalizeOrder, moveColumn, processTotals, networkRate, ioRate, safeIcon, sortProcessRows, splitProcessRows, createProcessTable };', context)
 const { api } = context
 assert.equal(api.normalizeOrder(['cpu', 'name', 'cpu', 'bad'])[0], 'name')
 assert.equal(new Set(api.normalizeOrder(['cpu', 'cpu'])).size, 9)
@@ -39,11 +39,12 @@ const totals = api.processTotals({
   disks: [{ name: '0 C:', busy: 12 }, { name: '1 D:', busy: 45 }],
   nets: [{ rx: 125000, tx: 0, linkSpeed: 1000000000 }],
   gpuAdapterUtil: { card: 33 }, gpu: { cards: [{ memoryTotal: 200, memoryUsed: 50 }] },
-  processes: [{ count: 2, threads: 8 }]
+  processes: [{ count: 2, threads: 8, diskRead: 1048576, diskWrite: 524288 }]
 })
 assert.equal(totals.cpu, '23%')
 assert.equal(totals.memory, '25%')
-assert.equal(totals.diskTotal, '45%')
+assert.equal(totals.diskTotal, '1.5 MB/s')
+assert.equal(api.ioRate(1000), '—')
 assert.equal(totals.network, '0.1%')
 assert.equal(totals.gpu, '33%')
 assert.equal(totals.gpuMemory, '25%')
@@ -115,3 +116,15 @@ assert.equal(elements.sysmonHead.children[0].dataset.key, 'name')
 context.localStorage = { getItem() { throw new Error('disabled') }, setItem() { throw new Error('disabled') } }
 assert.doesNotThrow(() => api.createProcessTable({ state, $: () => null }))
 console.log('PASS 虛擬列、圖示節點、選取、群組 PID、拖曳／鍵盤欄序、保存與排序事件')
+
+const split = api.splitProcessRows([{ pid: 1, app: false }, { pid: 2, app: true }, { pid: 3, app: false }])
+assert.equal(JSON.stringify(split.map((r) => r.header || r.pid)), JSON.stringify(['應用程式', 2, '背景處理程序', 1, 3]))
+assert.equal(split[2].count, 2)
+assert.equal(JSON.stringify(api.splitProcessRows([{ pid: 1 }]).map((r) => r.header || r.pid)), JSON.stringify(['背景處理程序', 1]), '沒有應用程式就不出空段落')
+state.viewRows = split; state.scrollTop = 0; selected = null
+table.renderRows()
+const head = elements.sysmonRows.children[0]
+assert.equal(head.classList.contains('is-group'), true)
+head.listeners.click(); assert.equal(selected, null, '段落標題不可選')
+assert.equal(elements.sysmonRows.children[1].classList.contains('is-group'), false, '重用節點要拿掉標題樣式')
+console.log('PASS 應用程式／背景處理程序分段')

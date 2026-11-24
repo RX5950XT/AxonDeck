@@ -30,8 +30,8 @@ async function main() {
     return
   }
   try {
-    assert.deepEqual(models.OCR_MODEL_KEYS, ['paddleocrvl16'])
-    for (const key of ['paddleocrvl16', 'ppdoclayoutv3']) {
+    assert.deepEqual(models.OCR_MODEL_KEYS, ['unlimitedocr2q8'])
+    for (const key of ['unlimitedocr2q8', 'ppdoclayoutv3']) {
       const def = models.MODELS[key]
       assert.equal(def.kind, 'ocr')
       assert.equal(def.totalBytes, Object.values(def.fileBytes).reduce((a, b) => a + b, 0))
@@ -66,15 +66,15 @@ async function main() {
       fs.writeFileSync(target, 'x')
     }
 
-    const def = models.MODELS.paddleocrvl16
+    const def = models.MODELS.unlimitedocr2q8
     def.fileBytes = { [def.files[0]]: 3, [def.files[1]]: 5 }
     def.totalBytes = 8
     const statuses = []
-    await models.download('paddleocrvl16', progress => statuses.push(progress))
+    await models.download('unlimitedocr2q8', progress => statuses.push(progress))
     assert.deepEqual(calls.map(c => c.expectedBytes), [3, 5], '多檔使用各自大小，不能拿模型總大小驗證')
-    assert.equal(models.isDownloaded('paddleocrvl16'), true)
-    fs.writeFileSync(models.filePath('paddleocrvl16', 'mmproj'), 'x')
-    assert.equal(models.isDownloaded('paddleocrvl16'), false, '缺損 mmproj 不算下載完成')
+    assert.equal(models.isDownloaded('unlimitedocr2q8'), true)
+    fs.writeFileSync(models.filePath('unlimitedocr2q8', 'mmproj'), 'x')
+    assert.equal(models.isDownloaded('unlimitedocr2q8'), false, '缺損 mmproj 不算下載完成')
     assert.equal(statuses.at(-1).receivedBytes, 8)
 
     const file = path.resolve(__dirname, '../src/main/models.js')
@@ -82,10 +82,16 @@ async function main() {
     fixture.filename = file
     fixture.paths = Module._nodeModulePaths(path.dirname(file))
     let dependencyCancelled = false
+    let gpuReady = false
+    const installs = []
     Module._load = function (id, ...args) {
       if (id === 'electron') return { app: { getPath: () => dir } }
-      if (id === './pdf-translate/runtime') return { isReady: () => false,
-        install: ({ signal }) => new Promise((resolve, reject) => {
+      if (id === './hfmodels/download') return { downloadFile: async options => {
+        fs.writeFileSync(options.dest, Buffer.alloc(options.expectedBytes))
+        return { bytes: options.expectedBytes }
+      } }
+      if (id === './pdf-translate/runtime') return { isReady: (_dir, variant) => gpuReady && variant === 'gpu',
+        install: ({ signal, variant }) => installs.push(variant) && new Promise((resolve, reject) => {
           signal.addEventListener('abort', () => {
             dependencyCancelled = true
             reject(new Error('下載已取消'))
@@ -96,14 +102,22 @@ async function main() {
     try {
       fixture._compile(fs.readFileSync(file, 'utf8'), file)
       const api = fixture.exports
-      const pending = api.download('paddleocrvl16', () => {})
+      const pending = api.download('unlimitedocr2q8', () => {})
       assert.equal(api.status().models.pdfruntime.downloading, true)
       assert.equal(api.status().models.ppdoclayoutv3.downloading, true)
-      assert.equal(api.status().models.paddleocrvl16.downloading, true)
-      api.cancelDownload('paddleocrvl16')
+      assert.equal(api.status().models.unlimitedocr2q8.downloading, true)
+      api.cancelDownload('unlimitedocr2q8')
       await assert.rejects(pending, /已取消/)
       assert.equal(dependencyCancelled, true, '取消 OCR 時，自動安裝的 layout / PDF runtime 也停止')
       assert.equal(api.status().models.pdfruntime.downloading, false)
+
+      gpuReady = true
+      installs.length = 0
+      for (const file of api.MODELS.ppdoclayoutv3.files) api.MODELS.ppdoclayoutv3.fileBytes[file] = 1
+      api.MODELS.unlimitedocr2q8.fileBytes = { [def.files[0]]: 3, [def.files[1]]: 5 }
+      await api.download('unlimitedocr2q8', () => {})
+      assert.deepEqual(installs, [], '只裝 GPU 版 PDF 執行環境時，下載 OCR 不能再裝 CPU 版')
+      assert.equal(api.isDownloaded('unlimitedocr2q8'), true)
     } finally { Module._load = originalLoad }
     console.log('PASS PDF OCR registry、各檔大小、mmproj 完整性、runtime 基底與取消')
   } finally { removeTree(dir) }

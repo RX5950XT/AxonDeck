@@ -2,6 +2,7 @@ import { electronAPI, showToast, setChatPaneMode, setSidebarMode, openInFilesPag
 import { createListReorder } from './list-reorder.js'
 import { mergeVisibleOrder } from './usage-reorder.js'
 import { createProjectFolders } from './ws-project-folders.js'
+import { createProjectSessions } from './ws-project-sessions.js'
 import { askConfirm, showAlert } from './app-dialog.js'
 import { terminalStatuses } from './ws-terminal-status.js'
 import { toolIcon, terminalStateIcon } from './ws-tool-icons.js'
@@ -10,7 +11,6 @@ import {
   openEditorTab,
   openDiffTab,
   openBrowserTab,
-  openCcToolsTab,
   openAiSessionTab,
   setActiveProject,
   forgetProjectBrowsers,
@@ -27,6 +27,8 @@ import {
   openWithSystem
 } from './ws-tabs.js'
 import { showMenu } from './ws-menu.js'
+// 拖放游標：原生拖放（startDrag）的來源沒宣告 move 時要退回 copy，否則 drop 整個不發生
+import { setDropEffect } from './explorer-dnd.js'
 import { editInline, isInlineEditing, cancelInlineEdit } from './inline-edit.js'
 import { gitStatusShared, invalidateGitStatus } from './ws-git-status.js'
 import { openQuickOpen, isOpen as isQuickOpenOpen } from './ws-quickopen.js'
@@ -34,7 +36,7 @@ import { createWorktreeFlow } from './ws-worktree-flow.js'
 import { createWorkspaceCommands, workspaceCommandItems } from './ws-commands.js'
 
 /**
- * 專案工作區：左側欄的「專案」清單 ＋ 右側欄的三個面板（檔案總管／Git／AI 記錄）。
+ * 專案工作區：左側欄的「專案」清單（每列可展開 AI 記錄）＋ 右側欄的面板（檔案總管／Git）。
  *
  * 一個專案就是本機的一個資料夾（`workspaces.json`）。**沒有 git worktree**——
  * Orca 的核心是 worktree，但那要連帶處理分支、清理、每個 worktree 各一組分頁，
@@ -63,6 +65,8 @@ let anchorRel = ''
 const NEWLINE = String.fromCharCode(13, 10)
 /** 正在拖曳的那幾筆相對路徑 */
 let dragging = []
+/** 正在拖的那些項目的絕對路徑（小寫）：drop 回來時用來分辨是不是自己拖的 */
+let draggingAbs = new Set()
 /** 檔案面板現在是「檔案樹」還是「搜尋」 */
 let filesView = 'tree'
 /** 右側檔案面板放大鏡：'name' 檔名（預設）／'content' 內容 */
@@ -91,6 +95,20 @@ const el = {}
 
 let worktreeFlow
 const projectFolders = createProjectFolders({ getList: () => el.list, getProjects: () => projects, call, reload: reloadList })
+const projectSessions = createProjectSessions({
+  call,
+  getList: () => el.list,
+  getProject: (id) => projects.find((item) => item.id === id) || null,
+  // 檢視與接續都要落在那個專案的分頁列上：不是目前專案就先切過去
+  onOpen: async (project, row) => {
+    if (currentId !== project.id && !(await selectProject(project.id))) return
+    await openAiSessionTab(project, row)
+  },
+  onResume: async (project, row) => {
+    if (currentId !== project.id && !(await selectProject(project.id))) return
+    await resumeSession(project, row)
+  }
+})
 
 // ===== 共用 =====
 
@@ -279,6 +297,7 @@ function buildListItem(item) {
   open.addEventListener('click', () => void selectProject(item.id))
 
   row.append(open)
+  projectSessions.decorate(row, item)
   row.addEventListener('contextmenu', (event) => {
     event.preventDefault()
     showProjectMenu({ x: event.clientX, y: event.clientY }, row, item)
@@ -410,7 +429,7 @@ async function removeProject(item) {
 const reorder = createListReorder({
   getList: () => el.list,
   itemSelector: '.proj-list-item',
-  ignoreSelector: '.chat-list-btn, .chat-list-rename',
+  ignoreSelector: '.chat-list-btn, .chat-list-rename, .proj-sessions',
   onCommit: () => void persistOrder().catch(() => { void reloadList().catch(() => {}) }),
   dropZone: (x, y) => {
     const head = document.elementFromPoint(x, y)?.closest('.chat-folder-head, .chat-root-head')
@@ -625,7 +644,6 @@ function setPanel(next) {
     btn.setAttribute('aria-selected', on ? 'true' : 'false')
   })
   void renderPanel()
-  syncAgentWatch()
 }
 
 async function renderPanel(project = currentProject(), seq = projectSeq) {
@@ -633,13 +651,9 @@ async function renderPanel(project = currentProject(), seq = projectSeq) {
   if (el.rightEmpty) el.rightEmpty.hidden = has
   if (el.panelFiles) el.panelFiles.hidden = !has || panel !== 'files'
   if (el.panelGit) el.panelGit.hidden = !has || panel !== 'git'
-  if (el.panelAgents) el.panelAgents.hidden = !has || panel !== 'agents'
-  if (el.panelPorts) el.panelPorts.hidden = !has || panel !== 'ports'
   if (!project || !isCurrentProject(project, seq)) return
   if (panel === 'files') await renderFilesPanel(project, seq)
   else if (panel === 'git') await renderGit(project, seq)
-  else if (panel === 'ports') await renderPorts(seq)
-  else await renderAgents(project, seq)
 }
 
 /**
@@ -946,8 +960,8 @@ function buildTreeRow(project, entry, depth) {
   if (entry.dir) row.setAttribute('aria-expanded', expanded.has(entry.rel) ? 'true' : 'false')
   if (!entry.dir && entry.rel === openRel) row.classList.add('is-open')
   if (selected.has(entry.rel)) row.classList.add('is-selected')
-  // 搬檔用 HTML5 DnD：檔案總管本來就是這個手感（半透明拖影正好當「要搬走的東西」），
-  // 而且 dragover／drop 的目標判定是瀏覽器算的，不必自己接 elementFromPoint。
+  // 拖曳交給 Windows 原生拖放（`explorer.startDrag`）：才拖得到檔案頁、桌面、別的程式。
+  // 拖回樹上一樣是 dragover／drop（帶 Files），靠 `dragging` 認出是自己拖的、改成搬移。
   // 分頁列那邊刻意不用它——那裡要的是「跟手＋平滑讓位」，拖影只會礙事。
   row.draggable = true
 
@@ -962,11 +976,9 @@ function buildTreeRow(project, entry, depth) {
   const status = treeStatusInfo(entry)
   if (status) row.appendChild(buildTreeStatus(project, entry, status))
 
-  row.addEventListener('contextmenu', (event) => openTreeMenu(project, entry, event))
+  row.addEventListener('contextmenu', (event) => void openTreeMenu(project, entry, event))
   row.addEventListener('focus', () => setTreeCursor(row))
-  row.addEventListener('dragstart', (event) => onTreeDragStart(event, entry))
-  // 拖到樹外或按 Esc 取消時不會有 drop：這裡不清，下次從外面拖檔進來會被當成搬移這些殘留項目
-  row.addEventListener('dragend', () => { dragging = []; clearDropMarks() })
+  row.addEventListener('dragstart', (event) => onTreeDragStart(event, project, entry))
   row.addEventListener('dragover', (event) => onTreeDragOver(event, entry, row))
   row.addEventListener('dragleave', () => row.classList.remove('is-drop'))
   row.addEventListener('drop', (event) => void onTreeDrop(event, project, entry))
@@ -1186,17 +1198,32 @@ function clearDropMarks() {
 
 /**
  * @param {DragEvent} event
+ * @param {{ id: string, path?: string }} project
  * @param {{ rel: string, dir: boolean }} entry
  */
-function onTreeDragStart(event, entry) {
+function onTreeDragStart(event, project, entry) {
   // 拖的那一列不在選取裡＝使用者只想搬它，先把選取換成它
   if (!selected.has(entry.rel)) setSelection([entry.rel])
+  const root = project.path || currentProject()?.path || ''
+  if (!root) return
   dragging = [...selected]
-  if (!event.dataTransfer) return
-  event.dataTransfer.effectAllowed = 'move'
-  // **一定要 setData**：不寫的話 Chromium 根本不會啟動這次拖曳
-  event.dataTransfer.setData('text/plain', dragging.join(', '))
+  draggingAbs = new Set(dragging.map((rel) => absOf(root, rel).toLowerCase()))
+  // 原生拖放一啟動，HTML5 那條就得讓位（兩邊一起來 Windows 只認先啟動的那個）
+  event.preventDefault()
+  const list = dragging.map((rel) => absOf(root, rel))
+  void electronAPI.explorer.startDrag(list).catch(() => {}).finally(() => {
+    // startDrag 等使用者放手才回來；drop 事件可能還在路上，晚一點再清，
+    // 不清的話拖到樹外或按 Esc 取消後，下次從外面拖進來會被當成搬移這些殘留項目
+    window.setTimeout(() => {
+      dragging = []
+      draggingAbs = new Set()
+      clearDropMarks()
+    }, 400)
+  })
 }
+
+/** 專案相對路徑 → 絕對路徑（只給拖放用，真正動檔案時 main 會再驗） */
+const absOf = (root, rel) => `${root.replace(/[\\/]+$/, '')}\\${rel.split('/').join('\\')}`
 
 /**
  * 這個目的地收不收得下。收不下就**不要** `preventDefault`——
@@ -1227,7 +1254,7 @@ function onTreeDragOver(event, entry, row) {
   if (!external && !canDropInto(toDir)) return
   event.preventDefault()
   event.stopPropagation()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = external ? 'copy' : 'move'
+  if (event.dataTransfer) setDropEffect(event, external ? 'copy' : 'move')
   clearDropMarks()
   // 放在檔案上時，把框線畫在**那個檔案的資料夾**那一列，不然看起來像要放進檔案裡
   const mark = entry.dir ? row : treeRows().find((one) => one.dataset.rel === toDir)
@@ -1245,17 +1272,10 @@ async function onTreeDrop(event, project, entry) {
   event.stopPropagation()
   clearDropMarks()
   const toDir = dropDirOf(entry)
-  const dropped = Array.from(event.dataTransfer?.files ?? [])
-  if (dropped.length && !dragging.length) {
-    const paths = []
-    for (const file of dropped) {
-      try {
-        const abs = electronAPI.getPathForFile(file)
-        if (abs) paths.push(abs)
-      } catch {
-        // 單一檔案轉不出路徑就跳過
-      }
-    }
+  const paths = filePaths(event.dataTransfer?.files)
+  // 自己拖出去又拖回來＝在樹裡搬移；其餘都是從外面（檔案頁、桌面）拖進來的
+  const own = dragging.length > 0 && paths.length > 0 && paths.every((p) => draggingAbs.has(p.toLowerCase()))
+  if (event.dataTransfer?.files?.length && !own) {
     if (!paths.length) {
       showToast('讀不到拖進來的檔案', 'error')
       return
@@ -1279,6 +1299,7 @@ async function onTreeDrop(event, project, entry) {
   const list = dragging
   const canDrop = list.length > 0 && canDropInto(toDir)
   dragging = []
+  draggingAbs = new Set()
   if (!canDrop) return
 
   const seq = projectSeq
@@ -1339,6 +1360,7 @@ function resetTreeCursor() {
  * @param {KeyboardEvent} event
  */
 function onTreeKeydown(event) {
+  if (onTreeClipboardKey(event)) return
   const rows = treeRows()
   if (!rows.length) return
   const current = /** @type {HTMLElement | null} */ (
@@ -1467,13 +1489,16 @@ async function markOpenFile(projectId, rel, asDir = false) {
  * @param {{ name: string, rel: string, dir: boolean }} entry
  * @param {MouseEvent} event
  */
-function openTreeMenu(project, entry, event) {
+async function openTreeMenu(project, entry, event) {
   event.preventDefault()
   // 右鍵按在選取範圍外＝使用者在講這一列，把選取換成它（比照檔案總管）
   if (!selected.has(entry.rel)) setSelection([entry.rel])
+  const clip = clipMenuItems(project, [...selected], dropDirOf(entry), await clipboardCount())
   if (selected.size > 1) {
     const many = [...selected]
     showMenu({ x: event.clientX, y: event.clientY }, [
+      ...clip,
+      { sep: true },
       { label: `複製 ${many.length} 條相對路徑`, onSelect: () => void copyPath(many.join(NEWLINE)) },
       { label: `刪除這 ${many.length} 個`, danger: true, onSelect: () => void removeMany(project, many) }
     ])
@@ -1493,6 +1518,9 @@ function openTreeMenu(project, entry, event) {
     { label: '新增檔案', onSelect: () => void createEntry(project, parent, false) },
     { label: '新增資料夾', onSelect: () => void createEntry(project, parent, true) },
     { label: '重新命名（F2）', onSelect: () => void renameEntry(project, entry) },
+    { sep: true },
+    ...clip,
+    { sep: true },
     { label: '複製相對路徑', onSelect: () => void copyPath(entry.rel) },
     { label: '在檔案頁顯示', onSelect: () => void revealEntry(project, entry.rel, entry.dir) },
     { label: `刪除「${entry.name}」`, danger: true, onSelect: () => void removeEntry(project, entry) }
@@ -1503,15 +1531,17 @@ function openTreeMenu(project, entry, event) {
  * 檔案樹空白處（列以外）的右鍵選單：東西一律建在專案根目錄。
  * @param {MouseEvent} event
  */
-function openTreeBlankMenu(event) {
+async function openTreeBlankMenu(event) {
   if (/** @type {HTMLElement} */ (event.target).closest?.('.ws-tree-row')) return
   const project = currentProject()
   if (!project) return
   event.preventDefault()
   setSelection([])
+  const paste = clipMenuItems(project, [], '', await clipboardCount())
   showMenu({ x: event.clientX, y: event.clientY }, [
     { label: '新增檔案', onSelect: () => void createEntry(project, '', false) },
     { label: '新增資料夾', onSelect: () => void createEntry(project, '', true) },
+    ...paste,
     { label: '重新命名專案', onSelect: () => void renameProjectInline(project) },
     { label: '重新整理', onSelect: () => void renderTree() },
     { sep: true },
@@ -1731,6 +1761,145 @@ async function revealEntry(project, rel, dir = true) {
   }
 }
 
+// ===== 跟檔案頁共用的剪貼簿 =====
+// 剪下／複製放進檔案頁那份剪貼簿（main 的 explorer `clip`）：檔案頁、別的專案的檔案樹都貼得到，
+// 反過來檔案頁剪下／複製的東西也貼得進專案。真正搬檔走檔案頁的操作中心（撞名改名、有進度條）。
+
+/** 檔案頁剪貼簿裡有幾項；讀不到當 0，選單照樣開 */
+async function clipboardCount() {
+  try {
+    const res = await electronAPI.explorer.clipboardState()
+    return res && res.ok ? Number(res.data && res.data.count) || 0 : 0 // -1＝系統剪貼簿有檔案
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * @param {{ id: string }} project
+ * @param {string[]} rels 空陣列＝只給「貼上」
+ * @param {string} toDir 貼到哪個資料夾
+ * @param {number} count 剪貼簿目前幾項
+ */
+function clipMenuItems(project, rels, toDir, count) {
+  const items = rels.length ? [
+    { label: '剪下（Ctrl+X）', onSelect: () => void clipEntries(project, rels, 'cut') },
+    { label: '複製（Ctrl+C）', onSelect: () => void clipEntries(project, rels, 'copy') }
+  ] : []
+  // count -1＝Windows 檔案總管複製的（main 只知道有，不知道幾個）
+  const label = count > 0 ? `貼上 ${count} 個項目（Ctrl+V）` : count < 0 ? '貼上 Windows 複製的檔案（Ctrl+V）' : '貼上（Ctrl+V）'
+  return [...items, { label, disabled: !count, onSelect: () => requestPaste(project, toDir) }]
+}
+
+/**
+ * @param {{ id: string }} project
+ * @param {string[]} rels
+ * @param {'cut'|'copy'} mode
+ */
+async function clipEntries(project, rels, mode) {
+  try {
+    const full = []
+    for (const rel of rels.slice(0, 50)) {
+      full.push(await call(electronAPI.workspace.reveal(project.id, rel), '找不到這個項目'))
+    }
+    await call(electronAPI.explorer.setClipboard(full, mode), '無法放入剪貼簿')
+    showToast(mode === 'cut' ? '已剪下，可到檔案頁或其他專案貼上' : '已複製，可到檔案頁或其他專案貼上')
+  } catch {
+    // call() 已經提示過了
+  }
+}
+
+/**
+ * File 物件 → 絕對路徑（拖放、paste 事件共用）
+ * @param {FileList | File[] | null | undefined} files
+ * @returns {string[]}
+ */
+function filePaths(files) {
+  const out = []
+  for (const file of Array.from(files ?? [])) {
+    try {
+      const abs = electronAPI.getPathForFile(file)
+      if (abs) out.push(abs)
+    } catch {
+      // 單一檔案轉不出路徑就跳過
+    }
+  }
+  return out
+}
+
+/** @type {{ project: { id: string, name: string }, toDir: string } | null} */
+let pendingPaste = null
+
+/**
+ * 貼上：先請 main 對這一頁跑一次「貼上」，paste 事件才拿得到 Windows 檔案總管複製的整份清單；
+ * 等不到事件就照 App 剪貼簿貼。要用哪一份由 main 判斷（看誰比較新）。
+ * @param {{ id: string, name: string }} project
+ * @param {string} toDir
+ */
+function requestPaste(project, toDir) {
+  const job = { project, toDir }
+  pendingPaste = job
+  void electronAPI.workspace.triggerPaste().catch(() => {})
+  window.setTimeout(() => {
+    if (pendingPaste !== job) return
+    pendingPaste = null
+    void pasteInto(project, toDir, [])
+  }, 600)
+}
+
+/** @param {ClipboardEvent} event */
+function onDocumentPaste(event) {
+  const job = pendingPaste
+  if (!job) return
+  pendingPaste = null
+  event.preventDefault()
+  event.stopPropagation()
+  void pasteInto(job.project, job.toDir, filePaths(event.clipboardData?.files))
+}
+
+/**
+ * @param {{ id: string, name: string }} project
+ * @param {string} toDir
+ * @param {string[]} systemPaths
+ */
+async function pasteInto(project, toDir, systemPaths) {
+  const seq = projectSeq
+  try {
+    const done = await call(electronAPI.workspace.pasteClipboard(project.id, toDir, systemPaths), '貼上失敗')
+    if (!isCurrentProject(project, seq)) return
+    if (toDir) expanded.add(toDir)
+    await renderTree(project, seq)
+    const n = Array.isArray(done && done.paths) ? done.paths.length : 0
+    if (n) showToast(`已${done.mode === 'cut' ? '搬入' : '貼上'} ${n} 個項目`)
+  } catch {
+    // call() 已經提示過了
+  }
+}
+
+/**
+ * 檔案樹的 Ctrl+C／X／V。就地改名的輸入框裡不攔（那是在複製文字）。
+ * @param {KeyboardEvent} event
+ * @returns {boolean} 有沒有處理
+ */
+function onTreeClipboardKey(event) {
+  const key = event.key.toLowerCase()
+  if (!event.ctrlKey || event.altKey || event.shiftKey || !['c', 'x', 'v'].includes(key)) return false
+  const target = /** @type {HTMLElement} */ (event.target)
+  if (target.closest?.('input, textarea, [contenteditable="true"]')) return false
+  const project = currentProject()
+  if (!project) return false
+  const current = /** @type {HTMLElement | null} */ (target.closest?.('.ws-tree-row'))
+  event.preventDefault()
+  if (key === 'v') {
+    const rel = current?.dataset.rel || ''
+    requestPaste(project, rel ? dropDirOf({ rel, dir: current?.dataset.dir === '1' }) : '')
+    return true
+  }
+  const rels = selected.size ? [...selected] : current?.dataset.rel ? [current.dataset.rel] : []
+  if (rels.length) void clipEntries(project, rels, key === 'x' ? 'cut' : 'copy')
+  return true
+}
+
 // ===== 專案內搜尋 =====
 
 /**
@@ -1771,13 +1940,14 @@ async function runSearch() {
   const input = /** @type {HTMLInputElement | null} */ (el.searchInput)
   if (!isCurrentProject(project, projectToken) || !input || !el.searchResults) return
   const query = input.value.trim()
+  // 先換世代：字刪到不足長度時，還在路上的舊搜尋也要作廢
+  const seq = searchSeq + 1
+  searchSeq = seq
   const minLen = searchMode === 'name' ? 1 : 2
   if (query.length < minLen) {
     el.searchResults.replaceChildren()
     return
   }
-  const seq = searchSeq + 1
-  searchSeq = seq
   el.searchResults.replaceChildren(note('搜尋中…'))
   let found
   try {
@@ -1849,10 +2019,10 @@ function renderSearchHits(project, found) {
 // ===== 本機 Port =====
 
 /**
- * 這台機器正在聽的本機 TCP 埠。跟專案無關，但擺在工作區最順手——
+ * 這台機器正在聽的本機 TCP 埠。跟專案無關，放在底下額度條的「Port」抽屜（quota-bar.js 打開時叫）——
  * dev server 起來之後點一下就用內建瀏覽器開。
  */
-async function renderPorts(seq = projectSeq) {
+export async function renderPorts() {
   const host = el.portList
   if (!host) return
   host.replaceChildren(note('查詢中…'))
@@ -1860,10 +2030,9 @@ async function renderPorts(seq = projectSeq) {
   try {
     ports = await call(electronAPI.workspace.listPorts(), '查不到 Port')
   } catch {
-    if (seq === projectSeq) host.replaceChildren()
+    host.replaceChildren()
     return
   }
-  if (seq !== projectSeq) return
   host.replaceChildren()
   if (!ports.length) {
     host.appendChild(note('現在沒有本機服務在監聽。'))
@@ -2190,6 +2359,36 @@ function paintGitBranch(status, uncommitted = 0) {
   el.gitBranch.title = status.upstream ? `上游：${status.upstream}` : '沒有設定上游'
 }
 
+/** 暫存區有沒有東西（衝突不算：那是還沒解完） */
+const isStagedFile = (f) => f.index !== '.' && f.index !== '?' && f.index !== 'U' && f.worktree !== 'U'
+
+/**
+ * 三顆動作鈕的字跟能不能按，照狀態走：按鈕上直接寫「會做什麼、做幾個」，
+ * 不用先懂暫存區才知道要按哪一顆。
+ * @param {{ files?: Array<object>, upstream?: string, unpushed?: number, ahead?: number } | null} status
+ */
+function paintGitActions(status) {
+  const files = status?.files || []
+  const staged = files.filter(isStagedFile).length
+  const unstaged = files.filter((f) => f.worktree !== '.').length
+  const unpushed = Number(status?.unpushed) || Number(status?.ahead) || 0
+  const commit = /** @type {HTMLButtonElement | null} */ (el.gitCommitBtn)
+  const push = /** @type {HTMLButtonElement | null} */ (el.gitPushBtn)
+  const stage = /** @type {HTMLButtonElement | null} */ (el.gitStageAllBtn)
+  if (commit) {
+    commit.disabled = !files.length
+    commit.textContent = staged ? `提交 ${staged} 個` : files.length ? `全部提交 ${files.length} 個` : '提交'
+    commit.title = staged ? '只提交暫存區的檔案（Ctrl+Enter）' : '沒有暫存的檔案，會把全部變更一起提交（Ctrl+Enter）'
+  }
+  if (stage) stage.hidden = !staged || !unstaged // 沒暫存時「提交」已經會全部帶走，這顆只在混著時才有用
+  if (push) {
+    const publish = Boolean(status) && !status.upstream
+    push.disabled = !status || (!publish && !unpushed)
+    push.textContent = publish ? '發布分支' : unpushed ? `推送 ↑${unpushed}` : '推送'
+    push.title = publish ? '這個分支還沒在遠端：推上去並設定上游' : unpushed ? `把 ${unpushed} 筆提交推上遠端` : '沒有要推送的提交'
+  }
+}
+
 async function renderGit() {
   const project = currentProject()
   if (!project || !el.gitFiles) return
@@ -2228,11 +2427,13 @@ async function renderGit() {
     el.reviewFiles?.replaceChildren()
     reviewRef = ''
     paintGitChangesStat([])
+    paintGitActions(null)
     void renderGitLog()
     return
   }
   paintGitBranch(status, Array.isArray(status.files) ? status.files.length : 0)
   lastGitStatus = status
+  paintGitActions(status)
   paintGitFiles(project, status)
   void renderWorktrees()
   void renderGitLog()
@@ -2592,10 +2793,12 @@ function gitGroup(files, side, project, host, ambiguous) {
     btn.title = bulk.title
     btn.addEventListener('click', async () => {
       btn.disabled = true
-      // 一個一個送：main 的 stage/unstage 只吃單一相對路徑，而且失敗的那個不該
-      // 把整組拖下水（`allSettled` 不是 `all`）
-      const results = await Promise.allSettled(files.map((file) => bulk.run(project.id, file.path)))
-      const failed = results.filter((r) => r.status === 'rejected' || !r.value?.ok).length
+      // 一個一個送：main 的 stage/unstage 只吃單一相對路徑，而且失敗的那個不該把整組拖下水
+      // 要排隊不能同時送：N 個 git 一起搶 `.git/index.lock`，會有幾個直接失敗
+      let failed = 0
+      for (const file of files) {
+        try { if (!(await bulk.run(project.id, file.path))?.ok) failed += 1 } catch { failed += 1 }
+      }
       if (failed) showToast(`${failed} 個檔案沒處理成功`, 'error')
       void renderGit()
     })
@@ -2807,8 +3010,15 @@ async function commitStaged() {
   const project = currentProject()
   const message = /** @type {HTMLTextAreaElement | null} */ (el.gitMessage)?.value || ''
   if (!project) return
+  if (!message.trim()) {
+    showToast('先寫一句提交訊息', 'error')
+    el.gitMessage?.focus()
+    return
+  }
+  // 暫存區空的就全部一起提交（跟 VS Code 的 smart commit 一樣），不再要先按「全部暫存」
+  const stageAll = !(lastGitStatus?.files || []).some(isStagedFile)
   try {
-    await call(electronAPI.workspace.gitCommit(project.id, message, false), '提交失敗')
+    await call(electronAPI.workspace.gitCommit(project.id, message, stageAll), '提交失敗')
   } catch {
     return
   }
@@ -2841,134 +3051,7 @@ async function pullCurrent() {
   await renderGit()
 }
 
-// ===== AI 對話記錄 =====
-
-let agentSeq = 0
-let agentWatch = 0
-
-function syncAgentWatch() {
-  window.clearInterval(agentWatch)
-  agentWatch = panel === 'agents' ? window.setInterval(() => {
-    if (panel === 'agents' && !document.hidden) void renderAgents(true)
-  }, 4000) : 0
-}
-
-async function renderAgents(quiet = false) {
-  const project = currentProject()
-  if (!project || !el.agentList) return
-  const seq = ++agentSeq
-  const scroll = el.agentList.scrollTop
-  if (!quiet) {
-    el.agentList.replaceChildren()
-    const loading = document.createElement('p')
-    loading.className = 'ws-tree-note'
-    loading.textContent = '搜尋中…'
-    el.agentList.appendChild(loading)
-  }
-
-  let rows
-  try {
-    rows = await call(electronAPI.workspace.agentSessions(project.id), '讀不到 AI 記錄')
-  } catch {
-    return
-  }
-  // 讀取期間可能已經換過專案
-  if (seq !== agentSeq || currentProject()?.id !== project.id) return
-
-  el.agentList.replaceChildren()
-  if (!rows.length) {
-    const note = document.createElement('p')
-    note.className = 'ws-tree-note'
-    note.textContent = '最近沒有 AI 對話紀錄'
-    el.agentList.appendChild(note)
-    return
-  }
-  for (const row of rows) {
-    const item = document.createElement('button')
-    item.type = 'button'
-    item.className = 'ws-agent-row'
-    item.title = `檢視對話記錄（${row.id}）`
-
-    const head = document.createElement('span')
-    head.className = 'ws-agent-head'
-    const agent = document.createElement('span')
-    agent.className = `ws-agent-tag ws-agent-${row.agent}`
-    agent.textContent = row.agentLabel
-    const when = document.createElement('span')
-    when.className = 'ws-agent-when'
-    when.textContent = formatWhen(row.mtime)
-    head.append(agent, when)
-    // 記錄可能是別的工作台代跑的（Orca 有自己的 runtime home），標一下才知道從哪來
-    if (row.source) {
-      const src = document.createElement('span')
-      src.className = 'ws-agent-source'
-      src.textContent = row.source
-      head.appendChild(src)
-    }
-
-    const title = document.createElement('span')
-    title.className = 'ws-agent-title'
-    title.textContent = row.title || '（沒有標題）'
-
-    item.append(head, title)
-    item.addEventListener('click', () => void openAiSessionTab(project, row))
-
-    const wrap = document.createElement('div')
-    wrap.className = 'ws-agent-row-wrap'
-    wrap.dataset.id = `${row.agent}:${row.id}`
-    const actions = document.createElement('div')
-    actions.className = 'ws-agent-actions'
-    const resume = document.createElement('button')
-    resume.type = 'button'
-    resume.className = 'ws-agent-resume'
-    resume.textContent = '接續'
-    resume.title = '在新的終端機接續這一段'
-    resume.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void resumeSession(project, row)
-    })
-    const copy = document.createElement('button')
-    copy.type = 'button'
-    copy.className = 'ws-agent-copy'
-    copy.textContent = '複製'
-    copy.title = '複製這段對話紀錄檔的完整路徑'
-    copy.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void copySessionPath(project, row)
-    })
-    actions.append(resume, copy)
-    wrap.append(item, actions)
-    el.agentList.appendChild(wrap)
-  }
-  el.agentList.scrollTop = scroll
-}
-
-/**
- * @param {number} ms
- * @returns {string}
- */
-function formatWhen(ms) {
-  const diff = Date.now() - ms
-  const hour = 60 * 60 * 1000
-  if (diff < hour) return `${Math.max(1, Math.round(diff / 60000))} 分鐘前`
-  if (diff < 24 * hour) return `${Math.round(diff / hour)} 小時前`
-  const days = Math.round(diff / (24 * hour))
-  return days <= 30 ? `${days} 天前` : new Date(ms).toLocaleDateString('zh-TW')
-}
-
-/** 紀錄路徑由 main 確認歸屬，剪貼簿 IPC 不受視窗焦點影響。 */
-async function copySessionPath(project, row) {
-  try {
-    const data = await call(electronAPI.workspace.agentSessionDetail(project.id, row.agent, row.id), '讀不到紀錄檔路徑')
-    if (currentProject()?.id !== project.id) return
-    if (typeof data?.file !== 'string' || !data.file) {
-      showToast('找不到紀錄檔路徑', 'error')
-      return
-    }
-    await call(electronAPI.terminal.clipboardWrite(data.file), '複製不了路徑')
-    showToast('已複製路徑')
-  } catch { /* call 已顯示錯誤 */ }
-}
+// ===== AI 對話記錄（清單在專案側欄，見 ws-project-sessions.js）=====
 
 /**
  * 接續一段對話。指令由 main 組，而且 main 會**先確認這段對話真的屬於這個專案**
@@ -2987,7 +3070,7 @@ async function resumeSession(project, row) {
     return
   }
   if (currentProject()?.id !== project.id) return
-  await newTerminalWithCommand(`${info.agentLabel} · ${row.title || '接續'}`, info.command, info)
+  await newTerminalWithCommand(`${info.agentLabel} · ${row.sessionTitle || row.title || '接續'}`, info.command, info)
 }
 
 // ===== 對外 =====
@@ -3113,7 +3196,6 @@ function initWorkspacePage() {
   el.rightEmpty = document.getElementById('wsRightEmpty')
   el.panelFiles = document.getElementById('wsPanelFiles')
   el.panelGit = document.getElementById('wsPanelGit')
-  el.panelAgents = document.getElementById('wsPanelAgents')
   el.filesProject = document.getElementById('wsFilesProject')
   el.tree = document.getElementById('wsTree')
   el.gitBranch = document.getElementById('wsGitBranch')
@@ -3123,11 +3205,12 @@ function initWorkspacePage() {
   el.gitFilter = document.getElementById('wsGitFilter')
   el.gitMessage = document.getElementById('wsGitMessage')
   el.gitLog = document.getElementById('wsGitLog')
+  el.gitCommitBtn = document.getElementById('wsGitCommitBtn')
+  el.gitPushBtn = document.getElementById('wsGitPushBtn')
+  el.gitStageAllBtn = document.getElementById('wsGitStageAllBtn')
   el.worktrees = document.getElementById('wsWorktrees')
-  el.agentList = document.getElementById('wsAgentList')
   el.reviewRef = document.getElementById('wsReviewRef')
   el.reviewFiles = document.getElementById('wsReviewFiles')
-  el.panelPorts = document.getElementById('wsPanelPorts')
   el.portList = document.getElementById('wsPortList')
   el.search = document.getElementById('wsSearch')
   el.searchInput = document.getElementById('wsSearchInput')
@@ -3137,12 +3220,15 @@ function initWorkspacePage() {
   document.addEventListener('ws:terminal-status', paintProjectStatuses)
   el.newBtn?.addEventListener('click', () => void addProject())
   document.getElementById('projNewFolderBtn')?.addEventListener('click', () => void projectFolders.create())
+  // MCP 與 Skills 是全域設定、不屬於任何專案：開成獨立主畫面，不是專案分頁
+  document.getElementById('projCcToolsBtn')?.addEventListener('click', () => setChatPaneMode('tools'))
+  projectSessions.start()
   initProjectDrop()
   document.querySelectorAll('.ws-right-tab[data-panel]').forEach((btn) => {
     btn.addEventListener('click', () => setPanel(/** @type {HTMLElement} */ (btn).dataset.panel))
   })
   document.getElementById('wsFilesRevealBtn')?.addEventListener('click', () => void revealProject())
-  el.tree?.addEventListener('contextmenu', openTreeBlankMenu)
+  el.tree?.addEventListener('contextmenu', (event) => void openTreeBlankMenu(event))
   document.getElementById('wsFilesRefreshBtn')?.addEventListener('click', () => void renderTree())
   document.getElementById('wsGitRefreshBtn')?.addEventListener('click', () => void renderGit())
   // 篩選只動畫面，不重問 main（狀態已經在手上了，但重畫最省事也最不會不同步）
@@ -3153,14 +3239,18 @@ function initWorkspacePage() {
   })
   document.getElementById('wsWorktreeAddBtn')?.addEventListener('click', () => void addWorktree())
   document.getElementById('wsGitOpenAllBtn')?.addEventListener('click', () => void openAllChanged())
-  document.getElementById('wsAgentsRefreshBtn')?.addEventListener('click', () => void renderAgents())
   document.getElementById('wsGitStageAllBtn')?.addEventListener('click', () => void stageAll())
   document.getElementById('wsGitCommitBtn')?.addEventListener('click', () => void commitStaged())
+  el.gitMessage?.addEventListener('keydown', (event) => {
+    const e = /** @type {KeyboardEvent} */ (event)
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+      e.preventDefault()
+      void commitStaged()
+    }
+  })
   document.getElementById('wsGitPushBtn')?.addEventListener('click', () => void pushCurrent())
   document.getElementById('wsGitPullBtn')?.addEventListener('click', () => void pullCurrent())
   document.getElementById('wsPortsRefreshBtn')?.addEventListener('click', () => void renderPorts())
-  // 第五顆不是側欄面板：MCP 與 Skills 版面要寬，開在目前專案的分頁裡
-  document.getElementById('wsCcToolsBtn')?.addEventListener('click', () => void openCcToolsTab())
   document.getElementById('wsReviewCompareBtn')?.addEventListener('click', () => void runCompare())
   document.getElementById('wsReviewRefreshBtn')?.addEventListener('click', () => void renderBranches())
   document.getElementById('wsFilesSearchBtn')?.addEventListener('click', () => {
@@ -3177,7 +3267,7 @@ function initWorkspacePage() {
     const external = Array.from(event.dataTransfer?.types ?? []).includes('Files') && !dragging.length
     if (!external && !canDropInto('')) return
     event.preventDefault()
-    if (event.dataTransfer) event.dataTransfer.dropEffect = external ? 'copy' : 'move'
+    if (event.dataTransfer) setDropEffect(event, external ? 'copy' : 'move')
     clearDropMarks()
     el.tree?.classList.add('is-drop')
   })
@@ -3192,6 +3282,7 @@ function initWorkspacePage() {
     void markOpenFile(detail.projectId, detail.rel, Boolean(detail.dir))
   })
   document.addEventListener('keydown', onGlobalKeydown)
+  document.addEventListener('paste', onDocumentPaste, true)
   // 資料夾被別人改了（AI 跑完、git 換分支、另一個編輯器存檔）→ 自己更新
   electronAPI.workspace.onChanged?.(onProjectChanged)
   // 回到視窗時 Git 狀態多半已經不一樣了（剛在別的地方 commit 過）

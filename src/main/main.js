@@ -2482,9 +2482,9 @@ registerBreezeIpc({
   isMainSender: assertMainWindowSender
 })
 
-/** Miroxen 引擎只發行 Windows 版（miroxen-win-x64＋cuBLAS DLL）；其他平台回固定中文說明，不碰引擎檔案。 */
-const MIROXEN_UNSUPPORTED = 'Linux 版暫不支援「生成圖片影像」：Miroxen 引擎目前只發行 Windows 版（miroxen-win-x64）。聊天裡的雲端生圖模型不受影響。'
-const MIROXEN_SUPPORTED = process.platform === 'win32'
+/** Miroxen：Windows 與 Linux 都走引擎模組；沒有 Linux 發行檔時由 runtime 回中文說明。macOS 仍不支援。 */
+const MIROXEN_UNSUPPORTED = '此平台暫不支援「生成圖片影像」：Miroxen 引擎目前提供 Windows 與 Linux（需 Linux 發行檔或本機以 build.sh 編譯，CUDA ≥ 13.3）。聊天裡的雲端生圖模型不受影響。'
+const MIROXEN_SUPPORTED = process.platform === 'win32' || process.platform === 'linux'
 const miroxenUnsupported = () => Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: MIROXEN_UNSUPPORTED })
 /** 非 Windows：status 照實回「不支援」，其他動作直接回中文錯誤，不載入引擎 */
 async function loadMiroxenChecked() {

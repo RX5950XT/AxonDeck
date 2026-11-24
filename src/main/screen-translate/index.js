@@ -7,6 +7,29 @@ const models = require('../models')
 const { readResponseText } = require('../usage/shared')
 const { splitText } = require('../pdf-translate/protocol')
 const { fail, capture, changed } = require('./capture')
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Linux：沒有 content protection，擷取前把取景框透明度降到 0，讓 desktopCapturer 拍到底下的畫面。
+ * Windows 維持原本 setContentProtection 的行為，不閃爍。
+ */
+async function captureExcludingWindow(win, region) {
+  if (process.platform === 'win32' || !win || win.isDestroyed()) return capture(region)
+  const opacity = typeof win.getOpacity === 'function' ? win.getOpacity() : 1
+  try {
+    if (typeof win.setOpacity === 'function') win.setOpacity(0)
+    else win.hide()
+    await delay(80)
+    return await capture(region)
+  } finally {
+    if (!win.isDestroyed()) {
+      if (typeof win.setOpacity === 'function') win.setOpacity(opacity || 1)
+      if (!win.isVisible()) win.showInactive()
+    }
+  }
+}
+
 const { mathText } = require('./latex')
 
 const LANGUAGES = new Set(['zh-TW', 'zh-CN', 'en', 'ja', 'ko'])
@@ -59,10 +82,11 @@ function translatorSnapshot() {
 }
 
 /**
- * 取景框是蓋在字上的半透明視窗，擷取時靠 `setContentProtection` 把自己排除；
- * Linux（X11／Wayland）沒有這個功能，擷取會把取景框一起拍進去，所以先不開放。
+ * 取景框是蓋在字上的半透明視窗。Windows 用 `setContentProtection` 把自己排除；
+ * Linux 沒有對應 API，改在擷取前把視窗透明度設為 0，拍完再恢復（短暫閃一下）。
+ * Wayland 還可能走 xdg-desktop-portal 的螢幕擷取授權。
  */
-const UNSUPPORTED_MESSAGE = 'Linux 版暫不支援螢幕翻譯：取景框需要在擷取畫面時把自己排除（Windows 的內容保護），X11／Wayland 沒有對應功能。PDF／圖片與文字翻譯不受影響。'
+const UNSUPPORTED_MESSAGE = '這個平台暫不支援螢幕翻譯。'
 
 function open(options) {
   if (!LANGUAGES.has(options?.targetLang) || (options.sourceLang !== 'auto' && !LANGUAGES.has(options.sourceLang))) {
@@ -70,7 +94,7 @@ function open(options) {
   }
   if (session) { session.win.showInactive(); return status() }
   if (closing) throw fail('BUSY', '取景視窗正在關閉，請稍候再開啟')
-  if (process.platform !== 'win32') throw fail('UNSUPPORTED', UNSUPPORTED_MESSAGE)
+  if (process.platform !== 'win32' && process.platform !== 'linux') throw fail('UNSUPPORTED', UNSUPPORTED_MESSAGE)
   const missing = ['unlimitedocr2q8'].filter((key) => !models.isDownloaded(key))
   if (!['llamaruntime', 'llamaruntimecuda'].some((key) => models.isDownloaded(key))) missing.push('llamaruntime')
   if (missing.length) throw fail('NOT_INSTALLED', '請先到 Local SI 安裝 Unlimited-OCR-2 與 llama.cpp 執行環境')
@@ -98,7 +122,7 @@ function createWindow(job) {
   // 用 setOpacity 做半透明：transparent + resizable 在 Windows 會殘影／失效。
   win.setOpacity(AIM_OPACITY)
   // 擷取時排除自己，才能整窗蓋在字上又讀到底下的畫面
-  win.setContentProtection(true)
+  if (process.platform === 'win32') win.setContentProtection(true)
   win.setAlwaysOnTop(true, 'screen-saver')
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -170,7 +194,7 @@ async function cycle(job) {
   if (Date.now() - job.lastMoved < 700 || !job.win.isVisible()) return
   job.controller = new AbortController()
   const signal = job.controller.signal
-  const image = await capture(job.win.getContentBounds())
+  const image = await captureExcludingWindow(job.win, job.win.getContentBounds())
   signal.throwIfAborted()
   const sample = image.resize({ width: 160, height: 96 }).toBitmap()
   if (!changed(job.image, sample)) { publish(job, { stage: job.view.source ? 'watching' : 'empty' }); return }

@@ -10,8 +10,9 @@
 const { app, shell, dialog, BrowserWindow, nativeImage } = require('electron')
 const fs = require('../raw-fs')
 const path = require('path')
-const { execFile } = require('child_process')
+const { execFile } = require('../proc-broker')
 const paths = require('./paths')
+const clipFmt = require('./clipboard-formats')
 const platform = require('../platform')
 const store = require('./store')
 const files = require('./fs')
@@ -30,6 +31,7 @@ const zip = require('./zip')
 const mtp = require('./mtp')
 const fileDetails = require('./details')
 const mediaPlayer = require('../media-player')
+const mediaThumbs = require('./media-thumbs')
 
 /** 壓縮檔／手機裡的檔案要先複製到暫存才讀得到詳細資訊，只做這個大小以下（手機影片動輒幾 GB） */
 const DETAILS_COPY_LIMIT = 64 * 1024 * 1024
@@ -39,6 +41,8 @@ let emit = () => {}
 
 /** @type {{ mode: 'copy'|'cut', paths: string[] }} */
 let clip = { mode: 'copy', paths: [] }
+/** 放進 clip 當下系統剪貼簿的樣子：之後變了＝使用者又在 Windows 檔案總管複製過，以系統那份為準 */
+let clipSystemSig = ''
 
 /**
  * @param {{ userDataPath?: string, send?: (channel: string, payload: any) => void }} opts
@@ -331,8 +335,6 @@ const removeEntry = (target, opts) => (mtp.isMtp(target) ? mtp.remove(target) : 
 const restoreEntry = (key) => files.restoreEntry(key)
 const purgeEntry = (key) => files.purgeEntry(key)
 const emptyRecycle = () => files.emptyRecycle()
-const copyEntry = (fromPath, toDir) => files.copyEntry(fromPath, toDir)
-const moveEntry = (fromPath, toDir) => files.moveEntry(fromPath, toDir)
 const uffsStatus = () => uffs.status()
 const uffsSearch = (pattern, filters) => uffs.search(pattern, filters)
 const uffsCancel = () => {
@@ -385,7 +387,7 @@ async function openPath(target) {
   // 是捷徑就開捷徑本身，啟動參數、起始位置、以系統管理員執行這些設定才不會被跳過
   // 專案裡的 .bat／.cmd 由 App 自己跑：腳本開的瀏覽器改開在那個專案（script-launch.js）
   if (await require('../script-launch').launchScript(resolved.path)) return true
-  const err = await mediaPlayer.openMedia(resolved.path) || await mediaPlayer.openEditor(resolved.path) ? '' : await shell.openPath(full)
+  const err = await mediaPlayer.openMedia(resolved.path) || await mediaPlayer.openEditor(resolved.path) ? '' : await mediaPlayer.openSystem(full, resolved.path)
   if (err) throw paths.fail('OPEN_FAILED', '打不開')
   return true
 }
@@ -441,6 +443,31 @@ async function folderThumb(full, size) {
   return { ...thumb, previews, ...(previews.some(item => item.pending) ? { pending: true } : {}) }
 }
 
+/**
+ * 自家快取（mpv／magick）→ 殼層。回 `done` 就是最終的圖；其餘是類型圖示要帶的狀態。
+ * @returns {Promise<{ done?: object, interim: object, pendingThumb?: object }>}
+ */
+async function fileThumb(file, size) {
+  const made = await mediaThumbs.find(file, size)
+  if (made?.url) {
+    const edge = mediaThumbs.edgeOf(size)
+    const overlay = await shellExt.badgeOf(file, Math.round(edge / 2)).catch(() => '')
+    return { done: { url: made.url, ...(overlay ? { overlay } : {}) }, interim: {} }
+  }
+  if (made?.none) return { interim: {} }
+  if (made?.working) return { interim: { pending: true } }
+  const thumb = await shellExt.thumbOf(file, size)
+  // 真縮圖即使內容是 App logo 也要保留；暫時圖改問類型圖示，避免把 logo／空白圖放大。
+  if (thumb.url && thumb.pending !== true) return { done: { ...thumb }, interim: {} }
+  const overlay = thumb.overlay ? { overlay: thumb.overlay } : {}
+  // 殼層給不出真縮圖的媒體（大 TIFF、PSD…）交給 magick，下一次重試就拿得到
+  const queued = await mediaThumbs.generate(file, size)
+  if (queued || thumb.pending === true) {
+    return { interim: { ...overlay, pending: true }, ...(thumb.url ? { pendingThumb: thumb } : {}) }
+  }
+  return { interim: overlay }
+}
+
 async function fileIcon(target, opts) {
   const full = paths.resolveExisting(target)
   const resolved = resolveLocal(full)
@@ -450,16 +477,10 @@ async function fileIcon(target, opts) {
   if (wantThumb) {
     try {
       if (resolved.dir) return await folderThumb(resolved.path, opts.size)
-      const thumb = await shellExt.thumbOf(resolved.path, opts.size)
-      if (thumb && thumb.url) {
-        interim = { ...(thumb.overlay ? { overlay: thumb.overlay } : {}) }
-        // 真縮圖即使內容是 App logo 也要保留；暫時圖改問類型圖示，避免把 logo／空白圖放大。
-        if (thumb.pending !== true) return { ...thumb }
-        pendingThumb = thumb
-        interim = { ...interim, pending: true }
-      } else if (thumb && thumb.pending === true) {
-        interim = { pending: true }
-      }
+      const step = await fileThumb(resolved.path, opts.size)
+      if (step.done) return step.done
+      interim = step.interim
+      pendingThumb = step.pendingThumb
     } catch (error) {
       console.error('[explorer] 殼層縮圖失敗:', error?.message || error)
     }
@@ -472,7 +493,7 @@ async function fileIcon(target, opts) {
       const valid = !sameIcon(baseUrl, generic)
         && await usableIcon(baseUrl, resolved.path, shellExt.iconOf, 'shell')
       if (!valid) return { fallback: true, ...(overlay ? { overlay } : {}), ...interim }
-      const edge = Number.isInteger(opts?.size) && opts.size >= 16 ? Math.min(opts.size, 256) : 96
+      const edge = Number.isInteger(opts?.size) && opts.size >= 16 ? Math.min(opts.size, 512) : 96
       const readThumb = async target => (await shellExt.thumbOf(target, edge))?.url || ''
       const large = pendingThumb && await usableIcon(pendingThumb.url, resolved.path, readThumb, `thumb:${edge}`)
       return { url: large ? pendingThumb.url : url, ...interim }
@@ -679,6 +700,7 @@ async function setClipboard(items, mode) {
   }
   // 壓縮檔裡、手機裡是唯讀的：剪下一律當複製（貼上＝解壓縮／從手機複製出來）
   clip = { mode: mode === 'cut' && !zipped ? 'cut' : 'copy', paths: next }
+  clipSystemSig = systemClipSig()
   return { count: clip.paths.length, mode: clip.mode }
 }
 
@@ -705,7 +727,7 @@ async function paste(toDir) {
   if (phonePaths.length && trashed) throw paths.fail('BAD_PATH', '手機裡的檔案不能丟進資源回收筒')
   const extracted = zippedPaths.length ? (await zipOps.extract(zippedPaths, destination)).paths : []
   if (phonePaths.length) await mtp.copyOut(phonePaths, destination)
-  if (!sources.length) return { trashed, paths: extracted, status: 'completed', items: [] }
+  if (!sources.length) return { trashed, mode: clipboard.mode, paths: extracted, sources: [], status: 'completed', items: [] }
   const result = await operations.run({
     mode: trashed ? 'trash' : clipboard.mode === 'cut' ? 'move' : 'copy',
     destination,
@@ -716,7 +738,88 @@ async function paste(toDir) {
     const completed = new Set(result.items.filter((item) => item.status === 'completed').map((item) => item.source))
     clip = { ...clipboard, paths: clipboard.paths.filter((item) => !completed.has(item)) }
   }
-  return operationResult(result, { trashed })
+  return operationResult(result, { trashed, mode: clipboard.mode })
+}
+
+// ===== 系統剪貼簿（Windows 檔案總管複製／剪下的檔案）=====
+// Electron 讀不到 CF_HDROP 整份清單：清單由 renderer 的 paste 事件給（`clipboardData.files`），
+// main 這邊用 FileNameW（Windows）或 GNOME／text/uri-list（Linux）判斷「有沒有檔案」，再用 Preferred DropEffect 或 cut 標記判斷剪下還是複製。
+
+function systemClipboard() {
+  // require 寫在函式裡：單元測試用 Module._load mock electron
+  const electron = require('electron')
+  return electron && electron.clipboard
+}
+
+function systemClipSig() {
+  const cb = systemClipboard()
+  if (!cb) return ''
+  try {
+    let win = ''
+    try { win = cb.readBuffer('FileNameW').toString('hex') } catch { /* Linux 沒有這個格式 */ }
+    return [cb.availableFormats().join(','), win, clipFmt.linuxClipSig(cb), cb.readText()].join('|')
+  } catch {
+    return ''
+  }
+}
+
+function systemHasFiles() {
+  const cb = systemClipboard()
+  if (!cb) return false
+  try {
+    if (cb.readBuffer('FileNameW').length > 0) return true
+  } catch { /* 不是 Windows 檔案總管那份 */ }
+  return clipFmt.linuxHasFiles(cb)
+}
+
+/** Preferred DropEffect：2＝剪下（DROPEFFECT_MOVE），5／1＝複製；讀不到再看 Linux 的 cut 標記 */
+function systemClipMode() {
+  try {
+    const buf = systemClipboard().readBuffer('Preferred DropEffect')
+    if (buf.length >= 4) {
+      const effect = buf.readUInt32LE(0)
+      return (effect & 2) && !(effect & 1) ? 'cut' : 'copy'
+    }
+  } catch { /* Linux 沒有這個格式 */ }
+  return clipFmt.linuxClipMode(systemClipboard())
+}
+
+/** 系統剪貼簿是不是比 App 自己那份新 */
+function systemIsNewer() {
+  if (!systemHasFiles()) return false
+  return !clip.paths.length || systemClipSig() !== clipSystemSig
+}
+
+/**
+ * 剪貼簿狀態（專案檔案樹決定「貼上」能不能按）。source=system 時 count 不準（只知道有），給 -1。
+ */
+function clipboardState() {
+  if (systemIsNewer()) return { count: -1, mode: systemClipMode(), source: 'system' }
+  return { count: clip.paths.length, mode: clip.mode, source: 'app' }
+}
+
+/**
+ * 貼上：系統剪貼簿比較新而且 renderer 有給檔案清單就貼系統那份，否則照 App 剪貼簿。
+ * @param {unknown} toDir
+ * @param {unknown} systemPaths renderer paste 事件讀到的絕對路徑
+ */
+async function pasteAny(toDir, systemPaths) {
+  const list = Array.isArray(systemPaths) ? systemPaths.filter((p) => typeof p === 'string' && p) : []
+  if (!list.length || !systemIsNewer()) return paste(toDir)
+  const destination = paths.resolveExisting(toDir)
+  const sources = []
+  for (const item of list.slice(0, 50)) {
+    const full = paths.resolveExisting(item)
+    if (clipFmt.pathContains(full, destination)) throw paths.fail('BAD_PATH', '不能把資料夾貼進它自己底下')
+    sources.push(full)
+  }
+  const mode = systemClipMode()
+  const result = await operations.run({ mode: mode === 'cut' ? 'move' : 'copy', destination, sources })
+  // 剪下貼完比照 Windows：清掉剪貼簿，免得再貼一次去找已經搬走的檔案
+  if (mode === 'cut' && result.status === 'completed') {
+    try { systemClipboard().clear() } catch { /* 清不掉不影響已搬完的檔案 */ }
+  }
+  return operationResult(result, { mode })
 }
 
 /**
@@ -752,6 +855,8 @@ function operationResult(result, extra = {}) {
   return {
     ...extra,
     paths: result && Array.isArray(result.paths) ? result.paths : [],
+    // 跟 paths 逐一對位的來源，復原搬移要靠它擺回原處
+    sources: result && Array.isArray(result.sources) ? result.sources : [],
     operationId: result && result.id,
     status: result && result.status,
     items: result && result.items ? result.items : []
@@ -813,7 +918,6 @@ module.exports = {
   configure,
   bootstrap,
   saveState,
-  listPlaces,
   savePlaces,
   addPlace,
   removePlace,
@@ -838,8 +942,6 @@ module.exports = {
   restoreEntry,
   purgeEntry,
   emptyRecycle,
-  copyEntry,
-  moveEntry,
   openPath,
   fileIcon,
   startDrag,
@@ -849,6 +951,8 @@ module.exports = {
   shutdown,
   copyImage,
   setClipboard,
+  clipboardState,
+  pasteAny,
   paste,
   dropEntries,
   operationCancel,

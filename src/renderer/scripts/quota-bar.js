@@ -482,6 +482,31 @@ function togglePopover(provider, anchor) {
   placePopover(pop, anchor)
 }
 
+/**
+ * 詳情是 popover="manual"，收合自己管：auto 的「點外面就關」在按下條上那一家時就先關掉，
+ * 放開的 click 又把它打開，變成再點同一家永遠收不起來。
+ */
+function bindPopoverDismiss() {
+  const pop = byId('quotaPopover')
+  if (!pop) return
+  const close = () => { if (pop.matches(':popover-open')) pop.hidePopover() }
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('#quotaPopover, .quota-item-open, dialog, .ws-menu, .custom-select-menu')) return
+    close()
+  }, true)
+  // 點進網頁（Telegram、網頁版 AI）收不到 pointerdown，看焦點落到 <webview>
+  document.addEventListener('focusin', (event) => {
+    if (event.target instanceof Element && event.target.tagName === 'WEBVIEW') close()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !pop.matches(':popover-open') || document.querySelector('dialog[open]')) return
+    const provider = popoverProvider
+    close()
+    byId('quotaItems')?.querySelector(`.quota-item[data-id="${CSS.escape(provider)}"] .quota-item-open`)?.focus()
+  })
+}
+
 // ===== 畫面 =====
 
 function renderLastSync() {
@@ -553,6 +578,7 @@ function isBarVisible() {
 async function runSync({ manual = false } = {}) {
   if (syncing) return
   syncing = true
+  lastAttemptAt = Date.now()
   const button = byId('quotaSyncBtn')
   button?.setAttribute('aria-busy', 'true')
   renderLastSync()
@@ -570,8 +596,11 @@ async function runSync({ manual = false } = {}) {
   }
 }
 
+/** 上次「試著」同步的時間：整個同步失敗時 lastSyncedAt 不會動，只看它會變成每 5 秒重打一次 */
+let lastAttemptAt = 0
+
 function isStale() {
-  const last = Number(state?.lastSyncedAt) || 0
+  const last = Math.max(Number(state?.lastSyncedAt) || 0, lastAttemptAt)
   return Date.now() - last >= AUTO_SYNC_MS
 }
 
@@ -590,16 +619,22 @@ function startTimers() {
 
 const DRAWERS = {
   providers: { button: 'quotaProviderBtn', panel: 'quotaDrawerProviders' },
-  stats: { button: 'quotaStatsBtn', panel: 'quotaDrawerStats' }
+  stats: { button: 'quotaStatsBtn', panel: 'quotaDrawerStats' },
+  ports: { button: 'quotaPortsBtn', panel: 'quotaDrawerPorts' },
+  resources: { button: 'quotaResBtn', panel: 'quotaDrawerResources' }
 }
-/** @type {'' | 'providers' | 'stats'} */
+/** @type {'' | keyof typeof DRAWERS} */
 let drawerOpen = ''
 
-/** @param {'' | 'providers' | 'stats'} name 空字串＝收起來 */
+/** @param {'' | keyof typeof DRAWERS} name 空字串＝收起來 */
 function setDrawer(name) {
   drawerOpen = name
   const drawer = byId('quotaDrawer')
-  if (drawer) drawer.hidden = !name
+  if (drawer) {
+    drawer.hidden = !name
+    drawer.classList.toggle('is-narrow', name === 'ports' || name === 'resources')
+    fitDrawer()
+  }
   for (const [key, ids] of Object.entries(DRAWERS)) {
     const panel = byId(ids.panel)
     if (panel) panel.hidden = key !== name
@@ -608,21 +643,47 @@ function setDrawer(name) {
   // 兩塊都是第一次打開才載模組；用量統計會掃本機記錄，不開就不碰
   if (name === 'providers') void import('./ccswitch-page.js').then((mod) => mod.refreshProviders())
   if (name === 'stats') void import('./code-usage-page.js').then((mod) => mod.refreshCodeUsagePage())
+  if (name === 'ports') void import('./workspace-page.js').then((mod) => mod.renderPorts())
+  void import('./app-resources-bar.js').then((mod) => mod.setResourcesOpen(name === 'resources'))
+}
+
+/**
+ * 抽屜蓋滿額度條上面那一塊（專案模式＝終端機那一塊，其他模式＝主區），
+ * 側欄拖寬拖窄、收合、視窗縮放都跟著重算；寬度由 left/right 0 對齊條本身。
+ */
+function fitDrawer() {
+  const bar = byId('quotaBar')
+  const drawer = byId('quotaDrawer')
+  const area = bar?.parentElement
+  if (!bar || !drawer || !area || drawer.hidden) return
+  const style = getComputedStyle(area)
+  const gap = parseFloat(style.rowGap) || 0
+  const top = area.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0)
+  drawer.style.bottom = `calc(100% + ${gap}px)`
+  drawer.style.height = `${Math.max(120, Math.round(bar.getBoundingClientRect().top - gap - top))}px`
 }
 
 /** 點條以外的地方就收起來；彈窗、選單裡的點擊不算（編輯供應商、改單價都會開彈窗） */
 function onOutsidePointer(event) {
   if (!drawerOpen) return
   const target = event.target instanceof Element ? event.target : null
-  if (!target || target.closest('#quotaBar, dialog, [popover], .ws-menu, .custom-select-menu')) return
+  if (!target || target.closest('#quotaBar, #quotaDock, dialog, [popover], .ws-menu, .custom-select-menu')) return
   setDrawer('')
 }
 
 function bindDrawer() {
   for (const [key, ids] of Object.entries(DRAWERS)) {
-    byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {'providers'|'stats'} */ (key)))
+    byId(ids.button)?.addEventListener('click', () => setDrawer(drawerOpen === key ? '' : /** @type {keyof typeof DRAWERS} */ (key)))
   }
   document.addEventListener('pointerdown', onOutsidePointer, true)
+  // 條會在 .chat-stage 與 #termMain 之間搬家（si-layout.js）：兩邊都看著
+  const observer = new ResizeObserver(() => fitDrawer())
+  for (const area of [document.querySelector('#page-chat .chat-stage'), byId('termMain')]) if (area) observer.observe(area)
+  document.addEventListener('quota:layout', fitDrawer)
+  // 點進網頁（Telegram、網頁版 AI）時滑鼠事件只到網頁裡、這邊收不到 pointerdown；焦點會落到 <webview> 上，看這個
+  document.addEventListener('focusin', (event) => {
+    if (drawerOpen && event.target instanceof Element && event.target.tagName === 'WEBVIEW') setDrawer('')
+  })
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !drawerOpen || document.querySelector('dialog[open]')) return
     const { button } = DRAWERS[drawerOpen]
@@ -746,6 +807,7 @@ function bindControls() {
   byId('quotaPopover')?.addEventListener('toggle', (event) => {
     if (event.newState === 'closed') popoverProvider = ''
   })
+  bindPopoverDismiss()
   // 條被藏起來的期間沒同步；一回來就補（不等下一個 5 秒）
   document.addEventListener('visibilitychange', () => {
     if (isBarVisible() && isStale()) void runSync()
@@ -768,6 +830,7 @@ async function initQuotaBar() {
   }
   render()
   startTimers()
+  void import('./app-resources-bar.js').then((mod) => mod.initResourcesBar(isBarVisible))
 }
 
 /** 切換 Claude 帳號後 main 已經重同步過：直接換上新狀態，不用等下一輪 */

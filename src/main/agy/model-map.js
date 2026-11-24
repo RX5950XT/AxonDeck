@@ -18,8 +18,19 @@ const UPSTREAM_MODELS = Object.freeze([
   'claude-sonnet-5-5-high',
   'claude-sonnet-5-5-medium',
   'claude-sonnet-5-5-low',
-  'gpt-oss-120b-medium',
-  // Pro 方案是獨立每週額度，Ultra 併在 Gemini 池；要報 agy CLI 的 User-Agent 才給（見 usage/antigravity.js）
+  // 2026-11-19 實測（sandbox 200）：Neon 是上游預設 agent 模型，Neon／Hydrogen 都在 Gemini 池
+  'gemini-4-neon-xhigh',
+  'gemini-4-neon-high',
+  'gemini-4-neon-medium',
+  'gemini-4-neon-low',
+  'gemini-4-hydrogen-xhigh',
+  'gemini-4-hydrogen-high',
+  'gemini-4-hydrogen-medium',
+  'gemini-4-hydrogen-low',
+  // 2026-11-24 實測：Carbon 開放給 Pro、Argon 併進 Gemini 池；要報 agy CLI 的 User-Agent 才給（見 usage/antigravity.js）
+  'gemini-4-carbon-high',
+  'gemini-4-carbon-medium',
+  'gemini-4-carbon-low',
   'gemini-4-argon-high',
   'gemini-4-argon-medium',
   'gemini-4-argon-low',
@@ -31,13 +42,28 @@ const UPSTREAM_MODELS = Object.freeze([
   'gemini-3.5-flash-extra-low',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
+  // 生圖；聊天端點回 markdown 圖片，另有 /v1/images/generations
+  'gemini-3.1-flash-image',
   'gemini-3-flash',
   'gemini-3-flash-agent',
-  'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-thinking',
   'gemini-2.5-flash-lite'
 ])
+
+/**
+ * 使用者要求不列出的模型（2026-10-29）：gemini-2.5-pro 常態 429 沒容量，gpt-oss 不需要。
+ * 型錄解析時直接丟掉；有人指名 gemini-2.5-pro 仍會被前綴規則導到 BEST_GEMINI。
+ */
+const HIDDEN_MODELS = Object.freeze(new Set(['gemini-2.5-pro', 'gpt-oss-120b-medium']))
+
+/** 預設的生圖模型；/v1/images/generations 指名非生圖模型（dall-e-3、gpt-image-1…）時也用它 */
+const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image'
+
+function isImageModel(id) {
+  // 限定 gemini：gpt-image-1 這類客戶端名字也含 -image，不能當成上游模型透傳
+  return typeof id === 'string' && /^gemini-.*-image\b/.test(id)
+}
 
 /** 最強、實測可用的 Gemini；pro 級名字（上游的 pro 都下架了）也導到這裡 */
 const BEST_GEMINI = 'gemini-3.8-flash-high'
@@ -92,6 +118,8 @@ const EXACT_MAP = Object.freeze({
   'claude-sonnet-5-5': SONNET,
   'claude-opus-5-5': OPUS,
   'gemini-4-argon': 'gemini-4-argon-medium',
+  'gemini-4-neon': 'gemini-4-neon-medium',
+  'gemini-4-hydrogen': 'gemini-4-hydrogen-medium',
   // Claude Haiku（上游沒有對應的小模型，一律走 Sonnet）
   'claude-haiku-4': SONNET,
   'claude-haiku-4-5-20251001': SONNET,
@@ -280,6 +308,9 @@ function allowsZeroThinkingBudget(mapped) {
 
 module.exports = {
   allowsZeroThinkingBudget,
+  DEFAULT_IMAGE_MODEL,
+  HIDDEN_MODELS,
+  isImageModel,
   REJECTS_ZERO_BUDGET,
   RETIRED_MODELS,
   DEFAULT_MODEL,

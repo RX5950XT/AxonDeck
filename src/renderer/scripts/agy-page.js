@@ -540,7 +540,7 @@ async function loadModels(force = false) {
     modelCatalog = Array.isArray(result.data?.models) ? result.data.models : []
     modelsLoaded = true
     if (meta) {
-      const chat = modelCatalog.filter((m) => m.chatCapable).length
+      const chat = modelCatalog.filter((m) => m.chatCapable || m.image).length
       meta.textContent = result.data?.cached
         ? `共 ${modelCatalog.length} 個（對話可用 ${chat}）・快取`
         : `共 ${modelCatalog.length} 個（對話可用 ${chat}）・剛更新`
@@ -571,7 +571,7 @@ function renderModelCatalog() {
   }
 
   const showAll = byId('agyModelsShowAll')?.checked === true
-  const rows = showAll ? modelCatalog : modelCatalog.filter((m) => m.chatCapable)
+  const rows = showAll ? modelCatalog : modelCatalog.filter((m) => m.chatCapable || m.image)
   if (!rows.length) {
     const empty = document.createElement('p')
     empty.className = 'agy-models-empty'
@@ -580,75 +580,153 @@ function renderModelCatalog() {
     return
   }
 
-  list.replaceChildren(...rows.map(buildModelRow))
+  const groups = MODEL_GROUPS
+    .map((group) => ({ ...group, models: rows.filter((model) => modelGroupOf(model) === group.key) }))
+    .filter((group) => group.models.length)
+  list.replaceChildren(...groups.map(buildModelGroup))
+}
+
+/** 依額度池分組；生圖與 IDE 內部／方案用不了的另外放，不跟可對話的混在一起 */
+const MODEL_GROUPS = Object.freeze([
+  { key: 'claude', title: 'Claude／GPT 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
+  { key: 'gemini', title: 'Gemini 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
+  { key: 'image', title: '生圖', hint: '聊天端點回 markdown 圖片，另有 /v1/images/generations' },
+  { key: 'internal', title: 'IDE 內部／方案不可用', hint: '不能拿來對話' }
+])
+
+/**
+ * @param {object} model
+ * @returns {string}
+ */
+function modelGroupOf(model) {
+  if (model.image) return 'image'
+  if (!model.chatCapable) return 'internal'
+  return model.pool === 'claude' ? 'claude' : 'gemini'
+}
+
+/**
+ * 上游的單模型數字是「目前卡住它的那一道」：平常是 5 小時，每週用掉較多時改回每週。
+ * 看重置時間離現在多遠才分得出是哪一道。
+ * @param {Array<object>} models
+ * @returns {{ text: string, title: string, low: boolean } | null}
+ */
+function poolQuotaOf(models) {
+  const known = models.filter((model) => typeof model.remainingFraction === 'number')
+  if (!known.length) return null
+  const tightest = known.reduce((min, model) => (model.remainingFraction < min.remainingFraction ? model : min))
+  const percent = tightest.remainingFraction * 100
+  const resetMs = Date.parse(tightest.resetTime || '')
+  const weekly = Number.isFinite(resetMs) && resetMs - Date.now() > 6 * 60 * 60 * 1000
+  const reset = Number.isFinite(resetMs)
+    ? new Date(resetMs).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : ''
+  return {
+    text: `${weekly ? '週' : '5h'} 剩 ${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}%`,
+    title: `${weekly ? '每週' : '5 小時'}額度${reset ? `，${reset} 重置` : ''}；完整兩道額度見額度儀表板`,
+    low: percent < 10
+  }
+}
+
+/**
+ * @param {{ title: string, hint: string, models: Array<object> }} group
+ * @returns {HTMLElement}
+ */
+function buildModelGroup(group) {
+  const section = document.createElement('section')
+  section.className = 'agy-model-group'
+
+  const head = document.createElement('div')
+  head.className = 'agy-model-group-head'
+  const title = document.createElement('h3')
+  title.className = 'agy-model-group-title'
+  title.textContent = group.title
+  title.title = group.hint
+  head.appendChild(title)
+  const quota = poolQuotaOf(group.models)
+  if (quota) {
+    const tag = document.createElement('span')
+    tag.className = 'agy-model-tag is-quota'
+    if (quota.low) tag.classList.add('is-low')
+    tag.textContent = quota.text
+    tag.title = quota.title
+    head.appendChild(tag)
+  }
+  section.appendChild(head)
+
+  // 型錄已在 main 端排好序（同一顆模型的檔位相鄰），照出現順序收成模型線即可
+  const lines = new Map()
+  for (const model of group.models) {
+    const key = model.line || model.id
+    if (!lines.has(key)) lines.set(key, [])
+    lines.get(key).push(model)
+  }
+  for (const [line, variants] of lines) section.appendChild(buildModelLine(line, variants))
+  return section
+}
+
+/**
+ * 一顆模型一列：名字點了複製第一個檔位，後面每個檔位一顆 chip 各自複製完整 ID。
+ * @param {string} line
+ * @param {Array<object>} variants
+ * @returns {HTMLElement}
+ */
+function buildModelLine(line, variants) {
+  const row = document.createElement('div')
+  row.className = 'agy-model-line'
+  if (variants.every((model) => !model.chatCapable && !model.image)) row.classList.add('is-internal')
+
+  const first = variants.find((model) => !model.deprecated) || variants[0]
+  const name = document.createElement('button')
+  name.type = 'button'
+  name.className = 'agy-model-name'
+  name.textContent = line
+  name.title = `點一下複製 ${first.id}`
+  name.setAttribute('aria-label', `複製模型 ID ${first.id}`)
+  name.addEventListener('click', () => copyModelId(first.id))
+  row.appendChild(name)
+
+  const chips = document.createElement('div')
+  chips.className = 'agy-model-variants'
+  const single = variants.length === 1 && !variants[0].variant
+  if (!single) for (const model of variants) chips.appendChild(buildVariantChip(model))
+  row.appendChild(chips)
+
+  const meta = document.createElement('div')
+  meta.className = 'agy-model-meta'
+  if (first.disabled) {
+    const tag = document.createElement('span')
+    tag.className = 'agy-model-tag is-deprecated'
+    tag.textContent = '方案不可用'
+    if (first.note) tag.title = first.note
+    meta.appendChild(tag)
+  }
+  if (first.maxTokens) {
+    const context = document.createElement('span')
+    context.className = 'agy-model-tag'
+    context.textContent = `${Math.round(first.maxTokens / 1000)}k`
+    context.title = `輸入上限 ${first.maxTokens} tokens${first.provider ? `・${first.provider.toLowerCase()}` : ''}`
+    meta.appendChild(context)
+  }
+  row.appendChild(meta)
+  return row
 }
 
 /**
  * @param {object} model
  * @returns {HTMLElement}
  */
-function buildModelRow(model) {
-  const row = document.createElement('div')
-  row.className = 'agy-model-row'
-  if (!model.chatCapable) row.classList.add('is-internal')
-
-  const idButton = document.createElement('button')
-  idButton.type = 'button'
-  idButton.className = 'agy-model-id'
-  idButton.textContent = model.id
-  idButton.title = '點一下複製'
-  idButton.setAttribute('aria-label', `複製模型 ID ${model.id}`)
-  idButton.addEventListener('click', () => copyModelId(model.id))
-  row.appendChild(idButton)
-
-  const tags = document.createElement('div')
-  tags.className = 'agy-model-tags'
-
-  if (model.provider) {
-    const provider = document.createElement('span')
-    provider.className = 'agy-model-tag'
-    provider.textContent = model.provider.toLowerCase()
-    tags.appendChild(provider)
-  }
-
-  if (typeof model.remainingFraction === 'number') {
-    const quota = document.createElement('span')
-    quota.className = 'agy-model-tag is-quota'
-    const percent = model.remainingFraction * 100
-    // 上游的單模型數字是該池的 5 小時額度；Argon 例外，它那池只有每週（Pro 方案獨立計）
-    const weekly = model.id.includes('argon')
-    if (percent < 10) quota.classList.add('is-low')
-    quota.textContent = `${weekly ? '週' : '5h'} 剩 ${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}%`
-    quota.title = weekly
-      ? 'Gemini 4 Argon 獨立的每週額度，依 token 成本比例扣'
-      : '同池模型共用的 5 小時額度，依 token 成本比例扣；每週額度見額度儀表板'
-    tags.appendChild(quota)
-  }
-
-  if (model.maxTokens) {
-    const context = document.createElement('span')
-    context.className = 'agy-model-tag'
-    context.textContent = `${Math.round(model.maxTokens / 1000)}k`
-    context.title = `輸入上限 ${model.maxTokens} tokens`
-    tags.appendChild(context)
-  }
-
-  if (model.deprecated) {
-    const dep = document.createElement('span')
-    dep.className = 'agy-model-tag is-deprecated'
-    dep.textContent = model.replacedBy ? `已淘汰 → ${model.replacedBy}` : '已淘汰'
-    tags.appendChild(dep)
-  }
-
-  if (!model.chatCapable) {
-    const internal = document.createElement('span')
-    internal.className = 'agy-model-tag'
-    internal.textContent = 'IDE 內部'
-    tags.appendChild(internal)
-  }
-
-  row.appendChild(tags)
-  return row
+function buildVariantChip(model) {
+  const chip = document.createElement('button')
+  chip.type = 'button'
+  chip.className = 'agy-model-variant'
+  chip.textContent = model.variant || '預設'
+  chip.setAttribute('aria-label', `複製模型 ID ${model.id}`)
+  chip.title = model.deprecated
+    ? `${model.id}（已淘汰${model.replacedBy ? ` → ${model.replacedBy}` : ''}）`
+    : `點一下複製 ${model.id}`
+  if (model.deprecated) chip.classList.add('is-deprecated')
+  chip.addEventListener('click', () => copyModelId(model.id))
+  return chip
 }
 
 /**

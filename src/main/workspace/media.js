@@ -45,6 +45,15 @@ let siteVersion = 0
 /** registerSchemesAsPrivileged 要的設定（必須在 app ready 之前註冊） */
 const PRIVILEGES = { scheme: SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }
 
+/**
+ * 不信任的 HTML 預覽（獨立編輯視窗開的任意檔案，例如下載資料夾裡的網頁）走另一個協定，而且**刻意不開 CORS**：
+ * `vi-media` 為了 pdf.js 開了 corsEnabled，而 Electron 的自訂協定不檢查 Access-Control-Allow-Origin、
+ * 也不送 Origin／Sec-Fetch-* 讓這邊分辨——opaque origin 的 iframe 照樣 fetch 得到旁邊的檔案、crossOrigin 圖片也讀得到像素。
+ * 換成不支援 CORS 的協定後，CSS／傳統腳本／圖片這類被動載入照常，fetch／XHR／CORS 載入由 Chromium 直接擋掉。
+ */
+const PREVIEW_SCHEME = 'vi-preview'
+const PREVIEW_PRIVILEGES = { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, stream: true } }
+
 /** pdf.js 是用 fetch 讀的（跨來源、帶 Range 標頭會先送 OPTIONS） */
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -97,8 +106,9 @@ function localBaseFor(full) {
  * @param {string} projectId
  * @param {string} rel
  * @param {string} [draft]
+ * @param {string} [scheme] 不信任的站台給 PREVIEW_SCHEME
  */
-function siteUrlFor(projectId, rel, draft) {
+function siteUrlFor(projectId, rel, draft, scheme = SCHEME) {
   const key = `${projectId}\0${rel}`
   if (typeof draft === 'string') {
     drafts.delete(key)
@@ -107,7 +117,7 @@ function siteUrlFor(projectId, rel, draft) {
   }
   const host = `${Buffer.from(projectId).toString('hex')}.${SITE_TOKEN}`
   const encoded = String(rel).split('/').map(encodeURIComponent).join('/')
-  return `${SCHEME}://${host}/${encoded}?v=${++siteVersion}`
+  return `${scheme}://${host}/${encoded}?v=${++siteVersion}`
 }
 
 /**
@@ -158,9 +168,12 @@ async function serve(full, request, type = files.mediaMime(full), extra = CORS) 
  * @param {URL} url
  * @param {Request} request
  * @param {(projectId: string) => Promise<string>} rootOf
+ * @param {(projectId: string) => boolean} allowed 這個協定收不收這個站台（信任與不信任的各走各的協定）
  */
-async function serveSite(url, request, rootOf) {
+async function serveSite(url, request, rootOf, allowed) {
+  if (!url.hostname.endsWith(`.${SITE_TOKEN}`)) return new Response(null, { status: 404 })
   const projectId = Buffer.from(url.hostname.slice(0, -SITE_TOKEN.length - 1), 'hex').toString()
+  if (!allowed(projectId)) return new Response(null, { status: 404 })
   const segments = url.pathname.slice(1).split('/').map(decodeURIComponent)
   // 點開頭的（.env、.git）不給：預覽頁跑的是專案裡的腳本
   if (segments.some((segment) => segment.startsWith('.'))) return new Response(null, { status: 404 })
@@ -203,13 +216,22 @@ function htmlResponse(body) {
  * @param {(projectId: string) => Promise<string>} rootOf
  * @param {((full: string) => string) | undefined} [resolveLocal] 檔案總管的大預覽：
  *   把使用者給的絕對路徑驗過再回正規化的那一條（沒給就不開放 `~local`）
+ * @param {(projectId: string) => boolean} [untrusted] 哪些 HTML 預覽站台不可信：只從 PREVIEW_SCHEME 送
  */
-function register(protocol, rootOf, resolveLocal) {
+function register(protocol, rootOf, resolveLocal, untrusted = () => false) {
+  protocol.handle(PREVIEW_SCHEME, async (request) => {
+    try {
+      return await serveSite(new URL(request.url), request, rootOf, untrusted)
+    } catch (error) {
+      console.warn('[workspace] 預覽讀取失敗', error?.code || 'ERROR')
+      return new Response(null, { status: 404 })
+    }
+  })
   protocol.handle(SCHEME, async (request) => {
     try {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
       const url = new URL(request.url)
-      if (url.hostname.endsWith(`.${SITE_TOKEN}`)) return await serveSite(url, request, rootOf)
+      if (url.hostname.endsWith(`.${SITE_TOKEN}`)) return await serveSite(url, request, rootOf, (projectId) => !untrusted(projectId))
       if (url.hostname !== TOKEN) return new Response(null, { status: 404 })
       const [projectId, ...segments] = url.pathname.slice(1).split('/').map(decodeURIComponent)
       // 檔案總管那一條：後面就是一整條絕對路徑，驗證交給呼叫端給的 `resolveLocal`
@@ -220,6 +242,7 @@ function register(protocol, rootOf, resolveLocal) {
         return await serve(target, request)
       }
       if (projectId === OFFICE_ID) return await serve(require('./office-convert').cachedPath(segments.join('/')), request)
+      if (untrusted(projectId)) return new Response(null, { status: 404 })
       const root = await rootOf(projectId)
       const full = files.resolveIn(root, segments.join('/'))
       if (!files.mediaMime(full)) return new Response(null, { status: 404 })
@@ -232,4 +255,4 @@ function register(protocol, rootOf, resolveLocal) {
   })
 }
 
-module.exports = { SCHEME, PRIVILEGES, LOCAL_ID, urlFor, siteUrlFor, officeUrlFor, localUrlFor, localBaseFor, parseRange, register }
+module.exports = { SCHEME, PRIVILEGES, PREVIEW_SCHEME, PREVIEW_PRIVILEGES, LOCAL_ID, urlFor, siteUrlFor, officeUrlFor, localUrlFor, localBaseFor, parseRange, register }

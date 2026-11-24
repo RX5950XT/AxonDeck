@@ -54,6 +54,24 @@ async function main() {
     }
     console.log(`PASS ${action}: pause / mute / speed / seek / subtitle timing / repeat / shuffle`)
   }
+  const modernDir = path.join(output, 'modern'); fs.mkdirSync(modernDir, { recursive: true })
+  const chapters = path.join(modernDir, 'chapters.txt')
+  fs.writeFileSync(chapters, ';FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=4000\ntitle=開場\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=4000\nEND=12000\ntitle=正片\n')
+  const chaptered = path.join(modernDir, 'movie.mp4')
+  generate(ffmpeg, ['-y','-i',video,'-i',chapters,'-map','0','-map_metadata','1','-map_chapters','1','-c','copy',chaptered])
+  fs.writeFileSync(path.join(modernDir, 'movie.zh-TW.srt'), '1\n00:00:00,000 --> 00:00:10,000\n字幕\n')
+  const modern = await play(chaptered,'ui-modern')
+  const [hover, percent, key, appCommand] = modern.actions
+  assert.ok(hover.time>=5.5 && hover.time<8, JSON.stringify(hover)); assert.equal(hover.remaining,true); assert.match(hover.label,/^-0:0\d$/)
+  assert.equal(hover.tip,'0:03 · 開場'); assert.equal(hover.chapters,2); assert.equal(hover.menu,true); assert.equal(hover.subtitles,1)
+  assert.ok(percent.time>=2.2 && percent.time<3.4, JSON.stringify(percent)); assert.equal(key.pause,true); assert.equal(appCommand.pause,false)
+  console.log('PASS modern timeline: click-to-seek / hover time + chapter / remaining time / 0–9 percent / chapters / sibling subtitles / media keys')
+  const albumDir = path.join(output, 'album'); fs.mkdirSync(albumDir, { recursive: true })
+  const song = path.join(albumDir, 'song.flac'); fs.copyFileSync(audio, song)
+  generate(path.join(runtime, 'magick.exe'), ['-size','300x300','xc:#d4a75b',path.join(albumDir,'cover.jpg')])
+  const album = await play(song,'ui-modern')
+  assert.equal(album.actions[0].cover,true); assert.equal(album.kind,'audio')
+  console.log('PASS folder cover art: cover.jpg shown for audio')
   const full = await play(video,'ui-fullscreen')
   assert.deepEqual(full.actions[0],{full:true,chromeHidden:true})
   assert.equal(full.help,true); assert.equal(full.chromeHidden,false)
@@ -82,6 +100,6 @@ async function main() {
   const closing = await play(video,'defaults-close')
   assert.ok(Date.now()-started > closing.elapsedMs+1000, '關閉播放器應等背景工作完成，不能中途結束關聯')
   console.log('PASS default background job: closes window and decoder, completes pending work before process exit; no registry writes')
-  console.log(`media UI: 8 groups passed; ${output}`)
+  console.log(`media UI: 10 groups passed; ${output}`)
 }
 main().catch(error => { console.error(error); process.exitCode=1 })

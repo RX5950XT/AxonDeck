@@ -13530,8 +13530,9 @@ h6.md-h { font-size: 14px; }
     grid-template-columns: minmax(0, 1.6fr) minmax(360px, 1fr);
     align-items: start;
   }
-  /* 側欄夠窄，推論的「占用｜執行環境」改上下疊 */
+  /* 側欄夠窄，推論的「占用｜執行環境」改上下疊；規格列也不再硬切兩欄，避免中文字貼出卡片邊框 */
   .hf-runtime-side .hf-infer-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .hf-runtime-side .hf-specs { grid-template-columns: minmax(0, 1fr); }
 }
 
 .hf-run-main {
@@ -13609,6 +13610,7 @@ h6.md-h { font-size: 14px; }
 #hf-runtime .hf-panel {
   gap: 8px;
   padding: 8px 12px;
+  min-width: 0;
 }
 
 #hf-runtime .hf-model {
@@ -13672,13 +13674,16 @@ h6.md-h { font-size: 14px; }
 }
 
 #hf-runtime .hf-specs {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 4px 8px;
+  min-width: 0;
 }
 
 #hf-runtime .hf-specs > div {
   gap: 8px;
   padding: 4px 0;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 #hf-runtime .hf-panel h2:not(:first-child) {
@@ -14057,9 +14062,10 @@ h6.md-h { font-size: 14px; }
 
 .hf-specs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
   gap: 8px 24px;
   margin: 0;
+  min-width: 0;
 }
 
 .hf-specs > div {
@@ -14068,17 +14074,21 @@ h6.md-h { font-size: 14px; }
   gap: 16px;
   padding: 4px 0;
   border-bottom: 1px solid var(--border-light);
+  min-width: 0;
 }
 
 .hf-specs dt {
   color: var(--text-secondary);
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .hf-specs dd {
   margin: 0;
   font-size: 12px;
   text-align: right;
+  min-width: 0;
   /* 裝置名稱與驅動版本沒有空白可斷，截成「…」等於沒有那筆資料 */
   overflow-wrap: anywhere;
 }
@@ -14138,6 +14148,16 @@ h6.md-h { font-size: 14px; }
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.hf-gpu-models .hf-setting-label,
+.hf-gpu-models .hf-chip,
+.hf-gpu-models .setting-hint {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .hf-gpu-models .hf-chip {

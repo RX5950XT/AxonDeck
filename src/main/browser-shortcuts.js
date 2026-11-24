@@ -71,6 +71,42 @@ function runPageShortcut(contents, action) {
  * @param {{ shouldSkip?: (input: Electron.Input, url: string) => boolean,
  *   onHostAction?: (matched: { scope: string, action: string, focusHost?: boolean }, contents: Electron.WebContents) => void }} [opts]
  */
+
+/**
+ * 工作區瀏覽器分頁是一顆 <webview>；擴充功能選項頁裡的 sandbox iframe
+ * 常是另一個 webContents。快捷鍵要以最外層那顆 webview 當分頁，IPC 則送給
+ * 它的宿主（工作區 renderer），不能送給 iframe 的 host（那是 webview 自己）。
+ * @param {Electron.WebContents | null | undefined} contents
+ * @returns {Electron.WebContents | null}
+ */
+function resolveShortcutGuest(contents) {
+  if (!contents || contents.isDestroyed?.()) return null
+  let current = contents
+  let guest = contents
+  const seen = new Set()
+  while (current && !current.isDestroyed?.() && !seen.has(current.id)) {
+    seen.add(current.id)
+    if (current.getType?.() === 'webview') guest = current
+    const parent = current.hostWebContents
+    if (!parent || parent.isDestroyed?.() || parent === current) break
+    current = parent
+  }
+  return guest
+}
+
+/** @param {Electron.WebContents | null | undefined} contents */
+function resolveShortcutHost(contents) {
+  const guest = resolveShortcutGuest(contents)
+  const host = guest?.hostWebContents
+  return host && !host.isDestroyed?.() ? host : null
+}
+
+/** @param {Electron.WebContents | null | undefined} contents */
+function resolveShortcutGuestId(contents) {
+  const guest = resolveShortcutGuest(contents)
+  return guest && !guest.isDestroyed?.() ? guest.id : null
+}
+
 function attachBrowserShortcuts(contents, { shouldSkip, onHostAction } = {}) {
   contents.on('before-input-event', (event, input) => {
     if (shouldSkip?.(input, contents.getURL())) return
@@ -82,4 +118,4 @@ function attachBrowserShortcuts(contents, { shouldSkip, onHostAction } = {}) {
   })
 }
 
-module.exports = { matchBrowserShortcut, runPageShortcut, attachBrowserShortcuts }
+module.exports = { matchBrowserShortcut, runPageShortcut, attachBrowserShortcuts, resolveShortcutGuest, resolveShortcutHost, resolveShortcutGuestId }

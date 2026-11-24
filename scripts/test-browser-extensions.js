@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const { storeIdFromUrl, idFromKey, parseCrx, isNewer, parseUpdateXml } = require('../src/main/browser-extensions')
-const { matchBrowserShortcut } = require('../src/main/browser-shortcuts')
+const { matchBrowserShortcut, resolveShortcutGuest, resolveShortcutHost, resolveShortcutGuestId } = require('../src/main/browser-shortcuts')
 
 const ID = 'ddkjiahejlhfcafbddmgiahcphecmpfh'
 const { EXTENSIONS_PAGE_URL, isInternalBrowserUrl, isExtensionManagerUrl, isExtensionShortcutsUrl } = require('../src/shared/browser-url.mjs')
@@ -86,5 +86,31 @@ assert.equal(matchBrowserShortcut(keyIn({ key: 'l', code: 'KeyL', control: true,
 assert.equal(matchBrowserShortcut(keyIn({ key: 't', code: 'KeyT', control: true, isAutoRepeat: true })), null, '一般快捷鍵不重複觸發')
 assert.deepEqual(matchBrowserShortcut(keyIn({ key: '=', code: 'Equal', control: true, isAutoRepeat: true })), { scope: 'page', action: 'zoom-in' }, '縮放允許長按重複')
 assert.equal(matchBrowserShortcut(keyIn({ type: 'keyUp', key: 'F5' })), null)
+
+
+// 擴充功能選項頁的 sandbox iframe：快捷鍵要送到外層 webview 的宿主，id 也用外層那顆
+function fakeContents(id, type, parent = null) {
+  return {
+    id,
+    hostWebContents: parent,
+    getType: () => type,
+    isDestroyed: () => false
+  }
+}
+const windowHost = fakeContents(1, 'window')
+const chatHost = fakeContents(2, 'window', windowHost)
+// chat 頁是宿主 renderer（未必是 type window 的最頂層），webview.host = chatHost
+chatHost.getType = () => 'other'
+const webview = fakeContents(10, 'webview', chatHost)
+const iframe = fakeContents(11, 'other', webview)
+assert.equal(resolveShortcutGuest(webview), webview)
+assert.equal(resolveShortcutHost(webview), chatHost)
+assert.equal(resolveShortcutGuestId(webview), 10)
+assert.equal(resolveShortcutGuest(iframe), webview, 'iframe 要對回分頁 webview')
+assert.equal(resolveShortcutHost(iframe), chatHost, 'IPC 要送給工作區 renderer，不是 webview')
+assert.equal(resolveShortcutGuestId(iframe), 10)
+assert.equal(resolveShortcutGuest(null), null)
+const dead = { id: 99, isDestroyed: () => true, getType: () => 'webview', hostWebContents: chatHost }
+assert.equal(resolveShortcutGuest(dead), null)
 
 console.log('test-browser-extensions: 通過')

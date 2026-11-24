@@ -4273,7 +4273,9 @@ export function initWsTabs() {
     const main = document.getElementById('termMain')
     if (!main || main.offsetParent === null || document.querySelector('dialog[open]')) return
     const tab = findTab(activeId)
-    if (!tab || tab.kind !== 'browser' || activeGuestId() !== target) return
+    // target 可能是分頁 webview，或選項頁裡的 iframe。主行程會改成外層 id；
+    // 對不上也不擋：焦點只會在作用中的分頁，背景分頁不會送快捷鍵進來。
+    if (!tab || tab.kind !== 'browser') return
     handleWorkspaceBrowserShortcut(action)
   })
   // 瀏覽器的快捷鍵。**只在瀏覽器分頁、而且工作區真的看得見時**才收，

@@ -105,8 +105,7 @@ async function run() {
   await check('GPU 門檻只容許 8GB 卡的回報誤差', async () => {
     let memory = 7680
     const ctx = vm.createContext({ module: { exports: {} }, process, require: (id) => {
-      if (id === 'child_process') return { execFile: (_exe, _args, _opts, cb) => cb(null, { stdout: `NVIDIA GPU, ${memory}` }) }
-      if (id === 'util') return require('util')
+      if (id === './proc-broker') return { execFileAsync: async () => ({ stdout: `NVIDIA GPU, ${memory}` }) }
       return { detectCudaRuntime: () => ({ hasNvidiaDriver: true, hasCudaRuntime: true }), detectVulkan: () => false }
     } })
     vm.runInContext(read('src/main/gpu-capability.js'), ctx)

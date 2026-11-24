@@ -8,7 +8,7 @@
  * - Grok CLI：`curl -fsSL https://x.ai/cli/install.sh | bash` → `~/.grok/bin/grok`（docs.x.ai/build/overview）
  * - Antigravity CLI：`curl -fsSL https://antigravity.google/cli/install.sh | bash` → `~/.local/bin/agy`（antigravity.google/docs/cli/install）
  * - Codex：`npm install -g @openai/codex`（openai/codex README）
- * - OpenCode：`npm install -g opencode-ai`（opencode.ai/docs）
+ * - OpenCode：`npm install -g @opencode/cli@latest`（OpenCode 2，舊的 opencode-ai 停在 1.x）
  * npm 兩家跟 Windows 一樣用 npm；全域 prefix 不可寫（例如 /usr）就改裝到使用者 prefix `~/.local`，**絕不 sudo**。
  *
  * 指令全是固定字串，renderer 只送工具 key。缺 curl／npm 時印出 `AXONDECK_MISSING=<工具>` 並 exit 127，
@@ -42,7 +42,7 @@ const INSTALLERS_LINUX = Object.freeze({
   claude: script('https://claude.ai/install.sh'),
   codex: npmGlobal('@openai/codex@latest'),
   grok: script('https://x.ai/cli/install.sh'),
-  opencode: npmGlobal('opencode-ai@latest'),
+  opencode: npmGlobal('@opencode/cli@latest'),
   agy: script('https://antigravity.google/cli/install.sh')
 })
 

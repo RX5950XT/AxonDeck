@@ -199,6 +199,11 @@ function handleFileDrop(e) {
  * @param {File | { name: string, size: number, path: string }} file 錄音機的檔不是 File，只帶絕對路徑
  */
 function handleFileSelect(file) {
+  // 拖放與檔案選擇器也會走到這裡：轉錄中換檔會讓結果掛到新檔名下
+  if (isTranscribing) {
+    showToast('正在轉錄，等這份跑完再換檔', 'error')
+    return
+  }
   const extension = file.name.split('.').pop().toLowerCase()
   if (!SUPPORTED_FORMATS.includes(extension)) {
     showToast(`不支援的格式: ${extension}`, 'error')

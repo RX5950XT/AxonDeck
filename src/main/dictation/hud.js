@@ -19,6 +19,7 @@
  */
 
 const { BrowserWindow, screen } = require('electron')
+const { DEV_URL } = require('../dev-url')
 const path = require('path')
 
 /**
@@ -118,6 +119,9 @@ function create() {
     }
   })
   win.setMenu(null)
+  // 整扇預設讓滑鼠穿透：CSS 的 `pointer-events: none` 擋不住 OS 層的點擊（實測透明的
+  // 角落點下去還是落在這扇），錄音中就點不到底下的輸入框。游標進到藥丸才收回來（`setPointerOver`）。
+  win.setIgnoreMouseEvents(true, { forward: true })
   // 'screen-saver' 這一層才蓋得過全螢幕的程式；指示器沒蓋住東西就沒有用
   win.setAlwaysOnTop(true, 'screen-saver')
   // 這扇視窗沒有任何連結或導覽，一律擋掉
@@ -136,7 +140,7 @@ function create() {
   })
 
   if (devMode) {
-    win.loadURL('http://localhost:5173/pages/dictation-hud.html')
+    win.loadURL(`${DEV_URL}/pages/dictation-hud.html`)
   } else {
     win.loadFile(path.join(__dirname, '../../renderer/pages/dictation-hud.html'))
   }
@@ -184,7 +188,11 @@ function update(raw) {
   pending = payload
 
   place()
-  if (!win.isVisible()) win.showInactive()
+  if (!win.isVisible()) {
+    // 上次藏起來時游標可能還在藥丸上（收不到 mouseleave），重新出現一律先穿透
+    setPointerOver(false)
+    win.showInactive()
+  }
   send(payload)
 
   clearHideTimer()
@@ -202,6 +210,17 @@ function isSender(event) {
   return event?.sender === win.webContents
 }
 
+/**
+ * 游標在藥丸上才吃滑鼠（按得到 ✕／✓），其餘時間整扇穿透。
+ * @param {boolean} over
+ * @returns {boolean}
+ */
+function setPointerOver(over) {
+  if (!win || win.isDestroyed()) return false
+  win.setIgnoreMouseEvents(!over, { forward: true })
+  return true
+}
+
 function close() {
   clearHideTimer()
   pending = null
@@ -215,6 +234,6 @@ function _window() {
 }
 
 module.exports = {
-  configure, warm, update, isSender, close, hudBounds, _window,
+  configure, warm, update, isSender, setPointerOver, close, hudBounds, _window,
   SIZE, MARGIN_BOTTOM, MAX_ERROR_CHARS
 }

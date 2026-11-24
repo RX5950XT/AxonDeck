@@ -37,7 +37,7 @@ async function main() {
   const table = linux.INSTALLERS_LINUX
   ok('五家 key 與 Windows 一致', JSON.stringify(Object.keys(table)) === JSON.stringify(Object.keys(cli.INSTALLERS)))
   ok('三家官方 install.sh', table.claude.includes('https://claude.ai/install.sh') && table.grok.includes('https://x.ai/cli/install.sh') && table.agy.includes('https://antigravity.google/cli/install.sh'))
-  ok('Codex／OpenCode 官方 npm 套件', table.codex.includes('@openai/codex@latest') && table.opencode.includes('opencode-ai@latest'))
+  ok('Codex／OpenCode 官方 npm 套件', table.codex.includes('@openai/codex@latest') && table.opencode.includes('@opencode/cli@latest'))
   ok('沒有任何 sudo', Object.values(table).every((cmd) => !/\bsudo\b/.test(cmd)) && !/\bsudo\b/.test(linux.NODE_CHECK))
   ok('bash 不讀 rc 且 pipefail', JSON.stringify(linux.bashCommand('x').args.slice(0, 3)) === '["--noprofile","--norc","-c"]' && linux.bashCommand('x').args[3].startsWith('set -o pipefail;'))
 

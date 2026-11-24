@@ -345,37 +345,46 @@ async function main() {
       console.log(`PASS  option-contrast/${theme} (${options.length} 組配色)`)
     }
 
-    const controlStyles = await cdp.eval(`(() => {
-      const select = document.querySelector('.custom-select-trigger[data-select-id="chatModelSelect"]')
+    // 模型 chip 在翻譯頁、模型下拉與思考鈕在聊天頁：各頁是獨立 renderer，要分兩次量
+    await gotoPage(cdp, 'translate')
+    const chipStyles = await cdp.eval(`(() => {
       const chip = document.querySelector('.model-chip')
-      const think = document.getElementById('chatThinkBtn')
-      if (!select || !chip || !think) return null
-      const selectStyle = getComputedStyle(select)
+      if (!chip) return null
       const chipStyle = getComputedStyle(chip)
-      think.setAttribute('aria-pressed', 'false')
+      return { chipRadius: chipStyle.borderRadius, chipMinHeight: chipStyle.minHeight }
+    })()`)
+    await gotoPage(cdp, 'chat')
+    const chatStyles = await cdp.eval(`(() => {
+      const select = document.querySelector('.custom-select-trigger[data-select-id="chatModelSelect"]')
+      const think = document.getElementById('chatThinkBtn')
+      if (!select || !think) return null
+      const selectStyle = getComputedStyle(select)
+      const wasActive = think.classList.contains('is-active')
+      think.style.transition = 'none'
+      think.classList.remove('is-active')
       const off = {
         backgroundColor: getComputedStyle(think).backgroundColor,
         borderColor: getComputedStyle(think).borderColor
       }
-      think.setAttribute('aria-pressed', 'true')
+      think.classList.add('is-active')
       const on = {
         backgroundColor: getComputedStyle(think).backgroundColor,
         borderColor: getComputedStyle(think).borderColor
       }
-      think.setAttribute('aria-pressed', 'false')
+      think.classList.toggle('is-active', wasActive)
+      think.style.transition = ''
       return {
         selectAppearance: selectStyle.appearance || selectStyle.webkitAppearance,
         selectRadius: selectStyle.borderRadius,
-        selectHeight: selectStyle.height,
-        chipRadius: chipStyle.borderRadius,
-        chipMinHeight: chipStyle.minHeight,
+        selectHeight: Math.round(Number.parseFloat(selectStyle.height)),
         thinkOffBackground: off.backgroundColor,
         thinkOnBackground: on.backgroundColor,
         thinkOnBorder: on.borderColor
       }
     })()`)
+    const controlStyles = chipStyles && chatStyles ? { ...chipStyles, ...chatStyles } : null
     if (!controlStyles ||
-      controlStyles.selectRadius !== '10px' || controlStyles.selectHeight !== '36px' ||
+      controlStyles.selectRadius !== '10px' || controlStyles.selectHeight !== 36 ||
       controlStyles.chipRadius !== '10px' || controlStyles.chipMinHeight !== '40px' ||
       controlStyles.thinkOffBackground === controlStyles.thinkOnBackground ||
       controlStyles.thinkOnBorder === 'rgba(0, 0, 0, 0)') {
@@ -570,12 +579,16 @@ async function main() {
     await gotoPage(cdp, 'chat')
     const dialogDropdown = await cdp.eval(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 260))
-      document.getElementById('wsNewBtn')?.click()
+      // 新終端機彈窗拿掉了，改借供應商彈窗裡的下拉（沒開過的話自己補兩個選項）
+      const dialog = document.getElementById('ccProviderDialog')
+      const select = document.getElementById('ccAuthFieldSelect')
+      if (select && !select.options.length) {
+        for (const name of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) select.add(new Option(name, name))
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      dialog?.showModal()
       await new Promise((resolve) => setTimeout(resolve, 160))
-      document.getElementById('wsNewCustomTerm')?.click()
-      await new Promise((resolve) => setTimeout(resolve, 160))
-      const dialog = document.getElementById('termNewDialog')
-      const trigger = document.querySelector('.custom-select-trigger[data-select-id="termShellSelect"]')
+      const trigger = document.querySelector('.custom-select-trigger[data-select-id="ccAuthFieldSelect"]')
       if (!dialog || !trigger || !dialog.open) return null
       trigger.click()
       await new Promise((resolve) => setTimeout(resolve, 120))
@@ -593,7 +606,7 @@ async function main() {
         belowTrigger: !!m && m.top > t.top && m.top - t.bottom <= 12
       }
       trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-      document.getElementById('termNewCancelBtn')?.click()
+      dialog.close()
       return result
     })()`)
     if (!dialogDropdown || !dialogDropdown.opened || !dialogDropdown.inDialog ||

@@ -92,4 +92,16 @@ assert.ok(
 const ignored = spawnSync('git', ['check-ignore', '-q', 'build/installer.nsh'], { cwd: root })
 assert.notStrictEqual(ignored.status, 0, '[F] build/installer.nsh 仍然被 .gitignore 擋掉（要改成 build/* ＋ !build/installer.nsh）')
 
-console.log('test-taskbar-identity: 全部通過（[A][B][C][D][E][F]）')
+// [G] 安裝完把 App 開回來要開 exe，不可以開剛重寫的捷徑（檔案總管偶爾找不到，跳「Windows 找不到 AxonDeck.lnk」）
+const startApp = nsh.slice(nsh.indexOf('Function StartApp'), nsh.indexOf('FunctionEnd', nsh.indexOf('Function StartApp')))
+assert.ok(/ExecShellAsUser\}\s+\$0\s+"\$appExe"/.test(startApp), '[G] StartApp 沒有直接開 $appExe')
+assert.ok(!/\$launchLink/.test(startApp), '[G] StartApp 還在開 $launchLink（捷徑）')
+
+// [H] 直接執行安裝檔也要保留捷徑（刪掉再建會讓 Windows 開始功能表漏收、App 消失）
+const header = nsh.slice(nsh.indexOf('!macro customHeader'), nsh.indexOf('!macroend', nsh.indexOf('!macro customHeader')))
+assert.ok(/!undef\s+allowToChangeInstallationDirectory/.test(header), '[H] customHeader 沒有拿掉 allowToChangeInstallationDirectory（手動安裝會刪掉重建捷徑）')
+assert.strictEqual(pkg.build.nsis.allowToChangeInstallationDirectory, true, '[H] 前提變了：已不允許選安裝位置，請重看這條測試')
+// 保留捷徑後 electron-builder 不補建；手動重裝要自己補缺的開始功能表捷徑
+assert.ok(/\$\{ifNot\}\s+\$\{isUpdated\}[\s\S]{0,200}\$\{ifNot\}\s+\$\{FileExists\}\s+"\$newStartMenuLink"/.test(nsh), '[H] 手動重裝沒有補回缺少的開始功能表捷徑')
+
+console.log('test-taskbar-identity: 全部通過（[A][B][C][D][E][F][G][H]）')

@@ -2,7 +2,7 @@
 use crate::*;
 
 impl State {
-    fn toolbar_height(&self) -> i32 {
+    pub fn toolbar_height(&self) -> i32 {
         if self.chrome_hidden || self.clean_view || self.show_help { 0 } else { self.paint.px(if self.category == "image" { 56 } else { 80 }) }
     }
     pub fn layout(&self) {
@@ -100,7 +100,7 @@ impl State {
             self.paint.fill(dc, rect(0,bottom,content,1), self.paint.line());
             if !image {
                 self.paint.text(dc, &clock(self.scrub_time.unwrap_or(self.time)), rect(p(12),area.bottom-p(78),p(56),p(24)), self.paint.small,if self.scrub_time.is_some() { self.paint.accent() } else { self.paint.muted() });
-                self.paint.text(dc, &clock(self.duration), rect(content-p(58),area.bottom-p(78),p(54),p(24)),self.paint.small,self.paint.muted());
+                self.paint.text(dc, &self.duration_label(), rect(content-p(58),area.bottom-p(78),p(54),p(24)),self.paint.small,if self.remaining { self.paint.accent() } else { self.paint.muted() });
                 if content >= p(620) { self.paint.text(dc,&format!("{}%", if self.mute { 0 } else { self.volume as u32 }),rect(p(142),area.bottom-p(44),p(44),p(32)),self.paint.small,self.paint.muted()); }
             } else if content >= p(560) {
                 let dimensions = if content >= p(760) { match (self.video["w"].as_i64(),self.video["h"].as_i64()) { (Some(w),Some(h)) => format!("{w} × {h} · "), _ => String::new() } } else { String::new() };
@@ -128,10 +128,10 @@ impl State {
         let rows: &[(&str,&str)] = if self.category == "image" {
             &[("← / →、PageUp / PageDown","上一張 / 下一張"),("Space / P","輪播 / 暫停動畫"),("+ / −、滑鼠滾輪","放大 / 縮小"),("0 / 1","適合視窗 / 原始大小"),("R、滑鼠拖曳","向右旋轉 / 平移"),("Home / End","第一張 / 最後一張")]
         } else {
-            &[("Space、M、. / ,","播放 / 暫停、靜音、逐格"),("← / →、Shift + ← / →","前後 5 秒 / 30 秒"),("↑ / ↓、滑鼠滾輪","調整音量"),("[ / ]、Backspace","調整倍速 / 恢復 1×"),("PageUp / PageDown、R / L","上一個 / 下一個、循環 / 隨機"),("V、A / C、J / K","顯示字幕、切音軌 / 字幕、字幕延遲")]
+            &[("Space、M、. / ,","播放 / 暫停、靜音、逐格"),("← / →、Shift + ← / →","前後 5 秒 / 30 秒"),("↑ / ↓、滑鼠滾輪","調整音量"),("[ / ]、Backspace","調整倍速 / 恢復 1×"),("PageUp / PageDown、R / L","上一個 / 下一個、循環 / 隨機"),("V、A / C、J / K","顯示字幕、切音軌 / 字幕、字幕延遲"),("0 – 9、點總長","跳到 0%～90%、切換剩餘時間")]
         };
         let stacked = width < p(560);
-        let step = p(if stacked { 38 } else { 30 }).min(((area.bottom-area.top-p(60))/9).max(p(if stacked { 34 } else { 22 })));
+        let step = p(if stacked { 38 } else { 30 }).min(((area.bottom-area.top-p(60))/10).max(p(if stacked { 34 } else { 22 })));
         for (i,(key,label)) in rows.iter().chain([("F / Enter、Esc","全螢幕 / 離開"),("Ctrl+O / L / F / T","開啟 / 清單 / 搜尋 / 置頂"),("Ctrl+H、S、F1","純畫面 / 儲存畫面 / 關閉說明")].iter()).enumerate() {
             let y = area.top+p(56)+step*i as i32;
             self.paint.text(dc,key,rect(x,y,if stacked { width } else { width/2 },p(if stacked { 16 } else { 26 })),self.paint.small,self.paint.accent());

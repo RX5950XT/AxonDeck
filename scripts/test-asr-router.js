@@ -30,6 +30,10 @@ async function run() {
   assert.equal(await small.transcribe({ samples: [0], lang: 'zh-TW' }), '公園散步')
   assert.equal(sent.req.body.get('model'), 'qwen3asr')
   assert.equal(sent.url, 'http://127.0.0.1/v1/audio/transcriptions')
+  assert.equal(sent.req.body.get('language'), 'zh', '語音輸入：lang 就是辨識語言')
+  // 即時字幕：lang 是翻譯目標，不能當辨識語言（英文會被聽成中文），但輸出照樣轉繁體
+  assert.equal(await small.transcribe({ samples: [0], lang: 'zh-TW', autoDetect: true }), '公園散步')
+  assert.equal(sent.req.body.get('language'), null)
   await big.unload()
   assert.equal(small.isLoaded(), true)
   await small.unload()

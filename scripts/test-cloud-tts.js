@@ -39,7 +39,7 @@ async function main() {
     assert.deepEqual(received.body, { model: 'tts-test', input: '你好', voice: 'alloy', speed: 1, response_format: 'mp3' })
     assert.equal(audio.audioBase64, Buffer.from('ID3test-audio').toString('base64'))
     assert.equal(audio.mimeType, 'audio/mpeg')
-    await assert.rejects(service.saveAudio({ resultId: 'other-result' }), { code: 'RESULT' })
+    assert.equal(audio.resultId, undefined, '結果交給 renderer 存成版本，main 不留副本')
     mode = 'error'
     const failure = await handlers.get('cloudTts:generate')({ main: true }, request)
     assert.equal(failure.error.code, 'UPSTREAM')

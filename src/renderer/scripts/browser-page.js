@@ -229,6 +229,15 @@ function ensureGuest(tab) {
   guest.addEventListener('did-stop-loading', () => {
     if (id === activeId) paintChrome()
   })
+  guest.addEventListener('found-in-page', (event) => {
+    if (id !== activeId) return
+    const bar = $('browserFind')
+    const count = $('browserFindCount')
+    if (!bar || bar.hidden || !count) return
+    const result = /** @type {any} */ (event).result
+    if (!result) return
+    count.textContent = result.matches > 0 ? `${result.activeMatchOrdinal} / ${result.matches}` : '找不到'
+  })
   $('browserFrame')?.appendChild(guest)
   return guest
 }
@@ -788,6 +797,68 @@ function bindHoverExpand() {
   })
 }
 
+
+let browserFindActive = false
+
+function openBrowserFind() {
+  const bar = $('browserFind')
+  if (getChatPaneMode() !== 'browser' || !guestOf(activeId) || !bar) return
+  bar.hidden = false
+  const input = /** @type {HTMLInputElement | null} */ ($('browserFindInput'))
+  input?.focus()
+  input?.select()
+  if (input?.value) runBrowserFind(true, false)
+}
+
+/** @param {boolean} [forward] @param {boolean} [followUp] */
+function runBrowserFind(forward = true, followUp = false) {
+  const guest = guestOf(activeId)
+  const input = /** @type {HTMLInputElement | null} */ ($('browserFindInput'))
+  const query = input?.value || ''
+  const count = $('browserFindCount')
+  if (!guest) return
+  try {
+    if (!query) {
+      browserFindActive = false
+      guest.stopFindInPage('clearSelection')
+      if (count) count.textContent = ''
+      return
+    }
+    const startNew = !followUp || !browserFindActive
+    browserFindActive = true
+    guest.findInPage(query, { forward, findNext: startNew })
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+/** @param {boolean} [focusGuest] */
+function closeBrowserFind(focusGuest = false) {
+  browserFindActive = false
+  const bar = $('browserFind')
+  if (bar) bar.hidden = true
+  const count = $('browserFindCount')
+  if (count) count.textContent = ''
+  const guest = guestOf(activeId)
+  try {
+    guest?.stopFindInPage('clearSelection')
+    if (focusGuest) guest?.focus()
+  } catch {
+    // webview 還沒 attach
+  }
+}
+
+function handleBrowserFindShortcut(action) {
+  if (action === 'find') {
+    openBrowserFind()
+  } else if (action === 'find-next' || action === 'find-prev') {
+    const query = /** @type {HTMLInputElement | null} */ ($('browserFindInput'))?.value
+    const bar = $('browserFind')
+    if (bar && !bar.hidden && query) runBrowserFind(action === 'find-next', true)
+    else openBrowserFind()
+  }
+}
+
 function bind() {
   if (bound) return
   bound = true
@@ -799,7 +870,13 @@ function bind() {
   if (list) bindListDrop(list)
   electronAPI.workspace.onBrowserDock(dock)
   electronAPI.workspace.onBrowserShortcut?.((action, target) => {
-    if (getChatPaneMode() !== 'browser' || target !== activeGuestId()) return
+    // target 可能是分頁 webview 或選項頁裡的 iframe；對不上仍由作用中的分頁處理
+    if (getChatPaneMode() !== 'browser') return
+    if (action === 'find' || action === 'find-next' || action === 'find-prev') {
+      handleBrowserFindShortcut(action)
+      return
+    }
+    if (target != null && activeGuestId() != null && Number(target) !== Number(activeGuestId())) return
     if (action === 'focus-url') {
       const input = /** @type {HTMLInputElement | null} */ ($('browserUrl'))
       input?.focus()
@@ -841,8 +918,29 @@ function bind() {
     }
   })
   // Ctrl+T 新分頁、Ctrl+W 關分頁（焦點在網頁裡時按鍵進不到這裡）
+  $('browserFindInput')?.addEventListener('input', () => runBrowserFind(true, false))
+  $('browserFindInput')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === 'F3') {
+      event.preventDefault()
+      event.stopPropagation()
+      runBrowserFind(!event.shiftKey, true)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeBrowserFind(true)
+    }
+  })
+  $('browserFindPrev')?.addEventListener('click', () => runBrowserFind(false, true))
+  $('browserFindNext')?.addEventListener('click', () => runBrowserFind(true, true))
+  $('browserFindClose')?.addEventListener('click', () => closeBrowserFind(true))
   document.addEventListener('keydown', (event) => {
-    if (getChatPaneMode() !== 'browser' || !event.ctrlKey || event.shiftKey || event.altKey) return
+    if (getChatPaneMode() !== 'browser') return
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault()
+      openBrowserFind()
+      return
+    }
+    if (!event.ctrlKey || event.shiftKey || event.altKey) return
     const key = event.key.toLowerCase()
     if (key === 't') {
       event.preventDefault()

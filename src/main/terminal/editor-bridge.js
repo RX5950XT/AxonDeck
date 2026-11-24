@@ -77,7 +77,9 @@ function isRealEditor(value) {
   if (!raw) return false
   const name = raw.toLowerCase().replace(/^start\s+(\/wait\s+)?/, '').trim()
   const base = name.split(/[\\/]/).pop().replace(/\.exe$/, '')
-  return base !== 'notepad'
+  // 自己的橋接命令也不算：App 從自己的終端機裡被開起來（重啟、更新、探針）時會繼承
+  // `EDITOR=axondeck-edit.cmd`，當成「使用者挑過」就不接手，Ctrl+G 退回登錄檔裡的記事本。
+  return !['notepad', 'axondeck-edit.cmd', 'voiceink-edit.cmd'].includes(base)
 }
 
 let dir = ''
@@ -149,6 +151,8 @@ function start(emitter) {
     for (const name of stale) release(name.slice(0, -3))
     const scan = () => scanRequests(requests)
     const fsWatcher = fs.watch(requests, () => scan())
+    // 資料夾被刪／被鎖時 watcher 會丟 error；沒人接就是主程序未處理例外，靠下面的輪詢兜底
+    fsWatcher.on('error', () => {})
     const timer = setInterval(scan, 5000)
     timer.unref?.()
     watcher = { close() { fsWatcher.close(); clearInterval(timer) } }

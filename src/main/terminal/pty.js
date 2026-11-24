@@ -219,7 +219,7 @@ function spawnSession(meta, cols, rows, editor, editorDir) {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: meta.cwd,
+      cwd: store.normalizeCwd(meta.cwd),
       env: shellEnvironment(editor, editorDir, meta.id, meta.preset, meta.agentHome)
     })
 
@@ -429,22 +429,55 @@ function inProcessNavFile(terminalId) {
 }
 
 let inProcessTui
-function inProcessTuiConfig() {
-  if (inProcessTui !== undefined) return inProcessTui
-  inProcessTui = ''
+let inProcessPlugin
+function inProcessPluginDir() {
+  if (inProcessPlugin !== undefined) return inProcessPlugin
+  inProcessPlugin = ''
   const userData = inProcessUserData()
-  if (!userData) return inProcessTui
+  if (!userData) return inProcessPlugin
   try {
     const fsx = require('node:fs')
     const dir = path.join(userData, 'terminal-opencode')
     fsx.mkdirSync(dir, { recursive: true })
     const plugin = path.join(dir, 'navigation.mjs')
     fsx.writeFileSync(plugin, fsx.readFileSync(path.join(__dirname, 'opencode/navigation.mjs')))
+    // OpenCode 2 的本機外掛是資料夾，入口寫在 package.json 的 `./tui`（同 host-runtime.js）
+    fsx.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'axondeck-navigation', version: '0.0.0', type: 'module', exports: { './tui': './navigation.mjs' }
+    }))
     const config = path.join(dir, 'tui.json')
     fsx.writeFileSync(config, JSON.stringify({ plugin: [require('node:url').pathToFileURL(plugin).href] }))
     inProcessTui = config
-  } catch { inProcessTui = '' }
-  return inProcessTui
+    inProcessPlugin = dir
+  } catch { inProcessTui = ''; inProcessPlugin = '' }
+  return inProcessPlugin
+}
+
+function inProcessTuiConfig() {
+  if (inProcessTui !== undefined) return inProcessTui
+  inProcessPluginDir()
+  return inProcessTui || ''
+}
+
+/**
+ * OpenCode 2 不讀 OPENCODE_TUI_CONFIG，外掛改由 OPENCODE_CLI_CONFIG_CONTENT 帶。它的 `plugins` 會整份取代
+ * 使用者 cli.json 的那份（2.3.0 實測），所以把原本的清單接在前面；讀不懂就不帶，保住使用者自己的外掛。
+ * 同 shell.rs 的 `opencode_cli_config`。
+ */
+function opencodeCliConfig(env, pluginDir) {
+  const fs = require('node:fs')
+  if (Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_CLI_CONFIG_CONTENT' && env[key])) return ''
+  if (!fs.existsSync(path.join(pluginDir, 'package.json'))) return ''
+  const configKey = Object.keys(env).find(key => key.toUpperCase() === 'XDG_CONFIG_HOME' && env[key])
+  const configHome = configKey ? env[configKey] : path.join(require('node:os').homedir(), '.config')
+  let plugins = []
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(configHome, 'opencode', 'cli.json'), 'utf8').replace(/^﻿/, ''))
+    if (Array.isArray(parsed?.plugins)) plugins = parsed.plugins
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return ''
+  }
+  return JSON.stringify({ plugins: plugins.includes(pluginDir) ? plugins : [...plugins, pluginDir] })
 }
 
 function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
@@ -482,6 +515,8 @@ function shellEnvironment(editor, editorDir, terminalId, agent, agentHome) {
   if (config && !Object.keys(env).some(key => key.toUpperCase() === 'OPENCODE_TUI_CONFIG' && env[key])) {
     env.OPENCODE_TUI_CONFIG = config
   }
+  const cliConfig = opencodeCliConfig(env, inProcessPluginDir() || path.join(__dirname, 'opencode'))
+  if (cliConfig) env.OPENCODE_CLI_CONFIG_CONTENT = cliConfig
   const homeKey = agent === 'claude' ? 'CLAUDE_CONFIG_DIR' : agent === 'codex' ? 'CODEX_HOME' : ''
   const homeAbsOk = typeof agentHome === 'string' && (
     platform.isWindows ? /^[A-Za-z]:[\\/]/.test(agentHome) : agentHome.startsWith('/')

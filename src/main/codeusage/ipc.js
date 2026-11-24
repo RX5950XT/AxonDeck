@@ -24,7 +24,6 @@ function registerCodeUsageIpc({ ipcMain, service, isMainSender }) {
   ipcMain.handle('codeusage:savePrices', (event, prices) => (
     invoke(event, () => service.savePrices(prices))
   ))
-  ipcMain.handle('codeusage:reset', (event) => invoke(event, () => service.reset()))
 }
 
 module.exports = { registerCodeUsageIpc }

@@ -50,6 +50,7 @@ async function main() {
         writeFile: async (file, value) => { storedFiles.set(file, String(value)) }
       } }
       if (name === 'electron') return { shell: { openPath: async (file) => { calls.push({ system: file }); return '' } } }
+      if (name === './explorer/shell') return { associationOf: async () => 'default' }
       if (name === 'child_process') return { spawn: (exe, args, options) => {
         calls.push({ exe, args, options }); const child = new EventEmitter(); child.unref = () => {}
         const init = args.includes('--initialize')
@@ -117,6 +118,7 @@ async function main() {
           writeFile: async () => {}
         } }
         if (name === 'electron') return { shell: { openPath: async (file) => { calls2.push({ system: file }); return '' } } }
+        if (name === './explorer/shell') return { associationOf: async () => 'default' }
         if (name === 'child_process') return { spawn: () => { throw new Error('should not spawn media exe') } }
         throw new Error(name)
       }
@@ -167,14 +169,14 @@ async function main() {
   assert.equal(Array.from(associationLaunches[3].args).join(' '), '--initialize', '編輯器已初始化過就不再重跑')
   assert.equal(storedFiles.get(initMarker), '2')
   const editorMarker = path.join(userDataPath, 'editor-associations-initialized')
-  assert.equal(storedFiles.get(editorMarker), '3')
+  assert.equal(storedFiles.get(editorMarker), '4')
   storedFiles.set(editorMarker, '2')
   initExitCodes.push(0)
   const tsHandover = { ...context, module: { exports: {} } }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/media-player.js'), 'utf8'), tsHandover)
   assert.equal(await tsHandover.module.exports.initializeAssociations(initOptions), true)
   assert.equal(Array.from(associationLaunches.at(-1).args).join(' '), '--editor --initialize', '1.46.0 的編輯器標記要再跑一次，接手 .ts')
-  assert.equal(storedFiles.get(editorMarker), '3')
+  assert.equal(storedFiles.get(editorMarker), '4')
   console.log('media-player：格式、路徑、獨立程序、開啟入口、初始化重試與背景 once PASS')
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

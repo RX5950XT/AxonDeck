@@ -19,7 +19,7 @@
  */
 
 const path = require('path')
-const { spawn } = require('child_process')
+const { runProcess } = require('../proc-broker')
 const store = require('./store')
 const files = require('./files')
 
@@ -45,45 +45,24 @@ function fail(code, message) {
  * @param {string[]} args
  * @returns {Promise<{ code: number, stdout: string }>}
  */
-function run(cwd, args) {
-  return new Promise((resolve, reject) => {
-    let child
-    try {
-      child = spawn('git', args, {
-        cwd,
-        shell: false,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_ASKPASS: '',
-          SSH_ASKPASS: '',
-          GCM_INTERACTIVE: 'Never',
-          GIT_OPTIONAL_LOCKS: '0'
-        }
-      })
-    } catch {
-      reject(fail('NO_GIT', '這台機器上找不到 git'))
-      return
+async function run(cwd, args) {
+  const res = await runProcess({
+    file: 'git',
+    args,
+    cwd,
+    timeoutMs: TIMEOUT_MS,
+    env: {
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ASKPASS: '',
+      SSH_ASKPASS: '',
+      GCM_INTERACTIVE: 'Never',
+      GIT_OPTIONAL_LOCKS: '0'
     }
-    let stdout = ''
-    const timer = setTimeout(() => {
-      child.kill()
-      reject(fail('TIMEOUT', 'git 沒有在時間內回應'))
-    }, TIMEOUT_MS)
-    child.stdout.setEncoding('utf8') // 中文路徑切在 chunk 邊界時才不會變亂碼
-    child.stdout.on('data', (chunk) => { stdout += chunk })
-    // stderr 刻意整包丟掉：裡面有遠端網址、使用者名稱，有時候還有 token
-    child.stderr.on('data', () => {})
-    child.on('error', () => {
-      clearTimeout(timer)
-      reject(fail('NO_GIT', '這台機器上找不到 git'))
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      resolve({ code: code === null ? 1 : code, stdout })
-    })
   })
+  if (res.error === 'TIMEOUT') throw fail('TIMEOUT', 'git 沒有在時間內回應')
+  if (res.error) throw fail('NO_GIT', '這台機器上找不到 git')
+  // stderr 刻意整包丟掉：裡面有遠端網址、使用者名稱，有時候還有 token
+  return { code: res.code === -1 ? 1 : res.code, stdout: res.stdout }
 }
 
 /**

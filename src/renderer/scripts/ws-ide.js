@@ -203,6 +203,13 @@ export function handleEditorKeydown(event, textarea, onDirty, onSave, onFind) {
     '`': '`'
   }
 
+  // 自動補上的右括號就在游標後面：再打一次只是跨過去，不然 `foo(` 會變成 `foo())`
+  if (start === end && [')', ']', '}'].includes(event.key) && value[start] === event.key) {
+    event.preventDefault()
+    textarea.setSelectionRange(start + 1, start + 1)
+    return
+  }
+
   if (PAIRS[event.key]) {
     const closeChar = PAIRS[event.key]
     if (start !== end) {

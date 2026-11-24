@@ -3,7 +3,7 @@
 /**
  * 走 SQLite 的兩家用量來源（Main Process）。
  *
- * - **OpenCode**：`~/.local/share/opencode/opencode.db` 的 `message` 表，
+ * - **OpenCode**：`~/.local/share/opencode/opencode.db` 的 `message` 表（2 代起是 `session_message`），
  *   `data` 是一份 JSON，assistant 訊息帶 `cost`／`tokens`／`modelID`。
  *   **自帶花費**，不必靠單價表。
  * - **Antigravity**：兩份加總，彼此不重疊（反代只收 OpenAI 協定的外部工具，CLI 自己直連上游）：
@@ -63,7 +63,7 @@ function opencodeDbPath() {
 }
 
 /**
- * OpenCode：`message` 表，只取 assistant 且帶 tokens 的那些。
+ * OpenCode：`message`（1.x）＋`session_message`（2.x）兩表，只取 assistant 且帶 tokens 的那些。
  *
  * @param {number} sinceMs 只取這之後建立的（增量游標）
  * @param {string} [dbPath]
@@ -73,11 +73,21 @@ function readOpencode(sinceMs, dbPath = opencodeDbPath()) {
   const db = openReadOnly(dbPath)
   if (!db) return []
   try {
-    const rows = db.prepare(
-      `SELECT time_created, data FROM message
-       WHERE time_created > ? AND data LIKE '%"tokens"%'
-       ORDER BY time_created ASC LIMIT ?`
-    ).all(sinceMs, MAX_ROWS)
+    // OpenCode 2 改寫 session_message（角色在 type 欄、模型在 data.model.id），舊 message 表凍結但保留。
+    // 升級只搬了大部分舊訊息（同 id、同時間戳）；壓縮摘要等約 1% 沒搬，其用量只在舊表。
+    // 所以兩表一起讀，舊表排除已搬過的 id，同一則不會算兩次。
+    const has = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name))
+    const v1 = has('message')
+    const v2 = has('session_v2') && has('session_message')
+    const parts = [
+      ...(v2 ? [`SELECT time_created, data, 'assistant' AS role FROM session_message
+        WHERE type = 'assistant' AND time_created > ? AND data LIKE '%"tokens"%'`] : []),
+      ...(v1 ? [`SELECT time_created, data, NULL AS role FROM message
+        WHERE time_created > ? AND data LIKE '%"tokens"%'${v2 ? ' AND id NOT IN (SELECT id FROM session_message)' : ''}`] : [])
+    ]
+    if (!parts.length) return []
+    const rows = db.prepare(`SELECT time_created, data, role FROM (${parts.join(' UNION ALL ')})
+      ORDER BY time_created ASC LIMIT ?`).all(...parts.map(() => sinceMs), MAX_ROWS)
 
     const events = []
     for (const row of rows) {
@@ -87,7 +97,7 @@ function readOpencode(sinceMs, dbPath = opencodeDbPath()) {
       } catch {
         continue
       }
-      if (data?.role !== 'assistant' || !data.tokens) continue
+      if ((row.role || data?.role) !== 'assistant' || !data?.tokens) continue
       // 還在跑的訊息 token 還沒寫完（實測最久 10 小時才寫完）：游標是建立時間，掃過去就不會回頭，
       // 所以停在這裡，下次從它開始。一天還沒完成的當作放棄，不讓它永遠卡住後面
       if (!data.time?.completed && Date.now() - Number(row.time_created) < UNFINISHED_WAIT_MS) break
@@ -102,7 +112,7 @@ function readOpencode(sinceMs, dbPath = opencodeDbPath()) {
       if (!input && !output && !reasoning && !cacheRead && !cacheWrite && !costUsd) continue
       events.push({
         ts: Number(row.time_created) || 0,
-        model: String(data.modelID || 'unknown'),
+        model: String(data.modelID || data.model?.id || 'unknown'),
         // OpenCode 的 input 不含 cache（實測 input 152079 / cache.read 128 / total 152528）
         input,
         output,

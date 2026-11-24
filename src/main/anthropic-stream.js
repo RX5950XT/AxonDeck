@@ -165,8 +165,11 @@ function stopReasonFor(collector) {
 
 /** @param {object} collector */
 function usageOf(collector) {
+  // 上游（OpenAI／Gemini）的輸入量已經含快取讀取；Anthropic 的 input_tokens 不含，
+  // 不扣掉的話 Claude Code 把兩個加起來，上下文用量會多算一份快取
+  const cached = collector.usage?.cached || 0
   return {
-    input_tokens: collector.usage?.input ?? 0,
+    input_tokens: Math.max(0, (collector.usage?.input ?? 0) - cached),
     output_tokens: collector.usage?.output ?? 0,
     ...(collector.usage?.cached ? { cache_read_input_tokens: collector.usage.cached } : {})
   }

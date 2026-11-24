@@ -40,6 +40,8 @@ const RUNTIME_KEYS = Object.freeze(
 
 let presetPath = ''
 let defaultModelsDir = ''
+/** router 模型 id → 'gpu' | 'partial' | 'cpu'：最近一次寫 presets 時排的位置 */
+let placement = new Map()
 /** CDP／測試用的暫存 userData（在 %TEMP%）不自動下載執行環境：一跑就是幾百 MB */
 let tempUserData = true
 /** @type {import('electron-store') | null} */
@@ -278,6 +280,7 @@ async function writePresets() {
 
   const entries = []
   const planned = []
+  const nextPlacement = new Map()
   for (const row of rows) {
     // 讀不到檔頭就整段不寫，讓 llama.cpp 自己決定——硬塞一組猜出來的參數比不寫更糟
     if (!row.info) continue
@@ -306,22 +309,26 @@ async function writePresets() {
       })
     })
     planned.push({ id: row.id, plan: decided, fit: meta.fit || null })
+    nextPlacement.set(row.id, decided.fullOffload ? 'gpu' : decided.gpuLayers > 0 ? 'partial' : 'cpu')
   }
 
   // 推薦的翻譯模型也交給同一台 router，檔案仍放原本 models/，不用複製進模型庫。
   for (const key of [...models.LLM_MODEL_KEYS, ...models.ASR_MODEL_KEYS, ...models.OCR_MODEL_KEYS]) {
     if (!models.isDownloaded(key)) continue
     const device = hardware.pickDevice(devices)?.id || 'none'
+    const ocr = models.OCR_MODEL_KEYS.includes(key)
+    nextPlacement.set(key, device === 'none' ? 'cpu' : 'gpu')
     entries.push({ id: key, args: {
       model: models.filePath(key, 'gguf'),
       // ASR 音訊約 13 token／秒，最長 2 分鐘加轉寫，4096 夠。翻譯要裝原文與譯文，用 8192。
-      'ctx-size': models.isAsrKey(key) ? '4096' : '8192', device,
-      // V 用 q8_0 必須開 flash attention，否則載入失敗
-      'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on',
+      // OCR 整頁：影像最多約 2000 token（gundam 切 16 塊）＋輸出上限 8192。
+      'ctx-size': models.isAsrKey(key) ? '4096' : ocr ? '16384' : '8192', device,
+      // Unlimited-OCR-2 的頁碼與位置從 KV cache 的 token 序列推算：只能單一序列，KV 不量化（照原作者驗證的設定）。
+      // 表格的 <tr>、</td> 是特殊 token，不開 special 會被 server 吃掉（整張表黏成一串）。
+      // 其他模型 V 用 q8_0 必須開 flash attention，否則載入失敗
+      ...(ocr ? { parallel: '1', special: 'on' } : { 'cache-type-k': 'q8_0', 'cache-type-v': 'q8_0', 'flash-attn': 'on' }),
       ...(models.MODELS[key].mmproj ? { mmproj: models.filePath(key, 'mmproj'), 'mmproj-device': device } : {}),
       reasoning: 'off', 'chat-template-kwargs': '{"enable_thinking":false}',
-      // Spotting 的座標是特殊 token；只靠 API 的 skip_special_tokens 無法讓 llama 保留它們。
-      ...(key === 'paddleocrvl16' ? { special: 'on' } : {}),
       ...(device === 'none' ? { 'gpu-layers': '0' } : {})
     } })
   }
@@ -332,6 +339,7 @@ async function writePresets() {
     // 用過的 prompt 預設存 RAM 最多 8GB：翻譯每段都不同，實測每段 +73MB 一路長；512MB 仍留得住系統提示與最近幾段
     'cache-ram': '512'
   })
+  placement = nextPlacement
   return planned
 }
 
@@ -852,6 +860,28 @@ let dashDevices = null
 // shortcut: 卡名清單 30 秒才重抓；非 NVIDIA 卡的顯存數字因此最多慢 30 秒，要即時再改讀 DXGI。
 const DASH_DEVICES_TTL_MS = 30_000
 
+/** 已經載入的模組才問：沒載過就代表那個功能沒在跑，不為了看狀態把它拉起來 */
+function loadedModule(request) {
+  return require.cache[require.resolve(request)]?.exports || null
+}
+
+/**
+ * 現在佔著顯卡的模型：router 載著的（照寫 presets 時排的位置）＋語音生成、圖片影像引擎、PDF 版面辨識。
+ * @param {Array<{ id: string, status: string }>} rows router 的模型清單
+ * @returns {Promise<Array<{ label: string, partial: boolean }>>}
+ */
+async function gpuModels(rows) {
+  const list = rows.filter((row) => row.status === 'loaded' && ['gpu', 'partial'].includes(placement.get(row.id)))
+    .map((row) => ({ label: models.MODELS[row.id]?.label || row.id, partial: placement.get(row.id) === 'partial' }))
+  const breeze = await loadedModule('../breeze-tts')?.status().catch(() => null)
+  if (breeze?.ready && breeze.backend === 'Vulkan') list.push({ label: models.MODELS.breezetts2q8.label, partial: false })
+  if (loadedModule('../miroxen')?.isRunning()) list.push({ label: '圖片影像生成引擎（Miroxen）', partial: false })
+  if (loadedModule('../pdf-translate')?.status().job?.state === 'running' && models.isDownloaded('pdfruntimegpu')) {
+    list.push({ label: models.MODELS.ppdoclayoutv3.label, partial: false })
+  }
+  return list
+}
+
 async function dashboard() {
   const status = runtime.status()
   if (!dashDevices || Date.now() - dashDevices.at > DASH_DEVICES_TTL_MS) {
@@ -862,6 +892,7 @@ async function dashboard() {
   // 指標要指名模型（router 的 /metrics 不帶 model 會 400），拿載著的第一顆
   const loaded = models.find((row) => row.status?.value === 'loaded')
   const stats = loaded ? await runtime.metrics(String(loaded.id || '')) : null
+  const rows = models.map((row) => ({ id: String(row.id || ''), status: row.status?.value || 'unloaded' }))
   return {
     running: status.running,
     port: status.port,
@@ -870,10 +901,8 @@ async function dashboard() {
     devices: occupancy.attachUtil(devices, live.gpus),
     occupancy: { cpu: live.cpu, memory: live.memory, gpus: live.gpus },
     metrics: stats,
-    models: models.map((row) => ({
-      id: String(row.id || ''),
-      status: row.status?.value || 'unloaded'
-    })),
+    models: rows,
+    gpuModels: await gpuModels(rows),
     logTail: status.running ? runtime.diagnostics() : []
   }
 }

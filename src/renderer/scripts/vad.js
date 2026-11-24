@@ -23,7 +23,11 @@ const DEFAULT_VAD_OPTIONS = {
   /** 短於此長度視為雜訊丟棄 */
   minUtteranceMs: 500,
   /** 超過此長度強制切段（連續講話不能無限等停頓） */
-  maxUtteranceMs: 6000
+  maxUtteranceMs: 6000,
+  /** 強制切段時在最後這段裡找最安靜的 frame 切，之後的音訊留給下一段；0＝原地硬切 */
+  softCutMs: 0,
+  /** 低於這句目前最大音量的這個比例也算靜音（背景音樂蓋住真靜音時才切得出句子）；0＝只看絕對門檻 */
+  relativeOff: 0
 }
 
 /**
@@ -61,6 +65,7 @@ export function createVad(options = {}) {
   const preRollSamples = toSamples(o.preRollMs)
   const minSamples = toSamples(o.minUtteranceMs)
   const maxSamples = toSamples(o.maxUtteranceMs)
+  const softCutSamples = o.softCutMs > 0 ? toSamples(o.softCutMs) : 0
 
   let speaking = false
   /** 連續低於 offThreshold 的樣本數 */
@@ -73,6 +78,8 @@ export function createVad(options = {}) {
   let preRollLength = 0
   /** 起音時帶入的 pre-roll 長度：判斷「夠不夠長」時要扣掉，否則靜音也算進語句長度 */
   let leadSamples = 0
+  /** 這句目前最大音量（緩慢衰減，才跟得上講話忽大忽小） */
+  let speechLevel = 0
 
   /**
    * @param {boolean} continuing 是否仍在同一段語音中（強制切段用）
@@ -85,10 +92,38 @@ export function createVad(options = {}) {
     silence = 0
     speaking = continuing
     leadSamples = 0
+    speechLevel = 0
     if (!continuing) {
       preRoll = []
       preRollLength = 0
     }
+    return out
+  }
+
+  /**
+   * 強制切段：回傳切出去的這段，最安靜的 frame 之後的音訊留著接下一段
+   * @returns {Float32Array}
+   */
+  function softCut() {
+    let walked = 0
+    let quietest = frames.length - 1
+    let quietestLevel = Infinity
+    for (let i = frames.length - 1; i > 0 && walked < softCutSamples; i--) {
+      walked += frames[i].length
+      const rms = frameRms(frames[i])
+      if (rms < quietestLevel) {
+        quietestLevel = rms
+        quietest = i
+      }
+    }
+    const rest = frames.slice(quietest + 1)
+    const restLength = rest.reduce((sum, f) => sum + f.length, 0)
+    const out = concatFrames(frames.slice(0, quietest + 1), length - restLength)
+    frames = rest
+    length = restLength
+    silence = 0
+    leadSamples = 0
+    speechLevel = 0
     return out
   }
 
@@ -123,7 +158,9 @@ export function createVad(options = {}) {
 
       frames.push(frame)
       length += frame.length
-      silence = level < o.offThreshold ? silence + frame.length : 0
+      speechLevel = Math.max(level, speechLevel * 0.98)
+      const offLevel = Math.max(o.offThreshold, speechLevel * o.relativeOff)
+      silence = level < offLevel ? silence + frame.length : 0
 
       if (silence >= hangoverSamples) {
         // 只算真正的語音：扣掉頭的 pre-roll 與尾的 hangover 靜音
@@ -132,7 +169,7 @@ export function createVad(options = {}) {
         return { level, utterance: enough ? out : null }
       }
       if (length >= maxSamples) {
-        return { level, utterance: cut(true) }
+        return { level, utterance: softCutSamples ? softCut() : cut(true) }
       }
       return { level, utterance: null }
     },
@@ -143,8 +180,18 @@ export function createVad(options = {}) {
       frames = []
       length = 0
       leadSamples = 0
+      speechLevel = 0
       preRoll = []
       preRollLength = 0
+    },
+
+    /** 目前這句聽到的音訊（複本）；沒在講話回 null */
+    snapshot() {
+      return speaking && length > 0 ? concatFrames(frames, length) : null
+    },
+
+    get bufferedSamples() {
+      return length
     },
 
     get speaking() {

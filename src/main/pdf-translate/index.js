@@ -150,7 +150,7 @@ function pdfRuntime() {
 }
 
 function missingModels() {
-  const missing = ['paddleocrvl16', 'ppdoclayoutv3'].filter((key) => !models.isDownloaded(key))
+  const missing = ['unlimitedocr2q8', 'ppdoclayoutv3'].filter((key) => !models.isDownloaded(key))
   if (!['pdfruntime', 'pdfruntimegpu'].some((key) => models.isDownloaded(key))) missing.push('pdfruntime')
   if (!['llamaruntime', 'llamaruntimecuda'].some((key) => models.isDownloaded(key))) missing.push('llamaruntime')
   return missing.map((key) => models.MODELS[key]?.label || key)
@@ -218,7 +218,7 @@ async function prepareModels(job) {
   hf.init({ userDataPath: app.getPath('userData'), store })
   await hf.writePresets()
   await hf.ensureRuntime()
-  if (!(await hf.refreshModels()).some((row) => row.id === 'paddleocrvl16')) await hf.applyPresets()
+  if (!(await hf.refreshModels()).some((row) => row.id === 'unlimitedocr2q8')) await hf.applyPresets()
   job.controller.signal.throwIfAborted()
   if (job.translator.local) {
     const engine = require('../engine')
@@ -242,7 +242,7 @@ async function run(job, previous) {
   // Python 不能從 asar 執行；寫出 App 自己的 worker，來源 PDF 只讀。
   await fs.writeFile(worker, appFs.readFileSync(path.join(__dirname, 'worker.py')))
   const config = { inputPath: path.join(job.dir, 'input.pdf'), outputPath: path.join(job.dir, 'result.partial.pdf'),
-    endpoint, ocrModel: 'paddleocrvl16', layoutDir: models.modelDir('ppdoclayoutv3'), ...job.request }
+    endpoint, ocrModel: 'unlimitedocr2q8', layoutDir: models.modelDir('ppdoclayoutv3'), ...job.request }
   job.runtime = pdfRuntime()
   config.layoutDevice = job.runtime.device
   const summary = await runWorker(job, worker, config)

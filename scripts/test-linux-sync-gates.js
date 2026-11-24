@@ -58,19 +58,24 @@ function miroxen() {
 
 function screenTranslate() {
   const src = fs.readFileSync(path.join(root, 'src/main/screen-translate/index.js'), 'utf8')
-  assert.match(src, /if \(process\.platform !== 'win32'\) throw fail\('UNSUPPORTED', UNSUPPORTED_MESSAGE\)/)
-  assert.match(src, /Linux 版暫不支援螢幕翻譯/)
+  assert.match(src, /captureExcludingWindow/)
+  assert.match(src, /setOpacity\(0\)/)
+  assert.doesNotMatch(src, /if \(process\.platform !== 'win32'\) throw fail\('UNSUPPORTED', UNSUPPORTED_MESSAGE\)/)
 }
 
 function ocrOverlay() {
   const models = require('../src/main/models')
-  if (process.platform === 'win32') {
-    assert.ok(models.MODELS.unlimitedocr2q8, 'Windows 照舊列 Unlimited-OCR-2')
+  if (process.platform === 'win32' || process.platform === 'linux') {
+    assert.ok(models.MODELS.unlimitedocr2q8, 'Windows／Linux 都列 Unlimited-OCR-2')
     assert.deepEqual(models.OCR_MODEL_KEYS, ['unlimitedocr2q8'])
   } else {
-    assert.equal(models.MODELS.unlimitedocr2q8, undefined, 'Linux 不列需要 Windows llama 補丁的 OCR 模型')
+    assert.equal(models.MODELS.unlimitedocr2q8, undefined)
     assert.deepEqual(models.OCR_MODEL_KEYS, [])
   }
+  const patch = fs.readFileSync(path.join(root, 'scripts/patches/unlimited-ocr2.patch'), 'utf8')
+  assert.match(patch, /unlimited-ocr2/)
+  const script = fs.readFileSync(path.join(root, 'scripts/build-unlimited-ocr2-linux.sh'), 'utf8')
+  assert.match(script, /unlimited-ocr2.patch/)
 }
 
 function terminalAdminAndWsl() {

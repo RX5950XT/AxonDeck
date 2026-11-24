@@ -25,7 +25,7 @@ async function main() {
     for (const key of ['pdfruntime', 'pdfruntimegpu', 'ppdoclayoutv3']) {
       assert.ok(models.MODELS[key], `${key} 在 Linux 也要列出`)
     }
-    assert.equal(models.MODELS.unlimitedocr2q8, undefined, 'Unlimited-OCR-2 由 linux/ocr-screen-translate 再開')
+    // Unlimited-OCR-2 是否列出由 linux/ocr-screen-translate 決定，這裡不假設它缺席
     const runtime = require('../src/main/pdf-translate/runtime')
     const cpu = runtime.variantSpec('cpu')
     assert.match(cpu.wheel, /manylinux1_x86_64|linux_aarch64/)

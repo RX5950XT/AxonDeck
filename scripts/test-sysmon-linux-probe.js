@@ -35,6 +35,33 @@ if (process.platform !== 'linux') {
   assert.ok(tick.disks.length >= 1 && /^\d+ /.test(tick.disks[0].name), '磁碟名應為「序號 裝置」')
   assert.ok(diff.disks.every((d) => Number.isFinite(d.busy)), 'io_ticks 應能算出 busy%')
   assert.ok(tick.nets.length >= 1)
+  assert.ok(tick.procs.some((p) => p.privateWorkingSet > 0), 'RssAnon 應填進 privateWorkingSet')
+  const mine = diff.processes.find((p) => p.pid === process.pid)
+  if (mine) assert.equal(typeof mine.app, 'boolean')
+}
+
+{
+  const mem = probe.parseStatusMem('Name:\tfoo\nVmRSS:\t100 kB\nVmData:\t80 kB\nRssAnon:\t60 kB\n')
+  assert.equal(mem.rss, 100 * 1024)
+  assert.equal(mem.privateMemory, 80 * 1024)
+  assert.equal(mem.privateWorkingSet, 60 * 1024)
+  assert.deepEqual(probe.parseStatusMem(''), { rss: 0, privateMemory: 0, privateWorkingSet: 0 })
+  assert.deepEqual(probe.parseWmctrlList('0x02a00003  0 4242 box Terminal\n0x02a00004  0 0 box Desktop\n'), [4242])
+  const tree = JSON.stringify({ pid: 1, nodes: [{ pid: 99, nodes: [] }], floating_nodes: [{ pid: 100 }] })
+  assert.deepEqual(probe.parseSwayTree(tree).sort((a, b) => a - b), [1, 99, 100])
+  const pids = probe.collectAppPids({
+    execFn: (file, args) => {
+      if (file === 'wmctrl') return '0x01  0 7 host App\n'
+      throw new Error('ENOENT')
+    },
+    env: {},
+    now: Date.now()
+  })
+  assert.deepEqual(pids, [7])
+  const parsed = metrics.parseTick(['T|1000', 'P|7|app|0|0|4096|0|1|0|0|0|1|/bin/app|0|2048', 'W|7'])
+  const diff = metrics.diffSamples(null, parsed, 1)
+  assert.equal(diff.processes[0].memory, 2048)
+  assert.equal(diff.processes[0].app, true)
 }
 
 {

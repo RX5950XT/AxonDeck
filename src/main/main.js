@@ -2416,10 +2416,10 @@ registerHfModelsIpc({
 })
 
 /**
- * Linux／macOS：「安裝」分頁靠 WinGet 與 Windows 解除安裝紀錄，沒有對應實作——
- * 回固定的中文說明，不去跑 winget／reg.exe。
+ * Linux：「安裝」分頁走發行版套件管理員與 Flatpak（見 app-installer/linux.js）。
+ * macOS 仍顯示說明。Windows 行為不變。
  */
-const APP_INSTALLER_UNSUPPORTED = 'Linux 版暫不支援「安裝」分頁：常用程式的安裝、更新與解除安裝靠 Windows 的 WinGet。請改用發行版的套件管理員（apt、dnf、pacman）或 Flatpak。'
+const APP_INSTALLER_UNSUPPORTED = '此平台暫不支援「安裝」分頁：常用程式的安裝、更新與解除安裝目前提供 Windows（WinGet）與 Linux（apt／dnf／pacman／zypper／Flatpak）。'
 function unsupportedAppInstaller() {
   const failNow = () => { throw Object.assign(new Error('UNSUPPORTED_PLATFORM'), { code: 'UNSUPPORTED_PLATFORM', userMessage: APP_INSTALLER_UNSUPPORTED }) }
   return {
@@ -2430,6 +2430,11 @@ function unsupportedAppInstaller() {
 }
 let appInstaller = null
 function loadAppInstaller() {
+  if (!appInstaller && process.platform === 'linux') {
+    appInstaller = require('./app-installer/linux').createLinuxInstaller({
+      notify: (state) => sendToPages('appInstaller:state', state)
+    })
+  }
   if (!appInstaller && process.platform !== 'win32') appInstaller = unsupportedAppInstaller()
   if (!appInstaller) appInstaller = require('./app-installer').createInstaller({
     cacheDir: path.join(app.getPath('userData'), 'app-installers'),

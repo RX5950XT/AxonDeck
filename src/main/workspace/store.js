@@ -110,9 +110,13 @@ function sanitizeAll(raw) {
   return out
 }
 
+function setupScriptPattern() {
+  return require('../platform').isWindows ? /\.(ps1|cmd|bat)$/i : /\.(sh|desktop)$/i
+}
+
 function normalizeSetupScript(value) {
   if (typeof value !== 'string' || !value || /[\0\r\n]/.test(value)
-    || path.isAbsolute(value) || path.win32.parse(value).root || !/\.(ps1|cmd|bat)$/i.test(value)) return ''
+    || path.isAbsolute(value) || path.win32.parse(value).root || !setupScriptPattern().test(value)) return ''
   const rel = value.replace(/\\/g, '/')
   return rel.split('/').includes('..') ? '' : rel
 }

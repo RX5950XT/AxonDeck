@@ -183,8 +183,8 @@ const MODELS = {
     }
   },
   } : {}),
-  // PDF 版面翻譯的 Python 執行環境只鎖了 Windows wheel（paddlepaddle win_amd64＋uv.exe），其他平台不列
-  ...(HOST.platform === 'win32' ? {
+  // PDF 版面翻譯的 Python 執行環境：Windows 用官方 win_amd64 wheel；Linux 用 manylinux／官方 linux wheel（見 pdf-translate/runtime.js）
+  ...((HOST.platform === 'win32' || HOST.platform === 'linux') ? {
   ppdoclayoutv3: {
     label: 'PP-DocLayoutV3 · 版面辨識',
     kind: 'ocr',

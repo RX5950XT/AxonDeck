@@ -21,14 +21,29 @@ Module._load = originalLoad
 const runtime = require('../src/main/pdf-translate/runtime')
 
 async function main() {
-  if (process.platform !== 'win32') {
-    // Linux／macOS：PDF 執行環境只鎖了 Windows wheel，registry 不列 pdfruntime／版面模型
+  if (process.platform === 'linux') {
+    for (const key of ['pdfruntime', 'pdfruntimegpu', 'ppdoclayoutv3']) {
+      assert.ok(models.MODELS[key], `${key} 在 Linux 也要列出`)
+    }
+    assert.equal(models.MODELS.unlimitedocr2q8, undefined, 'Unlimited-OCR-2 由 linux/ocr-screen-translate 再開')
+    const runtime = require('../src/main/pdf-translate/runtime')
+    const cpu = runtime.variantSpec('cpu')
+    assert.match(cpu.wheel, /manylinux1_x86_64|linux_aarch64/)
+    assert.equal(runtime.pythonExe(dir), path.join(dir, 'venv', 'bin', 'python'))
+    assert.equal(runtime.isolatedEnv(dir).HOME, path.join(dir, 'home'))
+    assert.equal(runtime.isolatedEnv(dir).USERPROFILE, undefined)
+    assert.match(runtime.uvAsset().name, /linux-gnu\.tar\.gz$/)
+    assert.doesNotMatch(runtime.wheelUrl(cpu), /win_amd64/)
+    removeTree(dir)
+    console.log('PASS Linux 列出 PDF 執行環境，路徑用 venv/bin 與 manylinux wheel')
+    return
+  } else if (process.platform !== 'win32') {
     for (const key of ['pdfruntime', 'pdfruntimegpu', 'ppdoclayoutv3', 'unlimitedocr2q8']) {
-      assert.equal(models.MODELS[key], undefined, `${key} 只在 Windows 列出`)
+      assert.equal(models.MODELS[key], undefined, `${key} 只在 Windows／Linux 列出`)
     }
     assert.deepEqual(models.OCR_MODEL_KEYS, [])
     removeTree(dir)
-    console.log('PASS 非 Windows 不列 PDF 執行環境（Windows 專用）')
+    console.log('PASS 非 Windows／Linux 不列 PDF 執行環境')
     return
   }
   try {

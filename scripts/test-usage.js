@@ -690,10 +690,10 @@ test('Antigravity models fallback 取各 family 最低 remaining 並保留用盡
     summary: null,
     models: {
       models: {
-        'claude-sonnet': { quotaInfo: { remainingFraction: 0.8, resetTime: '2026-08-21T00:00:00Z' } },
-        'claude-opus': { quotaInfo: { remainingFraction: 0.4, resetTime: '2026-08-21T01:00:00Z' } },
+        'claude-sonnet': { quotaInfo: { remainingFraction: 0.8, resetTime: '2026-08-20T14:00:00Z' } },
+        'claude-opus': { quotaInfo: { remainingFraction: 0.4, resetTime: '2026-08-20T15:00:00Z' } },
         'gemini-pro': {},
-        'gemini-flash': { quotaInfo: { remainingFraction: 0, resetTime: '2026-08-21T02:00:00Z' } }
+        'gemini-flash': { quotaInfo: { remainingFraction: 0, resetTime: '2026-08-20T16:00:00Z' } }
       }
     },
     tier: '',
@@ -705,22 +705,48 @@ test('Antigravity models fallback 取各 family 最低 remaining 並保留用盡
   ])
 })
 
-test('Antigravity 的 Gemini 4 Argon 獨立一池，不跟 Gemini 池混在一起', () => {
+test('Antigravity models fallback 看重置時間分 5h／每週，停用模型不算', () => {
+  const { applyAntigravityQuota } = require('../src/main/usage/antigravity')
+  const account = applyAntigravityQuota({
+    summary: null,
+    models: {
+      models: {
+        // 每週用掉一半後，上游單模型數字改回每週那道（2026-11-19 實測）
+        'claude-opus-5-5-high': { quotaInfo: { remainingFraction: 0.5, resetTime: '2026-08-26T20:00:00Z' } },
+        'gpt-oss-120b-medium': { quotaInfo: { remainingFraction: 0.5, resetTime: '2026-08-26T20:00:00Z' } },
+        'gemini-4-neon-high': { quotaInfo: { remainingFraction: 0.9, resetTime: '2026-08-20T15:00:00Z' } },
+        'gemini-4-carbon-disabled': { disabled: true }
+      }
+    },
+    tier: '',
+    nowMs: Date.parse('2026-08-20T12:00:00Z')
+  })
+  assert.deepEqual(account.windows.map((window) => [window.id, window.used]), [
+    ['antigravity-claude-weekly', 50],
+    ['antigravity-gemini-5h', 10]
+  ])
+})
+
+test('Antigravity 的 Gemini 4 Argon 併在 Gemini 池，說明照抄上游每池模型', () => {
   const { applyAntigravityQuota, mergeExpectedWindows } = require('../src/main/usage/antigravity')
   const account = applyAntigravityQuota({
-    summary: { groups: [
-      { displayName: 'Gemini Models', buckets: [{ bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.9 }] },
-      { displayName: 'Gemini 4 Argon', buckets: [{ bucketId: 'gemini-argon-wtu-weekly', window: 'weekly', remainingFraction: 0.4 }] }
-    ] },
-    models: { models: { 'gemini-4-argon-high': { quotaInfo: { remainingFraction: 0.4 } } } },
+    summary: { groups: [{
+      displayName: 'Gemini Models',
+      description: 'Models within this group: Gemini 4 Neon, Gemini 4 Argon',
+      buckets: [{ bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.9 }]
+    }] },
+    models: { models: { 'gemini-4-argon-high': { quotaInfo: { remainingFraction: 0.4, resetTime: '2026-10-20T03:00:00Z' } } } },
     tier: '',
     nowMs: Date.parse('2026-10-20T00:00:00Z')
   })
   assert.deepEqual(account.windows.map((window) => [window.id, window.used]), [
-    ['antigravity-gemini-weekly', 10],
-    ['antigravity-argon-weekly', 60]
+    ['antigravity-gemini-5h', 60],
+    ['antigravity-gemini-weekly', 10]
   ])
-  assert.equal(mergeExpectedWindows(account.windows, null).at(-1).id, 'antigravity-argon-weekly')
+  assert.ok(account.notes.includes('Gemini 池：Gemini 4 Neon, Gemini 4 Argon'))
+  assert.deepEqual(mergeExpectedWindows(account.windows, null).map((window) => window.id), [
+    'antigravity-claude-5h', 'antigravity-claude-weekly', 'antigravity-gemini-5h', 'antigravity-gemini-weekly'
+  ])
 })
 
 test('Antigravity 缺少 API slot 時保留舊值，沒有舊值則視為用盡', () => {

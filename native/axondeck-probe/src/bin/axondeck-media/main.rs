@@ -13,6 +13,7 @@ mod menu;
 mod queue;
 mod preferences;
 mod persistence;
+mod timeline;
 #[path = "../axondeck-term/pipe.rs"]
 #[allow(dead_code)]
 mod pipe;
@@ -102,6 +103,11 @@ struct State {
     resume_requested: bool,
     resume_allowed: bool,
     saved_at: Instant,
+    chapters: Vec<(f64, String)>,
+    remaining: bool,
+    seek_tip: HWND,
+    seek_tip_text: Vec<u16>,
+    seek_tip_label: String,
 }
 impl State {
     fn get(&self, id: u16) -> HWND { self.controls.iter().find(|(key, _)| *key == id).unwrap().1 }
@@ -114,7 +120,7 @@ impl State {
     fn load(&mut self) {
         self.save_progress(); self.resume_requested=false; self.resume_allowed=true;
         self.loaded = false; self.error = false; self.attempted_conversion = false;
-        self.metadata = Value::Null; self.video = Value::Null; self.tracks.clear();
+        self.metadata = Value::Null; self.video = Value::Null; self.tracks.clear(); self.chapters.clear();
         self.time = 0.; self.duration = 0.; self.scrub_time = None; self.opened_at = Instant::now();
         self.cancel_conversion();
         let Some(file) = self.current().map(Path::to_owned) else { self.status = "開啟檔案，或把檔案拖進來".into(); self.redraw(); return; };
@@ -131,7 +137,7 @@ impl State {
                 if self.repeat && self.files.len() == 1 && self.category != "image" { self.command(json!(["set_property", "loop-file", "inf"])); }
             }
         }
-        self.select_current();
+        self.select_current(); self.update_marks();
         self.layout(); self.redraw();
         self.slide_at = Instant::now();
     }
@@ -172,6 +178,13 @@ impl State {
                 self.notice(if self.slideshow { "開始輪播" } else { "暫停輪播" });
             },
             PLAY => self.command(json!(["cycle", "pause"])),
+            PLAY_ONLY | PAUSE_ONLY | STOP if self.category == "image" => if self.slideshow != (id == PLAY_ONLY) { self.action(PLAY); },
+            PLAY_ONLY | PAUSE_ONLY => self.command(json!(["set_property", "pause", id == PAUSE_ONLY])),
+            STOP => { self.command(json!(["set_property", "pause", true])); self.command(json!(["seek", 0, "absolute+exact"])); self.notice("已停止"); },
+            SEEK_PERCENT..=259 if self.category != "image" && self.duration > 0. => {
+                self.resume_allowed=false; let percent = (id - SEEK_PERCENT) * 10;
+                self.command(json!(["seek", percent, "absolute-percent+exact"])); self.notice(&format!("跳到 {percent}%"));
+            },
             FIT | ACTUAL => {
                 for name in ["video-zoom", "video-pan-x", "video-pan-y", "video-align-x", "video-align-y"] { self.command(json!(["set_property", name, 0])); }
                 self.command(json!(["set_property", "video-unscaled", if id == ACTUAL { "yes" } else { "no" }]));
@@ -195,7 +208,10 @@ impl State {
                 let seconds = match id { SEEK_BACK => -5, SEEK_FORWARD => 5, SEEK_FAR_BACK => -30, _ => 30 };
                 self.command(json!(["seek", seconds, "relative+exact"])); self.notice(&format!("{}{seconds} 秒", if seconds > 0 { "+" } else { "" }));
             },
-            VOL_UP | VOL_DOWN if self.category != "image" => self.command(json!(["set_property", "volume", (self.volume + if id == VOL_UP { 5. } else { -5. }).clamp(0.,100.)])),
+            VOL_UP | VOL_DOWN if self.category != "image" => {
+                let volume = (self.volume + if id == VOL_UP { 5. } else { -5. }).clamp(0.,100.);
+                self.command(json!(["set_property", "volume", volume])); self.notice(&format!("音量 {}%", volume.round() as i32));
+            },
             HOME | END if self.category == "image" && !self.files.is_empty() => { self.index = if id == HOME { 0 } else { self.files.len()-1 }; self.load(); },
             HOME => self.command(json!(["seek",0,"absolute+exact"])),
             END => self.command(json!(["seek", self.duration,"absolute+exact"])),
@@ -264,6 +280,7 @@ impl State {
             let tracks = |kind: &str| self.tracks.iter().enumerate().take(64).filter(|(_,t)| t["type"] == kind).map(|(i,t)| E::action(300+i,t["title"].as_str().or(t["lang"].as_str()).unwrap_or(kind),t["selected"].as_bool().unwrap_or(false))).collect::<Vec<_>>();
             sub.extend(tracks("sub")); items.push(E::branch("字幕",sub));
             let audio = tracks("audio"); if !audio.is_empty() { items.push(E::branch("音軌",audio)); }
+            if let Some(chapters) = self.chapter_menu() { items.push(chapters); }
         }
         items.push(E::separator());
         for (id,text,checked) in [(SHOT,"儲存畫面…\tS",false),(TOP,"視窗置頂\tCtrl+T",self.topmost),(LIST,"播放清單\tCtrl+L",self.show_queue),(HELP,"快捷鍵說明\tF1",self.show_help),(CLEAN_VIEW,"純畫面\tCtrl+H",self.clean_view)] { add(&mut items,id as usize,text,checked); }
@@ -295,6 +312,7 @@ impl State {
             214 => if let Some(file) = self.current() { registration::reveal(file); },
             215 => self.restart(),
             300..=363 => if let Some(track) = self.tracks.get((id-300) as usize) { self.command(json!(["set_property",if track["type"] == "sub" { "sid" } else { "aid" },track["id"]])); },
+            500..=563 => { self.resume_allowed=false; self.command(json!(["set_property","chapter",id as usize-timeline::CHAPTER_MENU])); },
             400..=403 => { self.slide_interval = [1,3,5,10][(id-400) as usize]; self.notice(&format!("輪播間隔：{} 秒",self.slide_interval)); },
             _ => self.action(id)
         }
@@ -379,8 +397,9 @@ impl State {
                         unsafe { SendMessageW(self.get(SEEK),message,None,Some(LPARAM(step))); }
                     }
                 }
-                self.layout();
+                self.update_marks(); self.layout();
             },
+            "chapter-list" => self.set_chapters(data),
             "pause" => {
                 self.pause = data.as_bool().unwrap_or(false);
                 if self.category != "image" { set_text(self.get(PLAY), if self.pause { "播放" } else { "暫停" }); }
@@ -460,6 +479,7 @@ impl State {
                     if self.category == "video" { if let Some(file) = self.probe.as_ref().map(|p| p.with_extension("capture.png")) { self.screenshot(&file); } }
                 },
                 Some("ui-fullscreen") => self.fullscreen(),
+                Some("ui-modern") => self.probe_modern(elapsed),
                 Some("ui-queue" | "queue-resize") => if self.probe_action.as_deref()==Some("queue-resize") { self.probe_queue_resize(); } else { self.probe_queue(); },
                 Some("defaults-close") => {
                     let (send,receive)=std::sync::mpsc::channel(); self.default_task=Some(receive);
@@ -475,6 +495,7 @@ impl State {
                 _ => {}
             }
         }
+        if self.probe_stage >= 2 && self.probe_action.as_deref() == Some("ui-modern") { self.probe_modern(elapsed); }
         if elapsed > 1.6 && self.probe_stage == 1 && self.probe_action.as_deref() == Some("ui-image") {
             self.probe_log.push(json!({"actual":self.actual,"zoom":self.zoom,"rotate":self.rotate,"pause":self.pause,"help":self.show_help,"queue":self.show_queue,"index":self.index}));
             self.action(HELP); self.action(NEXT); self.probe_stage = 2;
@@ -634,7 +655,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         },
         WM_MOUSEWHEEL => {
             let delta = ((w.0 >> 16) as u16 as i16) as f64 / 120.;
-            s.command(if s.category == "image" { json!(["add", "video-zoom", delta * 0.15]) } else { json!(["add", "volume", delta * 5.]) }); LRESULT(0)
+            if s.category == "image" { s.command(json!(["add", "video-zoom", delta * 0.15])); } else if delta != 0. { s.action(if delta > 0. { VOL_UP } else { VOL_DOWN }); } LRESULT(0)
+        },
+        msg if msg == SLIDER_HOVER => { if HWND(l.0 as _) == s.get(SEEK) { s.seek_hover((w.0 > 0).then(|| w.0 as i32 - 1)); } LRESULT(0) },
+        WM_APPCOMMAND => match timeline::app_command(((l.0 >> 16) as u16 & 0x0fff) as u32) {
+            Some(id) => { s.action(id); LRESULT(1) },
+            None => { drop(s); unsafe { DefWindowProcW(hwnd, msg, w, l) } }
         },
         WM_CONTEXTMENU => { if HWND(w.0 as _)==s.get(QUEUE_SEARCH) { s.search_menu(); } else { s.menu(); } LRESULT(0) },
         WM_DROPFILES => {
@@ -651,6 +677,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             let mut point=POINT::default(); unsafe { let _=GetCursorPos(&mut point); let _=ScreenToClient(hwnd,&mut point); }
             let mut area=RECT::default(); unsafe { let _=GetClientRect(hwnd,&mut area); }
             let edge=area.right-s.queue_width(area.right);
+            if s.hit_duration(point.x,point.y) { unsafe { if let Ok(cursor)=LoadCursorW(None,IDC_HAND) { SetCursor(Some(cursor)); } } return LRESULT(1); }
             if s.show_queue && !s.clean_view && (point.x-edge).abs()<=s.paint.px(5) {
                 unsafe { if let Ok(cursor)=LoadCursorW(None,IDC_SIZEWE) { SetCursor(Some(cursor)); } } return LRESULT(1);
             }
@@ -658,6 +685,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         },
         WM_LBUTTONDOWN | WM_MOUSEMOVE | WM_LBUTTONUP | WM_CAPTURECHANGED => {
             let x=l.0 as u16 as i16 as i32;
+            if msg==WM_LBUTTONDOWN && s.hit_duration(x,(l.0>>16) as u16 as i16 as i32) { s.remaining=!s.remaining; s.redraw_time(); return LRESULT(0); }
             let mut area=RECT::default(); unsafe { let _=GetClientRect(hwnd,&mut area); }
             if msg==WM_LBUTTONDOWN && s.show_queue && !s.clean_view && (x-(area.right-s.queue_width(area.right))).abs()<=s.paint.px(5) {
                 s.queue_drag=true; unsafe { let _=SetCapture(hwnd); }
@@ -732,7 +760,8 @@ fn run() -> windows::core::Result<()> {
             attempted_conversion: false, opened_at: Instant::now(), probe_started: Instant::now(), probe: flag("--probe=").map(PathBuf::from),
             probe_action: flag("--probe-action="), probe_stage: 0, probe_wait: flag("--probe-wait=").and_then(|v| v.parse().ok()).unwrap_or(2.5), probe_shots: 0, probe_log: vec![], offscreen, hidden, error: false,
             queue_indices:vec![],queue_query:String::new(),queue_width:276,queue_drag:false,queue_tip:vec![],search_at:None,default_task:None,
-            storage:settings_dir.map(preferences::Store::start),settings_ready:false,resume_requested:false,resume_allowed:true,saved_at:Instant::now() }));
+            storage:settings_dir.map(preferences::Store::start),settings_ready:false,resume_requested:false,resume_allowed:true,saved_at:Instant::now(),
+            chapters:vec![],remaining:false,seek_tip:HWND::default(),seek_tip_text:vec![],seek_tip_label:String::new() }));
         let mut s = state.borrow_mut();
         let image = s.files.first().and_then(|p| kind(p)).as_deref() == Some("image");
         let audio = s.files.first().and_then(|p| kind(p)).as_deref() == Some("audio");
@@ -784,6 +813,7 @@ fn run() -> windows::core::Result<()> {
             SendMessageW(control, WM_SETFONT, Some(WPARAM(s.paint.normal.0 as usize)), Some(LPARAM(1)));
             let _ = SetWindowTheme(control, if dark { w!("DarkMode_Explorer") } else { w!("Explorer") }, None);
         }
+        s.seek_tip = timeline::seek_tip(hwnd);
         position(s.get(VOLUME), 80);
         SendMessageW(s.get(VOLUME),TBM_SETLINESIZE,None,Some(LPARAM(5)));
         SendMessageW(s.get(VOLUME),TBM_SETPAGESIZE,None,Some(LPARAM(10)));

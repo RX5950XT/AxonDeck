@@ -29,9 +29,10 @@ function createManager({ session, list, change, checkUpdates, installLocal, open
   ipcMain.handle('browserExtensions:updates', (event) => invoke(event, checkUpdates))
   ipcMain.handle('browserExtensions:installLocal', (event) => invoke(event, () => installLocal(BrowserWindow.fromWebContents(event.sender.hostWebContents || event.sender))))
   ipcMain.handle('browserExtensions:store', (event) => invoke(event, () => openStore(event.sender)))
-  function open(id = '', source) {
+  function open(id = '', source, view = 'list') {
     const url = new URL(EXTENSIONS_PAGE_URL)
-    url.searchParams.set('extension', /^[a-p]{32}$/.test(id) ? id : '')
+    if (view === 'shortcuts') url.searchParams.set('view', 'shortcuts')
+    else url.searchParams.set('extension', /^[a-p]{32}$/.test(id) ? id : '')
     url.searchParams.set('theme', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
     return openUrl(url.href, source).then(() => undefined)
   }

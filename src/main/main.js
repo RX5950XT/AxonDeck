@@ -3,6 +3,7 @@ const {
   Menu, Tray, nativeImage, protocol, webContents, net
 } = require('electron')
 const path = require('path')
+const { DEV_URL } = require('./dev-url')
 const fs = require('fs')
 
 /**
@@ -20,6 +21,12 @@ if (adminHostArg) {
   app.setPath('userData', path.join(app.getPath('temp'), 'axondeck-admin-host'))
   require('./terminal/admin-host').run(adminHostArg.slice(ADMIN_HOST_FLAG.length))
   return
+}
+
+// 圖片可重建快取採固定上限；不限制 WebGL、影片解碼或 AI 模型記憶體。
+// Chromium 桌面預設可達 256 MiB，多個常駐程式會各留一份。
+if (!app.commandLine.hasSwitch('force-gpu-mem-discardable-limit-mb')) {
+  app.commandLine.appendSwitch('force-gpu-mem-discardable-limit-mb', '64')
 }
 
 const models = require('./models')
@@ -41,6 +48,7 @@ const TTS_PREVIEW_TEXT = Object.freeze({
 })
 const { registerUsageIpc } = require('./usage/ipc')
 const { registerAgyIpc } = require('./agy/ipc')
+const { registerGrokProxyIpc } = require('./grokproxy/ipc')
 const { registerTerminalIpc } = require('./terminal/ipc')
 // 只用來驗 store 裡的桌布檔名（不碰 node-pty，載進來不影響啟動時間）
 const termBackground = require('./terminal/background')
@@ -49,7 +57,7 @@ const { registerWorkspaceIpc } = require('./workspace/ipc')
 const workspaceMedia = require('./workspace/media')
 const extensionManager = require('./browser-extension-manager')
 // 自訂協定的權限只能在 app ready 之前宣告
-protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, extensionManager.PRIVILEGES])
+protocol.registerSchemesAsPrivileged([workspaceMedia.PRIVILEGES, workspaceMedia.PREVIEW_PRIVILEGES, extensionManager.PRIVILEGES])
 const { registerSysmonIpc } = require('./sysmon/ipc')
 const { registerHfModelsIpc } = require('./hfmodels/ipc')
 const { registerCloudTtsIpc } = require('./cloud-tts/ipc')
@@ -104,6 +112,7 @@ const loadGpu = lazyLoad('./gpu-capability')
 const loadCudaEnv = lazyLoad('./cuda-env')
 
 let agyMod = null
+let grokProxyMod = null
 let dictationMod = null
 let terminalMod = null
 let workspaceMod = null
@@ -166,6 +175,9 @@ function sendToPages(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
   pageWindows?.broadcast(channel, payload)
 }
+// 功能頁自己判斷不了 App 在不在前景：焦點進 webview 時，頁面也算失焦（Telegram 靠這個決定要不要維持前景）
+app.on('browser-window-focus', () => pageWindows?.broadcast('pages:appFocus', true))
+app.on('browser-window-blur', () => pageWindows?.broadcast('pages:appFocus', false))
 // 字幕視窗
 let subtitleWindow = null
 // 系統匣圖示（第一次縮到背景才建立）
@@ -176,7 +188,7 @@ const mediaPlayer = require('./media-player')
 mediaPlayer.setThemeGetter(() => store?.get('theme') || 'dark')
 const editorWindow = require('./editor-window')
 const browserWindow = require('./browser-window')
-mediaPlayer.setEditorOpener((file) => editorWindow.open(file))
+mediaPlayer.setEditorOpener((file, opts) => editorWindow.open(file, opts))
 editorWindow.registerIpc()
 /** 正在執行 before-quit 卸載 */
 let isQuitting = false
@@ -264,7 +276,8 @@ app.on('second-instance', (_event, argv, _cwd, data) => {
 /** 命令列帶來的檔案：編輯器不接的格式（或開失敗）退回叫出主視窗，不吞掉這次點擊 */
 function openFromShell(file) {
   if (!app.isReady()) return
-  editorWindow.open(file)
+  // 從 Windows「開啟方式」指名編輯器：HTML／CSV 這些不搶預設的格式也收
+  editorWindow.open(file, { openWith: true })
     .then((opened) => { if (!opened) showMainWindow() })
     .catch((err) => { console.warn('[editor] open failed:', err?.code || 'OPEN_FAILED'); showMainWindow() })
 }
@@ -287,6 +300,8 @@ const STORE_ALLOWLIST = new Set([
   'translateGlossaryBuiltin',
   // 文字轉語音的讀音字典：[{ word, sound }]
   'speechPronunciations',
+  // 文字轉語音頁的草稿：稿子與聲音設定（speech-draft.js 校驗）
+  'speechDraft',
   'captionDisplayMode',
   'screenTranslateDisplayMode',
   'asrEngine',
@@ -300,7 +315,7 @@ const STORE_ALLOWLIST = new Set([
   'theme',
   'closeToTray',
   'autoUpdate',
-  // Telegram 頁多開的每一格停在哪（網址），renderer 那邊不存 localStorage：
+  // Telegram 多開的每一格停在哪（網址），renderer 那邊不存 localStorage：
   // 結束走 app.exit()，localStorage 最後幾秒的寫入會掉
   'telegramPanes',
   'subtitleFontScale',
@@ -322,7 +337,6 @@ const STORE_ALLOWLIST = new Set([
   'chatImageOptions',
   // 新對話的取樣參數預設值（每個對話自己那份存在 chats.json）
   'chatParams',
-  'sysmonInterval',
   'sysmonSort',
   'sysmonSensors',
   'dictationEnabled',
@@ -452,6 +466,19 @@ async function loadAgy() {
     agyMod.configure({ userDataPath: app.getPath('userData'), store })
   }
   return agyMod
+}
+
+/**
+ * 第一次用到 Grok 反代才載模組並開 SQLite。
+ * @returns {Promise<object>}
+ */
+async function loadGrokProxy() {
+  await initStore()
+  if (!grokProxyMod) {
+    grokProxyMod = require('./grokproxy')
+    grokProxyMod.configure({ userDataPath: app.getPath('userData'), store })
+  }
+  return grokProxyMod
 }
 
 /**
@@ -687,6 +714,11 @@ function scheduleBackgroundServices() {
       // 閘道沒有手動開關了：目前那家要經閘道就跟著 App 一起開，不然 Claude Code 連不上
       void loadCcSwitch().autoStartGateway()
         .catch((err) => console.warn('[ccswitch] gateway autoStart failed:', err?.code || err?.message))
+      if (store.get('grokProxyEnabled') === true) {
+        void loadGrokProxy().then((service) => service.autoStart())
+          .then((result) => { if (!result.ok) console.warn('[grok-proxy] autoStart failed:', result.error) })
+          .catch((err) => console.warn('[grok-proxy] autoStart error:', err?.code || err?.message))
+      }
       if (store.get('agyEnabled') !== true) return { ok: false, error: 'DISABLED' }
       return loadAgy().then((service) => service.autoStart())
     })
@@ -724,6 +756,31 @@ function sanitizeSubtitleBounds(raw) {
     x: coord(src.x),
     y: coord(src.y)
   }
+}
+
+const PAGE_USE_DAYS = 7
+/** 這次開機已記過的頁：每個 store.set 都是同步寫檔，同一頁一次開機只記一次 */
+const pageUseLogged = new Set()
+
+/** @returns {Record<string, number>} 頁 → 最後使用時間（store 讀出來的要驗過） */
+function readPageUse() {
+  const raw = store?.get('pageUse', {})
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).filter(([page, at]) => /^\w{1,32}$/.test(page) && Number.isFinite(at)))
+}
+
+/** @param {string} page */
+function rememberPageUse(page) {
+  if (!store || pageUseLogged.has(page)) return
+  pageUseLogged.add(page)
+  store.set('pageUse', { ...readPageUse(), [page]: Date.now() })
+}
+
+/** 最近 7 天用過、還沒開的頁，最近用的排前面（chat 開機就載了） */
+function recentPages() {
+  const since = Date.now() - PAGE_USE_DAYS * 24 * 60 * 60 * 1000
+  return Object.entries(readPageUse()).filter(([page, at]) => page !== 'chat' && at >= since)
+    .sort((a, b) => b[1] - a[1]).map(([page]) => page)
 }
 
 /**
@@ -982,7 +1039,7 @@ function createMainWindow() {
   mainWindow.setMenu(null)
   pageWindows = require('./page-windows').createPageWindows({
     main: mainWindow, isDev, icon: APP_ICON, background: mainBackgroundColor,
-    secure: attachWindowSecurity, hidden: startHidden
+    secure: attachWindowSecurity, hidden: startHidden, onShown: rememberPageUse
   })
 
   mainWindow.once('ready-to-show', () => {
@@ -996,12 +1053,16 @@ function createMainWindow() {
       // 要排在第一頁之後：功能頁切換以最後一次為準，先導過去會被這裡的 chat 蓋掉
       if (startupReveal) void revealInFiles(startupReveal)
       startupReveal = ''
+      // 開機忙完再預載最近 7 天用過的頁（最近用的先載）
+      setTimeout(() => {
+        void initStore().then(() => pageWindows?.prewarm(recentPages())).catch(() => {})
+      }, 8000).unref?.()
     })
   })
 
   // 載入頁面（先掛事件，避免 loadFile 太快把 ready-to-show 漏掉）
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173/?host=1')
+    mainWindow.loadURL(`${DEV_URL}/?host=1`)
     if (!startHidden) mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { host: '1' } })
@@ -1059,7 +1120,7 @@ function createMainWindow() {
  * 把那個視窗叫到前面。功能頁還沒建好或開不起來才退回系統瀏覽器。
  * @param {string} url 已確認是 http(s)
  * @param {string} [project] 要開在哪個專案（專案腳本開的網址）；空字串＝目前的專案
- * @param {'' | 'browser'} [target] 'browser'＝從 AI 頁以外點的（Telegram 等），開在 Browser 模式
+ * @param {'' | 'browser'} [target] 'browser'＝從 Telegram 或 AI 頁以外點的，開在 Browser 模式
  */
 function openInProjectBrowser(url, project = '', target = '', sourceGuestId = 0) {
   const outside = () => {
@@ -1090,6 +1151,8 @@ scriptLaunch.setOpenUrl(openInProjectBrowser)
  * @returns {'' | 'browser'}
  */
 function linkTarget(contents) {
+  // Telegram 跟對話同一頁，但它不是對話：連結一樣開在 Browser 模式
+  if (contents.session === session.fromPartition('persist:telegram')) return 'browser'
   const chat = pageWindows?.contents('chat')
   return chat && (contents === chat || contents.hostWebContents === chat) ? '' : 'browser'
 }
@@ -1115,7 +1178,7 @@ function attachWindowSecurity(win) {
     try {
       const target = new URL(url)
       const current = new URL(win.webContents.getURL())
-      if (isDev && target.origin === 'http://localhost:5173') return
+      if (isDev && target.origin === DEV_URL) return
       // 只有同一份 App 頁面能保留 preload；任意本機 HTML 也不可信。
       if (target.protocol === 'file:' && target.origin === current.origin
         && target.host === current.host && target.pathname === current.pathname) return
@@ -1196,7 +1259,7 @@ function createSubtitleWindow() {
   attachWindowSecurity(subtitleWindow)
 
   if (isDev) {
-    subtitleWindow.loadURL('http://localhost:5173/pages/subtitle.html')
+    subtitleWindow.loadURL(`${DEV_URL}/pages/subtitle.html`)
   } else {
     subtitleWindow.loadFile(path.join(__dirname, '../renderer/pages/subtitle.html'))
   }
@@ -1330,6 +1393,12 @@ ipcMain.handle('store:set', async (event, key, value) => {
   // ttsVoices 深度校驗（五語 + allowlist shortName）
   if (key === 'ttsVoices') {
     store.set(key, sanitizeTtsVoices(value))
+    return true
+  }
+  if (key === 'speechDraft') {
+    const clean = require('./speech-draft').sanitizeSpeechDraft(value)
+    if (clean) store.set(key, clean)
+    else store.delete(key)
     return true
   }
   if (key === 'speechPronunciations') {
@@ -1712,6 +1781,7 @@ ipcMain.handle('dictation:hudState', (event, payload) => {
 
 ipcMain.handle('dictation:hudAction', (event, action) => {
   if (!dictationHud.isSender(event)) return false
+  if (action === 'pointerIn' || action === 'pointerOut') return dictationHud.setPointerOver(action === 'pointerIn')
   if (action !== 'cancel' && action !== 'stop') return false
   if (!mainWindow || mainWindow.isDestroyed()) return false
   // 走跟全域熱鍵同一條路：主視窗的 dictation.js 已經在處理 stop／cancel
@@ -1774,9 +1844,9 @@ ipcMain.handle('models:download', async (event, key) => {
 ipcMain.handle('models:cancel', (event, key) => models.cancelDownload(key))
 
 ipcMain.handle('models:delete', async (event, key) => {
-  if (pdfTranslateMod && ['paddleocrvl16', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
+  if (pdfTranslateMod && ['unlimitedocr2q8', 'ppdoclayoutv3', 'pdfruntime', 'pdfruntimegpu', 'llamaruntime', 'llamaruntimecuda',
     ...models.LLM_MODEL_KEYS].includes(key)) pdfTranslateMod.assertIdle()
-  if (screenTranslateMod && ['paddleocrvl16', 'llamaruntime', 'llamaruntimecuda', ...models.LLM_MODEL_KEYS].includes(key)) screenTranslateMod.assertIdle()
+  if (screenTranslateMod && ['unlimitedocr2q8', 'llamaruntime', 'llamaruntimecuda', ...models.LLM_MODEL_KEYS].includes(key)) screenTranslateMod.assertIdle()
   if (['breezetts2q8', 'breezeruntime'].includes(key) && breezeMod) await breezeMod.shutdown()
   if ((key === 'miroxenruntime' || models.MIROXEN_MODEL_KEYS.includes(key)) && miroxenMod) await miroxenMod.stop()
   return models.remove(key)
@@ -2072,6 +2142,25 @@ registerAgyIpc({
   isMainSender: assertMainWindowSender
 })
 
+// ===== Grok 反向代理 =====
+// 同 AGY：grokProxy* 設定不進 STORE_ALLOWLIST，renderer 只能透過 grokProxy:* 操作。
+registerGrokProxyIpc({
+  ipcMain,
+  service: {
+    status: async (...args) => (await loadGrokProxy()).status(...args),
+    start: async (...args) => (await loadGrokProxy()).start(...args),
+    stop: async (...args) => (await loadGrokProxy()).stop(...args),
+    saveSettings: async (...args) => (await loadGrokProxy()).saveSettings(...args),
+    regenerateApiKey: async (...args) => (await loadGrokProxy()).regenerateApiKey(...args),
+    getLogs: async (...args) => (await loadGrokProxy()).getLogs(...args),
+    getStats: async (...args) => (await loadGrokProxy()).getStats(...args),
+    listModels: async (...args) => (await loadGrokProxy()).listModels(...args),
+    clearLogs: async (...args) => (await loadGrokProxy()).clearLogs(...args),
+    selfTest: async (...args) => (await loadGrokProxy()).selfTest(...args)
+  },
+  isMainSender: assertMainWindowSender
+})
+
 // ===== 終端機 =====
 let agentNotifier = null
 /** 背景 agent 的系統通知；第一次要通知才載入 */
@@ -2166,6 +2255,15 @@ registerWorkspaceIpc({
     renameEntry: (...args) => loadWorkspace().renameEntry(...args),
     moveEntry: (...args) => loadWorkspace().moveEntry(...args),
     importDropped: (...args) => loadWorkspace().importDropped(...args),
+    // 檔案頁剪下／複製的東西貼進專案：目的地照工作區規矩解析，搬檔交給檔案頁的操作中心
+    pasteClipboard: async (id, relDir, systemPaths) => (
+      loadExplorer().pasteAny(await loadWorkspace().dirPath(id, relDir), systemPaths)
+    ),
+    // 叫發起的頁面自己跑一次「貼上」：renderer 的 paste 事件才拿得到 Windows 複製的整份檔案清單
+    triggerPaste: (sender) => {
+      if (sender && !sender.isDestroyed()) sender.paste()
+      return true
+    },
     removeEntry: (...args) => loadWorkspace().removeEntry(...args),
     searchFiles: (...args) => loadWorkspace().searchFiles(...args),
     listFiles: (...args) => loadWorkspace().listFiles(...args),
@@ -2214,7 +2312,6 @@ registerExplorerIpc({
   service: {
     bootstrap: (...args) => loadExplorer().bootstrap(...args),
     saveState: (...args) => loadExplorer().saveState(...args),
-    listPlaces: (...args) => loadExplorer().listPlaces(...args),
     savePlaces: (...args) => loadExplorer().savePlaces(...args),
     addPlace: (...args) => loadExplorer().addPlace(...args),
     removePlace: (...args) => loadExplorer().removePlace(...args),
@@ -2240,8 +2337,6 @@ registerExplorerIpc({
     restoreEntry: (...args) => loadExplorer().restoreEntry(...args),
     purgeEntry: (...args) => loadExplorer().purgeEntry(...args),
     emptyRecycle: (...args) => loadExplorer().emptyRecycle(...args),
-    copyEntry: (...args) => loadExplorer().copyEntry(...args),
-    moveEntry: (...args) => loadExplorer().moveEntry(...args),
     openPath: (...args) => loadExplorer().openPath(...args),
     fileIcon: (...args) => loadExplorer().fileIcon(...args),
     startDrag: (...args) => loadExplorer().startDrag(...args),
@@ -2255,6 +2350,7 @@ registerExplorerIpc({
     linuxChmod: (...args) => loadExplorer().linuxChmod(...args),
     copyImage: (...args) => loadExplorer().copyImage(...args),
     setClipboard: (...args) => loadExplorer().setClipboard(...args),
+    clipboardState: (...args) => loadExplorer().clipboardState(...args),
     paste: (...args) => loadExplorer().paste(...args),
     dropEntries: (...args) => loadExplorer().dropEntries(...args),
     operationCancel: (...args) => loadExplorer().operationCancel(...args),
@@ -2302,7 +2398,6 @@ registerHfModelsIpc({
     setToken: (...args) => loadHfModels().setToken(...args),
     tokenStatus: (...args) => loadHfModels().tokenStatus(...args),
     hardwareInfo: (...args) => loadHfModels().hardwareInfo(...args),
-    runtimeReady: (...args) => loadHfModels().runtimeReady(...args),
     runtimeStatus: (...args) => loadHfModels().runtimeStatus(...args),
     // router 起停都要同步「聊天看得到哪幾顆」，不然選單會停在上一輪的狀態
     startRuntime: async (...args) => {
@@ -2320,7 +2415,6 @@ registerHfModelsIpc({
     applyPresets: (...args) => { assertModelWorkIdle(); return loadHfModels().applyPresets(...args) },
     loadModel: (...args) => loadHfModels().loadModel(...args),
     unloadModel: (...args) => { assertModelWorkIdle(); return loadHfModels().unloadModel(...args) },
-    refreshModels: () => refreshHfLocalModels().then(() => loadHfModels().refreshModels()),
     dashboard: (...args) => loadHfModels().dashboard(...args)
   },
   isMainSender: assertMainWindowSender
@@ -2461,6 +2555,9 @@ registerSysmonIpc({
   ipcMain,
   service: {
     status: (...args) => loadSysmon().status(...args),
+    appResources: () => require('./app-resources').collectAppResources({
+      app, webContents, sysmon: loadSysmon(), pageLabels: require('./page-windows').pageLabels
+    }),
     start: (...args) => loadSysmon().start(...args),
     stop: (...args) => loadSysmon().stop(...args),
     idle: (...args) => loadSysmon().idle(...args),
@@ -2593,8 +2690,7 @@ registerCodeUsageIpc({
   service: {
     stats: (...args) => loadCodeUsage().stats(...args),
     sync: (...args) => loadCodeUsage().sync(...args),
-    savePrices: (...args) => loadCodeUsage().savePrices(...args),
-    reset: (...args) => loadCodeUsage().reset(...args)
+    savePrices: (...args) => loadCodeUsage().savePrices(...args)
   },
   isMainSender: assertMainWindowSender
 })
@@ -2631,14 +2727,15 @@ let browserExtensions = null
  * @param {Electron.BrowserWindow | null} parent
  * @param {Electron.Rectangle} [anchor] popup 要對齊的位置（視窗內座標），沒給就靠右上
  */
-function browserExtensionItems(tab, parent, anchor) {
+function browserExtensionItems(tab, parent, anchor, only) {
   if (!browserExtensions) return []
   const notify = (message) => {
     const opts = { type: 'info', title: '擴充功能', message }
     ;(parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)).catch(() => {})
   }
   const width = parent && !parent.isDestroyed() ? parent.getContentBounds().width : 800
-  return browserExtensions.menuItems({ tab, parent, notify, anchor: anchor || { x: width - 48, y: 40, width: 32, height: 32 } })
+  return browserExtensions.menuItems({ tab, parent, notify, anchor: anchor || { x: width - 48, y: 40, width: 32, height: 32 },
+    only: typeof only === 'string' ? only : '' })
 }
 
 /** 畫面傳來的瀏覽器 webview id：只認掛在這個視窗裡的 guest */
@@ -2654,10 +2751,10 @@ function anchorRect(anchor) {
     : undefined
 }
 
-ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor) => {
+ipcMain.handle('workspace:extensionsMenu', (event, guestId, anchor, extensionId) => {
   if (!assertMainWindowSender(event)) return false
   const parent = BrowserWindow.fromWebContents(event.sender)
-  Menu.buildFromTemplate(browserExtensionItems(senderGuest(event, guestId), parent, anchorRect(anchor))).popup(parent ? { window: parent } : {})
+  Menu.buildFromTemplate(browserExtensionItems(senderGuest(event, guestId), parent, anchorRect(anchor), extensionId)).popup(parent ? { window: parent } : {})
   return true
 })
 
@@ -2682,12 +2779,20 @@ ipcMain.handle('browserWindow:extensionActivate', (event, extensionId, anchor) =
   browserExtensions.activate(extensionId, page, rect)
   return true
 })
-ipcMain.handle('browserWindow:extensionsMenu', (event, anchor) => {
+ipcMain.handle('browserWindow:extensionsMenu', (event, anchor, extensionId) => {
   const page = browserWindow.pageOf(event.sender)
   const win = browserWindow.windowOf(event.sender)
   if (!page || !win) return false
-  Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor))).popup({ window: win })
+  Menu.buildFromTemplate(browserExtensionItems(page, win, anchorRect(anchor), extensionId)).popup({ window: win })
   return true
+})
+ipcMain.handle('browserWindow:extensionShortcuts', (event) => (
+  browserWindow.pageOf(event.sender) && browserExtensions ? browserExtensions.localShortcuts() : []
+))
+ipcMain.handle('browserWindow:extensionRunShortcut', (event, input) => {
+  const page = browserWindow.pageOf(event.sender)
+  if (!page || !browserExtensions || !input || typeof input !== 'object') return false
+  return browserExtensions.triggerShortcut(input, page)
 })
 
 // 工具列圖示列：圖示、標題、徽章；按下去開 popup（或送 action.onClicked）
@@ -2704,8 +2809,18 @@ ipcMain.handle('workspace:extensionActivate', (event, guestId, extensionId, anch
   return true
 })
 
+ipcMain.handle('workspace:extensionShortcuts', (event) => (
+  assertMainWindowSender(event) && browserExtensions ? browserExtensions.localShortcuts() : []
+))
+
+ipcMain.handle('workspace:extensionRunShortcut', (event, guestId, input) => {
+  const tab = assertMainWindowSender(event) ? senderGuest(event, guestId) : null
+  if (!tab || !browserExtensions || !input || typeof input !== 'object') return false
+  return browserExtensions.triggerShortcut(input, tab)
+})
+
 /**
- * 網頁的右鍵選單＋F5（瀏覽器分頁多一組「擴充功能」）。webview 與彈出視窗的網頁共用。
+ * 網頁的右鍵選單＋F5（瀏覽器分頁多一組「擴充功能」與瀏覽器快捷鍵）。webview 與彈出視窗的網頁共用。
  * @param {Electron.WebContents} contents
  * @param {() => BrowserWindow | null} hostWindow
  * @param {boolean} isBrowser
@@ -2714,10 +2829,32 @@ function attachWebMenu(contents, hostWindow, isBrowser) {
   require('./web-context-menu').attachWebContextMenu(contents, {
     openUrl: openInProjectBrowser,
     isWebUrl,
+    reloadKeys: !isBrowser,
     extraItems: isBrowser ? (params) => [
       ...(browserExtensions?.contextMenuItems(contents, params) || []),
       { label: '擴充功能', submenu: browserExtensionItems(contents, hostWindow()) }
     ] : undefined
+  })
+  if (!isBrowser) return
+  const { isExtensionShortcutsUrl } = require('../shared/browser-url.mjs')
+  const { shortcutFromInput } = require('./crx-commands')
+  require('./browser-shortcuts').attachBrowserShortcuts(contents, {
+    shouldSkip: (input, url) => (
+      (isExtensionShortcutsUrl(url) && Boolean(shortcutFromInput(input)))
+      || Boolean(browserExtensions?.hasCommandShortcut(input, url))
+    ),
+    onHostAction: (matched, tab) => {
+      const host = tab.hostWebContents
+      if (host && !host.isDestroyed()) {
+        if (matched.focusHost) host.focus()
+        host.send('workspace:browserShortcut', matched.action, tab.id)
+        return
+      }
+      const bar = browserWindow.barOf(tab)
+      if (!bar || bar.isDestroyed()) return
+      if (matched.focusHost) bar.focus()
+      bar.send('browserWindow:shortcut', matched.action)
+    }
   })
 }
 
@@ -2738,9 +2875,18 @@ app.on('web-contents-created', (_event, contents) => {
     attachWebMenu(contents, hostWindow, isBrowser)
     if (!isBrowser) require('./ai-web').installRenderBoost(contents, aiWebPartitions.get(contents.session).slice('persist:ai-'.length))
   }
+  // Telegram：訊息上的右鍵 Web A 自己接（複製所選文字等）；其他地方（輸入框、標題、連結、反白的字）沒選單，補上同一套
+  if (contents.getType() === 'webview' && contents.session === session.fromPartition('persist:telegram')) {
+    attachWebMenu(contents, () => null, false)
+  }
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
   if (contents.getType() === 'webview') {
+    // 內嵌網頁的反白跟 App 一致。user 來源＋!important 才蓋得過網站自己寫的 ::selection
+    contents.on('dom-ready', () => {
+      contents.insertCSS('::selection { background: rgba(120, 163, 181, 0.35) !important; }', { cssOrigin: 'user' })
+        .catch((error) => console.warn('[webview] 反白樣式注入失敗:', error?.message))
+    })
     contents.on('before-mouse-event', (_e, input) => {
       if (input.type !== 'mouseUp' || (input.button !== 'back' && input.button !== 'forward')) return
       const back = input.button === 'back'
@@ -2774,7 +2920,7 @@ app.on('web-contents-created', (_event, contents) => {
       void browserWindow.open(url, '', null, 0, true)
       return { action: 'deny' }
     }
-    // Telegram 等 AI 頁以外的 webview 點的連結開在 Browser 模式
+    // Telegram 的 webview 點的連結開在 Browser 模式（linkTarget）
     if (isWebUrl(url)) openInProjectBrowser(url, '', linkTarget(contents))
     return { action: 'deny' }
   })
@@ -2809,12 +2955,21 @@ app.whenReady().then(() => {
     onActionsChanged: () => {
       sendToPages('workspace:extensionsChanged')
       browserWindow.broadcast('browserWindow:extensionsChanged')
+    },
+    // 快速鍵開 popup：請那個分頁的工具列從擴充功能圖示的位置彈出
+    openActionPopup: (extensionId, tab) => {
+      const host = tab.hostWebContents
+      if (host && !host.isDestroyed()) host.send('workspace:extensionCommand', extensionId, tab.id)
+      else browserWindow.barOf(tab)?.send('browserWindow:extensionCommand', extensionId)
     }
   })
-  // uBlock Origin Lite、Raindrop.io、Infinity New Tab Pro、ScriptCat、Read Frog
+  // uBlock Origin Lite、Raindrop.io、Infinity New Tab Pro、ScriptCat、Read Frog、
+  // Bitwarden、最終啟用右鍵、Dark Reader、SponsorBlock（後加的 ID 舊使用者下次啟動也會補裝一次）
   const DEFAULT_EXTENSIONS = [
     'ddkjiahejlhfcafbddmgiahcphecmpfh', 'ldgfbffkinooeloadekpmfoklnobpien', NEWTAB_EXTENSION_ID,
-    'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb'
+    'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb',
+    'nngceckbapebfimnlniiiahkandclblb', 'emfeppdfcjnldjgmofdkbggeacapegen',
+    'eimadpbcbfnmbkopoojfekhnkhdbieeh', 'mnjggcdmjocbbbhaepdhchncahnbgone'
   ]
   browserExtensions.loadInstalled()
     .catch((error) => console.warn('[browser-ext] 載入失敗:', error))
@@ -2830,8 +2985,11 @@ app.whenReady().then(() => {
   // （跟檔案總管讀檔同一個入口，沒有放寬任何範圍），拿不到就丟例外 → 協定回 404。
   workspaceMedia.register(
     protocol,
-    (projectId) => loadWorkspace().rootOf(projectId),
-    (full) => require('./explorer/paths').resolveExisting(full)
+    // 獨立編輯視窗的 HTML 預覽借同一套站台，根目錄是那扇窗的檔案所在資料夾
+    async (projectId) => projectId.startsWith(editorWindow.SITE_PREFIX) ? editorWindow.siteRoot(projectId) : loadWorkspace().rootOf(projectId),
+    (full) => require('./explorer/paths').resolveExisting(full),
+    // 獨立編輯視窗開的是任意檔案（下載資料夾的 HTML 也算）：預覽走不開 CORS 的 vi-preview，腳本讀不到同資料夾的檔案
+    (projectId) => projectId.startsWith(editorWindow.SITE_PREFIX)
   )
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] })
@@ -2860,8 +3018,11 @@ app.whenReady().then(() => {
     secure: attachWindowSecurity,
     theme: () => store?.get('theme') || 'dark',
     imageBase: (file) => workspaceMedia.localBaseFor(file),
-    forceClose: () => sessionEnding
+    forceClose: () => sessionEnding,
+    reveal: (file) => void revealInFiles(file)
   })
+  // 網站要 HTTP 帳密時跳登入小窗（沒接的話 Electron 直接取消、網頁只看到 401）
+  require('./http-auth-prompt').install(app, { icon: APP_ICON, theme: () => store?.get('theme') || 'dark' })
   browserWindow.configure({
     isDev,
     icon: APP_ICON,
@@ -2901,6 +3062,7 @@ app.whenReady().then(() => {
     }
   })
   migrateLoginItemName()
+  setImmediate(() => models.removeRetired())
   initStore()
     .then(() => {
       // 更新檢查要等 store（自動更新開關存在裡面）；延後 20 秒讓開機那陣忙完再說
@@ -2921,7 +3083,7 @@ app.whenReady().then(() => {
         console.error('[screentime] start failed:', err?.message || err)
       }
       const sysmon = loadSysmon()
-      try { sysmon.start(store?.get('sysmonInterval'), { background: true }) } catch (err) {
+      try { sysmon.start('normal', { background: true }) } catch (err) {
         console.error('[sysmon] sampler start failed:', err?.message || err)
       }
       const fansOn = store?.get('fanControl')?.enabled === true
@@ -3017,11 +3179,12 @@ app.on('before-quit', (e) => {
     ? Promise.resolve(screentimeMod.shutdown()).catch((err) => console.error('[screentime] shutdown failed:', err))
     : Promise.resolve()
   // 低階鍵盤 hook 有自己的執行緒，不收掉會擋住程序真的結束
-  if (dictationMod) dictationMod.shutdown()
+  // 這兩個是同步呼叫：丟例外會讓下面的 app.exit 走不到，程序變殭屍
+  try { if (dictationMod) dictationMod.shutdown() } catch (err) { console.error('[dictation] shutdown failed:', err) }
   // llama.cpp router：它自己會帶走底下跑模型的子程序，但沒人收它就會留一台在背景吃顯存
   // 翻譯可能先載入共用 router，此時 Local SI 頁還沒載入，也必須收掉它。
   const hfService = hfModelsMod || require.cache[require.resolve('./hfmodels')]?.exports
-  if (hfService) hfService.shutdown()
+  try { if (hfService) hfService.shutdown() } catch (err) { console.error('[hfmodels] shutdown failed:', err) }
   // 指示器是 alwaysOnTop 的獨立視窗：留著就會浮在桌面上關不掉
   dictationHud.close()
   // 反代先關：留著監聽的 socket 會讓下次啟動撞到 EADDRINUSE
@@ -3041,7 +3204,8 @@ app.on('before-quit', (e) => {
     stopScreentime,
     stopGateway,
     ccSwitchMod ? ccSwitchMod.stopMcpChecks() : Promise.resolve(),
-    agyMod ? agyMod.shutdown() : Promise.resolve()
+    agyMod ? agyMod.shutdown() : Promise.resolve(),
+    grokProxyMod ? grokProxyMod.shutdown() : Promise.resolve()
   ])
   stopAgy
     .catch((err) => console.error('[agy] shutdown on quit failed:', err))

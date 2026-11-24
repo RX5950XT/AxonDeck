@@ -27,7 +27,10 @@ const MAX_TITLE = 60
 const WINDOWS_SHELLS = {
   pwsh: { label: 'PowerShell 7', exe: 'pwsh.exe' },
   powershell: { label: 'Windows PowerShell', exe: 'powershell.exe' },
-  cmd: { label: '命令提示字元', exe: 'cmd.exe' }
+  cmd: { label: '命令提示字元', exe: 'cmd.exe' },
+  // 預設發行版的 bash；不帶參數 wsl.exe 會把目前的 Windows 資料夾換成 /mnt/<碟>/… 開在那裡。
+  // ponytail: 只看 wsl.exe 在不在，沒裝發行版的機器點下去會看到 WSL 自己的安裝說明
+  wsl: { label: 'WSL（Linux）', exe: 'wsl.exe' }
 }
 
 /** Linux／POSIX：bash／zsh／fish（有裝才 available）。 */
@@ -284,7 +287,9 @@ function sanitizeAll(raw) {
     seen.add(id)
     const shell = normalizeShell(item.shell)
     const preset = normalizePreset(item.preset)
-    const cwd = normalizeCwd(item.cwd)
+    // 存檔裡的目錄照原樣留著：暫時不在（隨身碟沒插、NAS 離線）就改成家目錄的話，
+    // 下一次整份寫回會把它永久洗掉。真的要開 shell 時才由 pty 退回家目錄。
+    const cwd = typeof item.cwd === 'string' && path.isAbsolute(item.cwd) ? path.resolve(item.cwd) : normalizeCwd(item.cwd)
     const row = {
       id,
       title: normalizeTitle(item.title, defaultTitle(preset, cwd)),

@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_event, value) => callback(value)
       ipcRenderer.on('pages:visibility', handler)
       return () => ipcRenderer.removeListener('pages:visibility', handler)
+    },
+    onAppFocus: (callback) => {
+      const handler = (_event, value) => callback(value === true)
+      ipcRenderer.on('pages:appFocus', handler)
+      return () => ipcRenderer.removeListener('pages:appFocus', handler)
     }
   },
   screenTranslate: {
@@ -66,8 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudTts: {
     status: () => ipcRenderer.invoke('cloudTts:status'),
     generate: (options) => ipcRenderer.invoke('cloudTts:generate', options),
-    cancel: (options) => ipcRenderer.invoke('cloudTts:cancel', options),
-    saveAudio: (options) => ipcRenderer.invoke('cloudTts:saveAudio', options)
+    cancel: (options) => ipcRenderer.invoke('cloudTts:cancel', options)
   },
   breeze: {
     status: () => ipcRenderer.invoke('breeze:status'),
@@ -286,6 +290,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     test: () => ipcRenderer.invoke('agy:test')
   },
 
+  // ===== Grok 反向代理 =====
+  // 同 AGY：token 與上游 URL 留在 main，這裡只有開關、埠與日誌查詢。
+  grokProxy: {
+    status: () => ipcRenderer.invoke('grokProxy:status'),
+    start: () => ipcRenderer.invoke('grokProxy:start'),
+    stop: () => ipcRenderer.invoke('grokProxy:stop'),
+    /** @param {{ port: number, logBodies: boolean, retentionDays: number }} settings */
+    saveSettings: (settings) => ipcRenderer.invoke('grokProxy:saveSettings', settings),
+    regenerateKey: () => ipcRenderer.invoke('grokProxy:regenerateKey'),
+    /** @param {{ limit?: number, protocol?: string, onlyErrors?: boolean }} query */
+    logs: (query) => ipcRenderer.invoke('grokProxy:logs', query),
+    /** @param {{ range?: '6h'|'24h'|'7d'|'30d'|'all' }} [query] */
+    stats: (query) => ipcRenderer.invoke('grokProxy:stats', query),
+    models: (force) => ipcRenderer.invoke('grokProxy:models', force === true),
+    clearLogs: () => ipcRenderer.invoke('grokProxy:clearLogs'),
+    test: () => ipcRenderer.invoke('grokProxy:test')
+  },
+
   // ===== 終端機 =====
   // shell 與啟動指令都只傳 key（執行檔路徑在 main 的固定表）；工作目錄一律走系統對話框。
   terminal: {
@@ -307,7 +329,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     write: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     kill: (id) => ipcRenderer.invoke('terminal:kill', id),
-    pickDirectory: () => ipcRenderer.invoke('terminal:pickDirectory'),
     /** 貼上要讀的剪貼簿文字。**不要改用 `navigator.clipboard.readText()`**：
      *  那支要視窗有焦點，沒焦點直接 reject，Ctrl+V 就變成沒反應。 */
     clipboardText: () => ipcRenderer.invoke('terminal:clipboardText'),
@@ -452,6 +473,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * @param {string} relDir
      * @param {string[]} paths
      */
+    /** 把檔案頁剪貼簿的東西貼進專案的某個資料夾（relDir 空字串＝專案根目錄） */
+    pasteClipboard: (id, relDir, systemPaths) => ipcRenderer.invoke(
+      'workspace:pasteClipboard',
+      id,
+      relDir,
+      (Array.isArray(systemPaths) ? systemPaths : []).filter((p) => typeof p === 'string' && p.trim()).slice(0, 50)
+    ),
+    /** 叫 main 對這一頁執行「貼上」，好讓 paste 事件帶出 Windows 複製的檔案清單 */
+    triggerPaste: () => ipcRenderer.invoke('workspace:triggerPaste'),
     importDropped: (id, relDir, paths) => (
       ipcRenderer.invoke(
         'workspace:importDropped',
@@ -478,7 +508,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scriptCommand: (id, relPath, terminalId) => ipcRenderer.invoke('workspace:scriptCommand', id, relPath, terminalId),
     /** 用系統瀏覽器開（main 只放行 http(s)） */
     openExternal: (url) => ipcRenderer.invoke('workspace:openExternal', url),
-    extensionsMenu: (guestId, anchor) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor),
+    extensionsMenu: (guestId, anchor, extensionId) => ipcRenderer.invoke('workspace:extensionsMenu', guestId, anchor, extensionId),
     browserPopout: (url, title, guestId, slot) => ipcRenderer.invoke('workspace:browserPopout', url, title, guestId, slot),
     /** 彈出的獨立視窗被最小化或關閉：網頁收回原本的分頁位置 */
     onBrowserDock: (callback) => {
@@ -488,11 +518,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     extensionActions: (guestId) => ipcRenderer.invoke('workspace:extensionActions', guestId),
     extensionActivate: (guestId, extensionId, anchor) => ipcRenderer.invoke('workspace:extensionActivate', guestId, extensionId, anchor),
+    extensionShortcuts: () => ipcRenderer.invoke('workspace:extensionShortcuts'),
+    extensionRunShortcut: (guestId, input) => ipcRenderer.invoke('workspace:extensionRunShortcut', guestId, input),
+    onBrowserShortcut: (callback) => {
+      const handler = (_event, action, guestId) => callback(String(action), Number(guestId))
+      ipcRenderer.on('workspace:browserShortcut', handler)
+      return () => ipcRenderer.removeListener('workspace:browserShortcut', handler)
+    },
     /** 擴充功能的圖示、徽章或安裝狀態變了 */
     onExtensionsChanged: (callback) => {
       const handler = () => callback()
       ipcRenderer.on('workspace:extensionsChanged', handler)
       return () => ipcRenderer.removeListener('workspace:extensionsChanged', handler)
+    },
+    /** 擴充功能的快速鍵要開 popup：(擴充功能 ID, 哪顆 webview) */
+    onExtensionCommand: (callback) => {
+      const handler = (_event, extensionId, guestId) => callback(String(extensionId), Number(guestId))
+      ipcRenderer.on('workspace:extensionCommand', handler)
+      return () => ipcRenderer.removeListener('workspace:extensionCommand', handler)
     },
     gitStatus: (id) => ipcRenderer.invoke('workspace:gitStatus', id),
     gitLog: (id) => ipcRenderer.invoke('workspace:gitLog', id),
@@ -623,9 +666,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 掃描本機 session 記錄（第一次很久，之後只讀新增的部分） */
     sync: () => ipcRenderer.invoke('codeusage:sync'),
     /** @param {Record<string, { input: number, output: number }>} prices 每 1M token 的美金價 */
-    savePrices: (prices) => ipcRenderer.invoke('codeusage:savePrices', prices),
-    /** 清掉游標與統計，下次從頭掃 */
-    reset: () => ipcRenderer.invoke('codeusage:reset')
+    savePrices: (prices) => ipcRenderer.invoke('codeusage:savePrices', prices)
   },
 
   // ===== 系統監控 =====
@@ -633,6 +674,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 這裡只送得出取樣間隔的 key、要結束的 pid，以及由系統對話框選出來的目錄。
   sysmon: {
     status: () => ipcRenderer.invoke('sysmon:status'),
+    /** 這個 App 各部分的 CPU／記憶體（額度條的「資源」） */
+    appResources: () => ipcRenderer.invoke('sysmon:appResources'),
     /** @param {'fast'|'normal'|'slow'} intervalKey main 端有白名單，未知值退回 normal */
     start: (intervalKey) => ipcRenderer.invoke('sysmon:start', intervalKey),
     stop: () => ipcRenderer.invoke('sysmon:stop'),
@@ -698,7 +741,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // router 的 api key 不出 main。要匯入本機檔案也是 main 開對話框，這裡沒有路徑參數。
   hfmodels: {
     /** @param {string} query @param {'downloads'|'likes'|'lastModified'} [sort] */
-    search: (query, sort) => ipcRenderer.invoke('hfmodels:search', query, sort),
+    search: (query, sort, filters) => ipcRenderer.invoke('hfmodels:search', query, sort, filters),
     /** 一個 repo 有哪些量化變體、哪些已經裝了 */
     inspect: (repoId) => ipcRenderer.invoke('hfmodels:inspect', repoId),
     /** 還沒下載就先算「跑不跑得動」（main 用 HTTP Range 抓檔頭前 1MB） */
@@ -730,7 +773,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** HF Token 只寫不讀：回的是 { hasToken } */
     setToken: (token) => ipcRenderer.invoke('hfmodels:setToken', token),
     tokenStatus: () => ipcRenderer.invoke('hfmodels:tokenStatus'),
-    runtimeReady: () => ipcRenderer.invoke('hfmodels:runtimeReady'),
     /** 只回 { running, port }——金鑰留在 main */
     runtimeStatus: () => ipcRenderer.invoke('hfmodels:runtimeStatus'),
     startRuntime: () => ipcRenderer.invoke('hfmodels:startRuntime'),
@@ -740,7 +782,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     applyPresets: () => ipcRenderer.invoke('hfmodels:applyPresets'),
     loadModel: (id) => ipcRenderer.invoke('hfmodels:loadModel', id),
     unloadModel: (id) => ipcRenderer.invoke('hfmodels:unloadModel', id),
-    refreshModels: () => ipcRenderer.invoke('hfmodels:refreshModels'),
     /** 儀表板：GPU／用量／本機端點／log（沒有 api key） */
     dashboard: () => ipcRenderer.invoke('hfmodels:dashboard'),
     /** @param {(payload: { type: string, [k: string]: any }) => void} callback 下載進度等事件 */
@@ -805,7 +846,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 出現在哪一面螢幕。指示器那一側只收畫面資料，送得出去的只有 ✕／✓。
     /** @param {{ state: string, level?: number, message?: string }} payload */
     hudState: (payload) => ipcRenderer.invoke('dictation:hudState', payload),
-    /** @param {'cancel'|'stop'} action */
+    /** @param {'cancel'|'stop'|'pointerIn'|'pointerOut'} action */
     hudAction: (action) => ipcRenderer.invoke('dictation:hudAction', action),
     /** @param {(payload: { state: string, level: number, message: string }) => void} callback */
     onHud: (callback) => {
@@ -876,8 +917,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ===== 獨立編輯視窗（只能讀寫 main 替這扇窗開的那個檔案）=====
   editorFile: {
-    load: () => ipcRenderer.invoke('editorFile:load'),
-    save: (content, mtimeMs) => ipcRenderer.invoke('editorFile:save', content, mtimeMs),
+    /** @param {string} [encoding] 指定編碼重開；不給就自動判斷 */
+    load: (encoding) => ipcRenderer.invoke('editorFile:load', encoding),
+    /** @param {string} [encoding] 換成這個編碼存（utf8／utf8bom／utf16le） */
+    save: (content, mtimeMs, encoding) => ipcRenderer.invoke('editorFile:save', content, mtimeMs, encoding),
+    saveAs: (content) => ipcRenderer.invoke('editorFile:saveAs', content),
+    openPicked: () => ipcRenderer.invoke('editorFile:openPicked'),
+    readDisk: () => ipcRenderer.invoke('editorFile:readDisk'),
+    previewHtml: (content) => ipcRenderer.invoke('editorFile:previewHtml', content),
+    reveal: () => ipcRenderer.invoke('editorFile:reveal'),
+    copyPath: () => ipcRenderer.invoke('editorFile:copyPath'),
     stat: () => ipcRenderer.invoke('editorFile:stat'),
     openLink: (link) => ipcRenderer.invoke('editorFile:openLink', link),
     bigOpen: () => ipcRenderer.invoke('editorFile:bigOpen'),
@@ -897,7 +946,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   explorer: {
     bootstrap: () => ipcRenderer.invoke('explorer:bootstrap'),
     saveState: (patch) => ipcRenderer.invoke('explorer:saveState', patch),
-    listPlaces: () => ipcRenderer.invoke('explorer:listPlaces'),
     savePlaces: (list) => ipcRenderer.invoke('explorer:savePlaces', list),
     addPlace: (spec) => ipcRenderer.invoke('explorer:addPlace', spec),
     removePlace: (id) => ipcRenderer.invoke('explorer:removePlace', id),
@@ -929,8 +977,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     restoreEntry: (key) => ipcRenderer.invoke('explorer:restoreEntry', key),
     purgeEntry: (key) => ipcRenderer.invoke('explorer:purgeEntry', key),
     emptyRecycle: () => ipcRenderer.invoke('explorer:emptyRecycle'),
-    copyEntry: (fromPath, toDir) => ipcRenderer.invoke('explorer:copyEntry', fromPath, toDir),
-    moveEntry: (fromPath, toDir) => ipcRenderer.invoke('explorer:moveEntry', fromPath, toDir),
     openPath: (target) => ipcRenderer.invoke('explorer:openPath', target),
     fileIcon: (target, opts) => ipcRenderer.invoke('explorer:fileIcon', target, opts),
     /** 把選取的檔案交給 Windows 的原生拖放（拖進瀏覽器上傳框、桌面）。
@@ -953,6 +999,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     copyImage: (filePath) => ipcRenderer.invoke('explorer:copyImage', filePath),
     setClipboard: (items, mode) => ipcRenderer.invoke('explorer:setClipboard', items, mode),
+    clipboardState: () => ipcRenderer.invoke('explorer:clipboardState'),
     paste: (toDir) => ipcRenderer.invoke('explorer:paste', toDir),
     dropEntries: (items, toDir, mode) => ipcRenderer.invoke('explorer:dropEntries', items, toDir, mode),
     operationCancel: (id) => ipcRenderer.invoke('explorer:operationCancel', id),

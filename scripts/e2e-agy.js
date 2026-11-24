@@ -93,7 +93,9 @@ function startMockUpstream() {
               'mock-chat-a': { maxTokens: 1000000, maxOutputTokens: 65536, modelProvider: 'MODEL_PROVIDER_GOOGLE', quotaInfo: { remainingFraction: 0.9 } },
               'mock-chat-b': { maxTokens: 250000, maxOutputTokens: 64000, modelProvider: 'MODEL_PROVIDER_ANTHROPIC', quotaInfo: { remainingFraction: 0.05 } },
               'mock-tab-internal': { maxTokens: 16384, maxOutputTokens: 4096, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
-              'mock-old': { maxTokens: 1000000, maxOutputTokens: 65536, modelProvider: 'MODEL_PROVIDER_GOOGLE' }
+              'mock-old': { maxTokens: 1000000, maxOutputTokens: 65536, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+              'gemini-mock-image': { maxTokens: 65536, maxOutputTokens: 32768, modelProvider: 'MODEL_PROVIDER_GOOGLE' },
+              'gemini-2.5-pro': { maxTokens: 1048576, maxOutputTokens: 65535, modelProvider: 'MODEL_PROVIDER_GOOGLE' }
             },
             defaultAgentModelId: 'mock-chat-a',
             deprecatedModelIds: { 'mock-old': { newModelId: 'mock-chat-a' } }
@@ -111,6 +113,11 @@ function startMockUpstream() {
           res.write(sseFrame({ response: { candidates: [{ content: { parts: [{ text: '哈' }], role: 'model' } }] } }))
           res.write(sseFrame({ response: { candidates: [{ content: { parts: [{ text: '囉' }], role: 'model' }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 4, thoughtsTokenCount: 2, cachedContentTokenCount: 1, totalTokenCount: 15 } } }))
           res.end()
+          return
+        }
+        if (/-image\b/.test(String(upstreamState.lastBody?.model || ''))) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ response: { candidates: [{ content: { parts: [{ text: '草稿', thought: true, inlineData: { mimeType: 'image/png', data: 'RFJBRlQ=' } }, { inlineData: { mimeType: 'image/png', data: 'UElD' } }], role: 'model' }, finishReason: 'STOP' }] } }))
           return
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -259,6 +266,20 @@ async function main() {
     check('非串流回應完整', status === 200 && payload.choices[0].message.content === '非串流答案' && payload.usage.total_tokens === 10)
   }
   {
+    const chat = await call('/v1/chat/completions', { body: { model: 'gemini-mock-image', messages: [{ role: 'user', content: '畫貓' }], max_tokens: 64 } })
+    const content = JSON.parse(chat.text).choices?.[0]?.message?.content
+    check('聊天端點把生圖結果轉成 markdown 圖片', chat.status === 200 && content === '![image](data:image/png;base64,UElD)', chat.text.slice(0, 200))
+    check('生圖模型不送 maxOutputTokens（上游會 429）', upstreamState.lastBody?.request?.generationConfig?.maxOutputTokens === undefined)
+
+    const gen = await call('/v1/images/generations', { body: { model: 'gpt-image-1', prompt: '畫貓', n: 2, size: '1792x1024' } })
+    const data = JSON.parse(gen.text).data || []
+    check('/v1/images/generations 回 b64_json 且張數對', gen.status === 200 && data.length === 2 && data[0].b64_json === 'UElD', gen.text.slice(0, 200))
+    check('非生圖模型名導到生圖模型', /-image$/.test(upstreamState.lastBody?.model || ''), upstreamState.lastBody?.model)
+    check('size 轉成 aspectRatio', upstreamState.lastBody?.request?.generationConfig?.imageConfig?.aspectRatio === '16:9')
+    const empty = await call('/v1/images/generations', { body: { prompt: '  ' } })
+    check('空 prompt 回 400', empty.status === 400)
+  }
+  {
     catalog.reset()
     const { status, text } = await call('/v1/models', { method: 'GET' })
     const payload = JSON.parse(text)
@@ -268,6 +289,8 @@ async function main() {
     check('/v1/models 用的是上游即時清單', ids.includes('mock-chat-a'), ids.join(','))
     check('/v1/models 濾掉 IDE 內部模型', !ids.includes('mock-tab-internal'), ids.join(','))
     check('/v1/models 濾掉已淘汰的模型', !ids.includes('mock-old'), ids.join(','))
+    check('/v1/models 列出生圖模型', ids.includes('gemini-mock-image'), ids.join(','))
+    check('/v1/models 不列使用者移除的模型', !ids.includes('gemini-2.5-pro'), ids.join(','))
     check('/v1/models 標出模型提供者',
       payload.data.find((m) => m.id === 'mock-chat-b')?.owned_by === 'anthropic',
       JSON.stringify(payload.data.find((m) => m.id === 'mock-chat-b')))
@@ -286,7 +309,7 @@ async function main() {
     await call('/v1/chat/completions', {
       body: { model: 'claude-sonnet-4-5-20250929', messages: [{ role: 'user', content: 'x' }] }
     })
-    check('模型映射有送到上游', upstreamState.lastBody?.model === 'claude-sonnet-4-6', String(upstreamState.lastBody?.model))
+    check('模型映射有送到上游', upstreamState.lastBody?.model === 'claude-sonnet-5-5-medium', String(upstreamState.lastBody?.model))
     check('上游 body 帶 project 與 request 信封', upstreamState.lastBody?.project === 'test-project' && !!upstreamState.lastBody?.request?.contents)
   }
 
@@ -460,7 +483,7 @@ async function main() {
     check('countTokens 只送 { request }',
       !!ctBody && !!ctBody.request && !('project' in ctBody) && !('model' in ctBody) && !('userAgent' in ctBody),
       JSON.stringify(Object.keys(ctBody || {})))
-    check('countTokens 的 model 放在 request 裡', ctBody?.request?.model === 'claude-sonnet-4-6',
+    check('countTokens 的 model 放在 request 裡', ctBody?.request?.model === 'claude-sonnet-5-5-medium',
       String(ctBody?.request?.model))
   }
 

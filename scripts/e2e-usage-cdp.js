@@ -190,14 +190,15 @@ async function main() {
       return {
         order: [...document.querySelectorAll('.header-nav .nav-tab')].map((item) => item.dataset.page),
         noPage: !document.getElementById('page-usage'),
-        inTermMain: bar.closest('#termMain') !== null,
+        // 專案模式：額度條搬進 #termMain 最下面、四顆入口搬到右側欄底部（si-layout.js）
+        inStage: bar.parentElement?.id === 'termMain' && document.getElementById('quotaDock')?.parentElement?.id === 'wsRightDock',
         belowSurfaces: rect.top >= surfaces.bottom - 1,
         height: rect.height,
         chips: document.querySelectorAll('#quotaItems .quota-item').length
       }
     })()`)
     if (JSON.stringify(structure.order) !== JSON.stringify(EXPECTED_ORDER) || !structure.noPage ||
-        !structure.inTermMain || !structure.belowSurfaces || structure.height > 40 || structure.chips !== 7) {
+        !structure.inStage || !structure.belowSurfaces || structure.height > 40 || structure.chips !== 7) {
       throw new Error(`額度條結構錯誤：${JSON.stringify(structure)}`)
     }
     pass(`額度頁拿掉了；額度條在終端機下面、高 ${Math.round(structure.height)}px、七顆都在`)
@@ -446,6 +447,40 @@ async function main() {
       throw new Error(`主題/RWD 異常：${JSON.stringify(themes)}`)
     }
     pass('深淺主題都看得到、字色跟著主題換、沒有水平溢出')
+
+    // ===== 條只在終端機那一塊底下、四顆入口在右側欄底部；Port、資源兩個抽屜 =====
+    const span = await cdp.eval(`(() => {
+      const bar = document.getElementById('quotaBar').getBoundingClientRect()
+      const term = document.getElementById('termMain').getBoundingClientRect()
+      const right = document.getElementById('wsRight').getBoundingClientRect()
+      const dock = document.getElementById('quotaDock').getBoundingClientRect()
+      return { barLeft: bar.left, barRight: bar.right, termLeft: term.left, termRight: term.right, rightLeft: right.left, rightBottom: right.bottom, dockBottom: dock.bottom, noPortTab: !document.querySelector('.ws-right-tab[data-panel="ports"]') }
+    })()`)
+    if (Math.abs(span.barLeft - span.termLeft) > 2 || Math.abs(span.barRight - span.termRight) > 2 || span.barRight > span.rightLeft ||
+        span.rightBottom - span.dockBottom > 12 || !span.noPortTab) {
+      throw new Error(`額度條／四顆入口位置不對：${JSON.stringify(span)}`)
+    }
+    pass('額度條對齊終端機那一塊，四顆入口在右側欄底部，右側欄沒有 Port 分頁')
+    await cdp.eval("document.getElementById('quotaPortsBtn').click()")
+    await waitFor(
+      () => cdp.eval("!document.getElementById('quotaDrawerPorts').hidden && document.querySelectorAll('#wsPortList .ws-port-row').length > 0"),
+      15_000,
+      'Port 抽屜'
+    )
+    pass('Port 抽屜列得出本機在聽的埠（CDP 埠一定在）')
+    await cdp.eval("document.getElementById('quotaResBtn').click()")
+    await waitFor(
+      () => cdp.eval(`(() => {
+        const rows = [...document.querySelectorAll('#resList .res-row:not(.res-head) .res-name')].map((n) => n.textContent)
+        return !document.getElementById('quotaDrawerResources').hidden && rows.includes('主程序') && rows.includes('GPU 程序')
+          && /\\d/.test(document.getElementById('quotaResValue').textContent)
+      })()`),
+      15_000,
+      '資源抽屜'
+    )
+    const resRows = await cdp.eval(`[...document.querySelectorAll('#resList .res-row:not(.res-head)')].map((r) => r.innerText.replace(/\\s+/g, ' ')).join(' | ')`)
+    pass(`資源抽屜分部分列出 CPU／記憶體：${resRows}`)
+    await cdp.eval("document.getElementById('quotaResBtn').click()")
 
     // ===== 用量統計（額度條抽屜） =====
     // 只驗「切得過去、面板都在、統計讀得出來」。**刻意不按「掃描本機記錄」**：

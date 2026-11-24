@@ -49,7 +49,7 @@ async function main() {
   assert.equal(failedCalls, 1)
   let client
   const now = Date.now()
-  const bridge = createSensorBridge({ resolveExe: () => __filename, task: {
+  const bridge = createSensorBridge({ supportsWinNative: true,  resolveExe: () => __filename, task: {
     run: (pipe) => new Promise((resolve) => {
       client = net.connect(pipe, () => {
         client.write(JSON.stringify({ h: [], network: { available: true, from: now - 1000, t: now, pids: { 12: 400 } } }) + '\n')

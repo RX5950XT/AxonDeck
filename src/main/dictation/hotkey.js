@@ -197,7 +197,7 @@ async function start(deps) {
   const onAction = typeof deps?.onAction === 'function' ? deps.onAction : () => {}
 
   // Windows-only sidecar；其他平台直接走 uiohook，避免無意義的 HOOK_UNSUPPORTED 日誌
-  const tryNative = deps?.native !== false && process.platform === 'win32'
+  const tryNative = deps?.native !== false && (process.platform === 'win32' || typeof deps?.startHook === 'function')
   if (tryNative) {
     const machine = createMachine({ longPressMs: deps?.longPressMs })
     const fire = (action) => {

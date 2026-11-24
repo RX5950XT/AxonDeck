@@ -380,13 +380,17 @@ void (async () => {
     check('熱鍵掛得上', r.ok === true)
     check('走的是 uiohook 退路', hotkey.currentMode() === 'uiohook', hotkey.currentMode())
     listeners.keydown.forEach((fn) => fn({ keycode: hotkey.RIGHT_ALT }))
-    check('按下右 Alt 會補一顆無害鍵', taps.length === 1 && taps[0] === hotkey.NEUTRALIZER, String(taps))
     check('還是有開始錄音', actions[0] === 'start', String(actions))
-    // 按住時 Windows 會一直重送 keydown，不可以每一次都補
-    listeners.keydown.forEach((fn) => fn({ keycode: hotkey.RIGHT_ALT }))
-    check('按住重送時不重複補鍵', taps.length === 1 && actions.length === 1, `${taps.length}/${actions.length}`)
-    listeners.keydown.forEach((fn) => fn({ keycode: 30 }))
-    check('別的鍵不補也不動作', taps.length === 1 && actions.length === 1)
+    if (process.platform === 'win32') {
+      check('按下右 Alt 會補一顆無害鍵', taps.length === 1 && taps[0] === hotkey.NEUTRALIZER, String(taps))
+      // 按住時 Windows 會一直重送 keydown，不可以每一次都補
+      listeners.keydown.forEach((fn) => fn({ keycode: hotkey.RIGHT_ALT }))
+      check('按住重送時不重複補鍵', taps.length === 1 && actions.length === 1, `${taps.length}/${actions.length}`)
+      listeners.keydown.forEach((fn) => fn({ keycode: 30 }))
+      check('別的鍵不補也不動作', taps.length === 1 && actions.length === 1)
+    } else {
+      check('Linux 不補 Windows 選單列化解鍵', taps.length === 0, String(taps))
+    }
     hotkey.stop()
   }
 

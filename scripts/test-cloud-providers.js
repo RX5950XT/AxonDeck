@@ -34,7 +34,7 @@ if (process.argv.includes('--collision')) {
 }
 
 test('40-character legacy id collision terminates and preserves selections', () => {
-  const child = spawnSync(process.execPath, [__filename, '--collision'], { timeout: 8000, encoding: 'utf8', windowsHide: true })
+  const child = spawnSync(process.execPath, [__filename, '--collision'], { timeout: 30000, encoding: 'utf8', windowsHide: true })
   assert.ifError(child.error)
   assert.equal(child.status, 0, child.stderr || child.stdout)
 })

@@ -55,7 +55,7 @@ function resolveExePath(deps = {}) {
  * @returns {Promise<{ ok: boolean, error?: string, send?: Function, stop?: Function }>}
  */
 async function startShell(deps = {}) {
-  if (!platform.isWindows) return { ok: false, error: 'SHELL_UNSUPPORTED' }
+  if (!platform.isWindows && !deps.spawnFn) return { ok: false, error: 'SHELL_UNSUPPORTED' }
   const exePath = deps.exePath || resolveExePath(deps)
   if (!exePath) return { ok: false, error: 'SHELL_EXE_MISSING' }
   const spawnFn = deps.spawnFn || spawn

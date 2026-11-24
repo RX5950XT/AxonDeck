@@ -24,7 +24,7 @@ export function revokeImages() {
  * @param {ArrayBuffer} buf
  * @returns {Map<string, { method: number, size: number, offset: number }>}
  */
-export function readZipDirectory(buf) {
+function readZipDirectory(buf) {
   const view = new DataView(buf)
   let end = -1
   for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
@@ -50,7 +50,7 @@ export function readZipDirectory(buf) {
  * @param {{ method: number, size: number, offset: number }} entry
  * @returns {Promise<Uint8Array>}
  */
-export async function readZipEntry(buf, entry) {
+async function readZipEntry(buf, entry) {
   const view = new DataView(buf)
   const start = entry.offset + 30 + view.getUint16(entry.offset + 26, true) + view.getUint16(entry.offset + 28, true)
   if (start + entry.size > buf.byteLength) throw new Error('zip 內容不完整')
@@ -68,7 +68,7 @@ export async function readZipEntry(buf, entry) {
  * @param {ArrayBuffer} buf
  * @returns {Pkg}
  */
-export function openPackage(buf) {
+function openPackage(buf) {
   const entries = readZipDirectory(buf)
   /** @type {Map<string, Promise<Document | null>>} */
   const parsed = new Map()
@@ -138,7 +138,7 @@ export function relsOf(part) {
   const dir = part.split('/').slice(0, -1).join('/')
   return { rels: `${dir}/_rels/${part.split('/').pop()}.rels`, dir }
 }
-export function joinPath(baseDir, target) {
+function joinPath(baseDir, target) {
   const parts = (target.startsWith('/') ? target.slice(1) : `${baseDir}/${target}`).split('/')
   const out = []
   for (const part of parts) {
@@ -188,7 +188,7 @@ const MAX_ROWS = 2000
 const MAX_COLS = 200
 export const SHEET_LIMITS = { rows: MAX_ROWS, cols: MAX_COLS }
 
-export function columnName(index) {
+function columnName(index) {
   let name = ''
   for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) name = String.fromCharCode(65 + ((n - 1) % 26)) + name
   return name

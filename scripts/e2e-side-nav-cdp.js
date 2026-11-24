@@ -155,7 +155,9 @@ async function main() {
     ok('對話 forward → 下一則', (await activeId()) === ids[1], `${await activeId()} vs ${ids[1]}`)
 
     // 3) webview：Telegram 那格先走一步，側鍵先讓網頁自己退，退到底才換 App 頁
-    await go(cdp, 'telegram')
+    await cdp.eval(`document.getElementById('chatTelegramBtn').click()`)
+    await sleep(600)
+    const telegramShown = () => cdp.eval(`(() => { const m = document.getElementById('telegramMain'); return !m.classList.contains('hidden') && !m.classList.contains('is-parked') })()`)
     let guestTarget
     for (let i = 0; i < 40 && !guestTarget; i++) {
       guestTarget = (await getJson(`http://127.0.0.1:${PORT}/json/list`)).find((t) => t.type === 'webview')
@@ -171,9 +173,9 @@ async function main() {
     await sleep(300)
     await side(guest, 'back', 200, 200)
     const backUrl = await guest.eval('location.href')
-    ok('webview back → 網頁自己退', backUrl === firstUrl && (await page(cdp)) === 'telegram', `${backUrl} / ${await page(cdp)}`)
+    ok('webview back → 網頁自己退', backUrl === firstUrl && await telegramShown(), `${backUrl} / ${await telegramShown()}`)
     await side(guest, 'back', 200, 200)
-    ok('webview 退到底 → App 換回 chat', (await page(cdp)) === 'chat' && (await activeId()) === ids[1], `${await page(cdp)} ${await activeId()}`)
+    ok('webview 退到底 → 回到上一則對話', !(await telegramShown()) && (await activeId()) === ids[1], `${await telegramShown()} ${await activeId()}`)
     guest.close()
     cdp.close()
   } catch (err) {

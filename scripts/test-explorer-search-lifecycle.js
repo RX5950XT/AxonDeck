@@ -31,6 +31,10 @@ try {
 } finally { Module._load = load }
 
 async function main() {
+  if (process.platform !== 'win32') {
+    console.log('PASS Linux 不走 UFFS daemon（改由 test-explorer-linux-search 覆蓋）')
+    return
+  }
   uffs.configure(__dirname)
   assert.deepEqual(uffs.searchFilterArgs({ minSize: null, maxSize: null }), [], '空篩選不可把全部正常檔案濾掉')
   assert.deepEqual(uffs.searchFilterArgs({ maxSize: 0 }), ['--max-size', '0'], '明確搜尋空檔仍保留')

@@ -67,19 +67,96 @@ function parseProcStat(text) {
   }
 }
 
-function rssBytes(pid) {
-  const status = readText(`/proc/${pid}/status`)
-  const m = /^VmRSS:\s+(\d+)\s+kB/m.exec(status)
-  if (m) return Number(m[1]) * 1024
-  const statm = readText(`/proc/${pid}/statm`).trim().split(/\s+/)
-  const pages = Number(statm[1]) || 0
-  return pages * 4096
+/**
+ * 從 /proc/<pid>/status 一次讀出記憶體欄位。
+ * privateWorkingSet 用 RssAnon（匿名私有頁，對齊工作管理員的「專用工作集」）；
+ * 舊核心沒有 RssAnon 就維持 0，讓 metrics 退回 VmRSS。
+ * privateMemory 仍用 VmData（資料段／堆積，對齊「專用位元組」的粗估值）。
+ * @param {string} text
+ */
+function parseStatusMem(text) {
+  const kb = (key) => {
+    const m = new RegExp('^' + key + ':\\s+(\\d+)\\s+kB', 'm').exec(text || '')
+    return m ? Number(m[1]) * 1024 : 0
+  }
+  return { rss: kb('VmRSS'), privateMemory: kb('VmData'), privateWorkingSet: kb('RssAnon') }
 }
 
-function privateBytes(pid) {
-  const status = readText(`/proc/${pid}/status`)
-  const m = /^VmData:\s+(\d+)\s+kB/m.exec(status)
-  return m ? Number(m[1]) * 1024 : 0
+function statusMem(pid) {
+  const mem = parseStatusMem(readText(`/proc/${pid}/status`))
+  if (!mem.rss) {
+    const statm = readText(`/proc/${pid}/statm`).trim().split(/\s+/)
+    mem.rss = (Number(statm[1]) || 0) * 4096
+  }
+  return mem
+}
+
+/**
+ * `wmctrl -lp`：`0x02a00003  0 1234 hostname Title`
+ * @param {string} text
+ * @returns {number[]}
+ */
+function parseWmctrlList(text) {
+  const pids = []
+  for (const line of String(text || '').split('\n')) {
+    const m = /^\s*0x[0-9a-f]+\s+\S+\s+(\d+)\s+/i.exec(line)
+    if (!m) continue
+    const pid = Number(m[1])
+    if (pid > 0) pids.push(pid)
+  }
+  return pids
+}
+
+/**
+ * sway／i3 樹：每個有焦點的視窗節點帶 pid。
+ * @param {string} jsonText
+ * @returns {number[]}
+ */
+function parseSwayTree(jsonText) {
+  const pids = []
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return
+    const pid = Number(node.pid)
+    if (pid > 0) pids.push(pid)
+    for (const child of node.nodes || []) walk(child)
+    for (const child of node.floating_nodes || []) walk(child)
+  }
+  try { walk(JSON.parse(jsonText)) } catch { /* 不是 JSON 就當沒有 */ }
+  return pids
+}
+
+/** @type {{ t: number, pids: number[] }} */
+let appPidCache = { t: 0, pids: [] }
+
+/**
+ * 盡力找出「有應用程式視窗」的 pid，給 metrics 的 W 列（應用程式／背景分段）。
+ * 工具不在或 Wayland 合成器沒支援就回空，全部進背景段，不會讓取樣失敗。
+ * @param {{ execFn?: typeof execFileSync, now?: number, env?: NodeJS.ProcessEnv }} [opts]
+ * @returns {number[]}
+ */
+function collectAppPids(opts = {}) {
+  const now = opts.now || Date.now()
+  if (now - appPidCache.t < 2000 && !opts.execFn) return appPidCache.pids
+  const execFn = opts.execFn || execFileSync
+  const env = opts.env || process.env
+  const found = new Set()
+  const run = (file, args) => {
+    try {
+      return String(execFn(file, args, { encoding: 'utf8', timeout: 800, windowsHide: true, env }) || '')
+    } catch {
+      return ''
+    }
+  }
+  for (const pid of parseWmctrlList(run('wmctrl', ['-lp']))) found.add(pid)
+  if (env.SWAYSOCK || env.I3SOCK) {
+    for (const pid of parseSwayTree(run('swaymsg', ['-t', 'get_tree']))) found.add(pid)
+    if (!found.size) {
+      for (const pid of parseSwayTree(run('i3-msg', ['-t', 'get_tree']))) found.add(pid)
+    }
+  }
+  const pids = [...found]
+  if (!opts.execFn) appPidCache = { t: now, pids }
+  return pids
 }
 
 function ioBytes(pid) {
@@ -162,10 +239,12 @@ function collectTickRows() {
     const io = ioBytes(pid)
     const startedAt = Math.floor(boot + (st.starttime / CLK_TCK) * 1000)
     const exe = esc(exePathOf(pid))
+    const mem = statusMem(pid)
     rows.push(
-      `P|${pid}|${esc(st.name)}|${cpuTime}|${ts100}|${rssBytes(pid)}|${privateBytes(pid)}|${st.threads}|${io.read}|${io.write}|0|${st.ppid}|${exe}|${startedAt}`
+      `P|${pid}|${esc(st.name)}|${cpuTime}|${ts100}|${mem.rss}|${mem.privateMemory}|${st.threads}|${io.read}|${io.write}|0|${st.ppid}|${exe}|${startedAt}|${mem.privateWorkingSet}`
     )
   }
+  for (const pid of collectAppPids()) rows.push(`W|${pid}`)
   return rows
 }
 
@@ -756,6 +835,10 @@ module.exports = {
   collectTickRows,
   collectStaticRows,
   collectDetailRows,
+  parseStatusMem,
+  parseWmctrlList,
+  parseSwayTree,
+  collectAppPids,
   drmGpuRows,
   parseLspciName,
   dmiRows,

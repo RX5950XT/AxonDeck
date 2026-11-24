@@ -55,7 +55,7 @@ const service = load('src/main/screen-translate/index.js', {
   '../models': { MODELS: {}, isDownloaded: () => downloaded },
   '../usage/shared': { readResponseText: (response) => response.text() },
   '../hfmodels': { init() {}, writePresets: async () => {}, ensureRuntime: async () => { if (prepareFails) throw new Error('private endpoint token') },
-    refreshModels: async () => [{ id: 'paddleocrvl16' }], endpoint: () => ({ baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'private-key' }) },
+    refreshModels: async () => [{ id: 'unlimitedocr2q8' }], endpoint: () => ({ baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'private-key' }) },
   '../model-scope': { readLlm: (snapshot) => ({ mode: 'local', modelKey: snapshot.get('fileLlm').slice(6), value: snapshot.get('fileLlm') }) },
   '../engine': { setStore() {}, acquire: async (owner, needs) => { assert.equal(owner, 'screen'); assert.equal(needs.asr, false); return { ok: true } }, release: async () => { released++ } },
   '../local-llm': { resolveLocalTranslateModel: () => 'linguaforge08q4', translate: async (snapshot, text, lang, options) => {
@@ -69,9 +69,9 @@ const service = load('src/main/screen-translate/index.js', {
   fetch: async (_url, options) => {
     ocrCalls++
     const body = JSON.parse(options.body)
-    assert.equal(body.model, 'paddleocrvl16'); assert.equal(body.messages[0].content[0].text, 'OCR:')
+    assert.equal(body.model, 'unlimitedocr2q8'); assert.equal(body.messages[0].content[0].text, '<PAGE>'); assert.equal(body.messages[0].content[2].text, 'Multi page parsing.')
     if (mode === 'wait-ocr') await new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }))
-    return { ok: true, text: async () => mode === 'bad-json' ? 'private upstream token' : JSON.stringify({ choices: [{ message: { content: ocrText ? `${ocrText}</s>` : '' }, finish_reason: mode === 'too-long' ? 'length' : 'stop' }] }) }
+    return { ok: true, text: async () => mode === 'bad-json' ? 'private upstream token' : JSON.stringify({ choices: [{ message: { content: ocrText ? `<PAGE><BLOCK>title<LEVEL1>[10, 10, 990, 200]<FORK>**${ocrText}**<BLOCK>image[0, 300, 1000, 900]<FORK><BLOCK>page_number[900, 950, 990, 990]<FORK>7` : '<PAGE>' }, finish_reason: mode === 'too-long' ? 'length' : 'stop' }] }) }
   } })
 service.init({ store, send: (channel, state) => events.push({ channel, state: plain(state) }), preload: 'test-preload', isDev: false })
 const flush = async () => { for (let i = 0; i < 35; i++) await Promise.resolve() }
@@ -79,6 +79,10 @@ const tick = async () => { now += 1000; const timer = [...timers][0]; assert(tim
 const options = { sourceLang: 'auto', targetLang: 'zh-TW' }
 
 async function run() {
+  assert.equal(service.ocrText(String.raw`<PAGE><BLOCK>text[0, 0, 9, 9]<FORK>**Problem 1.13** In *classical* terms, $\partial x/\partial t = 0$ and $d\langle x \rangle/dt$, $\Psi^2$, $\frac{\hbar^2}{2m}$, $e^{-iE_n t/\hbar}$, $V_0$, $\Omega$`),
+    'Problem 1.13 In classical terms, ∂x/∂t = 0 and d⟨x⟩/dt, Ψ², (ℏ²)/(2m), e^(-iEₙt/ℏ), V₀, Ω', 'OCR 的行內 LaTeX 轉成可直接顯示的文字')
+  assert.equal(require('../src/main/screen-translate/latex').mathText(String.raw`價格 $5 與 $10；常數 $V_0$、$x$ 與 $\exp(-iV_0t/\hbar)$`),
+    '價格 $5 與 $10；常數 V₀、x 與 exp(-iV₀t/ℏ)', '譯文被改寫回的 LaTeX 也轉；價錢不動')
   assert.throws(() => service.open({}), /語言/)
   downloaded = false; assert.throws(() => service.open(options), /Local SI/); downloaded = true
   service.open(options); service.open(options); await flush()
@@ -88,7 +92,7 @@ async function run() {
   values.localTranslateModel = 'changed-after-open'
   await tick()
   assert.equal(service.status().translation, '你好世界')
-  assert.equal(service.status().source, 'Hello world', 'OCR 結束 token 不當作原文')
+  assert.equal(service.status().source, 'Hello world', '區塊標籤、Markdown、圖與頁碼不當作原文')
   assert.equal(opacity, 0.95, '有譯文時調濃方便閱讀')
   service.resize({ x: 10.4, y: 20, width: 50, height: 300 })
   assert.deepEqual(plain(bounds), { x: 10, y: 20, width: 240, height: 300 }, '縮放不小於最小尺寸')

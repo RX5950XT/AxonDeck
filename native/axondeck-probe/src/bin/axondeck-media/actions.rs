@@ -51,6 +51,11 @@ pub const QUEUE_REMOVE: u16 = 240;
 pub const QUEUE_SEARCH: u16 = 241;
 pub const QUEUE_FIND: u16 = 242;
 pub const SPEED_SLIDER: u16 = 243;
+pub const PLAY_ONLY: u16 = 244;
+pub const PAUSE_ONLY: u16 = 245;
+pub const STOP: u16 = 246;
+/// 250..=259：數字鍵 0–9 跳到 0%～90%。
+pub const SEEK_PERCENT: u16 = 250;
 
 // mpv 與 Win32 都走 action()，避免畫面有焦點時操作另一套狀態。
 pub fn shortcut(key: u32, ctrl: bool, shift: bool, image: bool) -> Option<u16> {
@@ -64,6 +69,8 @@ pub fn shortcut(key: u32, ctrl: bool, shift: bool, image: bool) -> Option<u16> {
         0x4d => MUTE, 0x52 if image => ROTATE, 0x52 => REPEAT, 0x4c => SHUFFLE,
         0xbb | 0x6b if image => ZOOM_IN, 0xbd | 0x6d if image => ZOOM_OUT,
         0x30 | 0x60 if image => FIT, 0x31 | 0x61 if image => ACTUAL,
+        k @ 0x30..=0x39 if !image => SEEK_PERCENT + (k - 0x30) as u16,
+        k @ 0x60..=0x69 if !image => SEEK_PERCENT + (k - 0x60) as u16,
         0x50 if image => ANIM_PAUSE, 0xbe if !image => FRAME_FORWARD, 0xbc if !image => FRAME_BACK,
         0xdb => SPEED_DOWN, 0xdd => SPEED_UP, 0x08 => SPEED_RESET,
         0x53 => SHOT, 0x56 => SUB_TOGGLE, 0x41 => AUDIO_NEXT, 0x43 => SUB_NEXT,
@@ -82,7 +89,10 @@ pub fn bindings(image: bool) -> String {
         ("Shift+LEFT",0x25,false,true),("Shift+RIGHT",0x27,false,true),("UP",0x26,false,false),("DOWN",0x28,false,false),
         ("m",0x4d,false,false),("r",0x52,false,false),("l",0x4c,false,false),
         ("+",0xbb,false,true),("-",0xbd,false,false),("KP_ADD",0x6b,false,false),("KP_SUBTRACT",0x6d,false,false),
-        ("0",0x30,false,false),("1",0x31,false,false),("[",0xdb,false,false),("]",0xdd,false,false),
+        ("0",0x30,false,false),("1",0x31,false,false),("2",0x32,false,false),("3",0x33,false,false),("4",0x34,false,false),
+        ("5",0x35,false,false),("6",0x36,false,false),("7",0x37,false,false),("8",0x38,false,false),("9",0x39,false,false),
+        ("KP0",0x60,false,false),("KP1",0x61,false,false),("KP2",0x62,false,false),("KP3",0x63,false,false),("KP4",0x64,false,false),
+        ("KP5",0x65,false,false),("KP6",0x66,false,false),("KP7",0x67,false,false),("KP8",0x68,false,false),("KP9",0x69,false,false),("[",0xdb,false,false),("]",0xdd,false,false),
         ("p",0x50,false,false),(".",0xbe,false,false),(",",0xbc,false,false),
         ("BS",0x08,false,false),("s",0x53,false,false),("v",0x56,false,false),("a",0x41,false,false),
         ("c",0x43,false,false),("j",0x4a,false,false),("k",0x4b,false,false),
@@ -91,6 +101,11 @@ pub fn bindings(image: bool) -> String {
         if let Some(id) = shortcut(key, ctrl, shift, image) { text.push_str(&format!("{mpv} script-message axondeck action {id}\n")); }
     }
     text.push_str("MBTN_LEFT_DBL script-message axondeck action 108\nMBTN_RIGHT script-message axondeck action 103\n");
+    // 鍵盤媒體鍵與 Windows 媒體浮窗（mpv 的 SMTC）都會變成這些鍵名；系統音量鍵留給 Windows。
+    for (mpv, id) in [("PLAYPAUSE",PLAY),("PLAY",PLAY),("PAUSE",PLAY),("PLAYONLY",PLAY_ONLY),("PAUSEONLY",PAUSE_ONLY),("STOP",STOP),
+        ("NEXT",NEXT),("PREV",PREV),("FORWARD",SEEK_FORWARD),("REWIND",SEEK_BACK)] {
+        text.push_str(&format!("{mpv} script-message axondeck action {id}\n"));
+    }
     text
 }
 
@@ -111,5 +126,10 @@ mod tests {
         assert!(bindings(false).contains("MBTN_LEFT script-message axondeck action 105"));
         assert_eq!(shortcut(0x48,true,false,true),Some(CLEAN_VIEW));
         assert!(bindings(false).contains("Ctrl+h script-message axondeck action 237"));
+        assert_eq!(shortcut(0x35,false,false,false),Some(SEEK_PERCENT+5));
+        assert_eq!(shortcut(0x60,false,false,true),Some(FIT));
+        assert_eq!(shortcut(0x35,false,false,true),None);
+        assert!(bindings(false).contains("KP9 script-message axondeck action 259"));
+        assert!(bindings(true).contains("PLAYPAUSE script-message axondeck action 105"));
     }
 }

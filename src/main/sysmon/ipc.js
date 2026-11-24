@@ -20,6 +20,7 @@ function registerSysmonIpc({ ipcMain, service, isMainSender }) {
   })
 
   ipcMain.handle('sysmon:status', (event) => invoke(event, () => service.status()))
+  ipcMain.handle('sysmon:appResources', (event) => invoke(event, () => service.appResources()))
   ipcMain.handle('sysmon:start', (event, intervalKey) => (
     invoke(event, () => service.start(intervalKey))
   ))

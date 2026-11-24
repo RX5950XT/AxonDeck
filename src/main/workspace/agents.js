@@ -381,7 +381,21 @@ async function codexTitles(home) {
   }
 }
 
-async function sessions(projectPath, agent = '') {
+/** OpenCode 沒取名時存的預設標題（`New session - <ISO 時間>`），等於沒有標題 */
+const PLACEHOLDER_TITLE = /^New session - \d{4}-\d\d-\d\dT/
+
+/** 有沒有可以顯示的標題；沒標題的多半是開了沒講話的空對話 */
+function hasTitle(row) {
+  const title = String(row.sessionTitle || row.title || '').trim()
+  return Boolean(title) && !PLACEHOLDER_TITLE.test(title)
+}
+
+/**
+ * @param {string} projectPath
+ * @param {string} [agent]
+ * @param {{ titledOnly?: boolean }} [options] titledOnly：拿掉沒有標題的空白對話（側欄顯示用；接續綁定要全部）
+ */
+async function sessions(projectPath, agent = '', { titledOnly = false } = {}) {
   const sinceMs = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000
   /** @type {Array<{ agent: string, agentLabel: string, id: string, title: string, mtime: number, source: string }>} */
   const out = []
@@ -392,10 +406,15 @@ async function sessions(projectPath, agent = '') {
     const found = []
     await collect(path.join(home, 'projects', encodeClaudeDir(projectPath)), sinceMs, found)
     found.sort((a, b) => b.mtime - a.mtime)
-    for (const item of found.slice(0, MAX_SESSIONS)) {
+    // 只要有標題的話，空對話不佔名額；最多多看一倍份數，避免整堆空檔逐個開
+    let taken = 0
+    for (const item of found.slice(0, titledOnly ? MAX_SESSIONS * 2 : MAX_SESSIONS)) {
+      if (taken >= MAX_SESSIONS) break
       const id = path.basename(item.file, '.jsonl')
       if (!ID_RE.test(id)) continue
       const title = claudeTitle(await headLines(item.file))
+      if (titledOnly && !hasTitle({ title })) continue
+      taken += 1
       out.push({
         agent: 'claude',
         agentLabel: AGENTS.claude.label,
@@ -440,9 +459,10 @@ async function sessions(projectPath, agent = '') {
     }
   }
 
-  const extra = !agent || !['claude', 'codex'].includes(agent) ? await formats.extraSessions(projectPath, samePath, ID_RE) : []
+  const extra = !agent || !['claude', 'codex'].includes(agent) ? await formats.extraSessions(projectPath, samePath, ID_RE, '', titledOnly) : []
   out.push(...extra.filter(row => !agent || row.agent === agent).map(row => ({ ...row, agentLabel: AGENTS[row.agent].label, source: sourceLabel(row.home) })))
-  return latestPerAgent(out)
+  // 先去重再過濾：同一段對話只有一份讀得到標題時，去重會把標題補上
+  return latestPerAgent(titledOnly ? dedupeSessions(out).filter(hasTitle) : out)
 }
 
 /**
@@ -680,6 +700,7 @@ module.exports = {
   looksLikePrompt,
   codexHead,
   samePath,
+  hasTitle,
   sessions,
   list: sessions,
   resumeCommand,

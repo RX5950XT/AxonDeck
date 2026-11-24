@@ -225,7 +225,7 @@ console.log('\n[E] UFFS pattern 消毒')
       { 'c:\\a': { view: 'list', tile: 999, sort: 'bogus' } }
     )
     ok('資料夾檢視：只改那一筆、其他保留', merged['c:\\b'].view === 'list' && merged['c:\\a'].view === 'list')
-    ok('資料夾檢視：壞值收成合法值', merged['c:\\a'].tile === 256 && merged['c:\\a'].sort === 'name')
+    ok('資料夾檢視：壞值收成合法值', merged['c:\\a'].tile === 512 && merged['c:\\a'].sort === 'name')
     ok('資料夾檢視：改過的排到最後', Object.keys(merged).at(-1) === 'c:\\a')
     const many = {}
     for (let i = 0; i < storeMod.MAX_FOLDER_VIEWS; i++) many[`c:\\${i}`] = { view: 'list' }
@@ -910,7 +910,7 @@ console.log('\n[S5] 拖著停住會進資料夾、搬錯了可以 Ctrl+Z')
   ok('搬移有記復原', /pushUndo\(mode === 'copy' \? '複製' : '搬移'/.test(pageSrc5))
   ok('改名有記復原', /pushUndo\(`改名/.test(pageSrc5))
   ok('貼上有記復原，而且分得出剪下跟複製',
-    /lastClip\.mode === 'cut' \? undoMove/.test(pageSrc5) && /lastClip = \{ mode, paths/.test(pageSrc5))
+    /moved \? undoMove\(landed, done\.sources/.test(pageSrc5) && /done\.mode === 'cut'/.test(pageSrc5))
   ok('復原「複製」是丟資源回收筒不是永久刪',
     /function undoCopy[\s\S]{0,220}RECYCLE_CWD, 'move'/.test(pageSrc5))
   ok('沒東西可復原時講一聲', /沒有可以復原的動作/.test(pageSrc5))
@@ -941,7 +941,7 @@ console.log('\n[S6] 隱藏／系統項目一律顯示')
   const storeSrc6 = fs.readFileSync(path.join(ROOT, 'src/main/explorer/store.js'), 'utf8')
   ok('explorer.json 存得下這個欄位',
     /showHidden: s\.get\('showHidden', true\) !== false/.test(storeSrc6)
-      && /s\.set\('showHidden', next\.showHidden\)/.test(storeSrc6))
+      && /showHidden: patch\.showHidden !== undefined/.test(storeSrc6) && /s\.set\(changed\)/.test(storeSrc6))
   const cssSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/styles/main.css'), 'utf8')
   ok('淡化樣式在', /\.ex-row\.is-dim/.test(cssSrc6))
   ok('圖示也淡化', /\.ex-row\.is-dim \.ex-row-icon/.test(cssSrc6))
@@ -1141,8 +1141,8 @@ console.log('\n[S7] 縮圖 pending 會延遲重取，暫時的圖不進快取')
       timers.shift().fn()
       await tick()
     }
-    ok('(c) 最多重試 3 次就停', calls === 4, `calls=${calls}`)
-    ok('退避是 400／800／1600', delays.join(',') === '400,800,1600', delays.join(','))
+    ok('(c) 最多重試 7 次就停', calls === 8, `calls=${calls}`)
+    ok('退避從 400 倍增到 25600', delays.join(',') === '400,800,1600,3200,6400,12800,25600', delays.join(','))
     ok('停了之後沒有再排隊', timers.length === 0, `timers=${timers.length}`)
   }
 

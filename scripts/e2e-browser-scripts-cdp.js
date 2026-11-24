@@ -16,7 +16,8 @@ const EXE = process.env.AXONDECK_EXE || path.join(__dirname, '../dist/win-unpack
 const PARENT_ID = 'w_script_parent'
 const NESTED_ID = 'w_script_nested'
 const STORE_ID = 'ddkjiahejlhfcafbddmgiahcphecmpfh'
-const DEFAULTS = [STORE_ID, 'ldgfbffkinooeloadekpmfoklnobpien', 'nnnkddnnlpamobajfibfdgfnbcnkgngh', 'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb']
+const DEFAULTS = [STORE_ID, 'ldgfbffkinooeloadekpmfoklnobpien', 'nnnkddnnlpamobajfibfdgfnbcnkgngh', 'ndcooeababalnlpkfedmmbbbgkljhpjf', 'modkelfkcfjpgbfmnbnllalkiogfofhb',
+  'nngceckbapebfimnlniiiahkandclblb', 'emfeppdfcjnldjgmofdkbggeacapegen', 'eimadpbcbfnmbkopoojfekhnkhdbieeh', 'mnjggcdmjocbbbhaepdhchncahnbgone']
 const quote = JSON.stringify
 let child, childLog = '', ui, inspector, hostPid = 0
 async function waitFor(fn, label, timeout = 45000) {

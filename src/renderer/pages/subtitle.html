@@ -123,6 +123,13 @@
         flex-direction: column;
         gap: 8px;
         padding: 12px 16px;
+        -webkit-user-select: text;
+        user-select: text;
+        cursor: text;
+      }
+
+      ::selection {
+        background: color-mix(in srgb, var(--subtitle-accent) 42%, transparent);
       }
 
       .subtitle-history::-webkit-scrollbar {
@@ -213,15 +220,18 @@
         line-height: 1.4;
       }
 
-      .subtitle-line.provisional .subtitle-source {
-        font-style: italic;
+      /* 還在聽的那句會一直被修正：淡一點，定稿才全亮 */
+      .subtitle-line.interim .subtitle-source,
+      .subtitle-line.interim .subtitle-translation {
+        opacity: 0.78;
       }
 
       .subtitle-empty {
         color: rgba(255, 255, 255, 0.5);
         font-size: calc(18px * var(--subtitle-scale));
         text-align: center;
-        font-style: italic;
+        -webkit-user-select: none;
+        user-select: none;
       }
 
       .toast {
@@ -291,7 +301,7 @@
       const copyBtn = document.getElementById("copyBtn");
       const toast = document.getElementById("toast");
 
-      /** @type {{ id: string, source: string, translation: string }[]} */
+      /** @type {{ id: string, source: string, translation: string, interim?: boolean }[]} */
       const subtitles = [];
       const MAX_HISTORY = 50;
       let autoId = 0;
@@ -324,6 +334,7 @@
           id: payload.id ? String(payload.id) : `s-${++autoId}`,
           source,
           translation,
+          interim: payload.interim === true,
           action: payload.action === "upsert" ? "upsert" : "append",
         };
       }
@@ -340,9 +351,9 @@
       function createSubtitleLine(entry) {
         const hasTranslation = !!entry.translation;
         const line = document.createElement("div");
-        line.className = hasTranslation
-          ? "subtitle-line"
-          : "subtitle-line provisional";
+        line.className = entry.interim
+          ? "subtitle-line interim"
+          : "subtitle-line";
         line.dataset.id = entry.id;
 
         if (currentMode === "translation") {
@@ -386,12 +397,76 @@
       }
 
       /**
+       * 就地改字。換掉節點會把使用者選到一半的字清掉，字幕邊聽邊修正時一秒好幾次。
+       * @param {HTMLElement} node
+       * @param {{ id: string, source: string, translation: string, interim?: boolean }} entry
+       */
+      function patchSubtitleLine(node, entry) {
+        const fresh = createSubtitleLine(entry);
+        node.className = fresh.className;
+        const now = [...node.children];
+        const next = [...fresh.children];
+        if (
+          now.length !== next.length ||
+          now.some((span, i) => span.className !== next[i].className)
+        ) {
+          node.replaceChildren(...next);
+          return;
+        }
+        now.forEach((span, i) => {
+          if (span.textContent !== next[i].textContent) {
+            span.textContent = next[i].textContent;
+          }
+        });
+      }
+
+      // ===== 選取字幕：選的時候不改被選到的那幾行、不自動捲，放開才補上 =====
+      /** @type {Set<string>} 選取期間被擋下來的更新 */
+      const heldIds = new Set();
+      let pointerDown = false;
+      let followAfterSelect = false;
+
+      function hasSelection() {
+        const selection = window.getSelection();
+        return (
+          !!selection &&
+          !selection.isCollapsed &&
+          subtitleHistory.contains(selection.anchorNode)
+        );
+      }
+
+      function isSelecting() {
+        return pointerDown || hasSelection();
+      }
+
+      function flushHeldUpdates() {
+        if (isSelecting()) return;
+        const ids = [...heldIds];
+        heldIds.clear();
+        for (const id of ids) renderSubtitleUpdate(id, null);
+        if (followAfterSelect) {
+          followAfterSelect = false;
+          subtitleHistory.scrollTop = subtitleHistory.scrollHeight;
+        }
+      }
+
+      subtitleHistory.addEventListener("pointerdown", () => {
+        if (!isSelecting()) followAfterSelect = isAtBottom();
+        pointerDown = true;
+      });
+      window.addEventListener("pointerup", () => {
+        pointerDown = false;
+        flushHeldUpdates();
+      });
+      document.addEventListener("selectionchange", flushHeldUpdates);
+
+      /**
        * 增量更新單行，避免每次 ASR／翻譯回來都重建 50 行 DOM。
        * @param {string} id
        * @param {string | null} removedId
        */
       function renderSubtitleUpdate(id, removedId) {
-        const stickToBottom = isAtBottom();
+        const stickToBottom = isAtBottom() && !isSelecting();
         const empty = subtitleHistory.querySelector(".subtitle-empty");
         if (empty) empty.remove();
 
@@ -406,7 +481,6 @@
 
         const entry = subtitles.find((item) => item.id === id);
         if (!entry) return;
-        const next = createSubtitleLine(entry);
         let existing = null;
         for (const node of subtitleHistory.children) {
           if (node.dataset.id === id) {
@@ -414,8 +488,16 @@
             break;
           }
         }
-        if (existing) existing.replaceWith(next);
-        else subtitleHistory.appendChild(next);
+        if (!existing) {
+          subtitleHistory.appendChild(createSubtitleLine(entry));
+        } else if (
+          pointerDown ||
+          window.getSelection()?.containsNode(existing, true)
+        ) {
+          heldIds.add(id);
+        } else {
+          patchSubtitleLine(existing, entry);
+        }
 
         if (stickToBottom) subtitleHistory.scrollTop = subtitleHistory.scrollHeight;
       }
@@ -432,6 +514,7 @@
               id: item.id,
               source: item.source,
               translation: item.translation,
+              interim: item.interim,
             });
           } else {
             const prev = subtitles[idx];
@@ -444,6 +527,7 @@
               translation: Object.prototype.hasOwnProperty.call(raw, "translation")
                 ? String(raw.translation || "").trim()
                 : prev.translation,
+              interim: item.interim,
             };
           }
         } else {

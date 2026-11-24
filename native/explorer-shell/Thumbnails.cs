@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace AxonDeckShell
 {
@@ -19,8 +20,8 @@ namespace AxonDeckShell
     {
         public const int DefaultSize = 96;
         public const int MinSize = 16;
-        /// <summary>跟 shell.js toPng 同一個上限：再大就變成 IPC 裡幾百 KB 的 base64。</summary>
-        public const int MaxSize = 256;
+        /// <summary>跟 shell.js toPng 同一個上限：512 的 BGRA 一行約 1.4 MB，還在 MAX_LINE 內。</summary>
+        public const int MaxSize = 512;
 
         public static int ClampSize(int size)
         {
@@ -95,6 +96,53 @@ namespace AxonDeckShell
             finally
             {
                 Marshal.ReleaseComObject(com);
+            }
+        }
+
+        /// <summary>
+        /// 這個副檔名雙擊會怎樣：default＝有程式直接開；choices＝沒預設但有候選（Windows 會列出來讓人選）；
+        /// none＝完全沒人接手。寧可判成有：很多類別不是 open 指令（.lnk 靠殼層、.iso 是掛載、.sln 走 DDE）。
+        /// </summary>
+        public static string AssociationOf(string ext)
+        {
+            if (string.IsNullOrEmpty(ext) || ext[0] != '.') return "none";
+            if (HasCommand(ext)) return "default";
+            string fileExts = @"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\" + ext;
+            using (RegistryKey own = Registry.ClassesRoot.OpenSubKey(ext))
+            using (RegistryKey choice = Registry.CurrentUser.OpenSubKey(fileExts + @"\UserChoice"))
+            {
+                if (IsHandledClass(own?.GetValue(null) as string) || IsHandledClass(choice?.GetValue("ProgId") as string)) return "default";
+                using (RegistryKey listed = own?.OpenSubKey("OpenWithProgids"))
+                using (RegistryKey mine = Registry.CurrentUser.OpenSubKey(fileExts + @"\OpenWithProgids"))
+                    return (listed?.ValueCount ?? 0) + (mine?.ValueCount ?? 0) > 0 ? "choices" : "none";
+            }
+        }
+
+        static bool HasCommand(string ext)
+        {
+            const int NoTruncate = 0x20, IgnoreUnknown = 0x400;
+            const int Command = 1, DelegateExecute = 18, AppId = 21;
+            foreach (int kind in new[] { Command, DelegateExecute, AppId })
+            {
+                System.Text.StringBuilder text = new System.Text.StringBuilder(2048);
+                uint length = (uint)text.Capacity;
+                int hr = Native.AssocQueryStringW(NoTruncate | IgnoreUnknown, kind, ext, null, text, ref length);
+                if (hr == 0 && text.Length > 0 && text.ToString().IndexOf("openwith.exe", StringComparison.OrdinalIgnoreCase) < 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>類別有動詞或殼層處理常式才算數；只留個名字的（dllfile、解除安裝的殘留）雙擊一樣會問。</summary>
+        static bool IsHandledClass(string progId)
+        {
+            if (string.IsNullOrEmpty(progId)) return false;
+            using (RegistryKey key = Registry.ClassesRoot.OpenSubKey(progId))
+            {
+                if (key == null) return false;
+                if (key.GetValue("IsShortcut") != null) return true;
+                using (RegistryKey shell = key.OpenSubKey("shell"))
+                using (RegistryKey menus = key.OpenSubKey(@"ShellEx\ContextMenuHandlers"))
+                    return (shell?.SubKeyCount ?? 0) > 0 || (menus?.SubKeyCount ?? 0) > 0;
             }
         }
 

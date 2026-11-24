@@ -2,7 +2,7 @@
 
 /**
  * Local SI 的 Linux CUDA 執行環境（不連網）：
- * - Linux x64／arm64 的 CUDA 產物＝官方 b10988 Ubuntu CUDA 13.3 兩包、解壓剝掉外層資料夾；Vulkan 仍是 b10666 預設
+ * - Linux x64／arm64 的 CUDA 產物＝官方 b11913 Ubuntu CUDA 13.4 兩包、解壓剝掉外層資料夾；Vulkan 同為 b11913（不含 Windows OCR overlay）
  * - Windows 的 Vulkan／CUDA 產物跟原本一字不差
  * - expandArchive 的 --strip-components（官方 tar.gz 外面包一層 llama-bXXXX/）
  * - NVIDIA 驅動偵測：nvidia-smi 失敗時 Linux 讀 /proc/driver/nvidia/version
@@ -38,36 +38,39 @@ function loadModels(platform, arch) {
 }
 
 async function main() {
-  await check('Linux x64：CUDA＝b10988 官方 Ubuntu CUDA 13.3 兩包，剝外層、RUNPATH 同層', () => {
+  await check('Linux x64：CUDA＝b11913 官方 Ubuntu CUDA 13.4 兩包，剝外層、RUNPATH 同層', () => {
     const m = loadModels('linux', 'x64')
     const cuda = m.MODELS.llamaruntimecuda
-    assert.equal(m.LLAMA_BUILD_LINUX_CUDA, 'b10988')
-    assert.equal(cuda.base, 'https://github.com/ggml-org/llama.cpp/releases/download/b10988/')
-    assert.deepEqual(cuda.files, ['llama-b10988-bin-ubuntu-cuda-13.3-x64.tar.gz', 'cudart-llama-b10988-bin-ubuntu-cuda-13.3-x64.tar.gz'])
+    assert.equal(m.LLAMA_BUILD_LINUX_CUDA, 'b11913')
+    assert.equal(cuda.base, 'https://github.com/ggml-org/llama.cpp/releases/download/b11913/')
+    assert.deepEqual(cuda.files, ['llama-b11913-bin-ubuntu-cuda-13.4-x64.tar.gz', 'cudart-llama-b11913-bin-ubuntu-cuda-13.4-x64.tar.gz'])
     assert.equal(cuda.binary, 'llama-server')
     assert.deepEqual(cuda.check, ['llama-server', 'libggml-cuda.so', 'libcudart.so.13'])
     assert.equal(cuda.stripComponents, 1)
     assert.equal(cuda.archive, true)
-    assert.equal(cuda.totalBytes, 149_162_456 + 410_248_850)
+    assert.equal(cuda.totalBytes, 163653160 + 440236538)
+    assert.ok(!cuda.files.some((f) => f.includes('unlimited-ocr2')), 'Linux CUDA 不疊 Windows OCR overlay')
   })
   await check('Linux arm64：CUDA 用 arm64 產物', () => {
     const cuda = loadModels('linux', 'arm64').MODELS.llamaruntimecuda
-    assert.deepEqual(cuda.files, ['llama-b10988-bin-ubuntu-cuda-13.3-arm64.tar.gz', 'cudart-llama-b10988-bin-ubuntu-cuda-13.3-arm64.tar.gz'])
+    assert.deepEqual(cuda.files, ['llama-b11913-bin-ubuntu-cuda-13.4-arm64.tar.gz', 'cudart-llama-b11913-bin-ubuntu-cuda-13.4-arm64.tar.gz'])
+    assert.equal(cuda.totalBytes, 158785315 + 552521398)
   })
-  await check('Linux Vulkan 仍是 b10666 預設，也剝外層', () => {
+  await check('Linux Vulkan 跟 b11913 官方包對齊，也剝外層，不含 overlay', () => {
     const vk = loadModels('linux', 'x64').MODELS.llamaruntime
-    assert.deepEqual(vk.files, ['llama-b10666-bin-ubuntu-vulkan-x64.tar.gz'])
+    assert.deepEqual(vk.files, ['llama-b11913-bin-ubuntu-vulkan-x64.tar.gz'])
     assert.equal(vk.stripComponents, 1)
-    assert.match(vk.label, /Vulkan（b10666）/)
+    assert.match(vk.label, /Vulkan（b11913）/)
+    assert.ok(!(vk.files || []).some((f) => String(f).includes('unlimited-ocr2')))
   })
-  await check('Windows 產物不變（Vulkan＋CUDA 13.3 zip、無 stripComponents）', () => {
+  await check('Windows 產物跟 master 一樣（Vulkan／CUDA 13.4 zip＋OCR overlay）', () => {
     const m = loadModels('win32', 'x64')
-    assert.deepEqual(m.MODELS.llamaruntime.files, ['llama-b10666-bin-win-vulkan-x64.zip'])
+    assert.deepEqual(m.MODELS.llamaruntime.files, ['llama-b11913-bin-win-vulkan-x64.zip', 'llama-b11913-unlimited-ocr2-win-x64.zip'])
     assert.equal(m.MODELS.llamaruntime.stripComponents, undefined)
-    assert.deepEqual(m.MODELS.llamaruntimecuda.files, ['llama-b10666-bin-win-cuda-13.3-x64.zip', 'cudart-llama-bin-win-cuda-13.3-x64.zip'])
-    assert.deepEqual(m.MODELS.llamaruntimecuda.check, ['llama-server.exe', 'ggml-cuda.dll'])
+    assert.deepEqual(m.MODELS.llamaruntimecuda.files, ['llama-b11913-bin-win-cuda-13.4-x64.zip', 'cudart-llama-bin-win-cuda-13.4-x64.zip', 'llama-b11913-unlimited-ocr2-win-x64.zip'])
+    assert.deepEqual(m.MODELS.llamaruntimecuda.check, ['llama-server.exe', 'ggml-cuda.dll', 'axondeck-unlimited-ocr2.txt'])
     assert.equal(m.MODELS.llamaruntimecuda.stripComponents, undefined)
-    assert.equal(m.MODELS.llamaruntimecuda.base, 'https://github.com/ggml-org/llama.cpp/releases/download/b10666/')
+    assert.equal(m.MODELS.llamaruntimecuda.base, 'https://github.com/ggml-org/llama.cpp/releases/download/b11913/')
   })
   await check('macOS 不提供 CUDA', () => {
     assert.equal(loadModels('darwin', 'arm64').MODELS.llamaruntimecuda, undefined)

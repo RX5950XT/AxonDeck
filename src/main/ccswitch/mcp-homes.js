@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * 四家 AI CLI 的 MCP 伺服器管理（Main Process）。
+ * 五家 AI CLI 的 MCP 伺服器管理（Main Process）。
  *
  * Canonical spec 沿用 `mcp.js` 的形狀（`{ type: stdio|http|sse, command, args, env, url, headers }`），
  * 各家只差落盤格式，UI 永遠只認同一種：
@@ -12,6 +12,7 @@
  * | codex | `<home>/config.toml` 的 `[mcp_servers.<id>]`＋`[.<id>.env]` | 只支援 stdio；沒有 enabled 欄位，停用放我方 store |
  * | grok | `<home>/config.toml` 的 `[mcp_servers.<id>]` | stdio 吃 `.env`、remote 吃 `.headers`；原生 `enabled` |
  * | opencode | `<configDir>/opencode.json` 的 `mcp` | local／remote＋`environment`＋原生 `enabled` |
+ * | agy | `~/.gemini/config/mcp_config.json` 的 `mcpServers` | stdio 同 claude；http 用 `serverUrl`；原生 `disabled` |
  *
  * 兩條保命規則（跟 `mcp.js`／`claude-settings.js` 同一套）：
  * 1. 壞掉的 TOML／JSON 一律拋錯，絕不覆寫——否則一次寫入就把使用者原本的設定洗掉。
@@ -79,11 +80,13 @@ function opencodeDir() {
 }
 
 /**
- * @param {'claude' | 'codex' | 'grok' | 'opencode'} home
+ * @param {'claude' | 'codex' | 'grok' | 'opencode' | 'agy'} home
  * @returns {string}
  */
 function mcpFile(home) {
   if (home === 'claude') return claudeSettings.claudeJsonPath()
+  // 舊版 agy 放 `~/.gemini/antigravity/mcp_config.json`；現在 CLI 讀寫 config/ 這份（`agy mcp add` 實測）
+  if (home === 'agy') return path.join(baseHome(), '.gemini', 'config', 'mcp_config.json')
   if (home === 'codex' || home === 'grok') {
     const dir = home === 'codex' ? codexHome() : grokHome()
     return path.join(dir, 'config.toml')
@@ -99,16 +102,17 @@ function homes() {
     { id: 'claude', label: 'Claude Code', path: mcpFile('claude'), stdioOnly: false },
     { id: 'codex', label: 'Codex', path: mcpFile('codex'), stdioOnly: true },
     { id: 'grok', label: 'Grok', path: mcpFile('grok'), stdioOnly: false },
-    { id: 'opencode', label: 'OpenCode', path: mcpFile('opencode'), stdioOnly: false }
+    { id: 'opencode', label: 'OpenCode', path: mcpFile('opencode'), stdioOnly: false },
+    { id: 'agy', label: 'Antigravity', path: mcpFile('agy'), stdioOnly: false }
   ]
 }
 
 /**
  * @param {unknown} id
- * @returns {'claude' | 'codex' | 'grok' | 'opencode'}
+ * @returns {'claude' | 'codex' | 'grok' | 'opencode' | 'agy'}
  */
 function assertHome(id) {
-  if (id === 'claude' || id === 'codex' || id === 'grok' || id === 'opencode') return id
+  if (id === 'claude' || id === 'codex' || id === 'grok' || id === 'opencode' || id === 'agy') return id
   const error = new Error('MCP_HOME_UNKNOWN')
   error.code = 'MCP_HOME_UNKNOWN'
   error.userMessage = '不支援這個 AI 家目錄'
@@ -394,6 +398,54 @@ function toOpenCodeServer(spec, rest, enabled) {
   return out
 }
 
+/**
+ * Antigravity 原生：stdio 跟 canonical 一樣；http 的網址叫 `serverUrl`（舊版也認 `url`）。
+ * @param {unknown} raw
+ * @returns {{ spec: Record<string, unknown> | null, enabled: boolean, rest: Record<string, unknown> }}
+ */
+function fromAgyServer(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { spec: null, enabled: true, rest: {} }
+  const node = /** @type {Record<string, unknown>} */ (raw)
+  const rest = { ...node }
+  for (const key of ['type', 'command', 'args', 'env', 'serverUrl', 'url', 'headers', 'disabled']) delete rest[key]
+  const url = typeof node.serverUrl === 'string' && node.serverUrl ? node.serverUrl : node.url
+  /** @type {Record<string, unknown>} */
+  let draft = {}
+  if (typeof node.command === 'string' && node.command) {
+    draft = { type: 'stdio', command: node.command, env: tomlStringMap(node.env) }
+    if (Array.isArray(node.args)) draft.args = node.args
+  } else if (typeof url === 'string' && url) {
+    draft = { type: 'http', url, headers: tomlStringMap(node.headers) }
+  }
+  let spec = null
+  try {
+    if (draft.type) spec = mcp.sanitizeSpec(draft)
+  } catch {
+    spec = null
+  }
+  return { spec, enabled: node.disabled !== true, rest }
+}
+
+/**
+ * @param {Record<string, unknown>} spec
+ * @param {Record<string, unknown>} rest
+ * @param {boolean} enabled
+ * @returns {Record<string, unknown>}
+ */
+function toAgyServer(spec, rest, enabled) {
+  const out = { ...rest }
+  if (spec.type === 'stdio') {
+    out.command = spec.command
+    if (Array.isArray(spec.args) && spec.args.length) out.args = [...spec.args]
+    if (spec.env && Object.keys(spec.env).length) out.env = { ...spec.env }
+  } else {
+    out.serverUrl = spec.url
+    if (spec.headers && Object.keys(spec.headers).length) out.headers = { ...spec.headers }
+  }
+  out.disabled = !enabled
+  return out
+}
+
 // ===== codex 停用清單（store；config.toml 沒有 enabled 欄位） =====
 
 /** @returns {Promise<Record<string, Record<string, unknown>>>} */
@@ -624,6 +676,73 @@ async function removeOpenCode(rawId) {
   return true
 }
 
+// ===== Antigravity JSON =====
+
+/** @returns {Record<string, unknown>} */
+function readAgyMap() {
+  const node = claudeSettings.readJsonFile(mcpFile('agy')).mcpServers
+  if (node == null) return {}
+  if (node && typeof node === 'object' && !Array.isArray(node)) return /** @type {Record<string, unknown>} */ (node)
+  throw fail('MCP_HOME_SHAPE', 'mcp_config.json 的 mcpServers 被改成非物件，請先修好再操作')
+}
+
+/** @param {Record<string, unknown>} map */
+function writeAgyMap(map) {
+  const file = mcpFile('agy')
+  const root = claudeSettings.readJsonFile(file)
+  claudeSettings.backupFile(file, 'mcp-agy')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  claudeSettings.writeJsonFile(file, { ...root, mcpServers: map })
+}
+
+async function listAgy() {
+  const rows = []
+  for (const [key, raw] of Object.entries(readAgyMap())) {
+    if (rows.length >= mcp.MAX_SERVERS) break
+    let id = ''
+    try {
+      id = mcp.sanitizeId(key)
+    } catch {
+      continue
+    }
+    const parsed = fromAgyServer(raw)
+    if (parsed.spec) rows.push({ id, enabled: parsed.enabled, spec: parsed.spec })
+  }
+  rows.sort((a, b) => a.id.localeCompare(b.id))
+  return { path: mcpFile('agy'), servers: rows }
+}
+
+async function upsertAgy(rawId, rawSpec, enabled = true) {
+  const id = mcp.sanitizeId(rawId)
+  const spec = mcp.sanitizeSpec(rawSpec)
+  const map = readAgyMap()
+  if (!(id in map) && Object.keys(map).length >= mcp.MAX_SERVERS) {
+    throw fail('MCP_LIMIT', `MCP 伺服器最多 ${mcp.MAX_SERVERS} 台`)
+  }
+  writeAgyMap({ ...map, [id]: toAgyServer(spec, fromAgyServer(map[id]).rest, Boolean(enabled)) })
+  return { id, enabled: Boolean(enabled) }
+}
+
+async function toggleAgy(rawId, enabled) {
+  const id = mcp.sanitizeId(rawId)
+  const map = readAgyMap()
+  const parsed = fromAgyServer(map[id])
+  if (!parsed.spec) throw fail('NOT_FOUND', '找不到這台 MCP 伺服器')
+  writeAgyMap({ ...map, [id]: toAgyServer(parsed.spec, parsed.rest, Boolean(enabled)) })
+  return { id, enabled: Boolean(enabled) }
+}
+
+async function removeAgy(rawId) {
+  const id = mcp.sanitizeId(rawId)
+  const map = readAgyMap()
+  if (id in map) {
+    const next = { ...map }
+    delete next[id]
+    writeAgyMap(next)
+  }
+  return true
+}
+
 /**
  * @param {string} rawHome
  * @returns {Promise<{ path: string, servers: Array<{ id: string, enabled: boolean, spec: object }> }>}
@@ -632,6 +751,7 @@ function list(rawHome = 'claude') {
   const home = assertHome(rawHome)
   if (home === 'claude') return mcp.list()
   if (home === 'opencode') return listOpenCode()
+  if (home === 'agy') return listAgy()
   return listToml(home)
 }
 
@@ -642,6 +762,7 @@ function upsert(rawHome = 'claude', rawId, rawSpec, enabled = true) {
   const home = assertHome(rawHome)
   if (home === 'claude') return mcp.upsert(rawId, rawSpec, enabled !== false)
   if (home === 'opencode') return upsertOpenCode(rawId, rawSpec, enabled !== false)
+  if (home === 'agy') return upsertAgy(rawId, rawSpec, enabled !== false)
   return upsertToml(home, rawId, rawSpec, enabled !== false)
 }
 
@@ -652,6 +773,7 @@ function toggle(rawHome = 'claude', rawId, enabled) {
   const home = assertHome(rawHome)
   if (home === 'claude') return mcp.toggle(rawId, enabled)
   if (home === 'opencode') return toggleOpenCode(rawId, enabled)
+  if (home === 'agy') return toggleAgy(rawId, enabled)
   return toggleToml(home, rawId, enabled)
 }
 
@@ -662,6 +784,7 @@ function remove(rawHome = 'claude', rawId) {
   const home = assertHome(rawHome)
   if (home === 'claude') return mcp.remove(rawId)
   if (home === 'opencode') return removeOpenCode(rawId)
+  if (home === 'agy') return removeAgy(rawId)
   return removeToml(home, rawId)
 }
 

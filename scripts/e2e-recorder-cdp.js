@@ -284,9 +284,10 @@ async function main() {
     const meta = await cdp.eval(`document.querySelector('#liveHistoryList .dict-record-time').textContent`)
     ok('字幕紀錄：句數與長度', /2 句/.test(meta) && /分鐘/.test(meta), meta)
     await cdp.eval(`document.querySelector('#liveHistoryList [data-act="view"]').click(), 'ok'`)
-    await waitFor(() => cdp.eval(`!!document.querySelector('#liveHistoryList .live-history-body')`), 5000, '展開')
-    const body = await cdp.eval(`[...document.querySelectorAll('#liveHistoryList .live-history-body p')].map((p) => p.textContent)`)
-    ok('展開看得到原文＋譯文，後寫的譯文蓋掉空的', JSON.stringify(body) === JSON.stringify(['Hello everyone', '大家好', 'Welcome back', '歡迎回來']), JSON.stringify(body))
+    await waitFor(() => cdp.eval(`document.getElementById('sttReader').open`), 5000, '閱讀視窗')
+    const body = await cdp.eval(`[...document.querySelectorAll('#sttReaderBody p')].map((p) => p.textContent)`)
+    await cdp.eval(`document.getElementById('sttReaderClose').click(), 'ok'`)
+    ok('閱讀視窗看得到原文＋譯文，後寫的譯文蓋掉空的', JSON.stringify(body) === JSON.stringify(['Hello everyone', '大家好', 'Welcome back', '歡迎回來']), JSON.stringify(body))
     ok('字幕紀錄面板量得到高度', await cdp.eval(`document.querySelector('.live-history').offsetHeight > 60`))
     await cdp.eval(`document.querySelector('.live-history').scrollIntoView({ block: 'end' }), 'ok'`)
     await cdp.shot('live-history.png')
@@ -387,8 +388,12 @@ async function main() {
         recorded.levels.every((level, i) => expected[i] ? level > 0.03 : level < 0.01), JSON.stringify(recorded))
       await waitFor(() => {
         const dir = path.join(USER_DATA_DIR, 'live-transcripts')
-        return fs.existsSync(dir) && fs.readdirSync(dir).some((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes(`字幕音源驗證成功${before + 1}`))
-      }, 5000, 'ASR 結果進字幕紀錄')
+        // 邊聽邊辨識：定稿的是後面某一次的結果，不一定是第一次。沒停頓時最長 12 秒才切句
+        return fs.existsSync(dir) && fs.readdirSync(dir).some((f) => {
+          const heard = fs.readFileSync(path.join(dir, f), 'utf8').match(/字幕音源驗證成功\d+/g) || []
+          return heard.some((text) => Number(text.match(/\d+$/)[0]) > before)
+        })
+      }, 15000, 'ASR 結果進字幕紀錄')
       await cdp.eval(`electronAPI.pages.navigate({ page: 'settings' })`)
       ok(`字幕 ${source} 切換工具仍持有模型`, await cdp.eval(`electronAPI.engine.status().then(s => s.users.live)`))
       if (source === 'system') {

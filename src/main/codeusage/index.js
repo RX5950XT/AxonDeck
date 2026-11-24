@@ -777,7 +777,6 @@ module.exports = {
   resolveRange,
   keepOrphans,
   archiveRemoved,
-  grokCountChildren,
   withCost,
   sync,
   stats,

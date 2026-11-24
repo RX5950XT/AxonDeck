@@ -62,7 +62,8 @@ const PER_TOKENS = 1_000_000
 //      同一版跳過 Grok 子代理自己的 session（母 session 已含），舊桶子裡算兩次的要重算。
 // v15：AGY 的 Claude 5.5 帶檔位後綴（`claude-opus-5-5-high`），剝掉才對得到單價。
 // v16：讀 Antigravity CLI 本機對話，它的實驗分流模型名收回本體。
-const RULES_VERSION = 16
+// v17：Gemini 4 的 `-xhigh`／`-tiered-high`／`-sonar` 檔位收回本體（Neon、Hydrogen），舊桶重算。
+const RULES_VERSION = 17
 
 /**
  * @typedef {object} Price
@@ -147,6 +148,10 @@ const BUILTIN_PRICES = {
   // ai.google.dev 官方價目表的限時價（到 2026-11-30）。
   // shortcut: 單價表不分日期，2026-12-01 起漲成 4／20／0.2，到時改這列（之前的用量也會照新價算）
   'gemini-4-argon': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0, cacheWrite1h: 0 },
+  // 2026-11-19 查證（Hydrogen 11-12 上市、Neon 11-19 上市；目前只有第三方轉述官方價目表）：
+  // 1M context 內不分段、thinking 算輸出、只有隱式快取（讀取打 95 折→0.05 倍）
+  'gemini-4-neon': { input: 3, output: 15, cacheRead: 0.15, cacheWrite: 0, cacheWrite1h: 0 },
+  'gemini-4-hydrogen': { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0, cacheWrite1h: 0 },
   // Z.ai（docs.z.ai/guides/overview/pricing，2026-09 查證）。快取只收讀取（cached input），
   // 寫入不另外計費 → 0 不是「沒填」。經 Claude Code 打的話 id 是 `z-ai/glm-5.3`，前綴會被剝掉
   'glm-5.3': { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0, cacheWrite1h: 0 },
@@ -223,7 +228,8 @@ function normalizeModel(raw) {
   id = id.replace(/-thinking$/, '')
   // Grok CLI 記的是端點別名（`grok-4.7-build`），價錢跟本體一樣
   if (id.startsWith('grok')) id = id.replace(/-build$/, '')
-  if (id.startsWith('gemini')) id = id.replace(/-(extra-low|low|medium|high|tiered)$/, '')
+  // Gemini 4 多了 `-xhigh`、`-tiered-high`／`-tiered-xhigh`（自動分級）與 `-sonar`（實驗分流），都是同一顆
+  if (id.startsWith('gemini')) id = id.replace(/-(?:(?:tiered-)?(?:extra-low|low|medium|x?high)|tiered|sonar)$/, '')
   if (id.startsWith('claude')) id = id.replace(/-(low|medium|high)$/, '')
   // 「大版本-小版本」寫法收斂成小數點：Claude Code 實際寫的是 `claude-haiku-4-5`、`claude-3-7-sonnet`，
   // 但公開報價與別的來源都寫 `claude-haiku-4.5`、`claude-3.7-sonnet`，不轉的話這顆永遠對不到單價

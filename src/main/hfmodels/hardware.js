@@ -114,7 +114,7 @@ function driverInfo(driver) {
 }
 
 function nvidiaDriver(deps = {}) {
-  const execFileFn = deps.execFileFn || require('child_process').execFile
+  const execFileFn = deps.execFileFn || require('../proc-broker').execFile
   const platform = deps.platform || ((typeof process === 'object' && process) ? process.platform : 'win32')
   const readProc = deps.readProc || (() => require('fs').readFileSync('/proc/driver/nvidia/version', 'utf8'))
   return new Promise((resolve) => {

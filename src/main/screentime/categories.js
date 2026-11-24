@@ -54,7 +54,7 @@ const APP_RULES = Object.freeze([
 
 const APP_DESC_RULES = Object.freeze([
   { name: '遊戲', re: /bluestacks|fan game|video game|minecraft|xbox|hitman|arknights|persona|spider-man|shadow of mordor|monster hunter|holocure|people playground/i },
-  { name: '開發', re: /visual studio code|intellij|pycharm|webstorm|ide\b|terminal emulator|source-code|ai assistant|docker desktop|node\.js|\bAIRI\b/i },
+  { name: '開發', re: /visual studio code|intellij|pycharm|webstorm|\bide\b|terminal emulator|source-code|ai assistant|docker desktop|node\.js|\bAIRI\b/i },
   { name: '瀏覽器', re: /microsoft edge|google chrome|mozilla firefox|modern browser/i },
   { name: '通訊', re: /microsoft teams|remote desktop/i },
   { name: '生產力', re: /microsoft outlook|microsoft word|microsoft excel|oneNote|to do|ebook|pdf|google drive|安控元件|世華|玉山|三竹/i },
@@ -65,7 +65,7 @@ const WEB_RULES = Object.freeze([
   { name: '娛樂', re: /youtube|netflix|twitch|bilibili|spotify|bahamut|gamer\.com|missav|jable|xvideos|hanime|pornhub|playno1|myavlive|steampowered|steamgalgame|manhuagui|linovelib|cycani|mycomic/i },
   { name: '開發', re: /github|gitlab|stackoverflow|developer\.mozilla|learn\.microsoft|huggingface|civitai|stability\.ai|lobehub|1panel|developers\.cloudflare|console\.x\.ai|openai\.com|anthropic\.com|ollama\.com|openrouter\.ai|vercel\.|localhost|aistudio\.google|opencode\.ai|qwen\.ai|groq\.com|replicate\.com|lmarena\.ai/i },
   { name: '通訊', re: /discord|telegram|whatsapp|line\.me|slack|teams\.microsoft/i },
-  { name: '社交', re: /facebook|instagram|twitter|x\.com|reddit|threads\.(net|com)|weibo|zhihu|linkedin|twimg\.com|dcard\.tw|tieba\.baidu|truthsocial/i },
+  { name: '社交', re: /facebook|instagram|twitter|\bx\.com|reddit|threads\.(net|com)|weibo|zhihu|linkedin|twimg\.com|dcard\.tw|tieba\.baidu|truthsocial/i },
   { name: '購物', re: /shopee|shp\.ee|carousell|bid\.yahoo|amazon|ebay|pchome|ruten|mi\.com|biggo|coolpc|digikey|play\.google|taobao|coupang/i },
   { name: '資訊', re: /reuters|bloomberg|forbes|ettoday|wikipedia|bbc\.|cnn\.|news\.|chinatimes|csdn\.net|^(www\.)?google\.com$/i },
   { name: '生產力', re: /docs\.google|drive\.google|notebooklm\.google|console\.cloud\.google|myaccount\.google|notion\.so|office|outlook|chatgpt|claude\.ai|grok\.com|gemini\.google|mail\.google|deepseek|perplexity|z-library|translate\.google|microsoftedge\.microsoft|chromewebstore|yahoo\.com|mega\.nz|apple\.com|etfdb|polymarket|104\.com\.tw/i }
@@ -75,7 +75,7 @@ const TEXT_APP = Object.freeze([
   { name: '遊戲', re: /video game|電子遊戲|role-playing|first-person|sandbox game|action-adventure|survival game|fan game|steam|game developed|game published|Category:.*video games/i },
   { name: '瀏覽器', re: /web browser|網頁瀏覽器/i },
   { name: '通訊', re: /instant messag|chat app|voip|video conferenc|messaging app/i },
-  { name: '開發', re: /source-code editor|integrated development|ide\b|compiler|software development|programming language|code editor|terminal emulator/i },
+  { name: '開發', re: /source-code editor|integrated development|\bide\b|compiler|software development|programming language|code editor|terminal emulator/i },
   { name: '系統', re: /file manager|operating system|control panel|system utility|device driver/i },
   { name: '娛樂', re: /media player|streaming service|video sharing|music streaming|anime/i },
   { name: '生產力', re: /word processor|spreadsheet|office suite|note-taking|email client|\bpdf\b|e-book|remote desktop/i }

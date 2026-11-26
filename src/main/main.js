@@ -2850,6 +2850,14 @@ app.on('web-contents-created', (_event, contents) => {
         .catch((error) => console.warn('[webview] 反白樣式注入失敗:', error?.message))
     })
     contents.on('before-mouse-event', (_e, input) => {
+      // 點進 webview 就把鍵盤焦點正式交給它：視窗取得焦點時 Electron 會把焦點給外殼，
+      // 兩格 webview 並排時點另一格焦點也不會換過去，Ctrl+C／右鍵「複製」就打到別處（剪貼簿不變）
+      if (input.type === 'mouseDown') {
+        const host = contents.hostWebContents
+        if (host && !host.isDestroyed()) host.focus()
+        contents.focus()
+        return
+      }
       if (input.type !== 'mouseUp' || (input.button !== 'back' && input.button !== 'forward')) return
       const back = input.button === 'back'
       const nav = contents.navigationHistory

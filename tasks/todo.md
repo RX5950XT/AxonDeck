@@ -5,7 +5,7 @@
 
 ## 現況（交接）
 
-- AxonDeck（v1.40 前叫 VoiceInk）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5；目前 v1.85.3（2026-11-26）。資料在 `%APPDATA%/axondeck/`（舊安裝沿用 `voiceink`）。
+- AxonDeck（v1.40 前叫 VoiceInk）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5；目前 v1.85.4（2026-11-26）。資料在 `%APPDATA%/axondeck/`（舊安裝沿用 `voiceink`）。
 - 九頁 `data-page`：`chat`（SI：Agent／Chat／Browser，主區 `setChatPaneMode('chat'|'workspace'|'web'|'browser'|'telegram'|'tools')`）、`explorer`、`stt`、`translate`、`speech`、`imagegen`（iframe Miroxen）、`sysmon`、`hfmodels`（Local SI）、`settings`。導覽順序 localStorage `navOrder`，圖示 `ws-tool-icons.js`。SI 版面由 `si-layout.js` 管：標題列兩顆收合左右側欄（localStorage），專案模式額度條搬進 `#termMain` 底、四顆入口 `#quotaDock` 搬到右側欄底（右欄收起／≤900px 回條上），抽屜高度由 `fitDrawer` 量成蓋滿上方那塊。原 CC Proxy 頁已拆：供應商／用量統計是額度條抽屜、MCP／Skills 是 `tools` 主畫面、AGY 與 CLI 版本在設定頁，邏輯仍在 `ccswitch-page.js`。
 - GPU 可重建圖片快取預設 64 MiB（`main.js` 的 `force-gpu-mem-discardable-limit-mb`，啟動參數可覆寫）；未做長時重度媒體回歸。
 
@@ -39,7 +39,7 @@
 - 文字轉語音：Breeze 只聽 loopback 隨機埠、不進 router；每句過 `audio-clean.js`（runaway 換種子重做 ≤2 次）；串流 `speech-stream.js`；版本最多 50。
 - 語音轉文字：即時字幕每次重辨識整句、停頓定稿；值格式 `local:<key>`／`cloud:<設定 id>:<模型 id>`。
 - 系統監控：取樣器看著時 2 秒、沒人看 30 秒；處理程序分應用程式／背景（`apps.rs`），記憶體欄＝私有工作集。
-- Telegram：住在 SI 主區，排隊載（`loadInTurn`）、卡住 60 秒重載、閒置 1 小時第一格以外導 about:blank。
+- Telegram：住在 SI 主區，排隊載（`loadInTurn`）、卡住 60 秒重載、閒置 1 小時第一格以外導 about:blank。webview 滑鼠按下時 main 補 `host.focus()+guest.focus()`：點訊息文字不會換焦點格、視窗回前景 Electron 把焦點給外殼，Ctrl+C／`role:'copy'` 會打錯格。
 - 更新／發版：`electron:build` 走 `pack-preview.js --release`（lint→磁碟根 NSIS→驗 asar／`app-update.yml`／latest.yml→同步回 dist）；步驟見 AGENTS「發行流程」。
 
 ## 待辦

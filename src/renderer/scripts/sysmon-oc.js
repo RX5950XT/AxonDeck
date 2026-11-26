@@ -6,6 +6,7 @@
  */
 
 import { electronAPI } from './app.js'
+import { askConfirm } from './app-dialog.js'
 
 const POLL_MS = 1000
 const HISTORY = 60
@@ -74,7 +75,7 @@ function sliderRow(host, spec) {
   const row = el('label', 'oc-slider')
   const head = el('span', 'oc-slider-head')
   head.append(el('span', 'oc-slider-label', spec.label))
-  const format = (n) => {
+  const format = typeof spec.format === 'function' ? spec.format : (n) => {
     if (spec.key.endsWith('scalarX100')) return `${(Number(n) / 100).toFixed(2)}${spec.unit}`
     if (spec.key.includes('freqCores.') || spec.key.endsWith('freqMhz')) {
       return Number(n) <= 0 ? (spec.key.includes('freqCores.') ? '跟全核' : 'PBO（自動加速）') : `${n}${spec.unit}`
@@ -110,6 +111,10 @@ function sliderRow(host, spec) {
   })
   input.addEventListener('change', () => {
     const n = Number(input.value)
+    if (typeof spec.onChange === 'function') {
+      spec.onChange(n)
+      return
+    }
     let patch
     if (spec.key.startsWith('cpu.cores.')) {
       const index = Number(spec.key.slice(10))
@@ -154,6 +159,85 @@ function foldBox(host, id, title) {
   return /** @type {HTMLElement} */ (box.lastElementChild)
 }
 
+
+/** Linux：可調項來自 main（sysfs／nvidia-smi），不是 Windows 的 PBO／NVAPI 滑桿 */
+function isLinux(data) {
+  return data?.platform === 'linux'
+}
+
+/**
+ * @param {HTMLElement} host
+ * @param {{ key: string, label: string, kind: string, unit?: string, step?: number, min?: number, max?: number, value: any, options?: Array<[string,string]>, format?: string, disabled?: boolean, target: string }} spec
+ */
+function linuxKnob(host, spec) {
+  if (spec.kind === 'select') {
+    const row = el('label', 'oc-slider')
+    const head = el('span', 'oc-slider-head')
+    head.append(el('span', 'oc-slider-label', spec.label))
+    const select = /** @type {HTMLSelectElement} */ (el('select', 'oc-select'))
+    select.dataset.key = spec.key
+    select.disabled = spec.disabled === true
+    for (const [value, label] of spec.options || []) {
+      const opt = document.createElement('option')
+      opt.value = value
+      opt.textContent = label
+      if (String(spec.value) === value) opt.selected = true
+      select.append(opt)
+    }
+    select.addEventListener('change', () => {
+      electronAPI.sysmon.ocSetDraft({ linux: { target: spec.target, key: spec.key, value: select.value } })
+        .then((res) => { if (res?.ok) render(res.data) })
+    })
+    row.append(head, select)
+    host.append(row)
+    return
+  }
+  const format = (n) => {
+    if (spec.format === 'offset') {
+      const v = Number(n)
+      return v > 0 ? `+${v}${spec.unit || ''}` : `${v}${spec.unit || ''}`
+    }
+    return `${n}${spec.unit || ''}`
+  }
+  sliderRow(host, {
+    key: `lx.${spec.target}.${spec.key}`,
+    label: spec.label,
+    min: Number(spec.min),
+    max: Number(spec.max),
+    step: spec.step || 1,
+    unit: '',
+    value: Number(spec.value),
+    disabled: spec.disabled === true,
+    format,
+    onChange: (n) => {
+      electronAPI.sysmon.ocSetDraft({ linux: { target: spec.target, key: spec.key, value: n } })
+        .then((res) => { if (res?.ok) render(res.data) })
+    }
+  })
+}
+
+/**
+ * @param {HTMLElement} host
+ * @param {{ folds: any[], reason?: string, note?: string }} panel
+ * @param {string} target
+ * @param {any} data
+ */
+function renderLinuxPanel(host, panel, target, data) {
+  host.replaceChildren()
+  if (panel.reason) host.append(el('p', 'oc-empty', panel.reason))
+  if (panel.note) host.append(el('p', 'oc-empty', panel.note))
+  for (const fold of panel.folds || []) {
+    const body = foldBox(host, fold.id, fold.title)
+    for (const k of fold.knobs || []) {
+      linuxKnob(body, {
+        ...k,
+        target,
+        disabled: k.writable === false
+      })
+    }
+  }
+}
+
 /** @param {any} data */
 function renderNotices(data) {
   const host = $('ocNotices')
@@ -171,6 +255,9 @@ function renderNotices(data) {
   if (data.panic || error) {
     notes.push({ kind: 'warn', text: error || '過熱，已還原出廠。' })
   }
+  if (isLinux(data) && data.linux?.auth?.hint) {
+    notes.push({ kind: 'info', text: data.linux.auth.hint })
+  }
   for (const note of notes) {
     host.append(el('p', `oc-note oc-note-${note.kind}`, note.text))
   }
@@ -183,13 +270,22 @@ function renderCpu(data) {
   const hint = $('ocCpuHint')
   const liveEl = $('ocCpuLive')
   const sliders = $('ocCpuSliders')
-  if (hint) hint.textContent = live.name || ''
+  if (hint) hint.textContent = (isLinux(data) ? data.linux?.cpu?.name : live.name) || ''
   if (liveEl) {
     liveEl.textContent = data.available
-      ? `目前 ${fmt(live.clock, ' MHz')} · ${fmt(live.temp, ' °C')} · ${fmt(live.powerW, ' W')} / 牆 ${fmt(live.pptW, ' W')}`
+      ? `目前 ${fmt(live.clock, ' MHz')} · ${fmt(live.temp, ' °C')} · ${fmt(live.powerW, ' W')}` + (isLinux(data) ? '' : ` / 牆 ${fmt(live.pptW, ' W')}`)
       : '感測器尚未連線'
   }
   if (!sliders) return
+  if (isLinux(data)) {
+    const sig = `lx|${data.available}|${JSON.stringify(data.linux?.cpu || {})}|${JSON.stringify(data.draft?.cpu || {})}`
+    if (state.cpuSig === sig) return
+    if (document.activeElement && sliders.contains(document.activeElement)) return
+    state.cpuSig = sig
+    if (!data.available) { sliders.replaceChildren(); return }
+    renderLinuxPanel(sliders, data.linux?.cpu || { folds: [], reason: '' }, 'cpu', data)
+    return
+  }
   const sig = `${data.available}|${live.writable}|${live.coreCount}|${JSON.stringify(data.draft?.cpu || {})}`
   if (state.cpuSig === sig) return
   if (document.activeElement && sliders.contains(document.activeElement)) return
@@ -300,6 +396,33 @@ function feedGpus(data) {
 function renderGpu(data) {
   const host = $('ocGpuHost')
   if (!host) return
+  if (isLinux(data)) {
+    const gpus = data.linux?.gpus || []
+    const sig = `lx|${data.available}|${JSON.stringify(gpus)}|${JSON.stringify(data.draft?.gpus || {})}`
+    if (state.gpuSig === sig) return
+    if (document.activeElement && host.contains(document.activeElement)) return
+    state.gpuSig = sig
+    host.replaceChildren()
+    if (!data.available) return
+    if (!gpus.length) {
+      host.append(el('p', 'oc-empty', '沒有偵測到可調整的顯示卡（amdgpu／nvidia-smi）。'))
+      return
+    }
+    for (const g of gpus) {
+      const card = el('section', 'oc-card')
+      const head = el('header', 'oc-card-head')
+      head.append(el('h2', '', g.name || '顯示卡'), el('span', 'oc-card-hint', g.kind === 'amd' ? 'AMD' : 'NVIDIA'))
+      const live = (data.live?.gpus || []).find((x) => x.name === g.name) || {}
+      const liveEl = el('p', 'oc-live', data.available
+        ? `目前 ${fmt(live.clock, ' MHz')} · ${fmt(live.temp, ' °C')} · ${fmt(live.powerW, ' W')}`
+        : '感測器尚未連線')
+      const sliders = el('div', 'oc-sliders')
+      card.append(head, liveEl, sliders)
+      host.appendChild(card)
+      renderLinuxPanel(sliders, g, g.id, data)
+    }
+    return
+  }
   const lives = liveGpus(data)
   const drafts = draftGpus(data)
   const n = Math.max(lives.length, drafts.length, 1)
@@ -463,6 +586,7 @@ function paintVf(svg, points) {
 
 /** @param {any} data */
 function renderVf(data) {
+  if (isLinux(data)) return
   const hosts = [...document.querySelectorAll('#ocGpuHost .oc-vf-host')]
   if (!hosts.length || state.vfDrag) return
   hosts.forEach((host) => paintVfHost(host, data, Number(host.dataset.gpuIndex) || 0))
@@ -572,6 +696,17 @@ function render(data) {
   }
   const apply = /** @type {HTMLButtonElement|null} */ ($('ocApplyBtn'))
   if (apply) apply.disabled = !data.available
+  const reset = /** @type {HTMLButtonElement|null} */ ($('ocResetBtn'))
+  if (reset) reset.textContent = isLinux(data) ? '還原原始值' : '還原出廠'
+  const hintEl = $('ocHint')
+  if (hintEl && isLinux(data)) hintEl.textContent = 'cpufreq／RAPL／amdgpu／nvidia-smi 的功耗與時脈牆；只動你調過的項目，只這次開機有效，過熱即還原。'
+  const auth = /** @type {HTMLButtonElement|null} */ ($('ocAuthBtn'))
+  if (auth) {
+    const a = data.linux?.auth
+    auth.hidden = !isLinux(data) || !a?.canInstall
+    auth.textContent = a?.label || '授權效能調整（pkexec）'
+    auth.disabled = !a?.canInstall
+  }
   renderNotices(data)
   renderDash(data)
   renderCpu(data)
@@ -884,22 +1019,40 @@ function poll() {
 function initOcPanel() {
   if (state.inited) return
   state.inited = true
-  $('ocApplyBtn')?.addEventListener('click', () => {
-    electronAPI.sysmon.ocApply().then((res) => {
-      if (res?.ok) {
-        state.applyError = ''
-        state.appliedDraft = JSON.stringify(res.data?.draft)
-        render(res.data)
-      } else {
-        state.applyError = res?.error?.message || '套用失敗'
-        renderNotices(state.data)
-      }
-    })
-  })
+  async function doApply(confirmed) {
+    const res = await electronAPI.sysmon.ocApply({ confirmed })
+    if (res?.ok) {
+      state.applyError = ''
+      state.appliedDraft = JSON.stringify(res.data?.draft)
+      render(res.data)
+      return
+    }
+    if (res?.error?.code === 'SYSMON_OC_CONFIRM') {
+      const ok = await askConfirm('套用這些變更？', {
+        desc: res.error.message,
+        confirmText: '套用',
+        danger: true
+      })
+      if (ok) return doApply(true)
+      return
+    }
+    state.applyError = res?.error?.message || '套用失敗'
+    renderNotices(state.data)
+  }
+  $('ocApplyBtn')?.addEventListener('click', () => { void doApply(false) })
   $('ocResetBtn')?.addEventListener('click', () => {
     state.applyError = ''
     state.appliedDraft = ''
     electronAPI.sysmon.ocReset().then((res) => { if (res?.ok) render(res.data) })
+  })
+  $('ocAuthBtn')?.addEventListener('click', () => {
+    electronAPI.sysmon.ocAuthorize().then((res) => {
+      if (res?.ok) render(res.data.status || res.data)
+      else {
+        state.applyError = res?.error?.message || '授權失敗'
+        renderNotices(state.data)
+      }
+    })
   })
 }
 

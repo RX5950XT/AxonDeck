@@ -21,6 +21,7 @@ const linuxLogin = require('./linux-login')
 const { createStressRunner } = require('./stress')
 const { createFanEngine } = require('./fans')
 const { createOcEngine } = require('./oc')
+const { createLinuxOcEngine } = require('./oc-linux')
 const pawnio = require('./pawnio')
 const metrics = require('./metrics')
 const { createProcessIcons } = require('./process-icons')
@@ -140,7 +141,16 @@ function createSysmonService(deps = {}) {
   const icons = createProcessIcons(deps.iconDeps)
   const stress = createStressRunner()
   const fans = createFanEngine({ sensors })
-  const oc = createOcEngine({ sensors })
+  // Linux：cpufreq／RAPL／amdgpu／nvidia-smi 走自己的引擎（介面同 oc.js，另有 authorize）
+  const oc = useLinuxSensors
+    ? createLinuxOcEngine({
+      sensors,
+      readGpuCards: () => gpu.read().cards || [],
+      sysfsRoot: deps.sensorDeps?.sysfsRoot,
+      procRoot: deps.sensorDeps?.procRoot,
+      ...deps.ocDeps
+    })
+    : createOcEngine({ sensors })
   const disks = createDiskTree({
     exe: Object.hasOwn(deps, 'diskTreeExe') ? deps.diskTreeExe : resolveProbeExe(),
     emit: (payload) => emit(payload),
@@ -201,6 +211,10 @@ function createSysmonService(deps = {}) {
     }
   }
 
+  /** @param {any} snap 同步值或 Promise（Linux 引擎） */
+  function ocFeed(snap) {
+    return snap && typeof snap.then === 'function' ? snap.then(withOcFeed) : withOcFeed(snap)
+  }
 
   async function ensureLoginUnit() {
     try {
@@ -245,6 +259,12 @@ function createSysmonService(deps = {}) {
         if (!sampler.isRunning()) {
           sampler.start(intervalKey)
           sampler.idle()
+        }
+        if (typeof oc.ensureApplied === 'function') {
+          oc.ensureApplied().then((res) => {
+            if (res && res.applied) return ensureLoginUnit()
+            return undefined
+          }).catch(() => undefined)
         }
         return { running: true, intervalKey }
       }
@@ -463,10 +483,26 @@ function createSysmonService(deps = {}) {
     fanTaskStatus: () => sensors.taskStatus(),
     fanTaskInstall: () => sensors.taskInstall(),
 
-    ocStatus: () => withOcFeed(oc.status()),
-    ocSetDraft: (patch) => withOcFeed(oc.setDraft(patch)),
-    ocApply: () => withOcFeed(oc.apply()),
-    ocReset: () => withOcFeed(oc.reset()),
+    // Linux 引擎是 async（讀 sysfs）；Windows 照舊同步回傳
+    ocStatus: () => ocFeed(oc.status()),
+    ocSetDraft: (patch) => ocFeed(oc.setDraft(patch)),
+    /** @param {{ confirmed?: boolean }} [opts] 只有 Linux 看 confirmed（有風險的變更二次確認） */
+    ocApply: (opts) => ocFeed(useLinuxSensors ? oc.apply({ confirmed: opts?.confirmed === true }) : oc.apply()).then((st) => {
+      if (st && st.applied) ensureLoginUnit()
+      return st
+    }),
+    ocReset: () => ocFeed(oc.reset()),
+    /** Linux：一次性 pkexec 授權（安裝 udev 規則）；Windows 沒有這一步 */
+    async ocAuthorize() {
+      if (!useLinuxSensors || typeof oc.authorize !== 'function') {
+        const err = new Error('unsupported')
+        err.code = 'SYSMON_OC_UNSUPPORTED'
+        err.userMessage = '這個平台不需要授權效能調整。'
+        throw err
+      }
+      const result = await oc.authorize()
+      return { ...result, status: withOcFeed(result.status) }
+    },
 
     /**
      * 代裝 PawnIO 核心驅動（CPU／主機板那一整組感測器的前提）。

@@ -4,7 +4,7 @@
  * GitHub Releases 的安裝檔在 APAC 常被 CDN 限速到幾十 KB/s（實測 ~50KB/s → 406MB 要一小時），
  * 同一支檔經公開反向代理可到 ~25MB/s。版本清單 latest.yml／latest-linux.yml 仍只從 GitHub 讀
  * （sha512 是信任根）；這裡只改寫 httpExecutor.download 拿到的安裝檔網址
- * （Windows .exe／Linux .AppImage），下完仍由 electron-updater 對雜湊。
+ * （Windows .exe／Linux .AppImage、.deb、.rpm），下完仍由 electron-updater 對雜湊。
  */
 
 const fs = require('fs')
@@ -17,7 +17,7 @@ const MIRRORS = [
   'https://gh-proxy.com/'
 ]
 const ASSET_INSTALLER = new RegExp(
-  `^https://github\\.com/${OWNER}/${REPO}/releases/download/[^/]+/[^/]+\\.(exe|AppImage)$`,
+  `^https://github\\.com/${OWNER}/${REPO}/releases/download/[^/]+/[^/]+\\.(exe|AppImage|deb|rpm)$`,
   'i'
 )
 

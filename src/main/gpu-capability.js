@@ -123,7 +123,7 @@ async function detectGpuCapability() {
 
   // 有 NVIDIA + 夠 VRAM、但缺 CUDA Runtime → 可自動安裝
   result.canInstallCuda =
-    process.platform === 'win32' &&
+    (process.platform === 'win32' || process.platform === 'linux') &&
     result.hasNvidiaDriver &&
     result.vramMiB >= MIN_VRAM_MIB &&
     !cuda.hasCudaRuntime

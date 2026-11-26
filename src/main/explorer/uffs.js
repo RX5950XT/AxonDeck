@@ -19,6 +19,11 @@ const platform = require('../platform')
 const { sanitizeSearchFilters, matchesSearchFilters } = require('./search-filter')
 const linuxSearch = require('./linux-search')
 
+/** Linux 整機檔名搜尋（plocate／App 自建索引）；第一次用到才載入 */
+function linuxMachine() {
+  return require('./linux-machine-search').machineSearch()
+}
+
 const MAX_PATTERN = 200
 const SEARCH_LIMIT = 200
 /** UFFS 先多取幾筆，篩選後才截給 UI，避免篩選器把前 200 筆吃掉。 */
@@ -45,7 +50,7 @@ const activeSearches = new Set()
 let searchVersion = 0
 
 function linuxUnsupported(code = 'UFFS_MISSING') {
-  throw fail(code, '整機快速搜尋（UFFS）目前僅支援 Windows；Linux 請用資料夾內篩選。')
+  throw fail(code, '這個平台還沒有整機檔名搜尋。')
 }
 
 /** 保留索引快取，下次搜尋由 UFFS 自動載回。從未使用過的外部 daemon 不碰。 */
@@ -62,6 +67,10 @@ async function releaseMemory() {
 }
 
 async function shutdown() {
+  if (platform.isLinux) {
+    cancelSearch()
+    return linuxMachine().stop()
+  }
   cancelSearch()
   await Promise.all([...activeSearches].map(child => new Promise(resolve => child.once('close', resolve))))
   return releaseMemory()
@@ -70,6 +79,8 @@ async function shutdown() {
 /** @param {string} dir */
 function configure(dir) {
   userDataPath = typeof dir === 'string' ? dir : ''
+  // 暫存 userData（CDP／沙箱）不建整機索引，也不落盤
+  if (platform.isLinux) linuxMachine().configure(inTempUserData() ? '' : userDataPath)
 }
 
 function installDir() {
@@ -378,15 +389,19 @@ function searchFilterArgs(rawFilters) {
  */
 async function status() {
   if (platform.isLinux) {
-    return {
-      installed: true,
-      version: 'folder',
-      daemon: { running: true, warming: false, drives: 0, records: 0 },
-      broker: { present: false, installed: false },
-      unsupported: false,
-      mode: 'folder',
-      message: '目前資料夾樹檔名搜尋（非整機索引）'
+    // 暫存 userData 不建整機索引：維持原本的資料夾樹搜尋
+    if (inTempUserData()) {
+      return {
+        installed: true,
+        version: 'folder',
+        daemon: { running: true, warming: false, drives: 0, records: 0 },
+        broker: { present: false, installed: false },
+        unsupported: false,
+        mode: 'folder',
+        message: '目前資料夾樹檔名搜尋（非整機索引）'
+      }
     }
+    return linuxMachine().status()
   }
   if (!platform.isWindows) {
     return {
@@ -395,7 +410,7 @@ async function status() {
       daemon: { running: false, warming: false, drives: 0, records: 0 },
       broker: { present: false, installed: false },
       unsupported: true,
-      message: 'UFFS 整機搜尋尚未移植到此平台'
+      message: '這個平台還沒有整機檔名搜尋'
     }
   }
   const exe = findUffs()
@@ -433,9 +448,9 @@ async function status() {
 async function search(raw, rawFilters) {
   if (platform.isLinux) {
     const version = ++searchVersion
-    return linuxSearch.searchLocal(raw, rawFilters, {
-      isCancelled: () => version !== searchVersion
-    })
+    const isCancelled = () => version !== searchVersion
+    if (inTempUserData()) return linuxSearch.searchLocal(raw, rawFilters, { isCancelled })
+    return linuxMachine().search(raw, rawFilters, { isCancelled })
   }
   if (!platform.isWindows) linuxUnsupported()
   sanitizePattern(raw)
@@ -600,6 +615,12 @@ function verifyZipHash(file, sumsText, fileName) {
  * @param {(info: { received: number, total: number }) => void} [onProgress]
  */
 async function download(onProgress) {
+  if (platform.isLinux) {
+    if (inTempUserData()) return status()
+    return linuxMachine().ensure({ onProgress: onProgress && ((info) => {
+      if (typeof onProgress === 'function' && info && info.received != null) onProgress(info)
+    }) })
+  }
   if (!platform.isWindows) linuxUnsupported('UFFS_INSTALL')
   const destDir = installDir()
   if (!destDir) throw fail('UFFS_INSTALL', '找不到安裝位置')
@@ -642,6 +663,7 @@ function cancelDownload() {
  * 安裝 Access Broker（一次 UAC）。
  */
 async function installBroker() {
+  if (platform.isLinux) return inTempUserData() ? status() : linuxMachine().ensure()
   const exe = findUffs()
   const broker = brokerPath(exe)
   if (!broker) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
@@ -661,6 +683,7 @@ async function installBroker() {
  * @param {{ elevate?: boolean }} [opts]
  */
 async function startDaemon(opts = {}) {
+  if (platform.isLinux) return inTempUserData() ? status() : linuxMachine().ensure()
   const exe = findUffs()
   if (!exe) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
   const args = ['--daemon', 'start']
@@ -678,6 +701,10 @@ async function startDaemon(opts = {}) {
  * @param {{ auto?: boolean, onProgress?: (info: { received: number, total: number }) => void }} [opts]
  */
 async function ensureReady(opts = {}) {
+  if (platform.isLinux) {
+    if (inTempUserData()) return status()
+    return linuxMachine().ensure({ onProgress: opts.onProgress })
+  }
   if (!platform.isWindows) return status()
   if (opts.auto === false) return status()
   if (ensureInflight) return ensureInflight

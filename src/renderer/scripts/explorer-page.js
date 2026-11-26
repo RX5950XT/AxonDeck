@@ -834,6 +834,16 @@ function bindOnce() {
     if (!info) return
     const text = $('exUffsText')
     if (!text) return
+    // Linux 整機索引的建置進度／完成（Windows 的下載進度沒有 kind）
+    if (info.kind === 'index') {
+      if (info.done && info.status) {
+        uffs = info.status
+        paintUffs()
+      } else if (!ensuring) {
+        text.textContent = `索引建置中 · ${Number(info.records || 0).toLocaleString('zh-TW')} 筆`
+      }
+      return
+    }
     const total = Number(info.total) || 0
     const received = Number(info.received) || 0
     text.textContent = total
@@ -4292,6 +4302,13 @@ function paintUffs() {
     dot.classList.remove('is-on')
     return
   }
+  // Linux 整機索引（plocate／App 自建）：狀態字由 main 組好
+  if (uffs && uffs.mode === 'index') {
+    text.textContent = uffs.message || '整機搜尋'
+    dot.classList.toggle('is-on', Boolean(uffs.daemon && uffs.daemon.running))
+    if (enableBtn) enableBtn.hidden = true
+    return
+  }
   if (uffs && uffs.mode === 'folder') {
     text.textContent = uffs.message || '資料夾樹搜尋就緒'
     dot.classList.add('is-on')
@@ -4299,7 +4316,7 @@ function paintUffs() {
     return
   }
   if (uffs && uffs.unsupported) {
-    text.textContent = uffs.message || '整機搜尋僅支援 Windows'
+    text.textContent = uffs.message || '整機搜尋尚未就緒'
     dot.classList.remove('is-on')
     if (enableBtn) enableBtn.hidden = true
     return

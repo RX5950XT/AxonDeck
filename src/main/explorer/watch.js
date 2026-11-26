@@ -54,7 +54,7 @@ function startMany(list) {
   const out = []
   for (const item of Array.isArray(list) ? list : []) {
     const full = paths.resolveAbs(item.path)
-    const key = full.toLowerCase()
+    const key = paths.cacheKey(full)
     if (next.has(key)) continue
     if (typeof item.send !== 'function') {
       out.push({ watching: false, path: full })

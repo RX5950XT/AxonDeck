@@ -63,7 +63,7 @@ const listCache = new Map()
  * @returns {Promise<T>}
  */
 function queueWrite(full, task) {
-  const key = full.toLowerCase()
+  const key = paths.cacheKey(full)
   const prev = writeChains.get(key) || Promise.resolve()
   const next = prev.then(task, task)
   writeChains.set(key, next)
@@ -191,8 +191,13 @@ async function statEntry(dirent, full, hidden) {
  * @param {string} dir
  */
 function isIntoSelf(from, dir) {
-  const a = String(from || '').toLowerCase()
-  const b = String(dir || '').toLowerCase()
+  if (process.platform === 'win32') {
+    const a = String(from || '').toLowerCase()
+    const b = String(dir || '').toLowerCase()
+    return b === a || b.startsWith(a + require('path').sep)
+  }
+  const a = String(from || '')
+  const b = String(dir || '')
   return Boolean(a) && (b === a || b.startsWith(a + path.sep))
 }
 
@@ -272,7 +277,7 @@ async function resolveCollision(dir, from, next, options) {
   if (!fs.existsSync(next)) return { dest: next }
   const mode = options && options.collision
   if (mode === 'skip') return { skipped: true }
-  if (mode === 'overwrite' && next.toLowerCase() !== String(from).toLowerCase()) {
+  if (mode === 'overwrite' && !paths.samePath(next, String(from))) {
     paths.assertMutable(next)
     try {
       await recycle.trash(next)
@@ -421,7 +426,7 @@ function rememberList(key, next) {
 }
 
 function listCacheKey(full, opts) {
-  return `${full.toLowerCase()}|${opts.showHidden ? '1' : '0'}`
+  return `${paths.cacheKey(full)}|${opts.showHidden ? '1' : '0'}`
 }
 
 async function readDirectoryEntries(full, opts) {
@@ -512,7 +517,7 @@ function invalidateListCache(dirPath) {
     return
   }
   let full
-  try { full = paths.resolveAbs(dirPath).toLowerCase() } catch { return }
+  try { full = paths.cacheKey(paths.resolveAbs(dirPath)) } catch { return }
   for (const key of listCache.keys()) {
     if (key.startsWith(`${full}|`)) listCache.delete(key)
   }
@@ -786,7 +791,7 @@ async function renameEntry(target, rawName) {
   paths.resolveAbs(next)
   if (next === full) return { path: full }
   // 大小寫別名可以改；若目錄區分大小寫、確實有另一筆同名項目，仍拒絕覆蓋。
-  if (fs.existsSync(next) && (next.toLowerCase() !== full.toLowerCase()
+  if (fs.existsSync(next) && (!paths.samePath(next, full)
     || fs.readdirSync(path.dirname(full)).includes(name))) throw paths.fail('EXISTS', '這個名字已經有東西了')
   try {
     await fsp.rename(full, next)
@@ -865,7 +870,7 @@ async function moveEntry(fromPath, toDir, rawOptions) {
   return queueWrite(dir, async () => {
     let next = path.join(dir, path.basename(from))
     paths.resolveAbs(next)
-    if (next.toLowerCase() === from.toLowerCase()) return { path: from }
+    if (paths.samePath(next, from)) return { path: from }
     const decided = await resolveCollision(dir, from, next, options)
     if (decided.skipped) return { path: next, skipped: true }
     next = decided.dest

@@ -59,6 +59,47 @@ if (process.platform !== 'win32') {
   assert.equal(store.normalizeSetupScript('setup.sh'), '')
 }
 
+function shortcutAndCleanup() {
+  const home = tempDir('assoc-shortcut-')
+  const userData = tempDir('assoc-shortcut-ud-')
+  try {
+    const desktopDir = path.join(home, 'Desktop')
+    fs.mkdirSync(desktopDir, { recursive: true })
+    const env = { HOME: home }
+    const put = linux.installDesktopShortcut({
+      home, env, execPath: '/opt/AxonDeck/axondeck', write: true
+    })
+    assert.equal(put.installed, true)
+    assert.equal(put.dest, path.join(desktopDir, 'axondeck.desktop'))
+    const text = fs.readFileSync(put.dest, 'utf8')
+    assert.match(text, /X-AxonDeck-Integration=1/)
+    assert.match(text, /Exec=\/opt\/AxonDeck\/axondeck %U/)
+
+    const other = path.join(home, '.config/mimeapps.list')
+    fs.mkdirSync(path.dirname(other), { recursive: true })
+    fs.writeFileSync(other, '[Default Applications]\nvideo/mp4=vlc.desktop\ntext/plain=axondeck.desktop\n')
+    fs.mkdirSync(path.join(home, '.local/share/applications'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.local/share/applications/axondeck.desktop'), text)
+
+    const stranger = path.join(desktopDir, 'notes.desktop')
+    fs.writeFileSync(stranger, '[Desktop Entry]\nName=Notes\n')
+    const out = linux.removeUserIntegration({ home, env, userDataPath: userData })
+    assert.equal(out.removed, true)
+    assert.equal(fs.existsSync(put.dest), false)
+    assert.equal(fs.existsSync(path.join(home, '.local/share/applications/axondeck.desktop')), false)
+    assert.equal(fs.existsSync(stranger), true)
+    const mime = fs.readFileSync(other, 'utf8')
+    assert.match(mime, /video\/mp4=vlc\.desktop/)
+    assert.doesNotMatch(mime, /axondeck\.desktop/)
+    console.log('PASS 桌面捷徑與卸載清理（不刪別人的檔）')
+  } finally {
+    removeTree(home)
+    removeTree(userData)
+  }
+}
+
+shortcutAndCleanup()
+
 async function main() {
   if (process.platform !== 'win32') {
     const root = tempDir('script-desktop2-')

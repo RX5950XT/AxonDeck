@@ -76,6 +76,7 @@ function desktopEntry({ exec, mimes, icon }) {
     'Terminal=false',
     'Categories=Utility;AudioVideo;TextEditor;',
     'MimeType=' + mimeLine,
+    'X-AxonDeck-Integration=1',
     ''
   ].join('\n')
 }
@@ -171,6 +172,95 @@ function install(opts = {}) {
   return { installed: true, added: merged.added, mimes, dirs }
 }
 
+
+const INTEGRATION_MARKER = 'X-AxonDeck-Integration=1'
+
+/**
+ * 解析 user-dirs.dirs 的桌面路徑；沒有就用 ~/Desktop。
+ * @param {string} [home]
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {(file: string, enc: string) => string} [readFileSync]
+ */
+function desktopFolder(home = os.homedir(), env = process.env, readFileSync = fs.readFileSync) {
+  if (env.XDG_DESKTOP_DIR) return env.XDG_DESKTOP_DIR.replace(/^\$HOME/, home)
+  const file = path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'user-dirs.dirs')
+  try {
+    const text = readFileSync(file, 'utf8')
+    const m = /^XDG_DESKTOP_DIR=(?:"([^"]+)"|(\S+))/m.exec(text)
+    if (m) return (m[1] || m[2]).replace(/^\$HOME/, home)
+  } catch { /* 沒有 user-dirs.dirs */ }
+  return path.join(home, 'Desktop')
+}
+
+function isOurDesktop(text) {
+  return typeof text === 'string' && (text.includes(INTEGRATION_MARKER) || /^Name=AxonDeck$/m.test(text))
+}
+
+/**
+ * 在使用者桌面放一份捷徑（不覆蓋別人的同名檔，除非是我們寫過的）。
+ * @param {{ home?: string, env?: NodeJS.ProcessEnv, execPath?: string, icon?: string, write?: boolean }} [opts]
+ */
+function installDesktopShortcut(opts = {}) {
+  if (process.platform === 'win32') return { installed: false, reason: 'windows' }
+  const home = opts.home || os.homedir()
+  const folder = desktopFolder(home, opts.env)
+  const dest = path.join(folder, DESKTOP_ID)
+  const exec = opts.execPath || defaultExec(opts.env)
+  const body = desktopEntry({ exec, mimes: [], icon: opts.icon })
+  if (opts.write === false) return { installed: false, reason: 'dry-run', dest, desktop: body }
+  try {
+    const existing = fs.readFileSync(dest, 'utf8')
+    if (existing && !isOurDesktop(existing)) return { installed: false, reason: 'exists', dest }
+  } catch { /* 沒有就新建 */ }
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(dest, body, { mode: 0o644 })
+  try { fs.chmodSync(dest, 0o755) } catch { /* 有的桌面要可執行才認捷徑 */ }
+  return { installed: true, dest }
+}
+
+function stripMimeapps(text, id) {
+  const needle = `=${id}`
+  const kept = String(text || '').split(/\r?\n/).filter((line) => !line.includes(needle) || line.trim().startsWith('#'))
+  let out = kept.join('\n')
+  if (out && !out.endsWith('\n')) out += '\n'
+  return out
+}
+
+/**
+ * 移除我們寫過的使用者層整合：應用程式選單捷徑、桌面捷徑、mimeapps 裡指向我們的預設值。
+ * 不刪使用者資料或系統套件。
+ * @param {{ home?: string, env?: NodeJS.ProcessEnv, userDataPath?: string }} [opts]
+ */
+function removeUserIntegration(opts = {}) {
+  if (process.platform === 'win32') return { removed: false, reason: 'windows' }
+  const home = opts.home || os.homedir()
+  const dirs = userDirs(home)
+  const removed = []
+  const tryUnlink = (file) => {
+    try {
+      const text = fs.readFileSync(file, 'utf8')
+      if (!isOurDesktop(text)) return
+      fs.unlinkSync(file)
+      removed.push(file)
+    } catch { /* 沒有或不是我們的 */ }
+  }
+  tryUnlink(dirs.desktop)
+  tryUnlink(path.join(desktopFolder(home, opts.env), DESKTOP_ID))
+  try {
+    const current = fs.readFileSync(dirs.mimeapps, 'utf8')
+    const next = stripMimeapps(current, DESKTOP_ID)
+    if (next !== current) {
+      fs.writeFileSync(dirs.mimeapps, next, { mode: 0o644 })
+      removed.push(dirs.mimeapps)
+    }
+  } catch { /* 沒有 mimeapps */ }
+  if (opts.userDataPath) {
+    try { fs.unlinkSync(path.join(opts.userDataPath, 'linux-associations-initialized')) } catch { /* 沒有標記 */ }
+  }
+  try { require('./linux-autostart').remove({ env: { ...process.env, HOME: home, ...(opts.env || {}) } }) } catch { /* 這支 PR 不一定疊到 autostart */ }
+  return { removed: true, files: removed }
+}
+
 function mediaAndEditorExts() {
   let media = []
   try {
@@ -184,6 +274,7 @@ function mediaAndEditorExts() {
 }
 
 module.exports = {
-  MARKER, DESKTOP_ID, MIME_BY_EXT, mimeOf, uniqueMimes, desktopEntry, mergeMimeapps,
-  queryDefault, install, mediaAndEditorExts, userDirs, defaultExec
+  MARKER, DESKTOP_ID, INTEGRATION_MARKER, MIME_BY_EXT, mimeOf, uniqueMimes, desktopEntry, mergeMimeapps,
+  queryDefault, install, mediaAndEditorExts, userDirs, defaultExec,
+  desktopFolder, installDesktopShortcut, removeUserIntegration, stripMimeapps
 }

@@ -288,6 +288,27 @@ function assertMutable(full) {
   if (isProtected(full)) throw fail('PROTECTED', '這個位置不能改')
 }
 
+/**
+ * 快取、寫入佇列用的路徑鍵：Windows 檔案系統不分大小寫，Linux／其他平台必須保留原樣，
+ * 否則 `Foo` 與 `foo` 會共用同一筆清單快取。
+ * @param {string} full
+ * @param {NodeJS.Platform} [platformName]
+ */
+function cacheKey(full, platformName = process.platform) {
+  return platformName === 'win32' ? String(full).toLowerCase() : String(full)
+}
+
+/**
+ * 兩個絕對路徑是否指向同一個位置（Windows 不分大小寫）。
+ * @param {string} a
+ * @param {string} b
+ * @param {NodeJS.Platform} [platformName]
+ */
+function samePath(a, b, platformName = process.platform) {
+  if (platformName === 'win32') return String(a).toLowerCase() === String(b).toLowerCase()
+  return String(a) === String(b)
+}
+
 module.exports = {
   DRIVE_ABS,
   MAX_PATH,
@@ -302,5 +323,7 @@ module.exports = {
   isProtected,
   assertMutable,
   assertCreatable,
-  removeLinkOrTree
+  removeLinkOrTree,
+  cacheKey,
+  samePath
 }

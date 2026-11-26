@@ -31,7 +31,7 @@ function laneOf(raw) {
 }
 
 function remember(full, out) {
-  const key = full.toLowerCase()
+  const key = paths.cacheKey(full)
   cache.delete(key)
   cache.set(key, { bytes: Number(out.bytes) || 0, incomplete: Boolean(out.incomplete), at: Date.now() })
   if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value)
@@ -47,7 +47,7 @@ function apply(entries) {
   if (!cache.size) return entries
   return entries.map((entry) => {
     if (!entry || !entry.dir || entry.link) return entry
-    const hit = cache.get(String(entry.path || '').toLowerCase())
+    const hit = cache.get(paths.cacheKey(String(entry.path || '')))
     return hit ? { ...entry, size: hit.bytes, sizeIncomplete: hit.incomplete } : entry
   })
 }
@@ -84,7 +84,7 @@ async function scan(dirPath, lane, opts) {
     .filter((d) => d.isDirectory())
     .map((d) => path.join(full, d.name))
     .filter((child) => {
-      const hit = cache.get(child.toLowerCase())
+      const hit = cache.get(paths.cacheKey(child))
       return !hit || now - hit.at > FRESH_MS
     })
   for (const child of todo) {

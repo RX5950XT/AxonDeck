@@ -113,6 +113,7 @@ while ((Get-Date) -lt $deadline) {
  * @returns {boolean} 有沒有真的起了一個等待器
  */
 function raiseChildWindow() {
+  if (process.platform === 'linux') return raiseChildWindowLinux()
   if (process.platform !== 'win32') return false
   if (pending && !pending.killed && pending.exitCode === null) return true
   try {
@@ -139,6 +140,29 @@ function stop() {
     try { pending.kill() } catch { /* 已經結束了 */ }
   }
   pending = null
+  linuxPending = null
 }
 
-module.exports = { raiseChildWindow, stop, SCRIPT, REUSE_WINDOW }
+
+/** @type {Promise<boolean> | null} */
+let linuxPending = null
+
+/**
+ * Linux：非同步等新視窗再抬到前面。失敗吞掉，不擋終端機輸入。
+ * @returns {boolean}
+ */
+function raiseChildWindowLinux() {
+  if (linuxPending) return true
+  try {
+    const linux = require('./foreground-linux')
+    linuxPending = linux.startWaiter({ reuse: REUSE_WINDOW })
+      .catch(() => false)
+      .finally(() => { linuxPending = null })
+    return true
+  } catch {
+    linuxPending = null
+    return false
+  }
+}
+
+module.exports = { raiseChildWindow, stop, SCRIPT, REUSE_WINDOW, raiseChildWindowLinux }

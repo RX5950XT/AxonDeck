@@ -231,7 +231,9 @@
         "gnome-keyring | kwalletmanager",
         "pkexec | policykit-1",
         "x11-utils"
-      ]
+      ],
+      "afterInstall": "scripts/linux/after-install.sh",
+      "afterRemove": "scripts/linux/after-remove.sh"
     },
     "rpm": {
       "packageCategory": "Applications/Utilities",
@@ -257,7 +259,9 @@
         "Recommends: polkit",
         "--rpm-tag",
         "Recommends: xprop"
-      ]
+      ],
+      "afterInstall": "scripts/linux/after-install.sh",
+      "afterRemove": "scripts/linux/after-remove.sh"
     }
   }
 }

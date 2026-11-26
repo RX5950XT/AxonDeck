@@ -419,6 +419,19 @@ async function main() {
     assert.deepStrictEqual(list().slice(4), ['AxonDeck-1.43.0-linux-aarch64.rpm.asc', 'AxonDeck-linux-signing-key.asc'])
   })
 
+  await check('deb／rpm 安裝後與移除後會刷新桌面資料庫', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+    assert.strictEqual(pkg.build.deb.afterInstall, 'scripts/linux/after-install.sh')
+    assert.strictEqual(pkg.build.deb.afterRemove, 'scripts/linux/after-remove.sh')
+    assert.strictEqual(pkg.build.rpm.afterInstall, 'scripts/linux/after-install.sh')
+    assert.strictEqual(pkg.build.rpm.afterRemove, 'scripts/linux/after-remove.sh')
+    const install = fs.readFileSync(path.join(ROOT, 'scripts/linux/after-install.sh'), 'utf8')
+    const remove = fs.readFileSync(path.join(ROOT, 'scripts/linux/after-remove.sh'), 'utf8')
+    assert.match(install, /update-desktop-database/)
+    assert.match(remove, /update-desktop-database/)
+    assert.doesNotMatch(remove, /rm -rf \/home/)
+  })
+
   await check('Windows 行為：updater.js 的 Linux 分支都包在 isLinux()／isManual() 裡', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src', 'main', 'updater.js'), 'utf8')
     assert.match(src, /autoUpdater = isLinux\(\) \? require\('\.\/updater-linux'\)\.createUpdater\(mod, linuxInfo\(\)\.kind\) : mod\.autoUpdater/)

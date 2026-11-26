@@ -6,6 +6,7 @@
  */
 
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { execFile, spawn } = require('child_process')
 
@@ -153,6 +154,60 @@ function parseFlatpak(text) {
   }).filter(Boolean)
 }
 
+
+function parseDesktopFile(text, file) {
+  const src = String(text || '')
+  let block = ''
+  for (const part of src.split(/\n(?=\[)/)) {
+    if (/^\[Desktop Entry\]/.test(part)) { block = part; break }
+  }
+  if (!block) return null
+  const field = (key) => {
+    const m = new RegExp('^' + key + '=(.*)$', 'm').exec(block)
+    return m ? m[1].trim() : ''
+  }
+  if ((field('Type') || 'Application') !== 'Application') return null
+  if (/^true$/i.test(field('NoDisplay')) || /^true$/i.test(field('Hidden'))) return null
+  const name = field('Name')
+  const exec = field('Exec')
+  if (!name || !exec) return null
+  const id = path.basename(file, '.desktop')
+  return { id, name, version: field('Version') || '', source: 'desktop', exec, icon: field('Icon') || '', desktop: file }
+}
+
+function applicationDirs(opts = {}) {
+  const env = opts.env || process.env
+  const home = opts.home || env.HOME || os.homedir()
+  const dataHome = env.XDG_DATA_HOME || path.join(home, '.local/share')
+  const extra = String(env.XDG_DATA_DIRS == null ? '/usr/local/share:/usr/share' : env.XDG_DATA_DIRS).split(':').filter(Boolean)
+  const dirs = [path.join(dataHome, 'applications')]
+  for (const root of extra) dirs.push(path.join(root, 'applications'))
+  return dirs
+}
+
+function listDesktopApps(opts = {}) {
+  const readDir = opts.readDir || ((dir) => fs.readdirSync(dir))
+  const readFile = opts.readFile || ((file) => fs.readFileSync(file, 'utf8'))
+  const seen = new Set()
+  const rows = []
+  for (const dir of applicationDirs(opts)) {
+    let names = []
+    try { names = readDir(dir) } catch { continue }
+    for (const name of names) {
+      if (!name.endsWith('.desktop')) continue
+      const file = path.join(dir, name)
+      const key = name.toLowerCase()
+      if (seen.has(key)) continue
+      let parsed
+      try { parsed = parseDesktopFile(readFile(file), file) } catch { continue }
+      if (!parsed) continue
+      seen.add(key)
+      rows.push(parsed)
+    }
+  }
+  return rows
+}
+
 async function listInstalled(opts = {}) {
   const info = opts.detect || detect(opts)
   const runFn = opts.run || ((exe, args) => run(exe, args, opts))
@@ -170,6 +225,17 @@ async function listInstalled(opts = {}) {
   if (info.flatpak) {
     const r = await runFn('flatpak', ['list', '--app', '--columns=application,version,name'])
     rows.push(...parseFlatpak(r.stdout))
+  }
+  const desktops = (opts.listDesktopApps || listDesktopApps)(opts)
+  const have = new Set(rows.map((row) => String(row.id || '').toLowerCase()))
+  const haveName = new Set(rows.map((row) => String(row.name || '').toLowerCase()))
+  for (const row of desktops) {
+    const id = String(row.id || '').toLowerCase()
+    const name = String(row.name || '').toLowerCase()
+    if (have.has(id) || haveName.has(name)) continue
+    have.add(id)
+    haveName.add(name)
+    rows.push(row)
   }
   return rows
 }
@@ -218,5 +284,5 @@ async function search(query, opts = {}) {
 module.exports = {
   GRAPHICAL_SUDO, detect, hasCommand, nativeArgs, flatpakArgs, privilegeCommand,
   assertNotSilentSudo, run, spawnDetached, listInstalled, search,
-  parseDpkg, parseRpm, parsePacman, parseFlatpak
+  parseDpkg, parseRpm, parsePacman, parseFlatpak, parseDesktopFile, listDesktopApps, applicationDirs
 }

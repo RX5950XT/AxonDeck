@@ -6,6 +6,9 @@ const { sourceFor, catalogLinux, LINUX_SOURCES } = require('../src/main/app-inst
 const backend = require('../src/main/app-installer/linux-backend')
 const { createLinuxInstaller } = require('../src/main/app-installer/linux')
 const { CATALOG } = require('../src/main/app-installer/catalog')
+const fs = require('fs')
+const path = require('path')
+const { tempDir, removeTree } = require('./lib/test-temp')
 
 assert.ok(LINUX_SOURCES.steam.apt)
 assert.equal(sourceFor(CATALOG.find((e) => e.key === 'steam'), 'apt', true).package, 'steam-installer')
@@ -65,7 +68,30 @@ assert.equal(empty.backend.native, 'apt')
 assert.ok(empty.catalog.find((row) => row.key === 'steam').canInstall)
 assert.equal(empty.catalog.find((row) => row.key === 'line').canInstall, false)
 
+
+function desktopInventory() {
+  const hidden = backend.parseDesktopFile('[Desktop Entry]\nType=Application\nName=HiddenApp\nExec=true\nNoDisplay=true\n', 'hidden.desktop')
+  assert.equal(hidden, null)
+  const app = backend.parseDesktopFile('[Desktop Entry]\nName=Example App\nExec=/usr/bin/example\nIcon=example\n', '/usr/share/applications/example.desktop')
+  assert.equal(app.id, 'example')
+  assert.equal(app.name, 'Example App')
+  assert.equal(app.source, 'desktop')
+  const root = tempDir('desktop-apps-')
+  try {
+    const apps = path.join(root, 'share/applications')
+    fs.mkdirSync(apps, { recursive: true })
+    fs.writeFileSync(path.join(apps, 'example.desktop'), '[Desktop Entry]\nName=Example App\nExec=/usr/bin/example\n')
+    fs.writeFileSync(path.join(apps, 'skip.desktop'), '[Desktop Entry]\nName=Skip\nExec=true\nHidden=true\n')
+    const rows = backend.listDesktopApps({ home: root, env: { HOME: root, XDG_DATA_HOME: path.join(root, 'share'), XDG_DATA_DIRS: '' } })
+    assert.deepEqual(rows.map((r) => r.id), ['example'])
+  } finally {
+    removeTree(root)
+  }
+}
+
 async function main() {
+  desktopInventory()
+
   const snap = await installer.refresh()
   assert.equal(snap.installed.length, 1)
   assert.equal(snap.installed[0].name, 'discord')

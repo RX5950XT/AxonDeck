@@ -95,6 +95,20 @@ async function main() {
   const snap = await installer.refresh()
   assert.equal(snap.installed.length, 1)
   assert.equal(snap.installed[0].name, 'discord')
+  const mixed = createLinuxInstaller({
+    detect: detected,
+    list: async () => [
+      { id: 'acl', name: 'acl', version: '1', source: 'apt' },
+      { id: 'discord', name: 'discord', version: '0.0.1', source: 'apt' },
+      { id: 'thunar', name: 'Thunar', version: '', source: 'desktop' }
+    ],
+    search: async () => [],
+    runCommand: async () => ({ code: 0 }),
+    spawnCommand: () => {}
+  })
+  const mixedSnap = await mixed.refresh()
+  assert.deepEqual(mixedSnap.installed.map((r) => r.name).sort(), ['Thunar', 'discord'])
+
   const job = installer.start({ action: 'install', key: 'steam' })
   assert.equal(job.action, 'install')
   await new Promise((r) => setTimeout(r, 20))

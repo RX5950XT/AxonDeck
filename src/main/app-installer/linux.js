@@ -72,7 +72,7 @@ function createLinuxInstaller({ notify = () => {}, detect: detectInfo, list, sea
           identity: identityOf(row),
           key: crypto.createHash('sha256').update(identityOf(row) + '\0' + (row.version || '')).digest('hex').slice(0, 24)
         }
-      })
+      }).filter((row) => row.source === 'desktop' || row.source === 'flatpak' || row.catalogKey)
       checkedAt = Date.now()
     })()
     emit()

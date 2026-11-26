@@ -50,7 +50,7 @@ const activeSearches = new Set()
 let searchVersion = 0
 
 function linuxUnsupported(code = 'UFFS_MISSING') {
-  throw fail(code, '整機快速搜尋（UFFS）目前僅支援 Windows；Linux 請用資料夾內篩選。')
+  throw fail(code, '這個平台還沒有整機檔名搜尋。')
 }
 
 /** 保留索引快取，下次搜尋由 UFFS 自動載回。從未使用過的外部 daemon 不碰。 */
@@ -410,7 +410,7 @@ async function status() {
       daemon: { running: false, warming: false, drives: 0, records: 0 },
       broker: { present: false, installed: false },
       unsupported: true,
-      message: 'UFFS 整機搜尋尚未移植到此平台'
+      message: '這個平台還沒有整機檔名搜尋'
     }
   }
   const exe = findUffs()
@@ -615,6 +615,12 @@ function verifyZipHash(file, sumsText, fileName) {
  * @param {(info: { received: number, total: number }) => void} [onProgress]
  */
 async function download(onProgress) {
+  if (platform.isLinux) {
+    if (inTempUserData()) return status()
+    return linuxMachine().ensure({ onProgress: onProgress && ((info) => {
+      if (typeof onProgress === 'function' && info && info.received != null) onProgress(info)
+    }) })
+  }
   if (!platform.isWindows) linuxUnsupported('UFFS_INSTALL')
   const destDir = installDir()
   if (!destDir) throw fail('UFFS_INSTALL', '找不到安裝位置')
@@ -657,6 +663,7 @@ function cancelDownload() {
  * 安裝 Access Broker（一次 UAC）。
  */
 async function installBroker() {
+  if (platform.isLinux) return inTempUserData() ? status() : linuxMachine().ensure()
   const exe = findUffs()
   const broker = brokerPath(exe)
   if (!broker) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
@@ -676,6 +683,7 @@ async function installBroker() {
  * @param {{ elevate?: boolean }} [opts]
  */
 async function startDaemon(opts = {}) {
+  if (platform.isLinux) return inTempUserData() ? status() : linuxMachine().ensure()
   const exe = findUffs()
   if (!exe) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
   const args = ['--daemon', 'start']
@@ -693,7 +701,8 @@ async function startDaemon(opts = {}) {
  * @param {{ auto?: boolean, onProgress?: (info: { received: number, total: number }) => void }} [opts]
  */
 async function ensureReady(opts = {}) {
-  if (platform.isLinux && opts.auto !== false && !inTempUserData()) {
+  if (platform.isLinux) {
+    if (inTempUserData()) return status()
     return linuxMachine().ensure({ onProgress: opts.onProgress })
   }
   if (!platform.isWindows) return status()

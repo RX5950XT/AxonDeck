@@ -4316,7 +4316,7 @@ function paintUffs() {
     return
   }
   if (uffs && uffs.unsupported) {
-    text.textContent = uffs.message || '整機搜尋僅支援 Windows'
+    text.textContent = uffs.message || '整機搜尋尚未就緒'
     dot.classList.remove('is-on')
     if (enableBtn) enableBtn.hidden = true
     return

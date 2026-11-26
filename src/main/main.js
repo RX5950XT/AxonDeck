@@ -2840,9 +2840,13 @@ app.on('web-contents-created', (_event, contents) => {
   // 滑鼠側鍵：webview 裡的滑鼠事件進不到主視窗 DOM（主視窗自己的由 nav-history.js 接）。
   // 網頁還退得動就自己上／下一頁（Telegram 多格時就是游標底下那格），退到底再交給 App 換頁
   if (contents.getType() === 'webview') {
-    // 內嵌網頁的反白跟 App 一致。user 來源＋!important 才蓋得過網站自己寫的 ::selection
+    // 內嵌網頁的反白跟 App 一致。user 來源＋!important 才蓋得過網站自己寫的 ::selection。
+    // Telegram 的灰藍反白疊在深灰、紫色氣泡上幾乎看不出來，改用螢光黃
+    const selection = contents.session === session.fromPartition('persist:telegram')
+      ? 'rgba(255, 196, 0, 0.45)'
+      : 'rgba(120, 163, 181, 0.35)'
     contents.on('dom-ready', () => {
-      contents.insertCSS('::selection { background: rgba(120, 163, 181, 0.35) !important; }', { cssOrigin: 'user' })
+      contents.insertCSS(`::selection { background: ${selection} !important; }`, { cssOrigin: 'user' })
         .catch((error) => console.warn('[webview] 反白樣式注入失敗:', error?.message))
     })
     contents.on('before-mouse-event', (_e, input) => {

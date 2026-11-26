@@ -245,6 +245,9 @@ function createSysmonService(deps = {}) {
           sampler.start(intervalKey)
           sampler.idle()
         }
+        if (typeof oc.ensureApplied === 'function') {
+          oc.ensureApplied().catch(() => undefined)
+        }
         return { running: true, intervalKey }
       }
       sampler.start(intervalKey)

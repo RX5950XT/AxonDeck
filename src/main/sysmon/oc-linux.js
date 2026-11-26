@@ -71,7 +71,7 @@ function createLinuxOcEngine(deps = {}) {
   let nvAt = 0
   let bootId = ''
   /** 草稿：{ cpu: { key: value|null }, gpus: { [id]: { key: value|null } } } */
-  let config = { dirty: false, panicTemp: DEFAULT_PANIC_TEMP, cpu: {}, gpus: {} }
+  let config = { dirty: false, reapplyOnLogin: false, panicTemp: DEFAULT_PANIC_TEMP, cpu: {}, gpus: {} }
   /** 這次開機第一次看到的原始值（還原目標）＋ NVIDIA 目前套用的鎖頻 */
   let orig = { bootId: '', cpu: {}, gpus: {}, nvApplied: {} }
   let loaded = false
@@ -97,6 +97,7 @@ function createLinuxOcEngine(deps = {}) {
       if (raw.config && typeof raw.config === 'object') {
         config = {
           dirty: raw.config.dirty === true,
+          reapplyOnLogin: raw.config.reapplyOnLogin === true,
           panicTemp: plan.clamp(raw.config.panicTemp ?? DEFAULT_PANIC_TEMP, 70, 105),
           cpu: raw.config.cpu && typeof raw.config.cpu === 'object' ? raw.config.cpu : {},
           gpus: raw.config.gpus && typeof raw.config.gpus === 'object' ? raw.config.gpus : {}
@@ -500,6 +501,8 @@ function createLinuxOcEngine(deps = {}) {
       }
       if (failed.length) lastError = `部分沒套用：${failed.join('、')}`
       applied = true
+      config.reapplyOnLogin = true
+      persist()
       startTimer()
       await refresh(true)
       return snapshot()
@@ -512,6 +515,7 @@ function createLinuxOcEngine(deps = {}) {
       dirtyLastRun = false
       stopTimer()
       applied = false
+      config.reapplyOnLogin = false
       const failed = await runSteps(restoreSteps())
       const ops = nvidiaRestoreOps()
       if (ops.length) {
@@ -529,6 +533,23 @@ function createLinuxOcEngine(deps = {}) {
       persist()
       await refresh(true)
       return snapshot()
+    },
+
+    /**
+     * 登入／開機自啟動時套用上次已套用的設定。使用者先前已確認過風險。
+     * @returns {Promise<{ applied: boolean, reason?: string, error?: string, status?: any }>}
+     */
+    async ensureApplied() {
+      await load()
+      const knobs = Object.keys(config.cpu || {}).length + Object.keys(config.gpus || {}).length
+      if (!config.reapplyOnLogin || !knobs) return { applied: false, reason: config.reapplyOnLogin ? 'empty' : 'off' }
+      try {
+        const status = await this.apply({ confirmed: true })
+        return { applied: true, status }
+      } catch (err) {
+        lastError = err?.userMessage || err?.message || '套用失敗'
+        return { applied: false, error: lastError }
+      }
     },
 
     /** 一次性授權：pkexec 安裝 udev 規則 */

@@ -506,6 +506,32 @@ async function testAccessRule() {
   console.log('ok 授權規則：只放寬效能調整那幾種檔案、不碰 energy_uj、gid 只收整數、root 免安裝')
 }
 
+
+async function testReapplyOnLogin() {
+  const fx = buildFakeSys()
+  const store = memStore()
+  const { engine } = makeEngine(fx, { store })
+  assert.deepEqual(await engine.ensureApplied(), { applied: false, reason: 'off' })
+  await engine.setDraft({ linux: { target: 'cpu', key: 'turbo', value: 'off' } })
+  await engine.apply()
+  assert.equal(store.data[STORE_KEY].config.reapplyOnLogin, true)
+  engine.shutdown()
+  assert.equal(read(path.join(fx.sys, 'devices/system/cpu/intel_pstate/no_turbo')), '0')
+
+  const again = makeEngine(fx, { store }).engine
+  const res = await again.ensureApplied()
+  assert.equal(res.applied, true)
+  assert.equal(read(path.join(fx.sys, 'devices/system/cpu/intel_pstate/no_turbo')), '1')
+
+  await again.reset()
+  assert.equal(store.data[STORE_KEY].config.reapplyOnLogin, false)
+  const third = makeEngine(fx, { store }).engine
+  const skipped = await third.ensureApplied()
+  assert.equal(skipped.applied, false)
+  assert.equal(skipped.reason, 'off')
+  console.log('ok 登入時套用上次的效能設定；重設後不再自動套用')
+}
+
 async function testPlanRisk() {
   const risks = plan.riskyChanges([{ device: 'X', folds: [{ knobs: [
     { key: 'powerPct', value: 90, changed: true },
@@ -530,6 +556,7 @@ async function testPlanRisk() {
   await testNvidia()
   await testAccessRule()
   await testPlanRisk()
+  await testReapplyOnLogin()
   console.log('test-sysmon-oc-linux: all passed')
 })().catch((err) => {
   console.error(err)

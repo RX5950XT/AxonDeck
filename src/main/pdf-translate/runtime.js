@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
 const { downloadFile } = require('../hfmodels/download')
+const { powershellExe } = require('../powershell')
 
 const UV_VERSION = '0.13.0'
 const PYTHON_VERSION = '3.12.12'
@@ -145,7 +146,7 @@ async function install({ dir, signal, onProgress = () => {}, variant = 'cpu' }) 
     onProgress: ({ received, total }) => onProgress({ receivedBytes: received, totalBytes: total,
       stage: '下載 PDF 安裝工具…', cancellable: true }) })
   const quote = value => value.replace(/['\u2018-\u201b]/g, '$&$&')
-  await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+  await run(powershellExe(),
     ['-NoProfile', '-NonInteractive', '-Command',
       `Expand-Archive -LiteralPath '${quote(zip)}' -DestinationPath '${quote(dir)}' -Force`],
     { dir, env, signal, stage: '解壓安裝工具' })

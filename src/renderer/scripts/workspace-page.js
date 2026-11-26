@@ -2658,9 +2658,17 @@ async function removeWorktree(project, tree) {
     await showAlert('移不掉這棵工作樹', { desc: `${state.reason}${detail}` })
     return
   }
+  // git 移除時會連被 .gitignore 忽略的檔案（.env、本機設定）一起刪，事前講清楚
+  const ignored = state.ignored
+  const ignoredNote = !ignored
+    ? `${NEWLINE}被 .gitignore 忽略的檔案也會一起刪掉（這次讀不出有哪些）。`
+    : ignored.count > 0
+      ? `${NEWLINE}以下 ${ignored.count} 項被 .gitignore 忽略的檔案也會一起刪掉：${NEWLINE}` +
+        ignored.samples.join(NEWLINE) + (ignored.count > ignored.samples.length ? `${NEWLINE}…` : '')
+      : ''
   const yes = await askConfirm(`確定要移除工作樹 ${tree.branch || tree.path} 嗎？`, {
     desc: '裡面沒有未提交的變更，移除後資料夾會消失，分支與提交仍會保留。' +
-      (Number.isSafeInteger(state.unpushed) ? `${NEWLINE}這個分支還有 ${state.unpushed} 個提交沒推上遠端。` : ''),
+      (state.unpushed > 0 ? `${NEWLINE}這個分支還有 ${state.unpushed} 個提交沒推上遠端。` : '') + ignoredNote,
     confirmText: '移除',
     danger: true
   })

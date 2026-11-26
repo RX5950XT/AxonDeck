@@ -16,6 +16,7 @@
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { createSerialStore } = require('../serial-store')
 
 /** 最多幾個工作階段（每個都是一顆真的 conhost，沒有上限會把機器吃光） */
 const MAX_SESSIONS = 20
@@ -201,6 +202,26 @@ function normalizeCwd(value) {
   return os.homedir()
 }
 
+/** main 這邊確認工作目錄最多等多久 */
+const CWD_TIMEOUT_MS = 1500
+
+/**
+ * `normalizeCwd` 的非同步版，給 main 用：專案常在網路磁碟上，NAS 睡著時同步 stat
+ * 會把主程序卡到 SMB 逾時。逾時的絕對路徑先收下（跟 `sanitizeAll` 同一套道理），
+ * 真的開 shell 時宿主那邊的 `normalizeCwd` 會再退回家目錄。
+ * @param {unknown} value
+ * @returns {Promise<string>}
+ */
+async function normalizeCwdAsync(value) {
+  if (typeof value !== 'string' || !value) return os.homedir()
+  let timer
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve('slow'), CWD_TIMEOUT_MS) })
+  const probe = fs.promises.stat(value).then((st) => (st.isDirectory() ? 'dir' : 'no'), () => 'no')
+  const result = await Promise.race([probe, late]).finally(() => clearTimeout(timer))
+  if (result === 'dir' || (result === 'slow' && path.isAbsolute(value))) return path.resolve(value)
+  return os.homedir()
+}
+
 /**
  * @param {unknown} value
  * @param {string} fallback
@@ -277,33 +298,7 @@ function sanitizeAll(raw) {
   return out
 }
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
-let storeChain = Promise.resolve()
-
-/**
- * @template T
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
- */
-function withStore(fn) {
-  const run = storeChain.then(fn, fn)
-  storeChain = run.then(() => {}, () => {})
-  return run
-}
-
-async function getStore() {
-  if (store) return store
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'terminals' })
-      return store
-    })
-  }
-  return storeReady
-}
+const { getStore, withStore } = createSerialStore('terminals')
 
 async function readAll() {
   const s = await getStore()
@@ -327,7 +322,9 @@ function list() {
 /**
  * @param {{ shell?: string, preset?: string, cwd?: string, title?: string }} req
  */
-function create(req) {
+async function create(req) {
+  // 在排隊寫入之前先量好，不讓慢磁碟擋住其他終端機的存檔
+  const cwd = await normalizeCwdAsync(req?.cwd)
   return withStore(async () => {
     const items = await readAll()
     if (items.length >= MAX_SESSIONS) {
@@ -338,7 +335,6 @@ function create(req) {
     }
     const shell = normalizeShell(req?.shell)
     const preset = normalizePreset(req?.preset)
-    const cwd = normalizeCwd(req?.cwd)
     const session = {
       id: newId(),
       title: normalizeTitle(req?.title, defaultTitle(preset, cwd)),
@@ -478,6 +474,7 @@ module.exports = {
   startupCommand,
   normalizeProjectId,
   normalizeCwd,
+  normalizeCwdAsync,
   normalizeTitle,
   sanitizeAll,
   list,

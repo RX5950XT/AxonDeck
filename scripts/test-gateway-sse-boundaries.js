@@ -67,7 +67,7 @@ async function checkAgyTimeout(withFrame = false) {
 
 async function run() {
   for (const [file, name] of [
-    ['src/main/ccswitch/gateway/server.js', 'readSse'],
+    ['src/main/local-proxy-http.js', 'readSse'],
     ['src/main/agy/upstream.js', 'pumpSse']
   ]) {
     try { await check(file, name) } catch (error) {

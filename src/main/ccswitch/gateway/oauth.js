@@ -19,6 +19,7 @@
 
 const http = require('http')
 const { createHash, randomBytes, randomUUID } = require('crypto')
+const { fail: authError } = require('../../user-error')
 
 /** 登入等多久就放棄（device code 自己會給 expires_in，這是上限） */
 const MAX_WAIT_MS = 10 * 60 * 1000
@@ -78,18 +79,6 @@ const inflight = new Map()
 function configure(options = {}) {
   if (typeof options.getStore === 'function') deps.getStore = options.getStore
   if (typeof options.openExternal === 'function') deps.openExternal = options.openExternal
-}
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function authError(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
 }
 
 /**

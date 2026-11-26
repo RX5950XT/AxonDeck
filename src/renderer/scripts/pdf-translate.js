@@ -9,7 +9,6 @@ let previousJobId = null
 let revision = 0
 let getLanguages
 
-export function getPdfFile() { return file }
 export function isPdfRunning() { return job?.state === 'running' }
 
 function setError(message = '') {

@@ -15,7 +15,7 @@
 
 const http = require('http')
 const { setTimeout: delay } = require('timers/promises')
-const { safeEqual, hostAllowed, presentedKey, sendJson } = require('../../local-proxy-http')
+const { safeEqual, hostAllowed, presentedKey, readSse, sendJson } = require('../../local-proxy-http')
 const convert = require('./convert')
 const credential = require('./credential')
 const clientHeaders = require('./client-headers')
@@ -166,47 +166,6 @@ async function authFor(route, presetId, force) {
   // 沒有的話退回讀已安裝 CLI 的憑證，只裝 CLI 不登入這裡也照樣能用
   const oauthAccountId = await settings.getAccountId(presetId)
   return (deps.credential || credential).acquire(provider, { force, oauthAccountId })
-}
-
-/**
- * 逐格讀上游 SSE。上游一定是 `text/event-stream`。
- * @param {Response} response
- * @param {(payload: object) => void} onPayload
- * @param {() => void} onActivity
- */
-async function readSse(response, onPayload, onActivity) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (!done) onActivity()
-      buffer += done ? decoder.decode() + '\n' : decoder.decode(value, { stream: true })
-      let index = buffer.indexOf('\n')
-      while (index >= 0) {
-        const line = buffer.slice(0, index).trim()
-        buffer = buffer.slice(index + 1)
-        if (line.startsWith('data:')) {
-          const data = line.slice(5).trim()
-          if (data && data !== '[DONE]') {
-            let payload = null
-            try {
-              payload = JSON.parse(data)
-            } catch {
-              // 上游偶爾夾雜非 JSON 的心跳，跳過
-            }
-            // 轉換器丟的錯（上游回報失敗）不能吞，要讓呼叫端回錯誤而不是假成功
-            if (payload) onPayload(payload)
-          }
-        }
-        index = buffer.indexOf('\n')
-      }
-      if (done) break
-    }
-  } finally {
-    reader.releaseLock()
-  }
 }
 
 /**

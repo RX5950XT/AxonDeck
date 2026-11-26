@@ -14,6 +14,7 @@
 const presets = require('./presets')
 const claudeSettings = require('./claude-settings')
 const { extractIds } = require('../chat-models')
+const { createSerialStore } = require('../serial-store')
 
 const MAX_PROVIDERS = 30
 const MAX_NAME = 60
@@ -58,39 +59,16 @@ const WIRE_PATHS = Object.freeze({ anthropic: '/messages', chat: '/chat/completi
 
 const FORMAT_VERSION = 2
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
+const serial = createSerialStore('cc-providers')
+const { withStore } = serial
 /** 測試注入的 store 工廠（`configure({ getStore })`），仿 mcp／oauth 的慣例 */
 let storeFactory = null
-let storeChain = Promise.resolve()
-
-/**
- * 整份檔案是 read-modify-write，兩個並行 IPC 各讀各寫會互相蓋掉。
- * @template T
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
- */
-function withStore(fn) {
-  const run = storeChain.then(fn, fn)
-  storeChain = run.then(() => {}, () => {})
-  return run
-}
+let injected = null
 
 async function getStore() {
-  if (store) return store
-  if (storeFactory) {
-    store = await storeFactory()
-    return store
-  }
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'cc-providers' })
-      return store
-    })
-  }
-  return storeReady
+  if (!storeFactory) return serial.getStore()
+  injected ||= await storeFactory()
+  return injected
 }
 
 /**

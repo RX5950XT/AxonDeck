@@ -16,6 +16,7 @@ const path = require('path')
 const { spawn } = require('child_process')
 const net = require('net')
 const rawFs = require('./raw-fs').promises
+const { powershellExe, psQuote } = require('./powershell')
 
 const START_FLAG = '--axondeck-start'
 const PROJECT_ENV = 'AXONDECK_PROJECT'
@@ -137,7 +138,6 @@ async function prepareLaunch(file, project, run = '') {
 }
 
 // PowerShell 把 ‘ ’ ‚ ‛ 也當單引號，只跳脫 ' 的話路徑帶 ’ 就會斷開字串
-const psQuote = (s) => `'${s.replace(/['\u2018-\u201b]/g, '$&$&')}'`
 
 /** 給既有終端機執行；不用改 PTY 宿主的協定，也不會影響其他終端機。 */
 async function terminalCommand(file, project, run) {
@@ -152,7 +152,7 @@ async function terminalCommand(file, project, run) {
     `function Invoke-Item { param([string]$Path) if ($Path -match '^https?://') { $FilePath=$Path; ${open} } else { Microsoft.PowerShell.Management\\Invoke-Item -LiteralPath $Path @args } }`,
     `${/\.sh$/i.test(file) ? 'bash' : '&'} ${psQuote(target.replace(/\\/g, '/'))}`
   ].join('; ')
-  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  const powershell = powershellExe()
   // 包裝寫成暫存 .ps1：-EncodedCommand 會把一整片 base64 打進使用者的終端機；BOM 讓 Windows PowerShell 認得中文路徑
   await fs.promises.mkdir(TEMP_DIR, { recursive: true })
   const wrapper = path.join(TEMP_DIR, `${require('crypto').randomUUID()}.ps1`)

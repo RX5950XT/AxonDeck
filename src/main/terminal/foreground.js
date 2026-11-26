@@ -24,7 +24,7 @@
  * 幾毫秒就拍好快照；沒建置才退回一次性 PowerShell（冷啟＋Add-Type 編譯一秒多，記事本可能已先開好而抬不到）。
  */
 const { spawn } = require('child_process')
-const path = require('path')
+const { powershellExe } = require('../powershell')
 
 /** 同一時間只留一個等待中的抬窗器（連按 Ctrl+G 不要疊出一堆 PowerShell） */
 let pending = null
@@ -35,10 +35,7 @@ let pending = null
  */
 const REUSE_WINDOW = ['notepad', 'code', 'code - insiders', 'cursor', 'windsurf', 'notepad++', 'sublime_text']
 
-const POWERSHELL = path.join(
-  process.env.SystemRoot || 'C:\\Windows',
-  'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'
-)
+const POWERSHELL = powershellExe()
 
 /**
  * 等新視窗出現並把它抬到前面＋置頂的腳本。

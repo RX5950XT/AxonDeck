@@ -11,6 +11,7 @@
 const chatImages = require('./chat-images')
 const chatParams = require('./chat-params')
 const aiWeb = require('./ai-web')
+const { createSerialStore } = require('./serial-store')
 
 /** 最多保留幾個會話（超過砍 updatedAt 最舊的） */
 const MAX_CONVERSATIONS = 100
@@ -30,34 +31,7 @@ const DEFAULT_TITLE = '新對話'
 const VALID_ROLES = new Set(['user', 'assistant'])
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
-/** 所有讀寫走同一條 chain，避免並行 IPC 互相覆蓋整份 chats.json */
-let storeChain = Promise.resolve()
-
-/**
- * @template T
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
- */
-function withStore(fn) {
-  const run = storeChain.then(fn, fn)
-  storeChain = run.then(() => {}, () => {})
-  return run
-}
-
-async function getStore() {
-  if (store) return store
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'chats' })
-      return store
-    })
-  }
-  return storeReady
-}
+const { getStore, withStore } = createSerialStore('chats')
 
 /**
  * @param {string} prefix

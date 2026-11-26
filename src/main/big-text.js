@@ -11,6 +11,7 @@
  */
 
 const fsp = require('./raw-fs').promises
+const { fail } = require('./user-error')
 
 const STEP = 1024
 const MAX_ROW_BYTES = 4096
@@ -19,10 +20,6 @@ const CHUNK = 4 * 1024 * 1024
 const MAX_ROWS_PER_READ = 2000
 const MAX_QUERY_CHARS = 1000
 const EDGE_BYTES = 4096
-
-function fail(code, message) {
-  return Object.assign(new Error(code), { code, userMessage: message })
-}
 
 /**
  * unit＝一個碼元幾個位元組；UTF-16 的換行是 0A 00（LE）／00 0A（BE），而且只算落在偶數位置的。

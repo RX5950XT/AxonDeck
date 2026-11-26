@@ -96,8 +96,6 @@ let loadingFingerprint = null
 let loadGen = 0
 /** 是否已跑過拋棄式暖機推論（首次推論的 compute-graph 冷啟動 ~12s，預熱時先付掉） */
 let warmedUp = false
-/** 最近一次實際使用的後端（供 UI／除錯） */
-let lastBackend = 'cpu'
 
 /** 翻譯 serial lock */
 let translateChain = Promise.resolve()
@@ -230,7 +228,6 @@ async function getSession(keyOverride) {
     }
     const old = resources
     resources = null
-    lastBackend = 'cpu'
     await disposeResources(old, [])
   }
 
@@ -268,7 +265,6 @@ async function getSession(keyOverride) {
       throw new Error('LLM load cancelled')
     }
     resources = built
-    lastBackend = backend || (usedGpu ? 'gpu' : 'cpu')
     if (warnings.length) console.warn('[local-llm]', warnings.join('; '))
     return session
   })()
@@ -278,7 +274,6 @@ async function getSession(keyOverride) {
   } catch (e) {
     if (myGen === loadGen) {
       resources = null
-      lastBackend = 'cpu'
     }
     throw e
   } finally {
@@ -354,27 +349,12 @@ async function unload() {
 
   await disposeResources(resources, warnings)
   resources = null
-  lastBackend = 'cpu'
   return { ok: true, warnings }
 }
 
 /** @returns {boolean} */
 function isLoaded() {
   return !!resources?.session
-}
-
-/**
- * 目前載入狀態（供設定 UI／除錯）
- * @returns {{ loaded: boolean, key: string | null, gpu: boolean, backend: string }}
- */
-function getLoadInfo() {
-  return {
-    loaded: !!resources?.session,
-    key: resources?.key || null,
-    gpu: !!resources?.actualGpu,
-    intentGpu: !!resources?.intentGpu,
-    backend: resources?.backend || lastBackend
-  }
 }
 
 /**
@@ -1065,7 +1045,6 @@ module.exports = {
   isLoaded,
   setStore,
   resolveLocalTranslateModel,
-  getLoadInfo,
   resolveLinguaforgeDecode,
   DEFAULT_LLM_KEY,
   LLM_MODEL_KEYS

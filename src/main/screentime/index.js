@@ -19,6 +19,7 @@ const {
 
 const FLUSH_EVERY = 60
 const RETRY_MS = 15_000
+const MAX_PENDING_WEB = 500
 
 /**
  * @param {{ userDataPath: string, Database?: Function, sourceDir?: string, now?: () => Date, port?: number }} deps
@@ -38,6 +39,8 @@ function createScreentimeService(deps = {}) {
   let sleeping = false
   // ponytail: 暫時鎖檔只在本次執行期間重試；跨重啟恢復需持久化待寫紀錄。
   let pendingApps = []
+  // 網頁時長同理；外掛每幾秒就送一筆，鎖檔久了要有上限（丟最舊的）
+  let pendingWeb = []
 
   const observer = createObserver({ onTick: handleTick, spawnFn: deps.spawnFn })
   const web = createWebServer({
@@ -97,11 +100,33 @@ function createScreentimeService(deps = {}) {
     } finally {
       if (saved) pendingApps = pendingApps.slice(saved)
     }
+    // 沒有新的網頁事件進來時，網頁那份也跟著應用時長的節奏重試
+    flushWeb()
   }
 
   function handleWeb(rec) {
     if (!db || !webEnabled || !rec) return
-    try { write.addUrlBrowseTime(db, rec) } catch { /* 鎖檔 */ }
+    pendingWeb.push(rec)
+    if (pendingWeb.length > MAX_PENDING_WEB) pendingWeb = pendingWeb.slice(-MAX_PENDING_WEB)
+    flushWeb()
+  }
+
+  function flushWeb() {
+    if (!db || !pendingWeb.length) return
+    let saved = 0
+    try {
+      for (const record of pendingWeb) {
+        write.addUrlBrowseTime(db, record)
+        saved++
+      }
+    } catch (error) {
+      // 只有鎖檔值得重試；其他錯誤重試也一樣，丟掉那一筆免得整條佇列卡死
+      const locked = error?.errcode === 5 || error?.errcode === 6 || /locked|busy/i.test(String(error?.message))
+      if (locked) console.warn('[screentime] 網頁時長尚未寫入，保留並稍後重試')
+      else saved++
+    } finally {
+      if (saved) pendingWeb = pendingWeb.slice(saved)
+    }
   }
 
   function applyConfig() {

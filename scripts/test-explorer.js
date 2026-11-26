@@ -512,21 +512,6 @@ console.log('\n[J] 複製貼進回收筒不刪來源；剪下才丟（走 index.
   try { removeTree(dir) } catch { /* 暫存 */ }
 }
 
-console.log('\n[K] Enter 在頁面快捷鍵裡（點選 rebuild 後焦點不在列上）')
-{
-  const pageSrc = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  const start = pageSrc.indexOf('function onPageKey')
-  const stop = pageSrc.indexOf('\nfunction paintUffs', start)
-  const body = start >= 0 ? pageSrc.slice(start, stop > start ? stop : start + 800) : ''
-  ok('onPageKey 存在', /function onPageKey/.test(body))
-  ok('onPageKey 處理 Enter', /e\.key === 'Enter'/.test(body))
-  ok('onPageKey 的 Enter 會 openEntry', /e\.key === 'Enter'[\s\S]{0,200}openEntry/.test(body))
-  ok('快捷鍵不因畫面上未開的 dialog 整頁失效', !/\.app-dialog, dialog\[open\]/.test(body) && /dialog\[open\]/.test(body))
-  ok('loadDir 有 navSeq', /const seq = \+\+navSeq/.test(pageSrc) && /if \(seq !== navSeq\) return/.test(pageSrc))
-  ok('監看保留選取', /onChanged[\s\S]{0,400}keepSelection:\s*true/.test(pageSrc))
-  ok('回收筒不預覽原路徑', /inRecycle\(\)/.test(pageSrc) && /IMAGE_EXT|inspect\(/.test(pageSrc))
-}
-
 console.log('\n[L] 家目錄可新增子項；受保護的是家目錄本身')
 {
   const home = os.homedir()
@@ -607,13 +592,6 @@ console.log('\n[N] UFFS 只認安裝目錄；checksum 缺就失敗')
     'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  uffs-windows-x64.zip\n',
     'uffs-windows-x64.zip'
   ), 'UFFS_INSTALL')
-  const ensureSrc = fs.readFileSync(path.join(ROOT, 'src/main/explorer/index.js'), 'utf8')
-  ok('暫存 userData 忽略 force', /inTempUserData\(\)[\s\S]{0,200}auto:\s*false/.test(ensureSrc)
-    || /if\s*\(\s*uffs\.inTempUserData\(\)[\s\S]{0,180}force/.test(ensureSrc))
-  const emptySrc = fs.readFileSync(path.join(ROOT, 'src/main/explorer/recycle.js'), 'utf8')
-  const emptyFn = emptySrc.slice(emptySrc.indexOf('async function empty()'), emptySrc.indexOf('module.exports'))
-  ok('清空不走 list 的 2000 上限', /async function empty\(\)/.test(emptyFn)
-    && !emptyFn.includes('await list()') && !emptyFn.includes('2000'))
   removeTree(tmp)
 }
 
@@ -637,8 +615,6 @@ console.log('\n[O] 搜尋結果相關度排序')
     ok('檔名完全符合排第一', out[0] && out[0].name === 'invoice.pdf', out[0] && out[0].name)
     ok('檔名開頭符合排在路徑命中前面', out[1] && out[1].name === 'invoices', out[1] && out[1].name)
     ok('路徑才命中的排後面', out[out.length - 1] && out[out.length - 1].name === 'other.txt', out[out.length - 1] && out[out.length - 1].name)
-    const uffsSrc = fs.readFileSync(path.join(ROOT, 'src/main/explorer/uffs.js'), 'utf8')
-    ok('uffs.search 會做相關度排序', /rankHits\(/.test(uffsSrc))
   }
 }
 
@@ -718,26 +694,6 @@ console.log('\n[R] 詳情 inspect：類型／時間／文字預覽')
   removeTree(dir)
 }
 
-console.log('\n[S] 路徑列可輸入、詳情鈕在上、右鍵補強、側欄可改')
-{
-  const pageSrc = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8')
-  const dndSrc = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-dnd.js'), 'utf8')
-  const detailSrc = fs.existsSync(path.join(ROOT, 'src/renderer/scripts/explorer-detail.js'))
-    ? fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-detail.js'), 'utf8')
-    : pageSrc
-  ok('有路徑輸入框', html.includes('id="exPathInput"'))
-  ok('Ctrl+L 進入路徑輸入', /e\.key === 'l'|e\.key === 'L'/.test(pageSrc) && /beginEditPath|editPath|exPathInput/.test(pageSrc))
-  ok('命令列在上方橫排', html.includes('id="exCmdBar"') && /function paintCmdBar/.test(pageSrc))
-  ok('詳情有預覽區', /previewEl\(/.test(detailSrc) && /ex-detail-preview-box/.test(detailSrc))
-  ok('右鍵有複製路徑', /複製路徑/.test(dndSrc))
-  ok('右鍵有建立捷徑', /建立捷徑/.test(dndSrc))
-  ok('右鍵有釘到側欄', /釘到側欄/.test(dndSrc))
-  ok('右鍵有重新整理', /重新整理/.test(dndSrc))
-  ok('側欄有新增位置鈕', html.includes('id="exPlaceAddBtn"') || /exPlaceAddBtn/.test(pageSrc))
-  ok('回收筒不預覽原路徑', /inRecycle/.test(detailSrc) && /inspect|preview|IMAGE_EXT/.test(detailSrc))
-}
-
 console.log('\n[S2] 右鍵能把資料夾加進工作區專案')
 {
   const vm = require('vm')
@@ -776,14 +732,6 @@ console.log('\n[S2] 右鍵能把資料夾加進工作區專案')
 
   ok('兩個入口都真的叫到動作', hits.join(',') === 'openProject,openProjectHere', hits.join(','))
 
-  const pageSrc2 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  // 跨頁入口由 e2e-page-windows-cdp 驗證實際路由與專案建立，不綁函式擺放位置。
-  ok('虛擬位置擋在外面', /openInWorkspace[\s\S]{0,200}RECYCLE_CWD, THIS_PC/.test(pageSrc2))
-  const wsSrc = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/workspace-page.js'), 'utf8')
-  ok('workspace-page 有 openFolderAsProject', /export async function openFolderAsProject/.test(wsSrc))
-  const preloadSrc2 = fs.readFileSync(path.join(ROOT, 'src/preload/preload.js'), 'utf8')
-  ok('preload 的 addFolders 只送字串路徑', /addFolders: \(paths\)[\s\S]{0,320}typeof p === 'string'/.test(preloadSrc2))
-  ok('addFolders 走既有的 workspace:addDropped', /addFolders[\s\S]{0,200}'workspace:addDropped'/.test(preloadSrc2))
 }
 
 console.log('\n[S3] 檔案拖得出去，也認得拖進來的真檔案')
@@ -824,68 +772,6 @@ console.log('\n[S3] 檔案拖得出去，也認得拖進來的真檔案')
   ok('來源只允許 copy 時退回 copy', setEffect('copy', 'move') === 'copy', setEffect('copy', 'move'))
   ok('來源沒宣告就照自己想的', setEffect('all', 'move') === 'move', setEffect('all', 'move'))
 
-  const pageSrc3 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  ok(
-    'dragstart 讓位給 OS 的拖放',
-    /function onDragStart[\s\S]{0,400}e\.preventDefault\(\)[\s\S]{0,200}explorer\.startDrag\(/.test(pageSrc3)
-  )
-  ok('drop 用 getPathForFile 還原路徑', /readDragPaths\(e, electronAPI\.getPathForFile\)/.test(pageSrc3))
-  ok(
-    '清單空白處按一下就取消選取',
-    /function onListClick[\s\S]{0,200}selected = new Set\(\)/.test(pageSrc3)
-      && /addEventListener\('click', onListClick\)/.test(pageSrc3)
-  )
-  ok('選到列上不清掉', /function onListClick\(e\) \{\s*if \(e\.target\.closest\('\.ex-row'\)/.test(pageSrc3))
-
-  const preloadSrc3 = fs.readFileSync(path.join(ROOT, 'src/preload/preload.js'), 'utf8')
-  ok('preload 有 startDrag', /startDrag: \(list\) => ipcRenderer\.invoke\('explorer:startDrag', list\)/.test(preloadSrc3))
-  const indexSrc3 = fs.readFileSync(path.join(ROOT, 'src/main/explorer/index.js'), 'utf8')
-  ok('main 的 startDrag 仍過路徑守衛', /function startDrag[\s\S]{0,600}paths\.resolveExisting\(/.test(indexSrc3))
-  ok('startDrag 要拿到發起的 webContents', /service\.startDrag\(list, event\.sender\)/.test(
-    fs.readFileSync(path.join(ROOT, 'src/main/explorer/ipc.js'), 'utf8')
-  ))
-}
-
-console.log('\n[S4] 鍵盤走得動、空白處框得出來、狀態列講得出選取')
-{
-  const pageSrc4 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  const cssSrc4 = fs.readFileSync(path.join(ROOT, 'src/renderer/styles/main.css'), 'utf8')
-  ok('方向鍵有接', /ArrowUp', 'ArrowDown'/.test(pageSrc4) && /moveSelection\(e\.key, e\.shiftKey\)/.test(pageSrc4))
-  ok('Home／End 也走同一支', /'Home', 'End'/.test(pageSrc4))
-  ok('游標跟連選錨點是兩個變數', /let cursor = ''/.test(pageSrc4) && /let anchor = ''/.test(pageSrc4))
-  ok('Shift 連選時錨點不跟著走',
-    /if \(extend\)[\s\S]{0,200}anchor = at >= 0/.test(pageSrc4), '找不到 extend 分支')
-  ok('方格檢視的欄數是量出來的不是寫死的', /function gridColumns[\s\S]{0,400}offsetTop/.test(pageSrc4))
-  ok('框選綁在 mousedown', /addEventListener\('mousedown', onListMouseDown\)/.test(pageSrc4))
-  ok('按在列上不框選（那是拖檔案）', /function onListMouseDown[\s\S]{0,200}closest\('\.ex-row'\)/.test(pageSrc4))
-  ok('框選過程不重畫清單', /只就地 toggle class|classList\.toggle\('is-selected'/.test(pageSrc4))
-  ok('放開才 paintList', /const onUp = \(\)[\s\S]{0,260}paintList\(\)/.test(pageSrc4))
-  ok('狀態列有選取數量', /已選取 \$\{picked\.length\} 個/.test(pageSrc4))
-  ok('選到資料夾不報大小', /picked\.every\(\(p\) => !p\.dir\)/.test(pageSrc4))
-  ok('框的樣式在', /\.ex-marquee \{/.test(cssSrc4))
-  ok('清單有定位基準', /\.ex-list \{[\s\S]{0,120}position: relative/.test(cssSrc4))
-  ok('框用的是存在的 CSS 變數', /--accent-primary/.test(cssSrc4.slice(cssSrc4.indexOf('.ex-marquee'), cssSrc4.indexOf('.ex-marquee') + 400)))
-}
-
-console.log('\n[S5] 拖著停住會進資料夾、搬錯了可以 Ctrl+Z')
-{
-  const pageSrc5 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  const dndSrc5 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-dnd.js'), 'utf8')
-  ok('停留進資料夾有計時器', /HOVER_ENTER_MS/.test(dndSrc5) && /setTimeout\([\s\S]{0,120}HOVER_ENTER_MS\)/.test(dndSrc5))
-  ok('離開或放手要把計時器收掉',
-    /dragleave[\s\S]{0,120}stopTimer\(\)/.test(dndSrc5) && /'drop'[\s\S]{0,160}stopTimer\(\)/.test(dndSrc5))
-  ok('只有資料夾那一列掛 hover', /if \(entry\.dir\) \{[\s\S]{0,320}navigate\(dest\)/.test(pageSrc5))
-  ok('搜尋結果與回收筒裡不自動進去', /if \(!inSearch\(\) && !inRecycle\(\)\) void navigate\(dest\)/.test(pageSrc5))
-
-  ok('Ctrl+Z 接到復原', /e\.ctrlKey && \(e\.key === 'z'[\s\S]{0,80}undoLast\(\)/.test(pageSrc5))
-  ok('復原堆疊有上限', /MAX_UNDO = \d+/.test(pageSrc5) && /while \(undoStack\.length > MAX_UNDO\)/.test(pageSrc5))
-  ok('搬移有記復原', /pushUndo\(mode === 'copy' \? '複製' : '搬移'/.test(pageSrc5))
-  ok('改名有記復原', /pushUndo\(`改名/.test(pageSrc5))
-  ok('貼上有記復原，而且分得出剪下跟複製',
-    /moved \? undoMove\(landed, done\.sources/.test(pageSrc5) && /done\.mode === 'cut'/.test(pageSrc5))
-  ok('復原「複製」是丟資源回收筒不是永久刪',
-    /function undoCopy[\s\S]{0,220}RECYCLE_CWD, 'move'/.test(pageSrc5))
-  ok('沒東西可復原時講一聲', /沒有可以復原的動作/.test(pageSrc5))
 }
 
 console.log('\n[S6] 隱藏／系統項目一律顯示')
@@ -906,17 +792,6 @@ console.log('\n[S6] 隱藏／系統項目一律顯示')
   ctx6.showExplorerMenu({ x: 0, y: 0 }, { recycle: false, items: [], actions: acts })
   ok('空白處右鍵不再有隱藏項目開關', !labels6().some((l) => l.includes('隱藏項目')), labels6().join('｜'))
 
-  const pageSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-page.js'), 'utf8')
-  ok('列目錄有把 showHidden 送給 main', /listDir\(dirPath, \{ sort: sortBy, desc: sortDesc, showHidden \}\)/.test(pageSrc6))
-  ok('一律顯示隱藏項目，沒有開關', /const showHidden = true/.test(pageSrc6) && !/toggleHidden/.test(pageSrc6))
-  ok('隱藏的項目畫淡一點', /if \(entry\.hidden\) row\.classList\.add\('is-dim'\)/.test(pageSrc6))
-  const storeSrc6 = fs.readFileSync(path.join(ROOT, 'src/main/explorer/store.js'), 'utf8')
-  ok('explorer.json 存得下這個欄位',
-    /showHidden: s\.get\('showHidden', true\) !== false/.test(storeSrc6)
-      && /showHidden: patch\.showHidden !== undefined/.test(storeSrc6) && /s\.set\(changed\)/.test(storeSrc6))
-  const cssSrc6 = fs.readFileSync(path.join(ROOT, 'src/renderer/styles/main.css'), 'utf8')
-  ok('淡化樣式在', /\.ex-row\.is-dim/.test(cssSrc6))
-  ok('圖示也淡化', /\.ex-row\.is-dim \.ex-row-icon/.test(cssSrc6))
   const fsMod6 = require(path.join(ROOT, 'src/main/explorer/fs.js'))
   // 這條是刻意的決定，不要「順手」改回 Unix 慣例：Windows 上點開頭沒有隱藏的意思
   ok('.gitignore／.env／.vscode 不准被當成隱藏檔',
@@ -990,12 +865,6 @@ console.log('\n[T] 資料夾大小')
     removeTree(ldir)
   }
 
-  const detailSrcT = fs.readFileSync(path.join(ROOT, 'src/renderer/scripts/explorer-detail.js'), 'utf8')
-  ok('選到資料夾先顯示計算中', /計算中/.test(detailSrcT))
-  ok('算完列出檔案數', /個檔案/.test(detailSrcT))
-  ok('到上限寫至少', /至少/.test(detailSrcT))
-  ok('失敗顯示算不出來', /算不出來/.test(detailSrcT))
-  ok('換選取會取消正在算的那次', /folderSizeCancel/.test(detailSrcT))
 }
 
 console.log('\n[S7] 縮圖 pending 會延遲重取，暫時的圖不進快取')

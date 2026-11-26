@@ -264,8 +264,10 @@ async function main() {
     // 殼層生不出縮圖的檔，退回類型圖示那條一定是「暫時的」——這條在任何機器上都成立，
     // 不像 E_PENDING 要看當下快取狀態。用它證明旗標真的從 sidecar 流到 renderer 拿到的物件。
     const dirPath = tempDir('shell-pend-flag')
-    const broken = path.join(dirPath, 'broken.mp4')
-    fs.writeFileSync(broken, Buffer.from('not a real video at all'))
+    // 用 PDF 不用影片：壞影片會被 media-thumbs（mpv）判成「做不出來」直接定案、不再重試，
+    // 只有它不管的類型才看得到殼層自己的 pending
+    const broken = path.join(dirPath, 'broken.pdf')
+    fs.writeFileSync(broken, Buffer.from('not a real pdf at all'))
     const real = path.join(dirPath, 'real.png')
     fs.writeFileSync(real, solidPng(64, 64, 20, 160, 90))
     const shellApi = require('../src/main/explorer/shell')

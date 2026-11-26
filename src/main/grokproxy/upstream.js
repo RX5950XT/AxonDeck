@@ -2,6 +2,7 @@
 
 const { setTimeout: delay } = require('timers/promises')
 const credential = require('../ccswitch/gateway/credential')
+const { readSse } = require('../local-proxy-http')
 
 /**
  * Grok 訂閱（SuperGrok）的上游：Grok CLI 自己打的 `cli-chat-proxy.grok.com`。
@@ -147,46 +148,6 @@ async function credentialStatus(options = {}) {
     return { connected: true, code: '', message: '', sources }
   } catch (error) {
     return { connected: false, code: error.code, message: error.userMessage, sources }
-  }
-}
-
-/**
- * 逐格讀 SSE，每格 JSON 交給 onPayload；`[DONE]` 與非 JSON 心跳略過。
- * @param {Response} response
- * @param {(payload: object, raw: string) => void} onPayload
- * @param {() => void} [onActivity]
- */
-async function readSse(response, onPayload, onActivity) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (!done) onActivity?.()
-      buffer += done ? decoder.decode() + '\n' : decoder.decode(value, { stream: true })
-      let index = buffer.indexOf('\n')
-      while (index >= 0) {
-        const line = buffer.slice(0, index).trim()
-        buffer = buffer.slice(index + 1)
-        if (line.startsWith('data:')) {
-          const data = line.slice(5).trim()
-          if (data && data !== '[DONE]') {
-            let payload = null
-            try {
-              payload = JSON.parse(data)
-            } catch {
-              // 心跳或註解行
-            }
-            if (payload) onPayload(payload, data)
-          }
-        }
-        index = buffer.indexOf('\n')
-      }
-      if (done) break
-    }
-  } finally {
-    reader.releaseLock()
   }
 }
 

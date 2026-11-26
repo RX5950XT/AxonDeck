@@ -16,23 +16,12 @@ const fs = require('../raw-fs')
 const fsp = require('../raw-fs').promises
 const path = require('path')
 const os = require('os')
+const { fail } = require('../user-error')
 
 const DRIVE_ABS = /^[A-Za-z]:\\/
 const MAX_PATH = 32767
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/
 const IPV4 = /^(\d{1,3})(\.(\d{1,3})){3}$/
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
-}
 
 /**
  * 新增／改名用的單層名字。跟工作區 `files.checkName` 同一套規則。

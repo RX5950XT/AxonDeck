@@ -27,6 +27,7 @@ const toml = require('smol-toml')
 const { editMcpToml } = require('./toml-edit')
 const mcp = require('./mcp')
 const claudeSettings = require('./claude-settings')
+const { fail } = require('../user-error')
 
 const MAX_TOML_BYTES = 4 * 1024 * 1024
 const MAX_BACKUPS = 20
@@ -120,18 +121,6 @@ function assertHome(id) {
 }
 
 // ===== 錯誤 =====
-
-/**
- * @param {string} code
- * @param {string} userMessage
- * @returns {Error}
- */
-function fail(code, userMessage) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = userMessage
-  return error
-}
 
 // ===== TOML I/O（codex／grok） =====
 

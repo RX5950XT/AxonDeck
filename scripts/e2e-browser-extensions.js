@@ -62,7 +62,7 @@ async function main() {
   ]) {
     const code = '// ==UserScript==\n// @name Axon ' + uuid[0] + '\n// @namespace axon\n// @version 1.0\n// @match http://127.0.0.1/*\n// @grant ' + grant + '\n// @run-at document-end\n// ==/UserScript==\n' + body
     const result = await js(popup, 'new Promise(r=>chrome.runtime.sendMessage(' + JSON.stringify({ action: 'serviceWorker/script/installByCode', data: { uuid, code, upsertBy: 'user' } }) + ',r))')
-    assert.equal(result.code, 0)
+    assert.equal(result?.code, 0, 'ScriptCat installByCode: ' + JSON.stringify(result))
     await wait(() => js(popup, 'chrome.userScripts.getScripts().then(s=>s.some(x=>x.id===' + JSON.stringify(uuid) + '))'), 'register ScriptCat script')
   }
   await tab.loadURL(url + '/included')

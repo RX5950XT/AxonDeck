@@ -1,8 +1,7 @@
 'use strict'
 
-const http = require('http')
 const { randomUUID } = require('crypto')
-const { safeEqual, hostAllowed, presentedKey, sendJson } = require('../local-proxy-http')
+const { createProxyServer, readBody: readRequestBody, sendJson, sendProtocolError: sendError } = require('../local-proxy-http')
 const convert = require('../ccswitch/gateway/convert')
 const catalog = require('./catalog')
 const logs = require('./logs')
@@ -19,15 +18,10 @@ const upstream = require('./upstream')
  * - `/v1/responses`（OpenAI Responses，Codex 之類）→ 只換模型名，串流原樣轉送
  */
 
-const HOST = '127.0.0.1'
 const MAX_BODY_BYTES = 32 * 1024 * 1024
 const FIRST_TOKEN_MS = 120_000
 const IDLE_MS = 180_000
 
-let server = null
-let settings = { port: 0, apiKey: '', logBodies: false }
-let startedAt = 0
-let activeRequests = 0
 /** e2e 注入點（baseUrl／fetchImpl／credential），不經 IPC */
 let upstreamOptions = {}
 
@@ -39,31 +33,7 @@ function getUpstreamOptions() {
   return upstreamOptions
 }
 
-function sendError(res, protocol, status, code, message) {
-  if (protocol === 'anthropic') {
-    sendJson(res, status, { type: 'error', error: { type: status === 401 ? 'authentication_error' : 'api_error', message } })
-    return
-  }
-  sendJson(res, status, { error: { message, type: status === 401 ? 'invalid_request_error' : 'api_error', code } })
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    let size = 0
-    req.on('data', (chunk) => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(Object.assign(new Error('BODY_TOO_LARGE'), { code: 'BODY_TOO_LARGE' }))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', () => reject(Object.assign(new Error('BODY_READ_FAILED'), { code: 'BODY_READ_FAILED' })))
-  })
-}
+const readBody = (req) => readRequestBody(req, MAX_BODY_BYTES)
 
 function statusFor(code) {
   if (code === 'BODY_TOO_LARGE') return 413
@@ -154,7 +124,7 @@ async function handleCompletion(req, res, protocol) {
 
   try {
     const raw = await readBody(req)
-    if (settings.logBodies) entry.requestBody = raw
+    if (proxy.getSettings().logBodies) entry.requestBody = raw
     let body
     try {
       body = JSON.parse(raw)
@@ -207,7 +177,7 @@ async function handleCompletion(req, res, protocol) {
     } else {
       throw Object.assign(new Error('UPSTREAM_FAILED'), { code: 'UPSTREAM_FAILED' })
     }
-    if (settings.logBodies) entry.responseBody = adapter.collector.text
+    if (proxy.getSettings().logBodies) entry.responseBody = adapter.collector.text
   } catch (error) {
     clearTimeout(timer)
     const own = typeof error?.code === 'string' ? error.code : ''
@@ -251,103 +221,27 @@ async function handleCountTokens(req, res) {
   }
 }
 
-function route(req, res) {
-  const pathname = String(req.url || '').split('?')[0]
-  if (pathname === '/health' || pathname === '/healthz') {
-    sendJson(res, 200, { ok: true, uptimeMs: startedAt ? Date.now() - startedAt : 0 })
-    return
-  }
-  if (!hostAllowed(req)) {
-    sendError(res, 'openai', 403, 'FORBIDDEN_HOST', '只接受本機連線')
-    return
-  }
-  const protocol = pathname.startsWith('/v1/messages') ? 'anthropic' : 'openai'
-  if (!settings.apiKey || !safeEqual(presentedKey(req), settings.apiKey)) {
-    sendError(res, protocol, 401, 'UNAUTHORIZED', 'API key 不正確')
-    return
-  }
-
-  if (req.method === 'GET' && pathname === '/v1/models') {
-    void catalog.listForApi({ options: upstreamOptions })
-      .then((data) => sendJson(res, 200, { object: 'list', data }))
-      .catch(() => sendError(res, 'openai', 502, 'UPSTREAM_ERROR', '無法取得模型清單'))
-    return
-  }
-  if (req.method === 'POST' && pathname === '/v1/chat/completions') return void handleCompletion(req, res, 'openai')
-  if (req.method === 'POST' && pathname === '/v1/responses') return void handleCompletion(req, res, 'responses')
-  if (req.method === 'POST' && pathname === '/v1/messages') return void handleCompletion(req, res, 'anthropic')
-  if (req.method === 'POST' && pathname === '/v1/messages/count_tokens') return void handleCountTokens(req, res)
-  sendError(res, protocol, 404, 'NOT_FOUND', '端點不存在')
+function handleModels(req, res) {
+  return catalog.listForApi({ options: upstreamOptions })
+    .then((data) => sendJson(res, 200, { object: 'list', data }))
+    .catch(() => sendError(res, 'openai', 502, 'UPSTREAM_ERROR', '無法取得模型清單'))
 }
 
-/** @param {{ port: number, apiKey: string, logBodies: boolean }} next */
-function applySettings(next) {
-  settings = {
-    port: Number(next.port) || settings.port,
-    apiKey: typeof next.apiKey === 'string' ? next.apiKey : settings.apiKey,
-    logBodies: next.logBodies === true
-  }
-}
-
-function start(next) {
-  applySettings(next)
-  if (server) return Promise.resolve({ ok: true, port: settings.port })
-  if (!settings.apiKey) return Promise.resolve({ ok: false, error: 'NO_API_KEY' })
-  return new Promise((resolve) => {
-    const instance = http.createServer((req, res) => {
-      activeRequests += 1
-      res.on('close', () => { activeRequests -= 1 })
-      try {
-        route(req, res)
-      } catch {
-        if (!res.writableEnded) sendError(res, 'openai', 500, 'INTERNAL_ERROR', '內部錯誤')
-      }
-    })
-    instance.requestTimeout = 0
-    instance.headersTimeout = 60_000
-    instance.keepAliveTimeout = 75_000
-    instance.once('error', (error) => {
-      if (server === instance) server = null
-      resolve({ ok: false, error: error?.code === 'EADDRINUSE' ? 'PORT_IN_USE' : 'LISTEN_FAILED' })
-    })
-    instance.listen(settings.port, HOST, () => {
-      server = instance
-      startedAt = Date.now()
-      resolve({ ok: true, port: settings.port })
-    })
-  })
-}
-
-function stop() {
-  if (!server) return Promise.resolve(true)
-  const instance = server
-  server = null
-  startedAt = 0
-  return new Promise((resolve) => {
-    instance.closeAllConnections?.()
-    instance.close(() => resolve(true))
-    setTimeout(() => resolve(true), 2000).unref?.()
-  })
-}
-
-function status() {
-  const bound = server?.address?.()
-  return {
-    running: !!server,
-    host: HOST,
-    port: bound && typeof bound === 'object' ? bound.port : settings.port,
-    uptimeMs: startedAt ? Date.now() - startedAt : 0,
-    activeRequests
-  }
-}
+const proxy = createProxyServer({
+  'GET /v1/models': handleModels,
+  'POST /v1/chat/completions': (req, res) => handleCompletion(req, res, 'openai'),
+  'POST /v1/responses': (req, res) => handleCompletion(req, res, 'responses'),
+  'POST /v1/messages': (req, res) => handleCompletion(req, res, 'anthropic'),
+  'POST /v1/messages/count_tokens': handleCountTokens
+})
 
 module.exports = {
-  HOST,
+  HOST: proxy.HOST,
   MAX_BODY_BYTES,
-  applySettings,
+  applySettings: proxy.applySettings,
   configureUpstream,
   getUpstreamOptions,
-  start,
-  status,
-  stop
+  start: proxy.start,
+  status: proxy.status,
+  stop: proxy.stop
 }

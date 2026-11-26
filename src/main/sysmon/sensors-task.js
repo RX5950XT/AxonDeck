@@ -23,6 +23,7 @@ const fs = require('fs')
 const os = require('os')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
+const { psQuote } = require('../powershell')
 
 const TASK_NAME = 'AxonDeck Sensors'
 /**
@@ -108,11 +109,6 @@ function isProtectedInstall(exePath) {
   } catch {
     return false
   }
-}
-
-/** PowerShell 單引號字串的跳脫：只有單引號要處理 */
-function psQuote(value) {
-  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
 }
 
 /**

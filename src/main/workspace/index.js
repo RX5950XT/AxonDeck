@@ -21,17 +21,7 @@ const watch = require('./watch')
 const mediaPlayer = require('../media-player')
 const bigText = require('../big-text')
 const fsp = require('../raw-fs').promises
-
-/**
- * @param {string} code
- * @param {string} message
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
-}
+const { fail } = require('../user-error')
 
 /**
  * @param {unknown} projectId

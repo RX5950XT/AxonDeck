@@ -16,6 +16,7 @@ const { spawn } = require('child_process')
 const { downloadFile } = require('../hfmodels/download')
 const { fail, realOf } = require('./paths')
 const { sanitizeSearchFilters, matchesSearchFilters } = require('./search-filter')
+const { powershellExe, psQuote } = require('../powershell')
 
 const MAX_PATTERN = 200
 const SEARCH_LIMIT = 200
@@ -158,7 +159,8 @@ function needsEnsure(st, opts = {}) {
 /**
  * @param {string} exe
  * @param {string[]} args
- * @param {{ timeoutMs?: number }} [opts]
+ * @param {{ timeoutMs?: number, onSpawn?: (child: import('child_process').ChildProcess) => void, onExit?: (child: import('child_process').ChildProcess) => void }} [opts]
+ *   onSpawn／onExit：搜尋要記住進行中的子程序，才能被新的搜尋或關 App 中止
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
 function run(exe, args, opts = {}) {
@@ -166,15 +168,12 @@ function run(exe, args, opts = {}) {
   return new Promise((resolve, reject) => {
     let child
     try {
-      child = spawn(exe, args, {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsVerbatimArguments: false
-      })
+      child = spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch {
       reject(fail('UFFS_FAILED', '搜尋失敗'))
       return
     }
+    opts.onSpawn?.(child)
     let out = Buffer.alloc(0)
     let err = Buffer.alloc(0)
     let timed = false
@@ -193,10 +192,12 @@ function run(exe, args, opts = {}) {
     })
     child.on('error', () => {
       clearTimeout(timer)
+      opts.onExit?.(child)
       reject(fail('UFFS_FAILED', '搜尋失敗'))
     })
     child.on('close', (code) => {
       clearTimeout(timer)
+      opts.onExit?.(child)
       if (timed) {
         reject(fail('UFFS_TIMEOUT', '搜尋逾時'))
         return
@@ -450,53 +451,17 @@ async function searchOnce(raw, rawFilters, version, deadline) {
     '--hide-ads'
   ]
   args.push(...searchFilterArgs(filters))
-  const result = await new Promise((resolve, reject) => {
-    let child
-    try {
-      child = spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    } catch {
-      reject(fail('UFFS_FAILED', '搜尋失敗'))
-      return
+  const result = await run(exe, args, {
+    timeoutMs: Math.max(1, deadline - Date.now()),
+    onSpawn: (child) => {
+      searchChild = child
+      hasUsedDaemon = true
+      activeSearches.add(child)
+    },
+    onExit: (child) => {
+      if (searchChild === child) searchChild = null
+      activeSearches.delete(child)
     }
-    searchChild = child
-    hasUsedDaemon = true
-    activeSearches.add(child)
-    let out = Buffer.alloc(0)
-    let err = Buffer.alloc(0)
-    let timed = false
-    const timer = setTimeout(() => {
-      timed = true
-      try { child.kill() } catch { /* 已經停了 */ }
-    }, Math.max(1, deadline - Date.now()))
-    child.stdout.on('data', (chunk) => {
-      out = Buffer.concat([out, chunk])
-      if (out.length > MAX_STDOUT) {
-        try { child.kill() } catch { /* 已經停了 */ }
-      }
-    })
-    child.stderr.on('data', (chunk) => {
-      err = Buffer.concat([err, chunk], Math.min(err.length + chunk.length, 4096))
-    })
-    child.on('error', () => {
-      clearTimeout(timer)
-      if (searchChild === child) searchChild = null
-      activeSearches.delete(child)
-      reject(fail('UFFS_FAILED', '搜尋失敗'))
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      if (searchChild === child) searchChild = null
-      activeSearches.delete(child)
-      if (timed) {
-        reject(fail('UFFS_TIMEOUT', '搜尋逾時'))
-        return
-      }
-      resolve({
-        code: Number(code) || 0,
-        stdout: out.toString('utf8'),
-        stderr: err.toString('utf8')
-      })
-    })
   })
   const kind = classifySearchError(result.code, result.stderr).kind
   if (kind === 'warming') return { hits: [], truncated: false, warming: true }
@@ -517,16 +482,12 @@ async function searchOnce(raw, rawFilters, version, deadline) {
   }
 }
 
-function psQuote(value) {
-  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
-}
-
 /**
  * @param {string} zipPath
  * @param {string} dest
  */
 async function unzip(zipPath, dest) {
-  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const ps = powershellExe()
   const script = `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(dest)} -Force`
   const result = await run(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
     timeoutMs: 120_000
@@ -610,7 +571,7 @@ async function installBroker() {
   const exe = findUffs()
   const broker = brokerPath(exe)
   if (!broker) throw fail('UFFS_MISSING', '尚未安裝快速搜尋')
-  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const ps = powershellExe()
   const encoded = Buffer.from(
     `Start-Process -FilePath ${psQuote(broker)} -ArgumentList '--install' -Verb RunAs -Wait`,
     'utf16le'

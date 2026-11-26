@@ -19,6 +19,7 @@ const { makeInvoke } = require('./ipc-invoke')
 const { renameRetry } = require('./workspace/files')
 const workspaceMedia = require('./workspace/media')
 const bigText = require('./big-text')
+const { fail } = require('./user-error')
 
 const EXTENSIONS = new Set(Object.values(formats).flat())
 /** 只登記在 Windows「開啟方式」、不搶預設的格式（HTML 留給瀏覽器、CSV 留給 Excel） */
@@ -51,10 +52,6 @@ const SITE_PREFIX = '~editor-'
 const entries = new Map()
 let options = { isDev: false, preload: '', icon: '', secure: (_win) => {}, theme: () => 'dark', imageBase: (_file) => '', forceClose: () => false, reveal: (_file) => {} }
 let tmpSeq = 0
-
-function fail(code, message) {
-  return Object.assign(new Error(code), { code, userMessage: message })
-}
 
 /**
  * 照 Windows 的規則取副檔名：`.gitignore` 的副檔名是 `gitignore`

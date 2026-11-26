@@ -196,6 +196,19 @@ function isIntoSelf(from, dir) {
   return Boolean(a) && (b === a || b.startsWith(a + path.sep))
 }
 
+/** 搬移／複製的目的地：要存在、是資料夾，而且不是來源自己底下 */
+async function assertTargetDir(from, dir) {
+  paths.assertCreatable(dir)
+  let stat
+  try {
+    stat = await fsp.stat(dir)
+  } catch {
+    throw paths.fail('BAD_PATH', '目的地不存在')
+  }
+  if (!stat.isDirectory()) throw paths.fail('BAD_PATH', '只能放進資料夾裡')
+  if (isIntoSelf(from, dir)) throw paths.fail('BAD_PATH', '不能把資料夾搬進它自己底下')
+}
+
 /**
  * @param {unknown} raw
  * @returns {{ by: 'name'|'date'|'size'|'type', desc: boolean, showHidden: boolean }}
@@ -850,17 +863,7 @@ async function moveEntry(fromPath, toDir, rawOptions) {
   const from = paths.resolveExisting(fromPath)
   paths.assertMutable(from)
   const dir = paths.resolveExisting(toDir)
-  paths.assertCreatable(dir)
-  let stat
-  try {
-    stat = await fsp.stat(dir)
-  } catch {
-    throw paths.fail('BAD_PATH', '目的地不存在')
-  }
-  if (!stat.isDirectory()) throw paths.fail('BAD_PATH', '只能放進資料夾裡')
-  if (isIntoSelf(from, dir)) {
-    throw paths.fail('BAD_PATH', '不能把資料夾搬進它自己底下')
-  }
+  await assertTargetDir(from, dir)
   const options = rawOptions && typeof rawOptions === 'object' ? rawOptions : null
   return queueWrite(dir, async () => {
     let next = path.join(dir, path.basename(from))
@@ -919,17 +922,7 @@ async function moveEntry(fromPath, toDir, rawOptions) {
 async function copyEntry(fromPath, toDir, rawOptions) {
   const from = paths.resolveExisting(fromPath)
   const dir = paths.resolveExisting(toDir)
-  paths.assertCreatable(dir)
-  let stat
-  try {
-    stat = await fsp.stat(dir)
-  } catch {
-    throw paths.fail('BAD_PATH', '目的地不存在')
-  }
-  if (!stat.isDirectory()) throw paths.fail('BAD_PATH', '只能放進資料夾裡')
-  if (isIntoSelf(from, dir)) {
-    throw paths.fail('BAD_PATH', '不能把資料夾搬進它自己底下')
-  }
+  await assertTargetDir(from, dir)
   const options = rawOptions && typeof rawOptions === 'object' ? rawOptions : null
   return queueWrite(dir, async () => {
     let next = path.join(dir, path.basename(from))

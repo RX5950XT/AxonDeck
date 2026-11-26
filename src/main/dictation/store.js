@@ -7,39 +7,14 @@
  */
 
 const text = require('./text')
+const { createSerialStore } = require('../serial-store')
 
 /** 最多留幾筆轉錄紀錄（整檔讀寫，沒上限就會越存越慢） */
 const MAX_RECORDS = 500
 /** 單筆文字上限（ASR 一次講不了這麼多；超過多半是壞掉的迴圈輸出） */
 const MAX_TEXT = 8000
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
-let chain = Promise.resolve()
-
-/**
- * @template T
- * @param {() => Promise<T>|T} fn
- * @returns {Promise<T>}
- */
-function withStore(fn) {
-  const run = chain.then(fn, fn)
-  chain = run.then(() => {}, () => {})
-  return run
-}
-
-async function getStore() {
-  if (store) return store
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'dictations' })
-      return store
-    })
-  }
-  return storeReady
-}
+const { getStore, withStore } = createSerialStore('dictations')
 
 /**
  * @returns {string}

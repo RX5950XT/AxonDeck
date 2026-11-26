@@ -4,6 +4,7 @@ const path = require('node:path')
 const fs = require('../raw-fs').promises
 const { runProcess } = require('../proc-broker')
 const { isAgentSessionId } = require('./store')
+const { powershellExe } = require('../powershell')
 
 /** 只採用原 PTY 的子程序；同目錄另一個工作台的 CLI 不算。 */
 function ownedProcesses(pid, processes) {
@@ -87,7 +88,7 @@ async function processSnapshot() {
       return validRows(JSON.parse(stdout || '[]'))
     } catch { /* 起不來或輸出壞掉：退回 PowerShell */ }
   }
-  const exe = path.join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  const exe = powershellExe()
   const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{Name='StartedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress"
   const { stdout } = await run(exe, ['-NoProfile', '-NonInteractive', '-Command', script], 4 * 1024 * 1024)
   return validRows(JSON.parse(stdout || '[]'))

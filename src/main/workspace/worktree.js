@@ -22,23 +22,12 @@ const path = require('path')
 const { runProcess } = require('../proc-broker')
 const store = require('./store')
 const files = require('./files')
+const { fail } = require('../user-error')
 
 /** worktree 的建立要 checkout 整棵樹，比一般 git 指令久 */
 const TIMEOUT_MS = 120000
 /** 最多列幾個（正常人不會超過十幾個，這只是防呆） */
 const MAX_TREES = 50
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
-}
 
 /**
  * @param {string} cwd
@@ -229,6 +218,7 @@ async function check(projectId, treePath) {
   const res = await run(tree.path, ['status', '--porcelain', '-z'])
   if (res.code !== 0) throw fail('CHECK_FAILED', '讀不到工作樹狀態，暫時無法移除')
   const { dirty, samples } = parseDirty(res.stdout)
+  const ignored = await ignoredEntries(tree.path)
   const runningTerminals = await require('../terminal/service').listRunningUnder({ path: tree.path })
   const unpushed = await unpushedCount(tree)
   const main = index === 0
@@ -248,11 +238,28 @@ async function check(projectId, treePath) {
     locked: Boolean(tree.locked),
     dirty,
     samples,
+    ignored,
     runningTerminals,
     unpushed,
     removable: !main && !tree.locked && dirty === 0 && runningTerminals.length === 0,
     reason
   }
+}
+
+/**
+ * 被 .gitignore 忽略的東西（`.env`、`node_modules/`、建置產物）。
+ * `git worktree remove` 不把它們當「沒提交的變更」，**會不問一聲直接刪掉**；
+ * 擋下來不合理（幾乎每棵樹都有 node_modules），所以列出來讓使用者確認時看得到。
+ * 資料夾整個被忽略時 `--directory` 只回一格，不會把 node_modules 逐檔列出。
+ *
+ * @param {string} treePath
+ * @returns {Promise<{ count: number, samples: string[] } | null>} 讀不到回 null
+ */
+async function ignoredEntries(treePath) {
+  const res = await run(treePath, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'])
+  if (res.code !== 0) return null
+  const entries = String(res.stdout || '').split('\0').filter(Boolean)
+  return { count: entries.length, samples: entries.slice(0, 5) }
 }
 
 async function unpushedCount(tree) {

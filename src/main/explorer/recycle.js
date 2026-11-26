@@ -15,6 +15,7 @@ const path = require('path')
 const { execFile } = require('../proc-broker')
 const paths = require('./paths')
 const drives = require('./drives')
+const { powershellExe, psQuote } = require('../powershell')
 
 /** @type {string} */
 let cachedSid = ''
@@ -29,19 +30,6 @@ const FILETIME_EPOCH_MS = 11644473600000
  */
 function isRecyclePath(raw) {
   return String(raw || '').replace(/[\\/]+$/, '').toLowerCase() === RECYCLE_CWD
-}
-
-/**
- * @param {string} value
- * @returns {string}
- */
-function psQuote(value) {
-  return `'${String(value).replace(/['\u2018-\u201b]/g, '$&$&')}'`
-}
-
-function powershellPath() {
-  const root = process.env.SystemRoot || 'C:\\Windows'
-  return path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 }
 
 /**
@@ -313,7 +301,7 @@ async function trashViaPS(full, isDir) {
     + method + '(' + psQuote(full) + ',' + "'OnlyErrorDialogs'" + ',' + "'SendToRecycleBin'" + ')'
   // 非同步：大資料夾丟回收筒要好幾秒，同步等的話整個 App 會卡住
   const failed = await new Promise((resolve) => {
-    execFile(powershellPath(), [
+    execFile(powershellExe(), [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
     ], { windowsHide: true, timeout: 30_000, encoding: 'utf8' }, (error) => resolve(Boolean(error)))
   })

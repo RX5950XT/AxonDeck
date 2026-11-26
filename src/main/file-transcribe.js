@@ -6,7 +6,6 @@
  * 不把整檔解碼進 RAM，可穩定支援 ≥2 小時、≥100MB（上限見常數）。
  */
 
-const fs = require('fs')
 const fsp = require('fs/promises')
 const path = require('path')
 const os = require('os')
@@ -26,6 +25,8 @@ const CHUNK_SECONDS = 28
 const CLOUD_CHUNK_SECONDS = 50
 /** 單段客戶端等待。比 55 秒寬，慢一點的上游才不會在自己還沒回前被掐掉 */
 const CLOUD_CHUNK_TIMEOUT_MS = 90000
+/** 檢查檔案的上限：網路磁碟睡著時不要讓使用者一直等 */
+const STAT_TIMEOUT_MS = 15000
 const SAMPLE_RATE = 16000
 const CHUNK_SAMPLES = CHUNK_SECONDS * SAMPLE_RATE
 const BYTES_PER_SAMPLE = 4
@@ -66,9 +67,9 @@ function cancel() {
 /**
  * 驗證使用者選取的檔案路徑
  * @param {string} filePath
- * @returns {{ size: number, ext: string }}
+ * @returns {Promise<{ size: number, ext: string }>}
  */
-function validateFilePath(filePath) {
+async function validateFilePath(filePath) {
   if (typeof filePath !== 'string' || !filePath.trim()) {
     throw new Error('檔案路徑無效')
   }
@@ -79,10 +80,17 @@ function validateFilePath(filePath) {
   if (!path.isAbsolute(resolved)) {
     throw new Error('僅接受絕對路徑')
   }
-  if (!fs.existsSync(resolved)) {
-    throw new Error('檔案不存在')
-  }
-  const st = fs.statSync(resolved)
+  // 不用 statSync：檔案常在網路磁碟上，NAS 睡著時同步 stat 會把主程序卡到 SMB 逾時
+  let timer
+  const late = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('檔案所在的磁碟沒有回應，請稍後再試')), STAT_TIMEOUT_MS)
+  })
+  const st = await Promise.race([
+    fsp.stat(resolved).catch((error) => {
+      throw new Error(error?.code === 'ENOENT' ? '檔案不存在' : '讀不到這個檔案')
+    }),
+    late
+  ]).finally(() => clearTimeout(timer))
   if (!st.isFile()) {
     throw new Error('路徑不是一般檔案')
   }
@@ -111,7 +119,7 @@ async function transcribeFile(req, onProgress) {
   const filePath = req?.filePath
   const lang = req?.lang || 'zh-TW'
 
-  const { size } = validateFilePath(filePath)
+  const { size } = await validateFilePath(filePath)
   const resolved = path.resolve(filePath)
 
   // 取消前一個（理論上 renderer 重入鎖已擋）
@@ -245,7 +253,10 @@ async function transcribeFile(req, onProgress) {
         text = await localAsr.transcribe('file', {
           samples,
           sampleRate: SAMPLE_RATE,
-          lang
+          // lang 是翻譯目標，只拿來決定要不要轉繁體；辨識語言讓模型自己聽
+          // （當成辨識語言送，英文會被聽成中文）
+          lang,
+          autoDetect: true
         })
       } catch (e) {
         fail(e)
@@ -454,7 +465,7 @@ async function transcribeFileCloud(req, onProgress) {
   const store = req?.store
   if (!store) throw new Error('雲端轉錄需要設定儲存')
 
-  const { size } = validateFilePath(filePath)
+  const { size } = await validateFilePath(filePath)
   const resolved = path.resolve(filePath)
 
   cancel()
@@ -589,7 +600,8 @@ async function transcribeFileCloud(req, onProgress) {
       try {
         const retried = await cloudAsr.retryTransient(
           () => cloudAsr.transcribeEncoded(
-            { buffer: buf, format: 'mp3', language: lang, timeoutMs: CLOUD_CHUNK_TIMEOUT_MS },
+            // lang 是翻譯目標，只拿來決定要不要轉繁體；辨識語言讓模型自己聽
+            { buffer: buf, format: 'mp3', language: lang, detectLanguage: true, timeoutMs: CLOUD_CHUNK_TIMEOUT_MS },
             store,
             // 檔案轉錄用「檔案轉錄」那一頁選的雲端設定與模型
             'file'

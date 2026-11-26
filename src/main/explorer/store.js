@@ -10,6 +10,7 @@
 const paths = require('./paths')
 const places = require('./places')
 const { sanitizeSearchFilters } = require('./search-filter')
+const { createSerialStore } = require('../serial-store')
 
 const VIEW_MODES = new Set(['list', 'grid'])
 const SORT_KEYS = new Set(['name', 'date', 'size', 'type'])
@@ -29,33 +30,7 @@ const TAB_ID_RE = /^[A-Za-z0-9_-]{1,40}$/
 /** 各資料夾自己記的檢視／大小／排序最多留幾筆；超過從最久沒動的開始丟。 */
 const MAX_FOLDER_VIEWS = 1000
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
-let chain = Promise.resolve()
-
-/**
- * @template T
- * @param {() => Promise<T>|T} fn
- * @returns {Promise<T>}
- */
-function withStore(fn) {
-  const run = chain.then(fn, fn)
-  chain = run.then(() => {}, () => {})
-  return run
-}
-
-async function getStore() {
-  if (store) return store
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'explorer' })
-      return store
-    })
-  }
-  return storeReady
-}
+const { getStore, withStore } = createSerialStore('explorer')
 
 /**
  * @param {unknown} raw

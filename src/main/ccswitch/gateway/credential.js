@@ -16,6 +16,9 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { runCliRefresh } = require('../../usage/shared')
+const { fail: credentialError } = require('../../user-error')
+// 讀 JWT payload、不驗簽：來源是本機檔案，只想知道什麼時候過期與帳號是誰
+const { jwtClaims } = require('./oauth')
 
 /** access token 剩不到這麼久就先去換一顆（提前量，不是「已經不能用了」） */
 const STALE_MS = 5 * 60 * 1000
@@ -47,21 +50,6 @@ function homeDir() {
 }
 
 /**
- * 讀 JWT 的 payload。**不驗簽**：來源是本機檔案，我們只想知道什麼時候過期。
- * @param {string} token
- * @returns {Record<string, unknown>}
- */
-function jwtClaims(token) {
-  const parts = String(token || '').split('.')
-  if (parts.length !== 3) return {}
-  try {
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-  } catch {
-    return {}
-  }
-}
-
-/**
  * @param {string} file
  * @returns {Record<string, unknown> | null}
  */
@@ -73,18 +61,6 @@ function readJson(file) {
   } catch {
     return null
   }
-}
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function credentialError(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
 }
 
 // ===== Codex（ChatGPT 訂閱） =====

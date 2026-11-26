@@ -152,6 +152,10 @@ function createBrowserExtensions({ session, dir, fetch, chromeVersion, aliasPrel
   const userScriptsPreload = path.join(__dirname, '../preload/crx-user-scripts.js')
   session.registerPreloadScript({ id: 'axondeck-crx-user-scripts', type: 'frame', filePath: userScriptsPreload })
   session.registerPreloadScript({ id: 'axondeck-crx-user-scripts-sw', type: 'service-worker', filePath: userScriptsPreload })
+  // Electron 擋掉擴充功能的 OPFS（ScriptCat 1.5 新增腳本要用），改用 IndexedDB 頂上
+  const opfsPreload = path.join(__dirname, '../preload/crx-opfs.js')
+  session.registerPreloadScript({ id: 'axondeck-crx-opfs', type: 'frame', filePath: opfsPreload })
+  session.registerPreloadScript({ id: 'axondeck-crx-opfs-sw', type: 'service-worker', filePath: opfsPreload })
   /** 擴充功能叫 chrome.tabs.create 時開成專案瀏覽器分頁，等那顆 webview 接上再交回去 */
   const waitingTabs = []
   // 用到才載：單元測試在純 Node 跑，套件一載入就要 Electron

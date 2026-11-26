@@ -4,6 +4,7 @@ const { randomBytes } = require('crypto')
 const catalog = require('./catalog')
 const logs = require('./logs')
 const server = require('./server')
+const { pingGateway } = require('../local-proxy-http')
 const upstream = require('./upstream')
 
 /**
@@ -159,8 +160,6 @@ function listModels({ force = false } = {}) {
   return catalog.list({ force, options: server.getUpstreamOptions() })
 }
 
-const TEST_TIMEOUT_MS = 60_000
-const TEST_PROMPT = '請只回覆「OK」兩個字。'
 /** 測試用最便宜的組合：最新模型、low 思考 */
 const TEST_MODEL = `${catalog.DEFAULT_MODEL}-low`
 
@@ -169,35 +168,13 @@ const TEST_MODEL = `${catalog.DEFAULT_MODEL}-low`
  * @param {{ fetchImpl?: Function }} [options]
  */
 async function selfTest(options = {}) {
-  const fetchImpl = options.fetchImpl || globalThis.fetch
   const serverStatus = server.status()
   if (!serverStatus.running) return { ok: false, code: 'NOT_RUNNING', message: '服務尚未啟動，請先按「啟動服務」。' }
 
   const models = await catalog.snapshot({ options: server.getUpstreamOptions() })
   const first = models[0]
   const model = first ? (first.efforts.includes('low') ? `${first.id}-low` : first.id) : TEST_MODEL
-  const startedMs = Date.now()
-  let response
-  try {
-    response = await fetchImpl(`http://${serverStatus.host}:${serverStatus.port}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${readSettings().grokProxyApiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: TEST_PROMPT }], max_tokens: 64, stream: false }),
-      signal: AbortSignal.timeout(TEST_TIMEOUT_MS)
-    })
-  } catch {
-    return { ok: false, code: 'UNREACHABLE', model, durationMs: Date.now() - startedMs, message: '連不上本機閘道，請確認監聽埠沒有被其他程式占用。' }
-  }
-  const durationMs = Date.now() - startedMs
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
-    const code = typeof payload?.error?.code === 'string' ? payload.error.code : `HTTP_${response.status}`
-    // 訊息是 server.js 自己寫的白名單字串，不是上游原文
-    const message = typeof payload?.error?.message === 'string' ? payload.error.message : '閘道回報請求失敗。'
-    return { ok: false, code, model, status: response.status, durationMs, message }
-  }
-  const reply = String(payload?.choices?.[0]?.message?.content || '').trim().slice(0, 120)
-  return { ok: true, model, status: 200, durationMs, reply }
+  return pingGateway(serverStatus, readSettings().grokProxyApiKey, model, options.fetchImpl)
 }
 
 module.exports = {

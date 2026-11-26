@@ -7,6 +7,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const { powershellExe } = require('../powershell')
 
 const BUSY_TIMEOUT_MS = 2000
 const MARKER = 'imported.json'
@@ -121,8 +122,7 @@ function findTaiDataDir() {
   }
   try {
     const { execFileSync } = require('child_process')
-    const ps = path.join(process.env.SystemRoot || 'C:\\Windows',
-      'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    const ps = powershellExe()
     const out = execFileSync(ps, [
       '-NoProfile', '-NonInteractive', '-Command',
       '(Get-CimInstance Win32_Process -Filter "Name=\'Tai.exe\'" | Select-Object -First 1 -ExpandProperty ExecutablePath)'

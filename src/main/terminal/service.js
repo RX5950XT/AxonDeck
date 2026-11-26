@@ -241,7 +241,7 @@ async function createSession(req = {}) {
       error.userMessage = '對話代碼不合法'
       throw error
     }
-    await agents.resume(store.normalizeCwd(req.cwd), req.preset, req.agentSessionId)
+    await agents.resume(await store.normalizeCwdAsync(req.cwd), req.preset, req.agentSessionId)
   }
   return terminal.createSession(req)
 }

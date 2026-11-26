@@ -19,9 +19,9 @@ async function waitFor(fn, label) {
 }
 
 class Cdp {
-  constructor() { this.id = 0; this.pending = new Map() }
-  async connect(url) {
-    this.ws = new WebSocket(url)
+  constructor(url) { this.url = url; this.id = 0; this.pending = new Map() }
+  async connect() {
+    this.ws = new WebSocket(this.url)
     await new Promise((resolve, reject) => {
       this.ws.addEventListener('open', resolve)
       this.ws.addEventListener('error', reject)
@@ -47,7 +47,10 @@ class Cdp {
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text)
     return r.result?.value
   }
+  close() { try { this.ws?.close() } catch { /* 已關 */ } }
 }
+// 每個功能頁是獨立的 renderer：送給主視窗的指令要跟著目前的功能頁走
+require('./lib/page-cdp').followMainPage(Cdp)
 
 async function main() {
   const requests = []
@@ -79,11 +82,11 @@ async function main() {
   const exe = process.env.AXONDECK_EXE || path.join(__dirname, '../dist/win-unpacked/AxonDeck.exe')
   const start = () => spawn(exe, ['--hidden', `--user-data-dir=${dir}`, `--remote-debugging-port=${port}`, '--inspect=127.0.0.1:9259'], { stdio: 'ignore' })
   let child = start()
-  const cdp = new Cdp()
-  const mainCdp = new Cdp()
+  let cdp = null
+  let mainCdp = null
   const stop = () => {
-    cdp.ws?.close()
-    mainCdp.ws?.close()
+    cdp?.close()
+    mainCdp?.close()
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
   }
   const connect = async () => {
@@ -91,13 +94,16 @@ async function main() {
       const targets = await fetch('http://127.0.0.1:9259/json/list').then((r) => r.json()).catch(() => [])
       return targets[0]
     }, '主程序')
-    await mainCdp.connect(target.webSocketDebuggerUrl)
+    mainCdp = new Cdp(target.webSocketDebuggerUrl)
+    await mainCdp.connect()
     await mainCdp.eval(`globalThis.__probeRequire = process.mainModule.require('node:module').createRequire(process.mainModule.require('electron').app.getAppPath() + '/src/main/main.js')`)
     const page = await waitFor(async () => {
       const pages = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()).catch(() => [])
       return pages.find((p) => p.type === 'page' && /index\.html/.test(p.url))
     }, '主視窗')
-    await cdp.connect(page.webSocketDebuggerUrl)
+    // 重開 App 後換新物件：followMainPage 會把 send 換成轉接版，同一個物件不能再包一層
+    cdp = new Cdp(page.webSocketDebuggerUrl)
+    await cdp.connect()
     await waitFor(() => cdp.eval(`document.readyState === 'complete' && !!window.electronAPI`), 'preload')
   }
   let passed = 0

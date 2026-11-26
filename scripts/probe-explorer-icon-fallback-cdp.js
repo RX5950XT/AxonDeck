@@ -49,6 +49,9 @@ async function main() {
   const types = ['txt', 'js', 'pdf', 'png', 'mp4', 'mp3', 'zip', 'xlsx', 'gguf', 'ttf', 'exe', 'unknown',
     'docx', 'pptx', 'json', 'wav', 'flac', 'stl', '3mf']
   for (const ext of types) fs.writeFileSync(path.join(files, `sample.${ext}`), 'x')
+  // 「正常的系統圖示」要挑 AxonDeck 不會接管的類型：.txt 常被設成用 AxonDeck 開，
+  // 殼層回的就是 App logo，會被刻意濾成類型預設圖
+  fs.writeFileSync(path.join(files, 'system.reg'), 'x')
   fs.writeFileSync(path.join(files, 'photo.png'), Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'))
   const folders = path.join(dir, 'folders')
@@ -76,7 +79,7 @@ async function main() {
     const icon = (file, opts = {}) => renderer.eval(`window.electronAPI.explorer.fileIcon(${JSON.stringify(file)}, ${JSON.stringify(opts)})`)
     const generic = await icon(path.join(files, 'sample.gguf'))
     assert.equal(generic.ok, true); assert.equal(generic.data.fallback, true)
-    const text = await icon(path.join(files, 'sample.txt'))
+    const text = await icon(path.join(files, 'system.reg'))
     assert.equal(text.ok, true); assert.match(text.data.url, /^data:image\/png;base64,/)
     const photo = await icon(path.join(files, 'photo.png'), { thumb: true, size: 96 })
     assert.equal(photo.ok, true); assert.equal(photo.data.pending, undefined)

@@ -478,7 +478,7 @@ async function transcribeSamples(req, store, scope) {
 
 /**
  * 已是編碼音訊（mp3 等）的 buffer
- * @param {{ buffer: Buffer, format: string, language?: string }} req
+ * @param {{ buffer: Buffer, format: string, language?: string, detectLanguage?: boolean, timeoutMs?: number }} req
  * @param {object} store
  * @param {string} [scope]
  * @returns {Promise<string>}
@@ -488,6 +488,8 @@ async function transcribeEncoded(req, store, scope) {
     buffer: req.buffer,
     format: req.format || 'mp3',
     language: req.language,
+    detectLanguage: req.detectLanguage === true,
+    timeoutMs: req.timeoutMs,
     store,
     scope
   })

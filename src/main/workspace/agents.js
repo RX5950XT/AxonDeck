@@ -23,6 +23,7 @@ const fsp = require('../raw-fs').promises
 const os = require('os')
 const path = require('path')
 const formats = require('./agent-formats')
+const { fail } = require('../user-error')
 
 /** 最多回幾筆（側欄看得完的量） */
 const MAX_SESSIONS = 30
@@ -130,17 +131,6 @@ const AGENTS = {
   grok: { label: 'Grok', resume: (id) => `grok --minimal --no-alt-screen --resume ${id}` },
   opencode: { label: 'OpenCode', resume: (id) => `opencode --session ${id}` },
   agy: { label: 'Antigravity', resume: (id) => `agy --conversation ${id}` }
-}
-
-/**
- * @param {string} code
- * @param {string} message
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
 }
 
 /**

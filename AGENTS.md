@@ -42,7 +42,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 1. 動手前讀 tasks/todo.md 找模組、讀本檔該模組地雷；追完整條資料流與所有 caller，修根因。
 2. 改動最小。非簡單任務先把可勾選計畫寫進 `tasks/todo.md`。
 3. 完成前附驗證指令與實際輸出（至少 `npm run lint`）。同一修法失敗兩次就換方法。
-4. mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。能靜態擋的（未定義名字、死變數、IPC 對不上）進 `npm run lint`，不寫單元測試；不新增「讀原始碼字串比對」的測試（改了名字就壞、不跑程式碼）。
+4. 測試腳本數量壓到最低：修 bug 先讀程式碼，一次性驗證放暫存區、不新增腳本檔；沒有必要不跑測試。留下的腳本改了程式就跟著改到對得上。一次性排查用完就刪，只有 AGENTS／todo 點名的 `e2e-`／`probe-` 才留。mock 全綠證明不了對面長什麼樣：整合功能另留 `probe-*.js` 打真流量。能靜態擋的（未定義名字、死變數、IPC 對不上）進 `npm run lint`，不寫單元測試；不新增「讀原始碼字串比對」的測試（改了名字就壞、不跑程式碼）。
 5. 刪功能時一起掃「定義／exports／IPC 白名單／preload／renderer 呼叫點」。
 6. Commit：`<type>: <繁中描述>`（feat／fix／refactor／docs／test／chore／perf／ci）；**只在使用者要求時** commit／push。
 
@@ -109,6 +109,7 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - Electron 自訂協定不檢查 Access-Control-Allow-Origin、也不送 Origin／`Sec-Fetch-*`：開了 `corsEnabled` 的 `vi-media` 上，opaque origin 的 iframe 照樣 fetch 得到旁邊檔案、crossOrigin 圖片讀得到像素（CSP `connect-src` 也擋不了後者）。不信任的 HTML（獨立編輯器開的任意檔案）只能走不開 CORS 的 `vi-preview`，回歸 `probe-editor-formats.js` [D]。
 - `git status --porcelain=v2 -b -z`（欄位依位置）；`git log` 用 `%x1f` 不混 `-z`；跟分支比要比 `merge-base`；`--numstat` 配 `--no-renames`。暫存區／變更的行數分開算（`--cached` vs `diff`）。
 - 內建瀏覽器：`webviewTag` 只開主視窗、guest 不掛 preload；每分頁一顆 webview，換專案停放不拆；要自寫 `webview[hidden] { display: none }`。
+- Electron 43 對 `chrome-extension://` 的 OPFS（`navigator.storage.getDirectory`）一律回 SecurityError（頁面與 service worker 都是）：ScriptCat 1.5 靠它才裝得了腳本。`preload/crx-opfs.js` 原生被擋才改用 IndexedDB 頂上，別拿掉（回歸 `e2e-browser-extensions.js`）。
 - 外部拖入一律複製不搬移，先量再複製、超上限整批拒絕；`dragover` 要放行外部檔案。搜尋四個上限（200 命中／8000 檔／1MB／15 秒）缺一不可。
 - 資料夾監看一次只看一個專案；`.git` 底下的變動只當「Git 狀態變了」；事件要合併；監看不起來安靜退回手動。
 - AI 記錄要掃 `CLAUDE_CONFIG_DIR`／`CODEX_HOME` 與其他工作台 home，照 `agent + id` 去重；「讀過」「改過」分開。恢復指令是 main 固定表，session id 卡 `^[A-Za-z0-9_-]{6,64}$`。空白對話只在側欄清單過濾（`titledOnly`），不可套到 `agent-resume.js`（剛開還沒講話的分頁會綁不到對話）；SQL 的 LIMIT 前就要濾，否則空白對話佔滿名額。

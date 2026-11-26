@@ -10,22 +10,12 @@
 const path = require('path')
 const { spawn } = require('child_process')
 const fs = require('fs')
+const { fail } = require('../user-error')
 
 const MAX_MS = 180_000
 const MAX_DEPTH = 12
 const KEEP = 200
 const STAT_TIMEOUT_MS = 8_000
-
-/**
- * @param {string} code
- * @param {string} userMessage
- */
-function fail(code, userMessage) {
-  const err = new Error(code)
-  err.code = code
-  err.userMessage = userMessage
-  return err
-}
 
 /** @param {string} rootPath */
 function isDevicePath(rootPath) {

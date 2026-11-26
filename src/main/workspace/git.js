@@ -19,6 +19,7 @@ const { runProcess } = require('../proc-broker')
 const fsp = require('../raw-fs').promises
 const store = require('./store')
 const files = require('./files')
+const { fail } = require('../user-error')
 
 /** 單次 git 指令的逾時（push 會走網路，給寬一點） */
 const TIMEOUT_MS = 60000
@@ -28,18 +29,6 @@ const LOG_LIMIT = 30
 const MAX_FILES = 500
 /** 單筆提交展開時最多列幾個檔案（一次 merge 可以動到幾千個） */
 const MAX_LOG_FILES = 200
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
-}
 
 /**
  * 執行一次 git。回 `{ code, stdout, stderr }`，**呼叫端只准看 code 與 stdout**。
@@ -674,17 +663,39 @@ async function readWorking(cwd, rel) {
 }
 
 /**
- * 拿某個版本的檔案內容。`git show <rev>:<path>` 在檔案不存在於那個版本時
+ * 那個版本裡**確定沒有**這個檔案（新檔、刪掉的檔、還沒有任何提交）。
+ * 列得出來卻讀不出來（衝突中的檔案、repo 壞了）回 false。
+ * @param {string} cwd
+ * @param {string} rev
+ * @param {string} spec 已轉成 `/` 的相對路徑
+ */
+async function missingAt(cwd, rev, spec) {
+  if (rev === 'HEAD' && !(await hasHead(cwd))) return true
+  const args = rev ? ['ls-tree', '-z', rev, '--', spec] : ['ls-files', '-z', '--', spec]
+  const res = await run(cwd, ['--literal-pathspecs', ...args])
+  return res.code === 0 && !res.stdout
+}
+
+/**
+ * 拿某個版本的檔案內容。`git cat-file blob <rev>:<path>` 在檔案不存在於那個版本時
  * 會回非 0（新檔案就是這樣），那不是錯誤——回空字串就好。
+ * **其他失敗要往上丟**：畫成空檔會看起來像「整份被刪光／整份新增」，
+ * 呼叫端讀不到兩份內容時會退回 unified diff。
  *
  * @param {string} cwd
  * @param {string} rev 例如 `HEAD` 或 `''`（空＝暫存區，也就是 `:path`）
  * @param {string} relPath
- * @returns {Promise<string>}
+ * @returns {Promise<{ text: string, truncated: boolean }>}
  */
 async function showAt(cwd, rev, relPath) {
-  const res = await run(cwd, ['show', `${rev}:${relPath.replace(/\\/g, '/')}`], undefined, MAX_DIFF_BYTES)
-  if (res.code !== 0) return { text: '', truncated: false }
+  const spec = relPath.replace(/\\/g, '/')
+  // 不用 `git show`：`:路徑` 對不到 blob（衝突中的檔案）時它會改當路徑篩選，
+  // 回 HEAD 的提交訊息＋diff 而且 exit 0，那堆文字會被當成檔案內容畫出來
+  const res = await run(cwd, ['cat-file', 'blob', `${rev}:${spec}`], undefined, MAX_DIFF_BYTES)
+  if (res.code !== 0) {
+    if (await missingAt(cwd, rev, spec)) return { text: '', truncated: false }
+    throw fail('SHOW_FAILED', '讀不到這個版本的檔案內容')
+  }
   // 截斷過的內容不可以直接拿去並排：後面那一大段會被畫成「整段刪掉」
   if (res.truncated || Buffer.byteLength(res.stdout, 'utf8') > MAX_DIFF_BYTES) {
     return { text: '', truncated: true }

@@ -14,6 +14,7 @@
 
 const fs = require('../raw-fs')
 const path = require('path')
+const { createSerialStore } = require('../serial-store')
 
 /** 名稱長度上限 */
 const MAX_NAME = 60
@@ -161,33 +162,7 @@ function sanitizeTabsState(raw) {
   return { activeId, tabs }
 }
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
-let storeChain = Promise.resolve()
-
-/**
- * @template T
- * @param {() => Promise<T>} fn
- * @returns {Promise<T>}
- */
-function withStore(fn) {
-  const run = storeChain.then(fn, fn)
-  storeChain = run.then(() => {}, () => {})
-  return run
-}
-
-async function getStore() {
-  if (store) return store
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'workspaces' })
-      return store
-    })
-  }
-  return storeReady
-}
+const { getStore, withStore } = createSerialStore('workspaces')
 
 async function readAll() {
   const s = await getStore()

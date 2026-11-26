@@ -39,7 +39,7 @@ function harness(root, overrides = {}) {
       if (state.storeError) throw new Error('store failed')
       return { ...req, id: 'created' }
     }, remove: async () => true }
-  const dependencies = { path, '../proc-broker': { runProcess }, './store': fakeStore, './files': files,
+  const dependencies = { path, '../user-error': require('../src/main/user-error'), '../proc-broker': { runProcess }, './store': fakeStore, './files': files,
     '../raw-fs': fs, '../terminal/service': { listRunningUnder: async () => (
       typeof state.running === 'function' ? state.running() : state.running) },
     '../terminal/store': { get: async () => state.terminal },
@@ -203,6 +203,16 @@ async function lifecycle(root) {
     assert.equal((await h.api.check('source', h.target.path)).removable, true)
     await assert.rejects(h.api.remove('source', h.target.path), { code: 'BLOCKED' })
     assert.ok(!h.calls.some(call => call.args[1] === 'remove'))
+  })
+  await test('check 列出會被一起刪掉的忽略檔；讀不到回 null 不擋移除', async () => {
+    const h = harness(root)
+    h.state.git = args => args[0] === 'ls-files' ? { stdout: '.env\0node_modules/\0' } : gitResult(args, h.source, h.target)
+    const checked = await h.api.check('source', h.target.path)
+    assert.deepEqual({ ...checked.ignored, samples: [...checked.ignored.samples] },
+      { count: 2, samples: ['.env', 'node_modules/'] })
+    assert.equal(checked.removable, true)
+    h.state.git = args => args[0] === 'ls-files' ? { code: 1 } : gitResult(args, h.source, h.target)
+    assert.equal((await h.api.check('source', h.target.path)).ignored, null)
   })
   await test('移除只刪工作樹，不刪分支', async () => {
     const h = harness(root)

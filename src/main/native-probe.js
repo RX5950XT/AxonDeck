@@ -11,6 +11,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const { powershellExe } = require('./powershell')
 
 const EXE_NAME = 'axondeck-probe.exe'
 
@@ -37,11 +38,6 @@ function resolveProbeExe(deps = {}) {
   }) || ''
 }
 
-function powershellPath() {
-  const root = process.env.SystemRoot || 'C:\\Windows'
-  return path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-}
-
 /**
  * 要 spawn 的指令：有原生檔就用它，否則 PowerShell 跑對應的 ps1。
  * @param {'sysmon' | 'observer'} mode
@@ -53,7 +49,7 @@ function probeCommand(mode, scriptPath, deps = {}) {
   const exe = deps.exe ?? resolveProbeExe()
   if (exe) return { file: exe, args: [mode], native: true }
   return {
-    file: powershellPath(),
+    file: powershellExe(),
     args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
     native: false
   }

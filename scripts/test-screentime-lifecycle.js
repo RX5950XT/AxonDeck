@@ -55,6 +55,44 @@ async function main() {
       await service.stop()
       assert.deepEqual(written, [{ name: 'editor', duration: 60 }, { name: 'browser', duration: 1 }])
     })
+    await check('網頁時長鎖檔時保留重試，其他錯誤丟掉那筆不卡佇列', async () => {
+      let notify
+      let tick
+      let locked = true
+      const written = []
+      const file = path.join(__dirname, '../src/main/screentime/index.js')
+      const realRequire = createRequire(file)
+      const context = { module: { exports: {} }, console: { ...console, warn() {} }, setTimeout, clearTimeout, require: (id) => {
+        if (id === './observer') return { createObserver: options => {
+          tick = options.onTick
+          return { start() {}, stop() {} }
+        } }
+        if (id === './webserver') return { createWebServer: options => {
+          notify = options.onNotify
+          return { start: async () => ({ ok: true }), stop: async () => {} }
+        } }
+        if (id === './db') return { ensureImported: () => ({}), openDb: () => ({}),
+          readAppConfig: () => ({}), destDir: () => '', closeDb() {} }
+        if (id === './write') return { updateAppDuration() {}, addUrlBrowseTime(_db, rec) {
+          if (rec.url === 'bad') throw new Error('CHECK constraint failed')
+          if (locked) throw Object.assign(new Error('database is locked'), { errcode: 5 })
+          written.push(rec.url)
+        } }
+        return realRequire(id)
+      } }
+      vm.runInNewContext(fs.readFileSync(file, 'utf8'), context)
+      const service = context.module.exports.createScreentimeService({ userDataPath: 'unused' })
+      service.start()
+      notify({ url: 'a', duration: 5 })
+      notify({ url: 'bad', duration: 5 })
+      notify({ url: 'b', duration: 5 })
+      assert.deepEqual(written, [])
+      locked = false
+      // 沒有新的網頁事件，靠應用時長的定時寫入補上
+      for (let i = 0; i < 60; i++) tick({ name: 'editor', path: 'D:/editor.exe', idleMs: 0 })
+      assert.deepEqual(written, ['a', 'b'])
+      await service.stop()
+    })
     await check('服務停止後，晚到的啟動失敗不再排重試', async () => {
       let finishStart
       let retries = 0

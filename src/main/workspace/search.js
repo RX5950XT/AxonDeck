@@ -16,6 +16,7 @@ const { StringDecoder } = require('string_decoder')
 const { spawn } = require('child_process')
 const { resolveProbeExe } = require('../native-probe')
 const files = require('./files')
+const { fail } = require('../user-error')
 
 /** 最多回幾筆命中（UI 一次也讀不完更多） */
 const MAX_HITS = 200
@@ -34,18 +35,6 @@ let nativeChild = null
 
 function isStopped(state) {
   return Date.now() > state.deadline || (state.version !== undefined && state.version !== searchVersion)
-}
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
 }
 
 /**

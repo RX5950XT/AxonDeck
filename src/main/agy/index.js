@@ -5,6 +5,7 @@ const catalog = require('./catalog')
 const credential = require('./credential')
 const logs = require('./logs')
 const server = require('./server')
+const { pingGateway } = require('../local-proxy-http')
 
 /**
  * AGY 反代的服務門面。
@@ -90,13 +91,6 @@ async function stop() {
   return { ok: true }
 }
 
-/** 埠或除錯開關改了要重啟才會生效 */
-async function restart() {
-  const running = server.status().running
-  if (running) await server.stop()
-  if (!running) return { ok: true, port: readSettings().agyPort }
-  return start()
-}
 
 /** App 啟動時呼叫：上次關閉時是開著的就自動接續 */
 async function autoStart() {
@@ -198,11 +192,6 @@ async function shutdown() {
   credential.reset()
 }
 
-function dispose() {
-  logs.close()
-  credential.reset()
-}
-
 /**
  * 上游模型型錄。走 server 的上游設定，e2e 注入 mock 時型錄才不會打到真實上游。
  * @param {{ force?: boolean }} [params]
@@ -210,9 +199,6 @@ function dispose() {
 function listModels({ force = false } = {}) {
   return catalog.list({ force, options: server.getUpstreamOptions() })
 }
-
-const TEST_TIMEOUT_MS = 60_000
-const TEST_PROMPT = '請只回覆「OK」兩個字。'
 
 /**
  * 挑一個拿來試打的模型。
@@ -231,17 +217,10 @@ function pickTestModel(models) {
 const TEST_MODEL_PREFERENCE = Object.freeze(['gemini-4-hydrogen-low', 'gemini-4-hydrogen-medium'])
 
 /**
- * 端到端自我測試：自動挑一個模型，從**本機閘道**真的送一則訊息出去。
- *
- * 刻意走 loopback HTTP 而不是直接呼叫 upstream：客戶端走的是
- * 「HTTP → 金鑰鑑權 → 模型映射 → 憑證 → 上游」整條路，只測上游等於漏掉前半段，
- * 而使用者接不上時壞在前半段的機率一點都不低。這裡通了＝ Claude Code／OpenAI 客戶端也會通。
- *
- * 失敗只回代碼與我們自己寫的訊息；上游 body 早在 server.js 就收斂成狀態碼了。
+ * 端到端自我測試：自動挑一個模型，從本機閘道真的送一則訊息（見 pingGateway）。
  * @param {{ fetchImpl?: Function }} [options]
  */
 async function selfTest(options = {}) {
-  const fetchImpl = options.fetchImpl || globalThis.fetch
   const serverStatus = server.status()
   if (!serverStatus.running) {
     return { ok: false, code: 'NOT_RUNNING', message: '服務尚未啟動，請先按「啟動服務」。' }
@@ -253,43 +232,7 @@ async function selfTest(options = {}) {
     return { ok: false, code: 'NO_MODEL', message: '上游沒有回報任何可對話的模型。' }
   }
 
-  const startedMs = Date.now()
-  let response
-  try {
-    response = await fetchImpl(`http://${serverStatus.host}:${serverStatus.port}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${readSettings().agyApiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: TEST_PROMPT }],
-        max_tokens: 64,
-        stream: false
-      }),
-      signal: AbortSignal.timeout(TEST_TIMEOUT_MS)
-    })
-  } catch {
-    return {
-      ok: false,
-      code: 'UNREACHABLE',
-      model,
-      durationMs: Date.now() - startedMs,
-      message: '連不上本機閘道，請確認監聽埠沒有被其他程式占用。'
-    }
-  }
-
-  const durationMs = Date.now() - startedMs
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
-    // error.code 是 server.js 自己塞的（UPSTREAM_502、TOKEN_EXPIRED…），不是上游原文
-    const code = typeof payload?.error?.code === 'string' ? payload.error.code : `HTTP_${response.status}`
-    return { ok: false, code, model, status: response.status, durationMs, message: '閘道回報請求失敗。' }
-  }
-
-  const reply = String(payload?.choices?.[0]?.message?.content || '').trim().slice(0, 120)
-  return { ok: true, model, status: 200, durationMs, reply }
+  return pingGateway(serverStatus, readSettings().agyApiKey, model, options.fetchImpl)
 }
 
 module.exports = {
@@ -298,12 +241,10 @@ module.exports = {
   autoStart,
   clearLogs,
   configure,
-  dispose,
   endpoint,
   getLogs,
   getStats,
   regenerateApiKey,
-  restart,
   sanitizePort,
   saveSettings,
   selfTest,

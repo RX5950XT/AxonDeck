@@ -1,11 +1,11 @@
 # AxonDeck todo
-最後更新：2026-11-24
+最後更新：2026-11-26
 
 > 交接、現況、待辦都在本檔（嚴格 ≤100 行）；規則與地雷見 [AGENTS.md](../AGENTS.md)，判斷原則見 [lessons.md](./lessons.md)，功能說明見 README。壓縮前的完整歷史：`git log -- CONTEXT.md tasks/todo.md`。
 
 ## 現況（交接）
 
-- AxonDeck（v1.40 前叫 VoiceInk）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5；目前 v1.84.0（2026-11-19）。資料在 `%APPDATA%/axondeck/`（舊安裝沿用 `voiceink`）。
+- AxonDeck（v1.40 前叫 VoiceInk）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5；目前 v1.85.2（2026-11-26）。資料在 `%APPDATA%/axondeck/`（舊安裝沿用 `voiceink`）。
 - 九頁 `data-page`：`chat`（SI：Agent／Chat／Browser，主區 `setChatPaneMode('chat'|'workspace'|'web'|'browser'|'telegram'|'tools')`）、`explorer`、`stt`、`translate`、`speech`、`imagegen`（iframe Miroxen）、`sysmon`、`hfmodels`（Local SI）、`settings`。導覽順序 localStorage `navOrder`，圖示 `ws-tool-icons.js`。SI 版面由 `si-layout.js` 管：標題列兩顆收合左右側欄（localStorage），專案模式額度條搬進 `#termMain` 底、四顆入口 `#quotaDock` 搬到右側欄底（右欄收起／≤900px 回條上），抽屜高度由 `fitDrawer` 量成蓋滿上方那塊。原 CC Proxy 頁已拆：供應商／用量統計是額度條抽屜、MCP／Skills 是 `tools` 主畫面、AGY 與 CLI 版本在設定頁，邏輯仍在 `ccswitch-page.js`。
 - GPU 可重建圖片快取預設 64 MiB（`main.js` 的 `force-gpu-mem-discardable-limit-mb`，啟動參數可覆寫）；未做長時重度媒體回歸。
 
@@ -16,6 +16,7 @@
 - 子程序（git、worktree、procs-json）走 utilityProcess `proc-broker.js`；IPC 外殼 `ipc-invoke.js`（`{ ok, data|error }`），`lint-ipc.js` 擋三清單對不上。
 - CDP 測試三坑：切頁獨立一個 eval（`scripts/lib/page-cdp.js`）；模擬推送要廣播每個 `index.html`；`--hidden` 視窗不畫，量測先 `showInactive()`。
 - 設定頁雲端分區把整份 `providerDraft` 寫回 `cloudProviders`：頁面 hidden 時有未存修改要立刻存，否則舊草稿蓋掉別頁寫入。
+- 共用小工具（新寫的別再抄一份）：獨立 electron-store 檔用 `serial-store.js`（懶載入＋排隊寫）；帶 `code`／`userMessage` 的錯誤用 `user-error.js` 的 `fail`；PowerShell 路徑與單引號跳脫用 `powershell.js`；本機反代的鑑權／啟停／SSE／自我測試在 `local-proxy-http.js`（`createProxyServer` 路由表）；AGY／Grok 設定頁骨架是 renderer `proxy-page.js`。
 
 ### 模組地圖（`src/main/` 除非註明）
 - 聊天／網頁 AI／瀏覽器：`chat*.js`、`ai-web.js`（`SITES`／`CHAT_PATHS`）、`grok-clearance.js`、`browser-*.js`、`crx-*.js`、`web-context-menu.js`；renderer `chat-*.js`、`ai-web-page.js`、`browser-page.js`、`webview-warm.js`。
@@ -52,11 +53,9 @@
 - [ ] Telegram 真的最小化再還原、使用者自己的群組聊天室。
 
 ### 需要取捨
-- [ ] 檔案轉錄把目標語言當辨識語言送（即時字幕已修，檔案轉錄待決）。
 - [ ] 感測器交接檔沒 ACL（同帳號程序可導到假管道）；`Oc.Reset` 忽略 SMU 回傳值。
-- [ ] 同步 I/O 殘留：terminal store、file-transcribe `validateFilePath`、workspace 拖入。
-- [ ] worktree 移除會刪 .gitignore 檔；`showAt` 把 git 失敗畫成空檔；Monaco 首載競態；終端機清單快照蓋掉新狀態。
-- [ ] 網頁版 AI 會記住同站非對話頁；網頁時長寫入失敗不重試。
+- [ ] Monaco 首載競態。
+- [ ] 網頁版 AI 會記住同站非對話頁。
 - [ ] 久未使用功能頁回收 renderer、擴充功能延後到第一次開瀏覽器才載；Browser 模式側欄 0.16s 寬度動畫未拿掉。
 
 ### 依賴
@@ -66,9 +65,7 @@
 
 ### 既有失敗／未確認
 - [ ] 終端機「突然全空白」未重現，根因未確認。
-- [ ] `probe-asr-key-cdp.js` 初始化回報 `Promise was collected`。
-- [ ] `e2e-browser-extensions.js:65` ScriptCat `installByCode` 回 -1（疑上游改訊息格式）。
-- [ ] `probe-explorer-shell.js` 5 項、`probe-explorer-icon-fallback-cdp.js` `.txt` 圖示失敗（v1.73.0 起）。
+- [ ] `probe-asr-key-cdp.js`（改走 `followMainPage`）、`probe-explorer-icon-fallback-cdp.js`（改用 `.reg` 當系統圖示）已照新架構改，未在打包版實跑。
 
 ## 已知問題／刻意不處理
 

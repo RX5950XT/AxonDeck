@@ -25,6 +25,7 @@ const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
 const { downloadFile } = require('../hfmodels/download')
+const { fail: makeError } = require('../user-error')
 
 /** 官方安裝頁（給使用者自己看的） */
 const PAWNIO_URL = 'https://pawnio.eu/'
@@ -56,13 +57,6 @@ function isInstalled() {
   })
   installedCache = { at: Date.now(), value }
   return value
-}
-
-function makeError(code, userMessage) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = userMessage
-  return error
 }
 
 /**

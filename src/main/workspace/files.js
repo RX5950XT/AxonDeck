@@ -15,6 +15,7 @@ const fs = require('../raw-fs')
 const fsp = require('../raw-fs').promises
 const path = require('path')
 const { removeTreeSync } = require('../safe-rm')
+const { fail } = require('../user-error')
 
 /** 單層目錄最多列幾筆（`node_modules` 那種一層幾千個的不要把 UI 弄死） */
 const MAX_ENTRIES = 2000
@@ -135,18 +136,6 @@ function mediaMime(full) {
 
 /** 列目錄時直接跳過的名字（點進去只有雜訊，而且動輒上萬筆） */
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', '__pycache__', '.next', '.turbo'])
-
-/**
- * @param {string} code
- * @param {string} message
- * @returns {Error}
- */
-function fail(code, message) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = message
-  return error
-}
 
 /**
  * 把 relPath 接到專案根目錄底下，並確認沒有逃出去。
@@ -583,9 +572,9 @@ function uniqueDestName(dir, basename) {
 /**
  * 來源是使用者電腦上的任意路徑，只放行磁碟機絕對路徑與 UNC，不跟連結走。
  * @param {unknown} raw
- * @returns {string}
+ * @returns {Promise<string>}
  */
-function resolveSource(raw) {
+async function resolveSource(raw) {
   const s = typeof raw === 'string' ? raw.trim() : ''
   if (!s || s.includes('\0') || s.length > 32767) throw fail('BAD_PATH', '路徑不合法')
   if (/^\\\\[.?]\\/.test(s)) throw fail('BAD_PATH', '路徑不合法')
@@ -596,7 +585,12 @@ function resolveSource(raw) {
   } catch {
     throw fail('BAD_PATH', '路徑不合法')
   }
-  if (!fs.existsSync(full)) throw fail('NOT_FOUND', '找不到這個檔案')
+  // 來源常在網路磁碟／隨身碟上：一律非同步，NAS 睡著時不卡主程序
+  try {
+    await fsp.lstat(full)
+  } catch {
+    throw fail('NOT_FOUND', '找不到這個檔案')
+  }
   return full
 }
 
@@ -615,11 +609,12 @@ function isIntoSelf(from, dir) {
  * 預先量檔數與總量；超過上限整批拒絕，一個都不複製。
  * @param {string} full
  * @param {{ files: number, bytes: number }} acc
+ * @returns {Promise<void>}
  */
-function measureEntry(full, acc) {
+async function measureEntry(full, acc) {
   let st
   try {
-    st = fs.lstatSync(full)
+    st = await fsp.lstat(full)
   } catch {
     throw fail('NOT_FOUND', '找不到這個檔案')
   }
@@ -636,11 +631,11 @@ function measureEntry(full, acc) {
   if (!st.isDirectory()) return
   let names
   try {
-    names = fs.readdirSync(full)
+    names = await fsp.readdir(full)
   } catch {
     throw fail('READ_FAILED', '讀不到這個資料夾')
   }
-  for (const name of names) measureEntry(path.join(full, name), acc)
+  for (const name of names) await measureEntry(path.join(full, name), acc)
 }
 
 /**
@@ -694,7 +689,7 @@ async function importDropped(root, relDir, sourcePaths) {
   const sources = []
   for (const raw of sourcePaths) {
     if (typeof raw !== 'string' || !raw.trim()) continue
-    sources.push(resolveSource(raw))
+    sources.push(await resolveSource(raw))
   }
   if (!sources.length) throw fail('BAD_PATH', '沒有可加入的檔案')
   if (sources.length > MAX_IMPORT_ITEMS) {
@@ -703,7 +698,7 @@ async function importDropped(root, relDir, sourcePaths) {
   const acc = { files: 0, bytes: 0 }
   for (const from of sources) {
     if (isIntoSelf(from, dir)) throw fail('BAD_PATH', '不能把資料夾複製進它自己底下')
-    measureEntry(from, acc)
+    await measureEntry(from, acc)
   }
   const rels = []
   for (const from of sources) rels.push(await copyOne(from, dir, root))

@@ -11,13 +11,24 @@ const state = { projects: [
   { id: 'b', path: path.dirname(__dirname), name: 'B' },
   { id: 'c', path: path.join(__dirname, 'lib'), name: 'C' }
 ] }
-const context = { require: createRequire(file), module: { exports: {} }, process, setTimeout, clearTimeout }
-vm.createContext(context)
-vm.runInContext(fs.readFileSync(file, 'utf8') + `
-store = {
+const realRequire = createRequire(file)
+const fakeStore = {
   get: (key, fallback) => state[key] ?? fallback,
   set: (key, value) => typeof key === 'string' ? state[key] = value : Object.assign(state, key)
-}`, Object.assign(context, { state }))
+}
+// 保留真的排隊邏輯（測並發不互相覆蓋），只把磁碟容器換掉
+const fakeSerial = {
+  createSerialStore: (name) => ({ ...realRequire('../serial-store').createSerialStore(name), getStore: async () => fakeStore })
+}
+const context = {
+  require: (id) => (id === '../serial-store' ? fakeSerial : realRequire(id)),
+  module: { exports: {} },
+  process,
+  setTimeout,
+  clearTimeout
+}
+vm.createContext(context)
+vm.runInContext(fs.readFileSync(file, 'utf8'), context)
 const api = context.module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 

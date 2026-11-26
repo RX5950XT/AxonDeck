@@ -11,6 +11,7 @@ const fs = require('../raw-fs')
 const os = require('os')
 const path = require('path')
 const { execFile } = require('../proc-broker')
+const { powershellExe } = require('../powershell')
 
 /** 虛擬位置：Windows 那樣的「本機」首頁（不是真路徑，別送進 paths）。 */
 const THIS_PC = 'thispc'
@@ -140,13 +141,7 @@ async function listDrives() {
 let infoPending = null
 function driveInfo() {
   if (infoPending) return infoPending
-  const exe = path.join(
-    process.env.SystemRoot || 'C:\\Windows',
-    'System32',
-    'WindowsPowerShell',
-    'v1.0',
-    'powershell.exe'
-  )
+  const exe = powershellExe()
   const script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); Get-CimInstance Win32_LogicalDisk |'
     + ' Select-Object DeviceID,VolumeName,FileSystem,DriveType,Size,FreeSpace,ProviderName |'
     + ' ConvertTo-Json -Compress'
@@ -220,7 +215,7 @@ function isDevicePath(raw) {
  * @returns {Promise<Array<{ name: string, path: string, type: string }>>}
  */
 function listDevices() {
-  const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const exe = powershellExe()
   const script = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new();'
     + ' @((New-Object -ComObject Shell.Application).NameSpace(17).Items() | Where-Object { -not $_.IsFileSystem } |'
     + ' ForEach-Object { @{ name = $_.Name; path = $_.Path; type = $_.Type } }) | ConvertTo-Json -Compress'

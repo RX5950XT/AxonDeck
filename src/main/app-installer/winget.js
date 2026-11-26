@@ -2,6 +2,7 @@
 
 const path = require('path')
 const { spawn } = require('child_process')
+const { powershellExe } = require('../powershell')
 
 function failure(code, userMessage) {
   return Object.assign(new Error(userMessage), { code, userMessage })
@@ -63,13 +64,12 @@ function runPty(file, args, { onProgress, stallMs = 0 } = {}) {
 function runElevated(args, { interactive = false } = {}) {
   const line = args.map((arg) => /[\s"]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg).join(' ')
   const script = `$ErrorActionPreference='Stop'; try {$p=Start-Process -FilePath $env:AXON_WINGET -ArgumentList $env:AXON_WINGET_ARGS -Verb RunAs -WindowStyle ${interactive ? 'Normal' : 'Hidden'} -Wait -PassThru; exit $p.ExitCode} catch {exit 1}`
-  return run(powershellPath(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+  return run(powershellExe(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
     timeout: 0, env: { ...process.env, AXON_WINGET: wingetPath(), AXON_WINGET_ARGS: line }
   })
 }
 
 const wingetPath = () => path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'winget.exe')
-const powershellPath = () => path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 
 function cellWidth(char) {
   const c = char.codePointAt(0)
@@ -123,4 +123,4 @@ function actionArgs(action, target) {
   return args
 }
 
-module.exports = { failure, run, runPty, runElevated, wingetPath, powershellPath, parseList, list, actionArgs }
+module.exports = { failure, run, runPty, runElevated, wingetPath, powershellPath: powershellExe, parseList, list, actionArgs }

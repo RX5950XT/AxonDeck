@@ -17,6 +17,8 @@ const fs = require('fs')
 const fsp = fs.promises
 const path = require('path')
 const { execFile } = require('child_process')
+const { fail } = require('../user-error')
+const { powershellExe } = require('../powershell')
 
 /** 能轉的副檔名 → Office 的哪一支程式 */
 const APP_OF = {
@@ -42,7 +44,6 @@ function setCacheDir(dir) {
 const CACHE_NAME = /^[0-9a-f]{40}\.(pdf|xlsx)$/
 
 const winDir = () => process.env.SystemRoot || 'C:\\Windows'
-const powershell = () => path.join(winDir(), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 
 function run(exe, args, env) {
   return new Promise((resolve, reject) => {
@@ -116,7 +117,7 @@ if ($kind -eq 'word') {
 
 async function convertWithOffice(kind, src, dst, target) {
   const encoded = Buffer.from(COM_SCRIPT, 'utf16le').toString('base64')
-  await run(powershell(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
+  await run(powershellExe(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
     { AXON_SRC: src, AXON_DST: dst, AXON_KIND: kind, AXON_TARGET: target })
 }
 
@@ -196,10 +197,6 @@ async function prune() {
 function cachedPath(name) {
   if (!CACHE_NAME.test(String(name))) throw fail('NOT_FOUND', '找不到')
   return path.join(cacheDir(), name)
-}
-
-function fail(code, message) {
-  return Object.assign(new Error(code), { code, userMessage: message })
 }
 
 module.exports = { APP_OF, convert, cachedPath, setCacheDir, detect }

@@ -20,6 +20,7 @@ const pricing = require('./pricing')
 const parsers = require('./parsers')
 const scan = require('./scan')
 const dbSources = require('./db-sources')
+const { createSerialStore } = require('../serial-store')
 
 const HOUR_MS = 3600_000
 const DAY_MS = 24 * HOUR_MS
@@ -57,10 +58,7 @@ const STAT_RANGES = Object.freeze({
 /** @type {{ userDataPath: string, homeDir: string }} */
 const paths = { userDataPath: '', homeDir: '' }
 
-/** @type {import('electron-store') | null} */
-let store = null
-/** @type {Promise<import('electron-store')> | null} */
-let storeReady = null
+const { getStore } = createSerialStore('code-usage')
 let syncing = null
 
 /**
@@ -73,17 +71,6 @@ function configure(options = {}) {
 
 function homeDir() {
   return paths.homeDir || os.homedir()
-}
-
-async function getStore() {
-  if (store) return store
-  if (!storeReady) {
-    storeReady = import('electron-store').then((mod) => {
-      if (!store) store = new mod.default({ name: 'code-usage' })
-      return store
-    })
-  }
-  return storeReady
 }
 
 // ===== 桶子 =====

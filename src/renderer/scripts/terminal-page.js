@@ -338,6 +338,7 @@ function onAgent(payload, extra) {
     : extra && typeof extra.id === 'string' ? extra
       : null
   if (!body) return
+  noteFresh(body.id, { agent: body.state ?? null })
   const item = items.find((entry) => entry.id === body.id)
   const prev = item ? viewOf(item) : null
   rememberAgent(body.id, body.state)
@@ -1176,11 +1177,35 @@ function findOpen() {
 
 // ===== 生命週期 =====
 
+/**
+ * 清單是 main 在「送出那一刻」的快照；等它回來的期間推送事件可能已經更新過某幾欄。
+ * 每次 reloadList 掛一個收集器，推送事件改了什麼就記一份，清單回來後疊回去——
+ * 不然剛收到的「做完了」會被舊快照蓋回「運行中」。
+ * @type {Set<Map<string, Record<string, unknown>>>}
+ */
+const freshSinks = new Set()
+
+/**
+ * @param {string} id
+ * @param {Record<string, unknown>} fields
+ */
+function noteFresh(id, fields) {
+  for (const sink of freshSinks) sink.set(id, { ...sink.get(id), ...fields })
+}
+
 async function reloadList() {
+  const fresh = new Map()
+  freshSinks.add(fresh)
+  let next
+  try {
+    next = await call(electronAPI.terminal.list(), '讀取終端機清單失敗')
+  } finally {
+    freshSinks.delete(fresh)
+  }
+  // 「之前」要在清單回來之後才量：等待期間推送事件已經發過的「做完了」不可以再發一次
   const prevView = new Map(items.map((item) => [item.id, viewOf(item)]))
   const prevScreen = new Map(items.map((item) => [item.id, item.screen ?? null]))
-  const next = await call(electronAPI.terminal.list(), '讀取終端機清單失敗')
-  items = Array.isArray(next) ? next : []
+  items = (Array.isArray(next) ? next : []).map((item) => ({ ...item, ...fresh.get(item.id) }))
   for (const item of items) {
     item.screen = panes.has(item.id) ? (prevScreen.get(item.id) ?? null) : null
     if (Object.prototype.hasOwnProperty.call(item, 'agent')) rememberAgent(item.id, item.agent)
@@ -1283,6 +1308,12 @@ function onData(payload) {
  * @param {{ id: string, state: string, exitCode: number | null }} payload
  */
 function onStatus(payload) {
+  noteFresh(payload.id, {
+    state: payload.state,
+    exitCode: payload.exitCode,
+    ...(payload.osTitle ? { osTitle: payload.osTitle, stableTitle: stableTitle(payload.osTitle) } : {}),
+    ...(payload.liveCwd ? { liveCwd: payload.liveCwd } : {})
+  })
   const item = items.find((entry) => entry.id === payload.id)
   // 清單還沒同步到這個階段（例如剛建立）：補讀一次，否則它的狀態永遠不會出現
   if (!item) {
@@ -1322,6 +1353,12 @@ function rememberTitle(item, title) {
 }
 
 function onSession(payload) {
+  if (typeof payload?.id === 'string') {
+    noteFresh(payload.id, {
+      ...(typeof payload.sessionId === 'string' ? { agentSessionId: payload.sessionId } : {}),
+      ...(typeof payload.title === 'string' ? { agentTitle: payload.title.trim() } : {})
+    })
+  }
   const item = items.find((entry) => entry.id === payload?.id)
   if (item && typeof payload.sessionId === 'string') item.agentSessionId = payload.sessionId
   if (item && rememberTitle(item, payload?.title)) {
@@ -1332,6 +1369,9 @@ function onSession(payload) {
 }
 
 function onTitle(payload) {
+  if (typeof payload?.id === 'string' && typeof payload.title === 'string') {
+    noteFresh(payload.id, { agentTitle: payload.title.trim() })
+  }
   const item = items.find((entry) => entry.id === payload?.id)
   if (!rememberTitle(item, payload?.title)) return
   pushTabState(item.id)

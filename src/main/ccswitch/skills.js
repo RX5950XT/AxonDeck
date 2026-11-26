@@ -29,6 +29,7 @@ const os = require('os')
 const path = require('path')
 const toml = require('smol-toml')
 const claudeSettings = require('./claude-settings')
+const { fail } = require('../user-error')
 
 /** SKILL.md 只讀開頭這麼多（frontmatter 一定在最前面） */
 const SKILL_HEAD_BYTES = 64 * 1024
@@ -91,18 +92,6 @@ function assertHome(id) {
     throw error
   }
   return home
-}
-
-/**
- * @param {string} code
- * @param {string} userMessage
- * @returns {Error}
- */
-function fail(code, userMessage) {
-  const error = new Error(code)
-  error.code = code
-  error.userMessage = userMessage
-  return error
 }
 
 /**

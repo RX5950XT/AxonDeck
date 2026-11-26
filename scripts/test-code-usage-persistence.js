@@ -2,20 +2,17 @@
 /**
  * 確認 codeusage.sync 只用一次 electron-store.set 寫完整份狀態。
  *
- * 這裡用假的 store 和空的來源，不碰使用者的 code-usage.json；--baseline
- * 會載入 HEAD 版本，預期故意失敗，證明這條回歸真的抓得到舊行為。
+ * 這裡用假的 store 和空的來源，不碰使用者的 code-usage.json。
  */
 
 'use strict'
 
-const childProcess = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const vm = require('vm')
 
 const ROOT = path.join(__dirname, '..')
 const SOURCE = path.join(ROOT, 'src/main/codeusage/index.js')
-const isBaseline = process.argv.includes('--baseline')
 
 class FakeStore {
   constructor() {
@@ -44,16 +41,7 @@ class FakeStore {
 
 let activeStore = null
 
-function loadSource() {
-  if (!isBaseline) return fs.readFileSync(SOURCE, 'utf8')
-  return childProcess.execFileSync(
-    'git',
-    ['show', 'HEAD:src/main/codeusage/index.js'],
-    { cwd: ROOT, encoding: 'utf8' }
-  )
-}
-
-function makeRequire() {
+function makeRequire(fakeStore) {
   const pricing = {
     RULES_VERSION: 1,
     needsFullRescan: () => false,
@@ -84,14 +72,14 @@ function makeRequire() {
     if (request === './parsers') return parsers
     if (request === './scan') return scan
     if (request === './db-sources') return dbSources
+    if (request === '../serial-store') return { createSerialStore: () => ({ getStore: async () => fakeStore }) }
     throw new Error(`Unexpected require: ${request}`)
   }
 }
 
 async function run() {
-  let code = loadSource()
+  const code = `${fs.readFileSync(SOURCE, 'utf8')}\nmodule.exports.__runSync = runSync\n`
   const fakeStore = new FakeStore()
-  code += '\ngetStore = async () => fakeStore\nmodule.exports.__runSync = runSync\n'
 
   const context = {
     Buffer,
@@ -100,7 +88,7 @@ async function run() {
     fakeStore,
     module: { exports: {} },
     process,
-    require: makeRequire(),
+    require: makeRequire(fakeStore),
     setTimeout,
     clearTimeout
   }
@@ -112,14 +100,14 @@ async function run() {
   const expectedWrites = 1
   const actualWrites = activeStore?.writes.length || 0
   if (actualWrites !== expectedWrites) {
-    console.error(`${isBaseline ? 'BASELINE' : 'CURRENT'} FAIL: expected ${expectedWrites} store write, got ${actualWrites}`)
+    console.error(`FAIL: expected ${expectedWrites} store write, got ${actualWrites}`)
     process.exitCode = 1
     return
   }
-  console.log(`${isBaseline ? 'BASELINE' : 'CURRENT'} PASS: one store write`)
+  console.log(`PASS: one store write`)
 }
 
 run().catch((error) => {
-  console.error(`${isBaseline ? 'BASELINE' : 'CURRENT'} ERROR: ${error.message}`)
+  console.error(`ERROR: ${error.message}`)
   process.exitCode = 1
 })

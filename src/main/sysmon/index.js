@@ -25,6 +25,7 @@ const { createProcessIcons } = require('./process-icons')
 const { processNetworkRate } = require('./process-network')
 const { createDiskTree } = require('./disktree')
 const { resolveProbeExe } = require('../native-probe')
+const { fail: killError } = require('../user-error')
 
 const INTERVAL_KEYS = Object.freeze(Object.keys(INTERVALS))
 const KILL_TIMEOUT_MS = 10_000
@@ -32,13 +33,6 @@ const KILL_TIMEOUT_MS = 10_000
 const ELEVATED_KILL_TIMEOUT_MS = 120_000
 const UAC_CANCELLED = 1223
 const MAX_KILL_PIDS = 256
-
-function killError(code, userMessage) {
-  const err = new Error(code)
-  err.code = code
-  err.userMessage = userMessage
-  return err
-}
 
 /** @param {unknown} input 一個 pid 或 pid 陣列（IPC 邊界，當不可信） @returns {number[]} */
 function validateKillPids(input) {

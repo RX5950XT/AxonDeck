@@ -64,3 +64,10 @@ Linux 版不支援。Windows 版靠 PawnIO／NVAPI 直接寫 SMU 與顯示卡暫
 
 - `node scripts/test-sysmon-sensors-linux.js`：用假的 sysfs 樹（k10temp、nct6798、amdgpu、nvme、acpitz、x86_pkg_temp、RAPL、cpufreq）驗分類、讀數、風扇來源、PWM 接手／歸還／看門狗、唯讀模式、pkexec 指令組裝。
 - 真硬體（實體機的 hwmon、PWM 寫入、pkexec／udev 安裝流程、nvidia-smi）**尚未實測**：開發用的 Linux 測試機是沒有任何 hwmon／thermal 的虛擬機。
+
+
+## 登入時套用風扇設定
+
+啟用風扇控制後，AxonDeck 會在使用者層安裝 `~/.config/systemd/user/axondeck-sensors.service`（沒有 systemd 時改寫 `~/.config/autostart/axondeck-sensors.desktop`），登入時以 `--hidden` 啟動並套用上次的風扇曲線。這一步**不需要 root**。
+
+寫入 PWM 仍須先按一次「授權風扇控制」，用 pkexec 安裝 `/etc/udev/rules.d/90-axondeck-fan.rules`。預覽模式（`--user-data-dir`）不會註冊登入服務。

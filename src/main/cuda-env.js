@@ -1,11 +1,13 @@
 /**
- * AxonDeck - CUDA 執行環境偵測與自動安裝（Windows）
+ * AxonDeck - CUDA 執行環境偵測與自動安裝（Windows／Linux）
  * node-llama-cpp 需要 cudart + cublas + cublasLt（11/12/13）。
+ * Linux：偵測 nvidia-smi／nvcc／libcudart；安裝走發行版套件（pkexec）或官方 runfile（使用者目錄）。
  */
 
 const { app } = require('electron')
 const { execFile, spawn } = require('child_process')
 const { promisify } = require('util')
+const os = require('os')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs/promises')
@@ -111,6 +113,7 @@ function findFirstFile(names, dirs) {
  * @returns {{ hasNvidiaDriver: boolean, hasCudaRuntime: boolean, details: object }}
  */
 function detectCudaRuntime() {
+  if (process.platform === 'linux') return detectLinuxCudaRuntime()
   const windir = process.env.windir || 'C:\\Windows'
   const hasNvidiaDriver =
     fs.existsSync(path.join(windir, 'System32', 'nvml.dll')) ||
@@ -138,6 +141,7 @@ function detectCudaRuntime() {
  * @returns {boolean}
  */
 function detectVulkan() {
+  if (process.platform === 'linux') return detectLinuxVulkan()
   const windir = process.env.windir || 'C:\\Windows'
   return (
     fs.existsSync(path.join(windir, 'System32', 'vulkan-1.dll')) ||
@@ -237,9 +241,10 @@ exit $p.ExitCode
  * @param {(p: { phase: string, message: string, percent?: number }) => void} [onProgress]
  * @returns {Promise<{ ok: boolean, message: string, needsRestart?: boolean }>}
  */
-async function installCudaEnv(onProgress = () => {}) {
+async function installCudaEnv(onProgress = () => {}, deps = {}) {
+  if (process.platform === 'linux') return installLinuxCudaEnv(onProgress, deps)
   if (process.platform !== 'win32') {
-    return { ok: false, message: '僅支援 Windows' }
+    return { ok: false, message: '目前僅支援 Windows 與 Linux' }
   }
   if (installing) {
     return { ok: false, message: '安裝進行中，請稍候' }
@@ -345,9 +350,384 @@ async function installCudaEnv(onProgress = () => {}) {
   }
 }
 
+
+/** 與 Windows 安裝包版本對齊的官方 Linux runfile（落到使用者目錄，不必 root） */
+const LINUX_CUDA_INSTALLER = {
+  version: '13.3.1',
+  url: 'https://developer.download.nvidia.com/compute/cuda/13.3.1/local_installers/cuda_13.3.1_linux.run',
+  fileName: 'cuda_13.3.1_linux.run'
+}
+
+const LINUX_CUDART = ['libcudart.so.13', 'libcudart.so.12', 'libcudart.so.11', 'libcudart.so']
+const LINUX_CUBLAS = ['libcublas.so.13', 'libcublas.so.12', 'libcublas.so.11', 'libcublas.so']
+const LINUX_CUBLASLT = ['libcublasLt.so.13', 'libcublasLt.so.12', 'libcublasLt.so.11', 'libcublasLt.so']
+const LINUX_DRIVER_LIBS = ['libcuda.so.1', 'libcuda.so', 'libnvidia-ml.so.1', 'libnvidia-ml.so']
+const LINUX_VULKAN = ['libvulkan.so.1', 'libvulkan.so']
+
+/** @type {Record<string, { bin: string, args: string[], package: string }>} */
+const LINUX_CUDA_PACKAGES = {
+  apt: { bin: 'apt-get', args: ['install', '-y', '--', 'nvidia-cuda-toolkit'], package: 'nvidia-cuda-toolkit' },
+  dnf: { bin: 'dnf', args: ['install', '-y', '--', 'cuda'], package: 'cuda' },
+  yum: { bin: 'yum', args: ['install', '-y', '--', 'cuda'], package: 'cuda' },
+  pacman: { bin: 'pacman', args: ['-S', '--noconfirm', '--needed', '--', 'cuda'], package: 'cuda' },
+  zypper: { bin: 'zypper', args: ['--non-interactive', 'install', '--', 'cuda'], package: 'cuda' }
+}
+
+/**
+ * @param {string} name
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ exists?: (p: string) => boolean }} [deps]
+ * @returns {string}
+ */
+function whichLinux(name, env = process.env, deps = {}) {
+  const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
+  if (path.isAbsolute(name) && exists(name)) return name
+  for (const dir of String(env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    const candidate = path.join(dir, name)
+    if (exists(candidate)) return candidate
+  }
+  return ''
+}
+
+/**
+ * @param {{ env?: NodeJS.ProcessEnv, exists?: (p: string) => boolean, homedir?: string, toolkitPath?: string }} [deps]
+ * @returns {string[]}
+ */
+function linuxLibraryDirs(deps = {}) {
+  const env = deps.env || process.env
+  const home = deps.homedir || env.HOME || os.homedir()
+  const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
+  const roots = [
+    env.CUDA_PATH,
+    env.CUDA_HOME,
+    deps.toolkitPath,
+    path.join(home, '.local', 'cuda'),
+    path.join(home, '.local', 'share', 'axondeck', 'cuda'),
+    '/usr/local/cuda',
+    '/opt/cuda'
+  ].filter(Boolean)
+  try {
+    const local = '/usr/local'
+    if (exists(local)) {
+      for (const name of fs.readdirSync(local)) {
+        if (/^cuda-/.test(name)) roots.push(path.join(local, name))
+      }
+    }
+  } catch { /* ignore */ }
+  const dirs = []
+  for (const root of roots) {
+    dirs.push(root, path.join(root, 'lib64'), path.join(root, 'lib'), path.join(root, 'lib', 'x86_64-linux-gnu'))
+  }
+  dirs.push(
+    '/usr/lib64',
+    '/usr/lib',
+    '/usr/lib/x86_64-linux-gnu',
+    '/usr/lib/aarch64-linux-gnu',
+    '/usr/local/lib',
+    '/usr/local/lib64'
+  )
+  const pathDirs = String(env.PATH || '').split(path.delimiter).filter((dir) => dir && !/^\/\//.test(dir))
+  return [...new Set([...dirs, ...pathDirs])]
+}
+
+/**
+ * @param {string[]} names
+ * @param {string[]} dirs
+ * @param {{ exists?: (p: string) => boolean }} [deps]
+ * @returns {string | null}
+ */
+function findLinuxLibrary(names, dirs, deps = {}) {
+  const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
+  for (const dir of dirs) {
+    for (const name of names) {
+      const p = path.join(dir, name)
+      if (exists(p)) return p
+    }
+  }
+  return null
+}
+
+/**
+ * @param {{ env?: NodeJS.ProcessEnv, exists?: (p: string) => boolean, homedir?: string, toolkitPath?: string }} [deps]
+ * @returns {{ hasNvidiaDriver: boolean, hasCudaRuntime: boolean, details: object }}
+ */
+function detectLinuxCudaRuntime(deps = {}) {
+  const env = deps.env || process.env
+  const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
+  const dirs = linuxLibraryDirs(deps)
+  const nvidiaSmi = whichLinux('nvidia-smi', env, deps) || (exists('/usr/bin/nvidia-smi') ? '/usr/bin/nvidia-smi' : '')
+  const nvcc = whichLinux('nvcc', env, deps)
+    || ['CUDA_PATH', 'CUDA_HOME'].map((key) => env[key] && path.join(env[key], 'bin', 'nvcc')).find((p) => p && exists(p))
+    || (exists('/usr/local/cuda/bin/nvcc') ? '/usr/local/cuda/bin/nvcc' : '')
+    || ''
+  const driverLib = findLinuxLibrary(LINUX_DRIVER_LIBS, dirs, deps)
+  const hasNvidiaDriver = Boolean(nvidiaSmi || driverLib)
+  const cudart = findLinuxLibrary(LINUX_CUDART, dirs, deps)
+  const cublas = findLinuxLibrary(LINUX_CUBLAS, dirs, deps)
+  const cublasLt = findLinuxLibrary(LINUX_CUBLASLT, dirs, deps)
+  const hasCudaRuntime = !!(cudart && cublas && cublasLt)
+  return {
+    hasNvidiaDriver,
+    hasCudaRuntime,
+    details: {
+      nvidiaSmi: nvidiaSmi || null,
+      nvcc: nvcc || null,
+      cudart,
+      cublas,
+      cublasLt,
+      driverLib,
+      cudaPath: env.CUDA_PATH || env.CUDA_HOME || (nvcc ? path.dirname(path.dirname(nvcc)) : null)
+    }
+  }
+}
+
+/**
+ * @param {{ env?: NodeJS.ProcessEnv, exists?: (p: string) => boolean, homedir?: string }} [deps]
+ * @returns {boolean}
+ */
+function detectLinuxVulkan(deps = {}) {
+  return Boolean(findLinuxLibrary(LINUX_VULKAN, linuxLibraryDirs(deps), deps)
+    || whichLinux('vulkaninfo', deps.env || process.env, deps))
+}
+
+/**
+ * @param {{ hasCommand?: (name: string) => boolean }} [deps]
+ * @returns {string}
+ */
+function detectLinuxPackageManager(deps = {}) {
+  const has = deps.hasCommand || ((name) => Boolean(whichLinux(name, deps.env || process.env, deps)))
+  if (has('apt-get') || has('apt')) return 'apt'
+  if (has('dnf')) return 'dnf'
+  if (has('zypper')) return 'zypper'
+  if (has('pacman')) return 'pacman'
+  if (has('yum')) return 'yum'
+  return ''
+}
+
+/**
+ * @param {string} file
+ * @param {string[]} args
+ * @param {{ spawnFn?: typeof spawn, env?: NodeJS.ProcessEnv }} [deps]
+ * @returns {Promise<number>}
+ */
+function runLinuxElevated(file, args, deps = {}) {
+  const spawnFn = deps.spawnFn || spawn
+  const env = { ...(deps.env || process.env) }
+  if (path.basename(file) === 'apt-get' || path.basename(file) === 'apt') env.DEBIAN_FRONTEND = 'noninteractive'
+  return new Promise((resolve, reject) => {
+    const child = spawnFn('pkexec', ['env', `DEBIAN_FRONTEND=${env.DEBIAN_FRONTEND || ''}`, file, ...args], {
+      env,
+      stdio: ['ignore', 'ignore', 'pipe']
+    })
+    let stderr = ''
+    child.stderr?.on('data', (d) => { stderr += d.toString() })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === null) reject(new Error(stderr || 'pkexec 失敗'))
+      else resolve(code)
+    })
+  })
+}
+
+/**
+ * @param {{ userData?: string, installerCachePath?: string }} [deps]
+ * @returns {string}
+ */
+function linuxInstallerCachePath(deps = {}) {
+  if (deps.installerCachePath) return deps.installerCachePath
+  let root = deps.userData || ''
+  if (!root) {
+    try { root = app.getPath('userData') } catch { root = path.join(os.homedir(), '.config', 'AxonDeck') }
+  }
+  return path.join(root, 'cache', 'cuda-installer', LINUX_CUDA_INSTALLER.fileName)
+}
+
+/**
+ * @param {{ env?: NodeJS.ProcessEnv, homedir?: string, toolkitPath?: string }} [deps]
+ * @returns {string}
+ */
+function linuxToolkitPath(deps = {}) {
+  if (deps.toolkitPath) return deps.toolkitPath
+  const home = deps.homedir || (deps.env || process.env).HOME || os.homedir()
+  return path.join(home, '.local', 'cuda')
+}
+
+/**
+ * @param {(p: { phase: string, message: string, percent?: number }) => void} onProgress
+ * @param {object} [deps]
+ */
+async function downloadLinuxInstaller(onProgress, deps = {}) {
+  const dest = linuxInstallerCachePath(deps)
+  const download = deps.downloadFile || downloadFile
+  const mkdir = deps.mkdir || ((dir) => fsp.mkdir(dir, { recursive: true }))
+  const exists = deps.exists || ((p) => { try { return fs.existsSync(p) } catch { return false } })
+  const stat = deps.stat || ((p) => fsp.stat(p))
+  await mkdir(path.dirname(dest))
+  if (exists(dest)) {
+    try {
+      const st = await stat(dest)
+      if (st.size > 100 * 1024 * 1024) {
+        onProgress({ phase: 'download', message: '已有本機安裝包，略過下載', percent: 100 })
+        return dest
+      }
+    } catch { /* 重新下載 */ }
+  }
+  onProgress({ phase: 'download', message: '正在下載 CUDA Toolkit 官方 runfile…', percent: 0 })
+  let lastEmit = 0
+  await download({
+    url: LINUX_CUDA_INSTALLER.url,
+    dest,
+    onProgress: ({ received, total }) => {
+      const now = Date.now()
+      if (now - lastEmit > 400) {
+        lastEmit = now
+        const percent = total > 0 ? Math.min(99, Math.round((received / total) * 100)) : undefined
+        onProgress({
+          phase: 'download',
+          message: total
+            ? `下載中 ${Math.round(received / 1048576)} / ${Math.round(total / 1048576)} MB`
+            : `下載中 ${Math.round(received / 1048576)} MB`,
+          percent
+        })
+      }
+    }
+  })
+  onProgress({ phase: 'download', message: '下載完成', percent: 100 })
+  return dest
+}
+
+/**
+ * Linux：發行版套件（pkexec）優先，否則官方 runfile 裝到使用者目錄。
+ * @param {(p: { phase: string, message: string, percent?: number }) => void} [onProgress]
+ * @param {object} [deps]
+ * @returns {Promise<{ ok: boolean, message: string, needsRestart?: boolean, method?: string }>}
+ */
+async function installLinuxCudaEnv(onProgress = () => {}, deps = {}) {
+  if (installing) return { ok: false, message: '安裝進行中，請稍候' }
+  const detect = () => (deps.detect || detectLinuxCudaRuntime)(deps)
+  const before = detect()
+  if (before.hasCudaRuntime) {
+    return { ok: true, message: 'CUDA Runtime 已就緒，無需安裝', method: 'already' }
+  }
+  if (!before.hasNvidiaDriver && deps.requireDriver !== false) {
+    return { ok: false, message: '未偵測到 NVIDIA 驅動（nvidia-smi 或 libcuda），請先安裝顯示卡驅動' }
+  }
+
+  installing = true
+  try {
+    const manager = (deps.packageManager || detectLinuxPackageManager)(deps)
+    const spec = manager && LINUX_CUDA_PACKAGES[manager]
+    const pkexec = deps.pkexecPath || whichLinux('pkexec', deps.env || process.env, deps)
+    const runElevated = deps.runElevated || runLinuxElevated
+
+    if (spec && (deps.runElevated || pkexec)) {
+      onProgress({
+        phase: 'install',
+        message: `正在以 ${manager} 安裝 ${spec.package}（需系統授權）…`,
+        percent: 10
+      })
+      try {
+        const code = await runElevated(spec.bin, spec.args, deps)
+        onProgress({ phase: 'install', message: `${manager} 結束（code ${code}）`, percent: 90 })
+        const after = detect()
+        if (after.hasCudaRuntime) {
+          onProgress({ phase: 'done', message: 'CUDA Runtime 安裝成功', percent: 100 })
+          return {
+            ok: true,
+            message: `已用 ${manager} 安裝 ${spec.package}。請重新啟動 AxonDeck 後再啟用 GPU。`,
+            needsRestart: true,
+            method: manager
+          }
+        }
+        if (code !== 0) {
+          onProgress({
+            phase: 'install',
+            message: `${manager} 未成功（${code}），改用官方 runfile 裝到使用者目錄…`,
+            percent: 20
+          })
+        } else {
+          onProgress({
+            phase: 'install',
+            message: `${manager} 已執行，但尚未偵測到 Runtime，改試官方 runfile…`,
+            percent: 20
+          })
+        }
+      } catch (e) {
+        onProgress({
+          phase: 'install',
+          message: `${manager} 失敗：${e.message || e}，改用官方 runfile 裝到使用者目錄…`,
+          percent: 20
+        })
+      }
+    } else if (spec && !pkexec) {
+      onProgress({
+        phase: 'install',
+        message: '系統沒有 pkexec，改用官方 runfile 裝到使用者目錄…',
+        percent: 20
+      })
+    } else {
+      onProgress({
+        phase: 'install',
+        message: '沒有可用的發行版套件管理器，改用官方 runfile 裝到使用者目錄…',
+        percent: 20
+      })
+    }
+
+    const installer = await downloadLinuxInstaller(onProgress, deps)
+    const dest = linuxToolkitPath(deps)
+    onProgress({
+      phase: 'install',
+      message: `正在把 CUDA Toolkit 裝到 ${dest}…`,
+      percent: 50
+    })
+    const runFile = deps.runFile || ((file, args) => new Promise((resolve, reject) => {
+      const child = (deps.spawnFn || spawn)('sh', [file, ...args], { stdio: ['ignore', 'ignore', 'pipe'] })
+      let stderr = ''
+      child.stderr?.on('data', (d) => { stderr += d.toString() })
+      child.on('error', reject)
+      child.on('close', (code) => {
+        if (code === null) reject(new Error(stderr || 'runfile 失敗'))
+        else resolve(code)
+      })
+    }))
+    const code = await runFile(installer, ['--silent', '--toolkit', '--no-opengl-libs', '--no-man-page', `--installpath=${dest}`])
+    if (code !== 0) {
+      return {
+        ok: false,
+        message: `CUDA runfile 結束代碼 ${code}。可手動安裝：${LINUX_CUDA_INSTALLER.url}`,
+        method: 'runfile'
+      }
+    }
+    const after = detect()
+    if (after.hasCudaRuntime || deps.assumeRunfileSuccess) {
+      onProgress({ phase: 'done', message: 'CUDA Runtime 安裝成功', percent: 100 })
+      return {
+        ok: true,
+        message: `CUDA Toolkit 已安裝到 ${dest}。請重新啟動 AxonDeck 後啟用 GPU。`,
+        needsRestart: true,
+        method: 'runfile'
+      }
+    }
+    return {
+      ok: false,
+      message: `安裝程式已執行，但仍偵測不到 cudart／nvcc。若工具組在 ${dest}，請先重新啟動 AxonDeck。`,
+      needsRestart: true,
+      method: 'runfile'
+    }
+  } finally {
+    installing = false
+  }
+}
+
 module.exports = {
   CUDA_INSTALLER,
+  LINUX_CUDA_INSTALLER,
+  LINUX_CUDA_PACKAGES,
   detectCudaRuntime,
   detectVulkan,
-  installCudaEnv
+  detectLinuxCudaRuntime,
+  detectLinuxVulkan,
+  detectLinuxPackageManager,
+  installCudaEnv,
+  installLinuxCudaEnv
 }

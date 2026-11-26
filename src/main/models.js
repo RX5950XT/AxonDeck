@@ -20,6 +20,7 @@ const LLAMA_BUILD = 'b11913'
  * Unlimited-OCR-2 要 patch 過的 llama.cpp（主線不認 `unlimited-ocr2` 架構）。patch 只動到推論的 llama.dll／mtmd.dll
  * （C API 不變、ggml 沒動），所以兩個官方包（Vulkan／CUDA）都疊同一個小包上去，不必自己編整套後端。
  * 記號檔讓舊版（沒疊包）的執行環境判定成未安裝，進 Local SI 會自動重裝。
+ * 這個 overlay 只有 Windows x64；Linux CUDA／Vulkan 用官方包，不疊。
  */
 const OCR_OVERLAY = `llama-${LLAMA_BUILD}-unlimited-ocr2-win-x64.zip`
 const OCR_OVERLAY_MARK = 'axondeck-unlimited-ocr2.txt'
@@ -30,6 +31,8 @@ const ocrOverlay = {
   fileBytes: { [OCR_OVERLAY]: OCR_OVERLAY_BYTES },
   sha256: { [OCR_OVERLAY]: '931f4842d9c261d0aa57ce6469f4f8297da4f9a7eb02852464478d8754a1d06d' }
 }
+/** Linux CUDA 跟 Windows 同一版官方預建：ubuntu-cuda-13.4（不含 OCR overlay） */
+const LLAMA_BUILD_LINUX_CUDA = LLAMA_BUILD
 const BREEZE_BUILD = 'v0.1.0'
 /**
  * Breeze-TTS-2 官方預建：Windows x64 zip、Linux x64 tar.gz（glibc ≥ 2.35，需 libvulkan1；沒 GPU 會退 CPU）。
@@ -121,10 +124,12 @@ function llamaVulkanRuntime() {
     const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
     return {
       labelSuffix: 'Vulkan',
-      totalBytes: 33_000_000,
+      totalBytes: arch === 'arm64' ? 28615095 : 35246366,
       files: [`llama-${LLAMA_BUILD}-bin-ubuntu-vulkan-${arch}.tar.gz`],
       check: ['llama-server'],
-      binary: 'llama-server'
+      binary: 'llama-server',
+      // 官方 tar.gz 外面包一層 `llama-bXXXX/`；不剝掉 llama-server 會落在子資料夾、判定成「缺少必要檔案」
+      stripComponents: 1
     }
   }
   // darwin
@@ -139,7 +144,7 @@ function llamaVulkanRuntime() {
 }
 
 function llamaCudaRuntime() {
-  // CUDA 官方預建目前以 Windows zip 為主；Linux 產物由 linux/local-si-cuda 補。
+  if (HOST.platform === 'linux') return llamaCudaRuntimeLinux()
   if (HOST.platform !== 'win32') return null
   return {
     label: `llama.cpp 執行環境 · CUDA 13.4（${LLAMA_BUILD}）`,
@@ -155,6 +160,31 @@ function llamaCudaRuntime() {
     archive: true,
     check: ['llama-server.exe', 'ggml-cuda.dll', OCR_OVERLAY_MARK],
     binary: 'llama-server.exe'
+  }
+}
+
+/**
+ * Linux CUDA：llama 那包＋cudart 那包（libcudart／libcublas／libcublasLt）解到同一層。
+ * `llama-server` 與 `libggml-cuda.so` 的 RUNPATH 是 `$ORIGIN`，不用設 LD_LIBRARY_PATH；
+ * `libcuda.so.1` 來自 NVIDIA 驅動（≥ 580，CUDA 13.x）。沒有驅動時 CUDA 後端載不起來，llama 退回 CPU。
+ */
+function llamaCudaRuntimeLinux() {
+  const arch = HOST.arch === 'arm64' ? 'arm64' : 'x64'
+  // 官方 b11913 ubuntu-cuda-13.4 產物大小（2026-11 GitHub Release）
+  const sizes = arch === 'arm64' ? 158785315 + 552521398 : 163653160 + 440236538
+  return {
+    label: `llama.cpp 執行環境 · CUDA 13.4（${LLAMA_BUILD_LINUX_CUDA}）`,
+    kind: 'runtime',
+    totalBytes: sizes,
+    base: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD_LINUX_CUDA}/`,
+    files: [
+      `llama-${LLAMA_BUILD_LINUX_CUDA}-bin-ubuntu-cuda-13.4-${arch}.tar.gz`,
+      `cudart-llama-${LLAMA_BUILD_LINUX_CUDA}-bin-ubuntu-cuda-13.4-${arch}.tar.gz`
+    ],
+    archive: true,
+    stripComponents: 1,
+    check: ['llama-server', 'libggml-cuda.so', 'libcudart.so.13'],
+    binary: 'llama-server'
   }
 }
 
@@ -295,7 +325,8 @@ const MODELS = {
     ...(_llamaVulkan.overlay || {}),
     archive: true,
     check: _llamaVulkan.check,
-    binary: _llamaVulkan.binary
+    binary: _llamaVulkan.binary,
+    ...(_llamaVulkan.stripComponents ? { stripComponents: _llamaVulkan.stripComponents } : {})
   },
   // Miroxen 只有 Windows 版（miroxen-win-x64.zip＋cuBLAS DLL），其他平台不列引擎也不列生成模型
   ...(HOST.platform === 'win32' ? {
@@ -537,7 +568,7 @@ function psQuote(s) {
  * @param {string} destDir
  * @returns {Promise<void>}
  */
-function expandArchive(archivePath, destDir) {
+function expandArchive(archivePath, destDir, options = {}) {
   return new Promise((resolve, reject) => {
     const lower = String(archivePath).toLowerCase()
     /** @type {string} */
@@ -557,6 +588,8 @@ function expandArchive(archivePath, destDir) {
     } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
       file = 'tar'
       args = ['-xzf', archivePath, '-C', destDir]
+      const strip = Number(options.stripComponents) || 0
+      if (strip > 0) args.push(`--strip-components=${strip}`)
     } else if (lower.endsWith('.zip')) {
       file = 'unzip'
       args = ['-o', archivePath, '-d', destDir]
@@ -661,7 +694,7 @@ async function download(key, onProgress) {
       onProgress({ key, receivedBytes: def.totalBytes, totalBytes: def.totalBytes, stage: '解壓中…' })
       for (const file of def.files) {
         const zipPath = path.join(modelDir(key), file)
-        await expandArchive(zipPath, modelDir(key))
+        await expandArchive(zipPath, modelDir(key), { stripComponents: def.stripComponents })
         await fsp.rm(zipPath, { force: true })
       }
       if (!isDownloaded(key)) throw new Error('解壓完成但缺少必要檔案')
@@ -768,6 +801,9 @@ module.exports = {
   LLM_MODEL_KEYS,
   ASR_MODEL_KEYS,
   OCR_MODEL_KEYS,
+  LLAMA_BUILD,
+  LLAMA_BUILD_LINUX_CUDA,
+  expandArchive,
   MIROXEN_MODEL_KEYS,
   isLlmKey,
   isAsrKey,

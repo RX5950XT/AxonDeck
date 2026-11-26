@@ -17,6 +17,7 @@ const { createGpuFeed } = require('./gpu')
 const { runDiskBench, cancelDiskBench, clampSizeMb } = require('./bench')
 const { createSensorBridge, PAWNIO_URL } = require('./sensors')
 const { createLinuxSensorBridge } = require('./sensors-linux')
+const linuxLogin = require('./linux-login')
 const { createStressRunner } = require('./stress')
 const { createFanEngine } = require('./fans')
 const { createOcEngine } = require('./oc')
@@ -215,10 +216,24 @@ function createSysmonService(deps = {}) {
     return snap && typeof snap.then === 'function' ? snap.then(withOcFeed) : withOcFeed(snap)
   }
 
+  async function ensureLoginUnit() {
+    try {
+      if (process.platform !== 'linux') return
+      await linuxLogin.install({
+        env: process.env,
+        argv: process.argv,
+        execPath: process.execPath
+      })
+    } catch { /* 登入單元失敗不擋風扇接管 */ }
+  }
+
   /** 靜默把感測器拉起來（見門面的 ensureSensors） */
   async function ensureSensors() {
     const result = await sensors.enable({ elevate: false })
-    if (fans.isEnabled() && result.state === 'on') await fans.setEnabled(true)
+    if (fans.isEnabled() && result.state === 'on') {
+      await fans.setEnabled(true)
+      await ensureLoginUnit()
+    }
     return result
   }
 
@@ -246,7 +261,10 @@ function createSysmonService(deps = {}) {
           sampler.idle()
         }
         if (typeof oc.ensureApplied === 'function') {
-          oc.ensureApplied().catch(() => undefined)
+          oc.ensureApplied().then((res) => {
+            if (res && res.applied) return ensureLoginUnit()
+            return undefined
+          }).catch(() => undefined)
         }
         return { running: true, intervalKey }
       }
@@ -428,12 +446,12 @@ function createSysmonService(deps = {}) {
      * 所以風扇接管要在這裡接回去。
      */
     ensureSensors,
-
     async ensureFanControl() {
       if (!fans.isEnabled()) return { enabled: false, started: false }
       const result = await sensors.enable({ elevate: false })
       if (result.state !== 'on') return { enabled: true, started: false, state: result.state }
       await fans.setEnabled(true)
+      await ensureLoginUnit()
       return { enabled: true, started: true }
     },
 
@@ -442,9 +460,20 @@ function createSysmonService(deps = {}) {
     fanEnable(on) {
       if (on === true && sensors.status().state !== 'on') {
         // 感測器沒起來就沒有通道可控；先把它拉起來（會走一次 UAC 或排程工作）
-        return sensors.enable({ elevate: true }).then(() => fans.setEnabled(true))
+        return sensors.enable({ elevate: true }).then(async () => {
+          const res = await fans.setEnabled(true)
+          await ensureLoginUnit()
+          return res
+        })
       }
-      return fans.setEnabled(on === true)
+      const res = fans.setEnabled(on === true)
+      if (on === true) {
+        return Promise.resolve(res).then(async (value) => {
+          await ensureLoginUnit()
+          return value
+        })
+      }
+      return res
     },
     /** @param {unknown} id @param {any} patch */
     fanSetChannel: (id, patch) => fans.setChannel(id, patch),
@@ -458,7 +487,10 @@ function createSysmonService(deps = {}) {
     ocStatus: () => ocFeed(oc.status()),
     ocSetDraft: (patch) => ocFeed(oc.setDraft(patch)),
     /** @param {{ confirmed?: boolean }} [opts] 只有 Linux 看 confirmed（有風險的變更二次確認） */
-    ocApply: (opts) => ocFeed(useLinuxSensors ? oc.apply({ confirmed: opts?.confirmed === true }) : oc.apply()),
+    ocApply: (opts) => ocFeed(useLinuxSensors ? oc.apply({ confirmed: opts?.confirmed === true }) : oc.apply()).then((st) => {
+      if (st && st.applied) ensureLoginUnit()
+      return st
+    }),
     ocReset: () => ocFeed(oc.reset()),
     /** Linux：一次性 pkexec 授權（安裝 udev 規則）；Windows 沒有這一步 */
     async ocAuthorize() {

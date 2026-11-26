@@ -112,3 +112,9 @@ NVIDIA 沒有 sysfs 介面，每次套用／還原各跳一次 pkexec 密碼視�
 - `node scripts/test-sysmon-oc-linux.js`：假的 sysfs 樹（4 個 cpufreq policy、RAPL、RDNA2 amdgpu＋模擬 `pp_od_clk_voltage` 規則的假核心）、假的 `nvidia-smi`、假 pkexec（照真的 argv 跑 NVIDIA 腳本）：邊界、確認、套用、還原、過熱、當掉重開、OverDrive 沒開、權限不足。
 - `node scripts/test-sysmon-sensors-linux.js`：用假的 sysfs 樹（k10temp、nct6798、amdgpu、nvme、acpitz、x86_pkg_temp、RAPL、cpufreq）驗分類、讀數、風扇來源、PWM 接手／歸還／看門狗、唯讀模式、pkexec 指令組裝。
 - 真硬體（實體機的 hwmon、PWM 寫入、效能調整的 cpufreq／RAPL／amdgpu OverDrive／nvidia-smi 寫入、pkexec／udev 安裝流程）**尚未實測**：開發用的 Linux 測試機是沒有任何 hwmon／thermal／cpufreq／GPU 的虛擬機。
+
+## 登入時套用風扇與效能設定
+
+啟用風扇控制或套用效能調整後，AxonDeck 會在使用者層安裝 `~/.config/systemd/user/axondeck-sensors.service`（沒有 systemd 時改寫 `~/.config/autostart/axondeck-sensors.desktop`），登入時以 `--hidden` 啟動並套用上次的風扇曲線與效能設定。這一步**不需要 root**。
+
+寫入 PWM 或 sysfs 仍須先按一次授權，用 pkexec 安裝 udev 規則。預覽模式（`--user-data-dir`）不會註冊登入服務。

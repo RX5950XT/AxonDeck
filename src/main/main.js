@@ -1692,6 +1692,7 @@ const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 function migrateLoginItemName() {
   // 帶 --user-data-dir 的是預覽／沙箱／e2e：getLoginItemSettings 比對的是自己的 exe 路徑，
   // 會判成「沒開」而把使用者的開機啟動改寫成 dist 裡的預覽版（實際發生過）
+  if (process.platform !== 'win32') return
   if (isDev || userDataDir) return
   try {
     if (app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin) return
@@ -1709,15 +1710,25 @@ function migrateLoginItemName() {
   }
 }
 
+function linuxStartup() {
+  return require('./linux-autostart')
+}
+
 ipcMain.handle('system:getStartup', (event) => {
   if (!assertMainWindowSender(event)) return { openAtLogin: false, supported: false }
   if (isDev || userDataDir) return { openAtLogin: false, supported: false }
+  if (process.platform === 'linux') {
+    return { openAtLogin: linuxStartup().isEnabled(), supported: true }
+  }
   return { openAtLogin: app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin === true, supported: true }
 })
 
 ipcMain.handle('system:setStartup', (event, enabled) => {
   if (!assertMainWindowSender(event)) return { openAtLogin: false, supported: false }
   if (isDev || userDataDir) return { openAtLogin: false, supported: false }
+  if (process.platform === 'linux') {
+    return linuxStartup().setEnabled(enabled === true, { args: [HIDDEN_FLAG] })
+  }
   app.setLoginItemSettings({ ...LOGIN_ITEM_OPTIONS, openAtLogin: enabled === true })
   return { openAtLogin: app.getLoginItemSettings(LOGIN_ITEM_OPTIONS).openAtLogin === true, supported: true }
 })

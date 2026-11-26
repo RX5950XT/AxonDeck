@@ -54,8 +54,19 @@ function runAssociation(exe, args) {
   })
 }
 
-/** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。Linux 無原生媒體 sidecar。 */
+/** 已安裝版才在背景補一次使用者關聯；開發／預覽版不碰登錄檔。Linux 寫 .desktop／mimeapps。 */
 async function initializeAssociations(options = {}) {
+  if (process.platform === 'linux') {
+    const linux = require('./linux-associations')
+    const result = linux.install({
+      isPackaged: options.isPackaged,
+      isPreview: options.isPreview,
+      userDataPath: options.userDataPath,
+      icon: options.icon,
+      env: process.env
+    })
+    return result.installed === true || result.reason === 'already'
+  }
   if (process.platform !== 'win32') return false
   const { isPackaged, isPreview, resourcesPath, userDataPath } = options
   if (!isPackaged || isPreview || !resourcesPath || !userDataPath) return false

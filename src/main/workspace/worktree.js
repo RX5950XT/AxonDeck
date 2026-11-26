@@ -289,7 +289,7 @@ async function unpushedCount(tree) {
 async function setSetupScript(projectId, raw) {
   const root = await rootOf(projectId)
   const rel = raw === '' ? '' : store.normalizeSetupScript(raw)
-  if (raw !== '' && !rel) throw fail('BAD_SCRIPT', '初始化腳本只接受專案內的 .ps1、.cmd 或 .bat 檔案')
+  if (raw !== '' && !rel) throw fail('BAD_SCRIPT', require('../platform').isWindows ? '初始化腳本只接受專案內的 .ps1、.cmd 或 .bat 檔案' : '初始化腳本只接受專案內的 .sh 或 .desktop 檔案')
   if (rel) {
     const full = files.resolveIn(root, rel)
     const stat = await require('../raw-fs').promises.stat(full).catch(() => null)

@@ -152,22 +152,35 @@ function shellAssign(key, value, platform = process.platform) {
  * Linux：終端機是 bash／zsh，只跑 .sh；.bat／.cmd／.ps1 是 Windows 腳本，直接回中文錯誤。
  * 腳本開出來的 dev server 網址一樣由 `watchServer` 從終端機輸出抓。
  */
+function desktopLaunchCommand(file) {
+  const quoted = shQuote(file)
+  return [
+    `if command -v gio >/dev/null 2>&1; then gio launch ${quoted}`,
+    `elif command -v gtk-launch >/dev/null 2>&1; then gtk-launch ${quoted}`,
+    `elif command -v dex >/dev/null 2>&1; then dex ${quoted}`,
+    `else xdg-open ${quoted}; fi`
+  ].join('; ')
+}
+
 async function posixTerminalCommand(file, project, run) {
-  if (!/\.sh$/i.test(file)) {
-    throw Object.assign(new Error('UNSUPPORTED_SCRIPT'), { userMessage: 'Linux 只能在終端機執行 .sh 腳本；.bat／.cmd／.ps1 是 Windows 腳本' })
+  if (!/\.(sh|desktop)$/i.test(file)) {
+    throw Object.assign(new Error('UNSUPPORTED_SCRIPT'), { userMessage: 'Linux 只能在終端機執行 .sh 腳本或啟動 .desktop；.bat／.cmd／.ps1 是 Windows 腳本' })
   }
   const { target, env } = await prepareLaunch(file, project, run)
+  const runLine = /\.desktop$/i.test(file)
+    ? desktopLaunchCommand(target)
+    : `cd ${shQuote(path.dirname(file))} && bash ${shQuote(target)}`
   const source = [
     ...Object.entries(env).map(([key, value]) => shellAssign(key, value, 'linux')),
     'unset ELECTRON_RUN_AS_NODE',
-    `cd ${shQuote(path.dirname(file))} && bash ${shQuote(target)}`
+    runLine
   ].join('; ')
   watchServer(run, project)
   return source
 }
 
 async function terminalCommand(file, project, run) {
-  if (!/\.(bat|cmd|ps1|sh)$/i.test(file) || /[\r\n]/.test(file)) throw new Error('不支援的啟動腳本')
+  if (!/\.(bat|cmd|ps1|sh|desktop)$/i.test(file) || /[\r\n]/.test(file)) throw new Error('不支援的啟動腳本')
   if (process.platform !== 'win32') return posixTerminalCommand(file, project, run)
   const { target, env, exeArgs } = await prepareLaunch(file, project, run)
   const open = `& ${[process.execPath, ...exeArgs, START_FLAG, ''].map(psQuote).join(' ')} $FilePath`
@@ -270,6 +283,20 @@ function pruneTemp() {
  * @param {string} file 絕對路徑
  */
 async function launchScript(file) {
+  if (process.platform === 'linux' && /\.(sh|desktop)$/i.test(file)) {
+    const project = projectIdOf(await require('./workspace/store').list(), file)
+    if (!/\.desktop$/i.test(file) && !project) return false
+    const { target, env: scriptEnv } = await prepareLaunch(file, project, '')
+    const env = { ...process.env, ...scriptEnv }
+    delete env.ELECTRON_RUN_AS_NODE
+    const args = /\.desktop$/i.test(file)
+      ? ['-lc', desktopLaunchCommand(target)]
+      : ['-lc', `cd ${shQuote(path.dirname(file))} && bash ${shQuote(target)}`]
+    const child = spawn('bash', args, { cwd: path.dirname(file), env, detached: true, stdio: 'ignore' })
+    child.on('error', (error) => console.warn('[script-launch] 啟動失敗:', error?.message))
+    child.unref()
+    return true
+  }
   if (process.platform !== 'win32' || !SCRIPT_RE.test(file)) return false
   const project = projectIdOf(await require('./workspace/store').list(), file)
   if (!project) return false

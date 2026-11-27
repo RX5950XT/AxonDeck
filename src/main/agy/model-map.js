@@ -41,14 +41,8 @@ const UPSTREAM_MODELS = Object.freeze([
   'gemini-3.5-flash-low',
   'gemini-3.5-flash-extra-low',
   'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
   // 生圖；聊天端點回 markdown 圖片，另有 /v1/images/generations
-  'gemini-3.1-flash-image',
-  'gemini-3-flash',
-  'gemini-3-flash-agent',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-thinking',
-  'gemini-2.5-flash-lite'
+  'gemini-3.1-flash-image'
 ])
 
 /**
@@ -56,6 +50,17 @@ const UPSTREAM_MODELS = Object.freeze([
  * 型錄解析時直接丟掉；有人指名 gemini-2.5-pro 仍會被前綴規則導到 BEST_GEMINI。
  */
 const HIDDEN_MODELS = Object.freeze(new Set(['gemini-2.5-pro', 'gpt-oss-120b-medium']))
+
+/**
+ * 整條模型線連同所有檔位都不列（使用者要求，2026-11-27）：舊世代 flash，有新的 3.5／3.8 可用。
+ * 有人指名照樣能打（resolveModel 走前綴規則或原樣透傳），只是不出現在清單。
+ */
+const HIDDEN_LINES = /^(gemini-3\.1-flash-lite|gemini-3-flash|gemini-2\.5-flash)(-[a-z-]+)?$/
+
+/** @param {string} id */
+function isHiddenModel(id) {
+  return HIDDEN_MODELS.has(id) || HIDDEN_LINES.test(String(id || ''))
+}
 
 /** 預設的生圖模型；/v1/images/generations 指名非生圖模型（dall-e-3、gpt-image-1…）時也用它 */
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image'
@@ -310,6 +315,7 @@ module.exports = {
   allowsZeroThinkingBudget,
   DEFAULT_IMAGE_MODEL,
   HIDDEN_MODELS,
+  isHiddenModel,
   isImageModel,
   REJECTS_ZERO_BUDGET,
   RETIRED_MODELS,

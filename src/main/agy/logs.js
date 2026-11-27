@@ -285,19 +285,6 @@ function createLogStore(fileName) {
     }
   }
 
-  /** 依保留天數清理；回傳刪除列數 */
-  function cleanup(retentionDays) {
-    if (!db) return 0
-    const days = Math.max(1, Math.min(365, Number(retentionDays) || 30))
-    try {
-      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-      return db.prepare('DELETE FROM request_logs WHERE ts < ?').run(cutoff).changes || 0
-    } catch (error) {
-      lastError = error?.code || 'DB_WRITE_FAILED'
-      return 0
-    }
-  }
-
   function clear() {
     if (!db) return false
     try {
@@ -314,7 +301,7 @@ function createLogStore(fileName) {
     return { ready: !!db, lastError }
   }
 
-  return { STAT_RANGES, append, cleanup, clear, close, health, init, list, stats }
+  return { STAT_RANGES, append, clear, close, health, init, list, stats }
 }
 
 module.exports = { ...createLogStore('agy-logs.db'), createLogStore }

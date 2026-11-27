@@ -1,7 +1,8 @@
 'use strict'
 
 /**
- * Grok 反代測試：假上游＋真的本機 HTTP 服務，走過三種協議與錯誤收斂（不需 electron、不打真上游）
+ * Grok 反代測試：假上游＋真的本機 HTTP 服務（跟 Antigravity 共用的那一個，`grok-*` 才轉到 Grok），
+ * 走過三種協議、分流與錯誤收斂（不需 electron、不打真上游；Antigravity 那邊注入成沒登入）
  *   node scripts/test-grok-proxy.js
  */
 
@@ -11,7 +12,8 @@ const path = require('path')
 const { tempDir, removeTree } = require('./lib/test-temp')
 
 const ROOT = path.join(__dirname, '..', 'src', 'main', 'grokproxy')
-const server = require(path.join(ROOT, 'server'))
+const grokServer = require(path.join(ROOT, 'server'))
+const server = require(path.join(ROOT, '..', 'agy', 'server'))
 const catalog = require(path.join(ROOT, 'catalog'))
 const logs = require(path.join(ROOT, 'logs'))
 const openai = require(path.join(ROOT, 'openai'))
@@ -140,7 +142,9 @@ async function main() {
   const dir = tempDir('grok-proxy-test-')
   logs.init({ userDataPath: dir })
   const fakeCredential = { acquire: async () => ({ token: 'tok', accountId: '' }), invalidate: () => {} }
-  server.configureUpstream({ baseUrl: `http://127.0.0.1:${mock.address().port}`, credential: fakeCredential })
+  grokServer.configureUpstream({ baseUrl: `http://127.0.0.1:${mock.address().port}`, credential: fakeCredential })
+  // Antigravity 沒登入：讀不到憑證，連上游都不會打
+  server.configureUpstream({ baseUrl: 'http://127.0.0.1:9/v1internal', readCredential: async () => '' })
   catalog.reset()
   const started = await server.start({ port: 0, apiKey: API_KEY, logBodies: false })
   assert.ok(started.ok)
@@ -154,10 +158,11 @@ async function main() {
       assert.strictEqual(health.status, 200)
     })
 
-    await test('/v1/models 列出本體與強度別名，上游帶版本標頭', async () => {
+    await test('/v1/models 列出本體與強度別名、Antigravity 沒登入就不列，上游帶版本標頭', async () => {
       const result = await call(port, '/v1/models')
       const ids = result.json().data.map((row) => row.id)
       assert.ok(ids.includes('grok-4.7') && ids.includes('grok-4.7-xhigh') && ids.includes('grok-4.5-low'))
+      assert.ok(ids.every((id) => id.startsWith('grok-')), ids.join())
       const upstreamCall = seen.find((row) => row.url === '/models')
       assert.strictEqual(upstreamCall.headers['x-grok-client-version'], '1.0.13')
       assert.strictEqual(upstreamCall.headers.authorization, 'Bearer tok')
@@ -190,12 +195,19 @@ async function main() {
       assert.strictEqual(frames.at(-1).usage.completion_tokens, 3)
     })
 
-    await test('Anthropic 串流：message_start…message_stop，Claude 名換成預設 Grok', async () => {
-      const result = await call(port, '/v1/messages', { model: 'claude-sonnet-4-5', stream: true, max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] })
+    await test('Anthropic 串流：message_start…message_stop', async () => {
+      const result = await call(port, '/v1/messages', { model: 'grok-4.7', stream: true, max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] })
       assert.strictEqual(result.status, 200)
       assert.ok(result.text.includes('event: message_start') && result.text.includes('event: message_stop'))
       assert.ok(result.text.includes('"text":"O"'))
       assert.strictEqual(seen.filter((row) => row.url === '/responses').at(-1).body.model, 'grok-4.7')
+    })
+
+    await test('非 grok 模型分給 Antigravity：沒登入回 503，不打 Grok 上游', async () => {
+      const before = seen.filter((row) => row.url === '/responses').length
+      const result = await call(port, '/v1/messages', { model: 'claude-sonnet-4-5', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] })
+      assert.strictEqual(result.status, 503, result.text)
+      assert.strictEqual(seen.filter((row) => row.url === '/responses').length, before)
     })
 
     await test('Responses 非串流：回 completed 的 response 物件；串流原樣轉送', async () => {
@@ -208,7 +220,7 @@ async function main() {
     })
 
     await test('count_tokens 粗估', async () => {
-      const result = await call(port, '/v1/messages/count_tokens', { messages: [{ role: 'user', content: 'x'.repeat(400) }] })
+      const result = await call(port, '/v1/messages/count_tokens', { model: 'grok-4.7', messages: [{ role: 'user', content: 'x'.repeat(400) }] })
       assert.ok(result.json().input_tokens >= 100)
     })
 
@@ -241,7 +253,7 @@ async function main() {
     })
 
     await test('型錄附帶每週額度', async () => {
-      const result = await catalog.list({ force: true, options: server.getUpstreamOptions() })
+      const result = await catalog.list({ force: true, options: grokServer.getUpstreamOptions() })
       assert.deepStrictEqual(result.quota, { usedPercent: 42, resetAt: '2026-11-20T03:33:28Z' })
       assert.strictEqual(result.models.length, 2)
     })

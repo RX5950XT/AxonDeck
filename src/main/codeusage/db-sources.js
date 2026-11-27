@@ -18,6 +18,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads')
 
 /** 單次查詢的列數上限 */
 const MAX_ROWS = 50000
@@ -186,7 +187,9 @@ function readAntigravity(sinceMs, dbPath) {
  * @returns {Map<number, Array<number | Buffer>>}
  */
 function protoMap(input) {
-  const b = Buffer.from(input || []), out = new Map()
+  // 不複製：gen_metadata 一筆平均 700KB（夾著整份提示詞），複製一次就多佔一份
+  const b = input ? Buffer.from(input.buffer, input.byteOffset, input.byteLength) : Buffer.alloc(0)
+  const out = new Map()
   let i = 0
   const varint = () => {
     let n = 0, shift = 0, byte
@@ -260,30 +263,59 @@ function agyCliFiles(root) {
 }
 
 /**
- * 讀一份對話檔 `since` 之後的呼叫。
- * @returns {{ idx: number | undefined, events: Array<object> }}
+ * 對話檔的變動簽章：`.db` 與 `-wal` 的大小＋修改時間（WAL 模式下新寫入先進 -wal，主檔不一定動）。
+ * @param {string} file
+ * @returns {string} 讀不到回空字串
+ */
+function agySignature(file) {
+  const part = (name) => {
+    try {
+      const stat = fs.statSync(name)
+      return `${stat.size}:${stat.mtimeMs}`
+    } catch {
+      return '-'
+    }
+  }
+  const main = part(file)
+  return main === '-' ? '' : `${main}|${part(`${file}-wal`)}`
+}
+
+/**
+ * 讀一份對話檔 `since` 之後的呼叫。`complete` 為真＝讀到底、沒有壓著正在跑的那筆，
+ * 檔案沒變的話下次可以整份跳過。
+ * @returns {{ idx: number | undefined, events: Array<object>, complete: boolean }}
  */
 function readAgyConversation(file, since, models) {
-  const out = { idx: undefined, events: [] }
+  const out = { idx: undefined, events: [], complete: false }
   const db = openReadOnly(file)
   if (!db) return out
   try {
-    const rows = db.prepare('SELECT idx, data FROM gen_metadata WHERE idx > ? ORDER BY idx LIMIT ?').all(since, MAX_ROWS)
+    // 逐列讀（iterate）：一列可達上百 MB，`.all()` 會把整份檔一次載進記憶體
+    const rows = db.prepare('SELECT idx, data FROM gen_metadata WHERE idx > ? ORDER BY idx LIMIT ?')
     const stepMeta = db.prepare('SELECT metadata FROM steps WHERE idx = ?')
-    for (const row of rows) {
+    const commit = (idx, event) => {
+      if (event?.model && event.modelId) models[event.modelId] = event.model
+      if (event) out.events.push(event)
+      out.idx = idx
+    }
+    // 還是 0 的那筆先壓著：後面還有列就確定它不是正在跑的最後一筆；最後一筆是它的話一天內先不推游標
+    let held = null
+    let count = 0
+    for (const row of rows.iterate(since, MAX_ROWS)) {
+      count += 1
+      if (held) commit(...held)
+      held = null
       let event = null
       try {
         event = agyGen(row.data, stepMeta)
       } catch {
         // 這一列格式不認得：跳過，不卡住後面
       }
-      // 最後一筆還是 0 的可能正在跑：一天內先不推游標，下次再讀
       const empty = event && !event.input && !event.output && !event.reasoning && !event.cacheRead
-      if (empty && row === rows[rows.length - 1] && Date.now() - event.ts < UNFINISHED_WAIT_MS) break
-      if (event?.model && event.modelId) models[event.modelId] = event.model
-      if (event) out.events.push(event)
-      out.idx = row.idx
+      if (empty && Date.now() - event.ts < UNFINISHED_WAIT_MS) held = [row.idx, event]
+      else commit(row.idx, event)
     }
+    out.complete = !held && count < MAX_ROWS
   } catch {
     // 正在寫或版本不合：這一份下次再讀（已讀到的照收，游標停在那裡）
   } finally {
@@ -303,20 +335,80 @@ function readAgyConversation(file, since, models) {
  * @param {(id: string) => number | undefined} sinceOf 對話 id → 上次讀到的 `gen_metadata.idx`
  * @param {Record<string, string>} models 模型編號 → 名稱（就地更新；給只有編號的那幾筆用）
  * @param {string} root `~/.gemini/antigravity-cli`
- * @returns {Array<{ id: string, path: string, idx: number | undefined, events: Array<object> }>}
+ * @param {(id: string) => string | undefined} [sigOf] 上次讀到底時的簽章；跟現在一樣＝檔案沒動過，不開檔
+ * @returns {Array<{ id: string, path: string, idx: number | undefined, events: Array<object>, sig: string }>}
+ *   `sig` 只有這次讀到底才有（空字串＝下次要再讀）
  */
-function readAntigravityCli(sinceOf, models, root) {
+function readAntigravityCli(sinceOf, models, root, sigOf = () => undefined) {
   const files = agyCliFiles(root).map(([id, file]) => {
+    const sig = agySignature(file)
+    if (sig && sigOf(id) === sig) return { id, path: file, idx: undefined, events: [], sig }
     const since = sinceOf(id)
-    return { id, path: file, ...readAgyConversation(file, Number.isInteger(since) ? since : -1, models) }
+    const { complete, ...read } = readAgyConversation(file, Number.isInteger(since) ? since : -1, models)
+    return { id, path: file, ...read, sig: complete ? sig : '' }
   })
   const named = ({ modelId, ...event }) => ({ ...event, model: event.model || models[modelId] || 'unknown' })
   return files.map((file) => ({ ...file, events: file.events.map(named) }))
+}
+
+/**
+ * 三份 SQLite 一次讀完。`agyIdx`／`agySig` 是對話 id → 上次讀到的 idx／簽章（純資料，才能傳進 worker）。
+ * @param {{ agyRoot: string, agyIdx: Record<string, number>, agySig: Record<string, string>,
+ *   agyModels: Record<string, string>, opencodeSince: number, agyDb: string, agySince: number }} job
+ */
+function readAll(job) {
+  const agyModels = { ...job.agyModels }
+  const agyFiles = readAntigravityCli((id) => job.agyIdx[id], agyModels, job.agyRoot, (id) => job.agySig?.[id])
+  return {
+    agyFiles,
+    agyModels,
+    opencodeEvents: readOpencode(job.opencodeSince),
+    agyEvents: job.agyDb ? readAntigravity(job.agySince, job.agyDb) : []
+  }
+}
+
+/**
+ * `readAll` 放到 worker thread 跑：`node:sqlite` 是同步 API，Antigravity CLI 對話檔本機實測
+ * 770 份／27GB，在主程序讀每次增量卡 2 秒、整份重讀卡 29 秒，整個 App 跟著凍住。
+ * worker 起不來才退回主程序讀（結果一樣，只是會卡）。
+ * @param {Parameters<typeof readAll>[0]} job
+ * @returns {Promise<ReturnType<typeof readAll>>}
+ */
+function readAllInWorker(job) {
+  return new Promise((resolve) => {
+    let settled = false
+    const fallback = (why) => {
+      if (settled) return
+      settled = true
+      console.warn(`[codeusage] SQLite worker 失敗，改在主程序讀：${why}`)
+      resolve(readAll(job))
+    }
+    let worker
+    try {
+      worker = new Worker(__filename, { workerData: { codeusageDbJob: job } })
+    } catch (error) {
+      fallback(error && error.message)
+      return
+    }
+    worker.once('message', (result) => {
+      if (settled) return
+      settled = true
+      resolve(result)
+    })
+    worker.once('error', (error) => fallback(error && error.message))
+    worker.once('exit', (code) => fallback(`exit ${code}`))
+  })
+}
+
+if (!isMainThread && workerData && workerData.codeusageDbJob) {
+  parentPort.postMessage(readAll(workerData.codeusageDbJob))
 }
 
 module.exports = {
   MAX_ROWS,
   readOpencode,
   readAntigravity,
-  readAntigravityCli
+  readAntigravityCli,
+  readAll,
+  readAllInWorker
 }

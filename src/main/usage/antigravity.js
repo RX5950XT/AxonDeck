@@ -15,9 +15,9 @@ const execFileAsync = promisify(execFile)
 // 上游看 User-Agent 決定給哪些模型：報 agy CLI 才拿得到 Gemini 4 系列（舊的 vscode UA 型錄沒有 Argon、generate 回 404，2026-10-20 實測）
 const USER_AGENT = 'antigravity/cli/1.4.2'
 const EXPECTED_WINDOWS = Object.freeze([
-  // 上游把 Claude 與 GPT-OSS 放同一池（「Claude and GPT models」）
-  ['antigravity-claude-5h', 'Claude／GPT', 'rolling-5h'],
-  ['antigravity-claude-weekly', 'Claude／GPT', 'weekly'],
+  // 上游這池也含 GPT-OSS，但使用者不用、介面一律只寫 Claude（2026-11-27）
+  ['antigravity-claude-5h', 'Claude', 'rolling-5h'],
+  ['antigravity-claude-weekly', 'Claude', 'weekly'],
   ['antigravity-gemini-5h', 'Gemini', 'rolling-5h'],
   ['antigravity-gemini-weekly', 'Gemini', 'weekly']
 ])
@@ -170,15 +170,19 @@ function windowsFromSlots(slots) {
   })
 }
 
-/** 上游每組的 description 寫著「Models within this group: …」，照抄成說明，模型換代不用改碼 */
+/**
+ * 上游每組的 description 寫著「Models within this group: …」，照抄成說明，模型換代不用改碼。
+ * GPT 系列（GPT-OSS）不列：介面不出現 GPT 字樣。
+ */
 function poolModelsText(summary) {
   const groups = Array.isArray(summary?.groups) ? summary.groups : []
   return groups.flatMap((group) => {
     const matched = /models within this group:\s*(.+)$/i.exec(String(group?.description || ''))
     const family = familyFor(group?.displayName, '')
     if (!matched || !family) return []
-    const label = family === 'claude' ? 'Claude／GPT' : 'Gemini'
-    return [`${label} 池：${matched[1].trim().slice(0, 200)}`]
+    const label = family === 'claude' ? 'Claude' : 'Gemini'
+    const names = matched[1].split(',').map((name) => name.trim()).filter((name) => name && !/\bgpt\b/i.test(name))
+    return names.length ? [`${label} 池：${names.join(', ').slice(0, 200)}`] : []
   }).join('；')
 }
 
@@ -189,10 +193,10 @@ function applyAntigravityQuota({ summary, models, tier, nowMs }) {
   account.status = 'available'
   account.accuracy = 'official'
   account.planName = tier ? `Antigravity ${String(tier).slice(0, 120)}` : 'Antigravity'
-  // 上游口徑（2026-11-24 實測）：Gemini 與 Claude／GPT 兩池，同池模型共用 5 小時與每週兩道上限，
+  // 上游口徑（2026-11-24 實測）：Gemini 與 Claude 兩池，同池模型共用 5 小時與每週兩道上限，
   // 依 token 成本比例扣（貴的模型扣得快）；Argon 已併進 Gemini 池，不再有獨立每週池
   const pools = poolModelsText(summary)
-  account.notes = `已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini 與 Claude／GPT 各一池，同池共用 5 小時與每週額度，依 token 成本比例扣${pools ? `（${pools}）` : ''}。`
+  account.notes = `已從 Google cloudcode-pa API（Antigravity）讀取真實額度。Gemini 與 Claude 各一池，同池共用 5 小時與每週額度，依 token 成本比例扣${pools ? `（${pools}）` : ''}。`
   account.windows = windowsFromSlots(slots)
   if (!account.windows.length) {
     account.status = 'connected'

@@ -1,7 +1,7 @@
 'use strict'
 
 const upstream = require('./upstream')
-const { HIDDEN_MODELS, RETIRED_MODELS, isImageModel } = require('./model-map')
+const { RETIRED_MODELS, isHiddenModel, isImageModel } = require('./model-map')
 
 /**
  * 上游模型型錄：解析、過濾、快取。
@@ -52,7 +52,7 @@ function parseCatalog(payload) {
     ? payload.deprecatedModelIds
     : {}
 
-  const models = Object.keys(raw).filter((id) => !HIDDEN_MODELS.has(id)).map((id) => {
+  const models = Object.keys(raw).filter((id) => !isHiddenModel(id)).map((id) => {
     const entry = raw[id] || {}
     const quota = entry.quotaInfo && typeof entry.quotaInfo === 'object' ? entry.quotaInfo : {}
     const remaining = Number(quota.remainingFraction)
@@ -306,7 +306,9 @@ async function listForApi({ options } = {}) {
     // 空清單比舊清單更糟：客戶端的模型下拉會整個空掉，使用者連手打都沒得參考。
     // 一個都撈不到就當作沒有即時資料，讓呼叫端退回靜態表。
     return rows.length ? rows : null
-  } catch {
+  } catch (error) {
+    // 沒登入要讓呼叫端知道（反代的 /v1/models 這時一個 Antigravity 模型都不列），其他失敗退回靜態表
+    if (error?.code === 'NO_CREDENTIAL' || error?.code === 'TOKEN_EXPIRED') throw error
     return null
   }
 }

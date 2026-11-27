@@ -7,6 +7,9 @@ const catalog = require('./catalog')
 const logs = require('./logs')
 const openai = require('./openai')
 const upstream = require('./upstream')
+const grok = require('../grokproxy/server')
+const grokCatalog = require('../grokproxy/catalog')
+const grokUpstream = require('../grokproxy/upstream')
 const { firstCandidate, splitParts, unwrapEnvelope } = require('./gemini')
 const { DEFAULT_IMAGE_MODEL, isImageModel, listModels, resolveModel } = require('./model-map')
 
@@ -47,10 +50,54 @@ function statusFor(error, code) {
 // ===== 請求管線 =====
 
 /**
- * 兩個協議共用：讀 body → 轉 Gemini → 呼叫上游 → 轉回目標協議 → 記日誌。
- * 差別只在傳進來的 adapter。
+ * 同一個埠與金鑰同時服務 Antigravity 與 Grok：模型名是 `grok-*` 的交給 Grok 那邊，其餘照舊走 AGY。
+ * @param {unknown} model
+ * @returns {boolean}
  */
-async function handleCompletion(req, res, adapter) {
+function isGrokModel(model) {
+  return typeof model === 'string' && /^grok-/i.test(model.trim())
+}
+
+/**
+ * 先讀 body 才知道要分給哪一邊。`body` undefined＝不是合法 JSON（由處理的那一邊回錯）。
+ * @returns {Promise<{ raw: string, body: object | undefined }>}
+ */
+async function readRequest(req) {
+  const raw = await readBody(req)
+  let body
+  try {
+    body = JSON.parse(raw)
+  } catch {
+    body = undefined
+  }
+  return { raw, body }
+}
+
+/**
+ * @param {'openai'|'anthropic'} protocol
+ * @param {(req: object, res: object, request: object) => unknown} agyHandler
+ * @param {(req: object, res: object, request: object) => unknown} grokHandler
+ */
+function byModel(protocol, agyHandler, grokHandler) {
+  return async (req, res) => {
+    let request
+    try {
+      request = await readRequest(req)
+    } catch (error) {
+      const tooLarge = error?.code === 'BODY_TOO_LARGE'
+      sendError(res, protocol, tooLarge ? 413 : 400, error?.code || 'BODY_READ_FAILED', tooLarge ? '請求太大' : '讀取請求失敗')
+      return
+    }
+    return isGrokModel(request.body?.model) ? grokHandler(req, res, request) : agyHandler(req, res, request)
+  }
+}
+
+/**
+ * 兩個協議共用：轉 Gemini → 呼叫上游 → 轉回目標協議 → 記日誌。
+ * 差別只在傳進來的 adapter。
+ * @param {{ raw: string, body: object | undefined }} request
+ */
+async function handleCompletion(req, res, adapter, request) {
   const startedMs = Date.now()
   const { protocol, mapper } = adapter
   const entry = {
@@ -67,13 +114,10 @@ async function handleCompletion(req, res, adapter) {
   let wroteHeaders = false
 
   try {
-    const raw = await readBody(req)
+    const { raw, body } = request
     if (proxy.getSettings().logBodies) entry.requestBody = raw
 
-    let body
-    try {
-      body = JSON.parse(raw)
-    } catch {
+    if (body === undefined) {
       entry.status = 400
       entry.errorCode = 'INVALID_JSON'
       sendError(res, protocol, 400, 'INVALID_JSON', '請求不是合法的 JSON')
@@ -153,9 +197,10 @@ async function handleCompletion(req, res, adapter) {
   }
 }
 
-async function handleCountTokens(req, res) {
+async function handleCountTokens(req, res, request) {
   try {
-    const body = JSON.parse(await readBody(req))
+    const { body } = request
+    if (body === undefined) throw Object.assign(new Error('INVALID_JSON'), { code: 'INVALID_JSON' })
     const { mapped } = resolveModel(body.model, await catalog.snapshot({ options: upstreamOptions }))
     const inner = anthropic.toGeminiRequest(body, mapped)
     const total = await upstream.countTokens({ inner, model: mapped, options: upstreamOptions })
@@ -249,23 +294,48 @@ async function handleImages(req, res) {
 }
 
 /**
- * 靜態表只是退路：它列過會 404／500 的模型，而且缺整個新世代。
- * 客戶端拿這份填下拉選單，給錯清單等於讓使用者選到不能用的模型。
+ * Antigravity 這半邊：沒登入就一個都不列。
+ * 靜態表只是退路（上游暫時查不到時用）：它列過會 404／500 的模型，而且缺整個新世代。
  */
-function handleModels(req, res) {
-  return catalog.listForApi({ options: upstreamOptions })
-    .then((live) => sendJson(res, 200, { object: 'list', data: live || listModels() }))
-    .catch(() => sendJson(res, 200, { object: 'list', data: listModels() }))
+async function agyModelRows() {
+  try {
+    return (await catalog.listForApi({ options: upstreamOptions })) || listModels()
+  } catch {
+    return []
+  }
 }
+
+/** Grok 這半邊：沒登入就不列（不打上游）；型錄暫時查不到時 listForApi 自己會退回預設模型 */
+async function grokModelRows() {
+  const options = grok.getUpstreamOptions()
+  if (!(await grokUpstream.credentialStatus(options)).connected) return []
+  return grokCatalog.listForApi({ options }).catch(() => [])
+}
+
+/** 客戶端拿這份填下拉選單：只列有登入的那幾家 */
+async function handleModels(req, res) {
+  const [agyRows, grokRows] = await Promise.all([agyModelRows(), grokModelRows().catch(() => [])])
+  sendJson(res, 200, { object: 'list', data: [...agyRows, ...grokRows] })
+}
+
+/** Responses 只有 Grok 那邊有（Codex 之類的客戶端）：不分模型一律給 Grok，非 grok 名字由它換成預設模型 */
+const toGrokResponses = (req, res, request) => grok.handleCompletion(req, res, 'responses', request)
+const handleResponses = byModel('openai', toGrokResponses, toGrokResponses)
 
 const proxy = createProxyServer({
   'GET /v1/models': handleModels,
   'GET /v1/models/claude': handleModels,
-  'POST /v1/chat/completions': (req, res) => handleCompletion(req, res, ADAPTERS.openai),
+  'POST /v1/chat/completions': byModel('openai',
+    (req, res, request) => handleCompletion(req, res, ADAPTERS.openai, request),
+    (req, res, request) => grok.handleCompletion(req, res, 'openai', request)),
   'POST /v1/images/generations': handleImages,
-  'POST /v1/messages': (req, res) => handleCompletion(req, res, ADAPTERS.anthropic),
-  'POST /v1/messages/count_tokens': handleCountTokens
+  'POST /v1/messages': byModel('anthropic',
+    (req, res, request) => handleCompletion(req, res, ADAPTERS.anthropic, request),
+    (req, res, request) => grok.handleCompletion(req, res, 'anthropic', request)),
+  'POST /v1/messages/count_tokens': byModel('anthropic', handleCountTokens, grok.handleCountTokens),
+  'POST /v1/responses': handleResponses
 })
+grok.bindSettings(() => proxy.getSettings())
 
 /** e2e 注入的上游設定；型錄也要走同一份，否則測試會打到真實上游 */
 function getUpstreamOptions() {

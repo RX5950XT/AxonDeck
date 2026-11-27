@@ -5,11 +5,16 @@ const catalog = require('./catalog')
 const credential = require('./credential')
 const logs = require('./logs')
 const server = require('./server')
+const { mergeLogs, mergeStats } = require('./merged-logs')
 const { pingGateway } = require('../local-proxy-http')
+const grokCatalog = require('../grokproxy/catalog')
+const grokLogs = require('../grokproxy/logs')
+const grokServer = require('../grokproxy/server')
+const grokUpstream = require('../grokproxy/upstream')
 
 /**
- * AGY 反代的服務門面。
- * 設定走主 electron-store（由 main.js 注入存取器），日誌走自己的 SQLite。
+ * 反代的服務門面：一個本機服務（同一個埠與金鑰）同時轉 Antigravity 與 Grok（`grok-*` 模型），
+ * 有登入的那幾家才可用。設定走主 electron-store（由 main.js 注入存取器），日誌兩家各一份 SQLite。
  * renderer 只透過這裡拿去敏後的狀態，永遠碰不到憑證、project id 或上游 URL。
  */
 
@@ -17,8 +22,7 @@ const DEFAULTS = Object.freeze({
   agyEnabled: false,
   agyPort: 8788,
   agyApiKey: '',
-  agyLogBodies: false,
-  agyLogRetentionDays: 30
+  agyLogBodies: false
 })
 
 let store = null
@@ -33,19 +37,13 @@ function sanitizePort(raw) {
   return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : DEFAULTS.agyPort
 }
 
-function sanitizeRetentionDays(raw) {
-  const days = Number(raw)
-  return Number.isInteger(days) && days >= 1 && days <= 365 ? days : DEFAULTS.agyLogRetentionDays
-}
-
 function readSettings() {
   if (!store) return { ...DEFAULTS }
   return {
     agyEnabled: store.get('agyEnabled', DEFAULTS.agyEnabled) === true,
     agyPort: sanitizePort(store.get('agyPort', DEFAULTS.agyPort)),
     agyApiKey: typeof store.get('agyApiKey', '') === 'string' ? store.get('agyApiKey', '') : '',
-    agyLogBodies: store.get('agyLogBodies', DEFAULTS.agyLogBodies) === true,
-    agyLogRetentionDays: sanitizeRetentionDays(store.get('agyLogRetentionDays', DEFAULTS.agyLogRetentionDays))
+    agyLogBodies: store.get('agyLogBodies', DEFAULTS.agyLogBodies) === true
   }
 }
 
@@ -61,13 +59,9 @@ function ensureApiKey() {
 /** @param {{ userDataPath: string, store: { get: Function, set: Function } }} options */
 function configure(options) {
   store = options.store
+  // 日誌不自動刪：用量統計整份重讀時要靠它，刪掉的那段就永遠算不回來（只留手動「清空日誌」）
   ready = logs.init({ userDataPath: options.userDataPath })
-  if (ready) {
-    const days = readSettings().agyLogRetentionDays
-    setImmediate(() => {
-      try { logs.cleanup(days) } catch { /* 清理失敗不能擋啟動 */ }
-    })
-  }
+  grokLogs.init({ userDataPath: options.userDataPath })
   return ready
 }
 
@@ -108,6 +102,10 @@ async function status() {
   const credentialStatus = serverStatus.running
     ? await credential.status()
     : { connected: false, tier: '', code: 'NOT_RUNNING', message: '', sources: credential.detectSources() }
+  // Grok 只讀本機登入檔（過期才叫 grok CLI 續期），停止中只回有沒有裝
+  const grokCredential = serverStatus.running
+    ? await grokUpstream.credentialStatus(grokServer.getUpstreamOptions())
+    : { connected: false, code: 'NOT_RUNNING', message: '', sources: { cli: require('../ccswitch/gateway/credential').detect().grok } }
 
   return {
     ...serverStatus,
@@ -118,8 +116,13 @@ async function status() {
     apiKey: settings.agyApiKey,
     port: settings.agyPort,
     logBodies: settings.agyLogBodies,
-    retentionDays: settings.agyLogRetentionDays,
-    credential: credentialStatus,
+    // 頂層沿用 Antigravity 的欄位（指引靠 sources／code）；connected＝任一家可用
+    credential: {
+      ...credentialStatus,
+      connected: credentialStatus.connected || grokCredential.connected,
+      agy: credentialStatus,
+      grok: grokCredential
+    },
     db: logs.health()
   }
 }
@@ -142,13 +145,10 @@ async function saveSettings(raw) {
   const next = raw && typeof raw === 'object' ? raw : {}
   const port = sanitizePort(next.port)
   const logBodies = next.logBodies === true
-  const retentionDays = sanitizeRetentionDays(next.retentionDays)
 
   const previous = readSettings()
   store?.set('agyPort', port)
   store?.set('agyLogBodies', logBodies)
-  store?.set('agyLogRetentionDays', retentionDays)
-  if (retentionDays !== previous.agyLogRetentionDays) logs.cleanup(retentionDays)
 
   const needsRestart = server.status().running &&
     (port !== previous.agyPort || logBodies !== previous.agyLogBodies)
@@ -170,16 +170,19 @@ async function regenerateApiKey() {
   return status()
 }
 
-function getLogs(query) {
-  return logs.list(query)
+function getLogs(query = {}) {
+  const limit = Math.max(1, Math.min(500, Number(query?.limit) || 200))
+  return mergeLogs(logs.list(query), grokLogs.list(query), limit)
 }
 
 function getStats(query) {
-  return logs.stats(query)
+  return mergeStats(logs.stats(query), grokLogs.stats(query))
 }
 
 function clearLogs() {
-  return { ok: logs.clear() }
+  const agyCleared = logs.clear()
+  const grokCleared = grokLogs.clear()
+  return { ok: agyCleared && grokCleared }
 }
 
 /**
@@ -189,15 +192,31 @@ function clearLogs() {
 async function shutdown() {
   await server.stop()
   logs.close()
+  grokLogs.close()
   credential.reset()
 }
 
+/** Grok 型錄：沒登入回 null（不打上游） */
+async function grokModels(force) {
+  const options = grokServer.getUpstreamOptions()
+  if (!(await grokUpstream.credentialStatus(options)).connected) return null
+  return grokCatalog.list({ force, options })
+}
+
 /**
- * 上游模型型錄。走 server 的上游設定，e2e 注入 mock 時型錄才不會打到真實上游。
+ * 上游模型型錄（Antigravity＋Grok 的 `grok` 欄）。走 server 的上游設定，e2e 注入 mock 時才不會打到真實上游。
+ * 只登入其中一家是正常用法：另一家查不到就不列，兩家都查不到才回 Antigravity 的錯誤（給登入指引）。
  * @param {{ force?: boolean }} [params]
  */
-function listModels({ force = false } = {}) {
-  return catalog.list({ force, options: server.getUpstreamOptions() })
+async function listModels({ force = false } = {}) {
+  const [agy, grok] = await Promise.allSettled([
+    catalog.list({ force, options: server.getUpstreamOptions() }),
+    grokModels(force)
+  ])
+  const grokData = grok.status === 'fulfilled' ? grok.value : null
+  if (agy.status === 'fulfilled') return { ...agy.value, grok: grokData }
+  if (!grokData) throw agy.reason
+  return { models: [], defaultModelId: '', cached: grokData.cached, fetchedAt: grokData.fetchedAt, grok: grokData }
 }
 
 /**
@@ -216,8 +235,30 @@ function pickTestModel(models) {
 
 const TEST_MODEL_PREFERENCE = Object.freeze(['gemini-4-hydrogen-low', 'gemini-4-hydrogen-medium'])
 
+/** Grok 試打用：第一顆模型的 low 檔（最便宜）；沒登入回空字串 */
+async function grokTestModel() {
+  const options = grokServer.getUpstreamOptions()
+  if (!(await grokUpstream.credentialStatus(options)).connected) return ''
+  const first = (await grokCatalog.snapshot({ options }))[0]
+  if (!first) return `${grokCatalog.DEFAULT_MODEL}-low`
+  return first.efforts.includes('low') ? `${first.id}-low` : first.id
+}
+
+/** 兩家各一個結果合成一行：都通才算通，失敗的那家放前面 */
+function combineResults(results) {
+  if (results.length === 1) return results[0]
+  const failed = results.find((result) => !result.ok)
+  return {
+    ok: !failed,
+    model: results.map((result) => result.model).join('／'),
+    durationMs: Math.max(...results.map((result) => Number(result.durationMs) || 0)),
+    reply: results.map((result) => result.reply || '').join('／'),
+    ...(failed ? { code: failed.code, status: failed.status, message: `${failed.model}：${failed.message}` } : {})
+  }
+}
+
 /**
- * 端到端自我測試：自動挑一個模型，從本機閘道真的送一則訊息（見 pingGateway）。
+ * 端到端自我測試：有登入的每一家各挑一個模型，從本機閘道真的送一則訊息（見 pingGateway）。
  * @param {{ fetchImpl?: Function }} [options]
  */
 async function selfTest(options = {}) {
@@ -226,13 +267,19 @@ async function selfTest(options = {}) {
     return { ok: false, code: 'NOT_RUNNING', message: '服務尚未啟動，請先按「啟動服務」。' }
   }
 
-  const { models } = await catalog.list({ options: server.getUpstreamOptions() })
-  const model = pickTestModel(models)
-  if (!model) {
+  const [agy, grok] = await Promise.allSettled([
+    catalog.list({ options: server.getUpstreamOptions() }).then(({ models }) => pickTestModel(models)),
+    grokTestModel()
+  ])
+  const models = [agy.status === 'fulfilled' ? agy.value : '', grok.status === 'fulfilled' ? grok.value : ''].filter(Boolean)
+  if (!models.length) {
+    // Antigravity 憑證錯誤照原樣丟出去，畫面才會跳登入指引
+    if (agy.status === 'rejected') throw agy.reason
     return { ok: false, code: 'NO_MODEL', message: '上游沒有回報任何可對話的模型。' }
   }
-
-  return pingGateway(serverStatus, readSettings().agyApiKey, model, options.fetchImpl)
+  const apiKey = readSettings().agyApiKey
+  const results = await Promise.all(models.map((model) => pingGateway(serverStatus, apiKey, model, options.fetchImpl)))
+  return combineResults(results)
 }
 
 module.exports = {

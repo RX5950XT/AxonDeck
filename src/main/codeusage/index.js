@@ -369,16 +369,43 @@ async function runSync(options) {
     }
     report.providers[source.provider] = result
   }
+  // 三份 SQLite（Antigravity CLI、OpenCode、AGY 反代日誌）是同步讀取，整批丟到 worker，主程序不卡
+  options.onProgress?.({ provider: 'antigravity', state: 'scanning' })
+  const agyIdx = {}
+  const agySig = {}
+  for (const [key, cursor] of Object.entries(cursors)) {
+    if (!key.startsWith('antigravity:')) continue
+    const id = key.slice('antigravity:'.length)
+    if (Number.isInteger(cursor?.idx)) agyIdx[id] = cursor.idx
+    if (typeof cursor?.sig === 'string' && cursor.sig) agySig[id] = cursor.sig
+  }
+  const agyDb = paths.userDataPath ? path.join(paths.userDataPath, 'agy-logs.db') : ''
+  // 游標是結束時間（antigravityEnd）；舊版只存開始時間，沿用一次當起點
+  const agySince = Number(dbCursors.antigravityEnd) || Number(dbCursors.antigravity) || 0
+  const opencodeSince = Number(dbCursors.opencode) || 0
+  const dbRead = await dbSources.readAllInWorker({
+    agyRoot: path.join(homeDir(), '.gemini', 'antigravity-cli'),
+    agyIdx,
+    agySig,
+    agyModels: { ...dbCursors.agyModels },
+    opencodeSince,
+    agyDb,
+    agySince
+  })
+
   // Antigravity CLI：一份對話檔一個游標。CLI 會自己刪對話檔，刪掉時靠 contrib 封存，整份重讀才不會少算
-  const agyModels = { ...dbCursors.agyModels }
-  const agyFiles = dbSources.readAntigravityCli(
-    (id) => cursors[`antigravity:${id}`]?.idx, agyModels, path.join(homeDir(), '.gemini', 'antigravity-cli'))
+  const { agyFiles, agyModels, opencodeEvents, agyEvents } = dbRead
   let agyCliEvents = 0
   for (const file of agyFiles) {
     const key = `antigravity:${file.id}`
     for (const event of file.events) fold('antigravity')(event, key)
     agyCliEvents += file.events.length
-    if (Number.isInteger(file.idx)) cursors[key] = { ...cursors[key], path: file.path, idx: file.idx }
+    // sig：這次讀到底才記，檔案沒動過下次就不開；沒讀到底記空字串，下次照讀
+    if (Number.isInteger(file.idx) || cursors[key] || file.sig) {
+      cursors[key] = {
+        ...cursors[key], path: file.path, sig: file.sig, ...(Number.isInteger(file.idx) ? { idx: file.idx } : {})
+      }
+    }
   }
   dbCursors.agyModels = agyModels
   for (const [key, map] of contribs) {
@@ -386,9 +413,6 @@ async function runSync(options) {
   }
 
   // OpenCode：SQL 直接依時間增量，不需要檔案游標
-  options.onProgress?.({ provider: 'opencode', state: 'scanning' })
-  const opencodeSince = Number(dbCursors.opencode) || 0
-  const opencodeEvents = dbSources.readOpencode(opencodeSince)
   for (const event of opencodeEvents) addEvent(buckets, 'opencode', event)
   if (opencodeEvents.length) {
     dbCursors.opencode = opencodeEvents[opencodeEvents.length - 1].ts
@@ -396,11 +420,6 @@ async function runSync(options) {
   report.providers.opencode = { files: 1, events: opencodeEvents.length }
 
   // Antigravity：AGY 反代日誌（CLI 本機對話在上面跟 JSONL 一起逐檔記帳），兩邊不重疊
-  options.onProgress?.({ provider: 'antigravity', state: 'scanning' })
-  const agyDb = paths.userDataPath ? path.join(paths.userDataPath, 'agy-logs.db') : ''
-  // 游標是結束時間（antigravityEnd）；舊版只存開始時間，沿用一次當起點
-  const agySince = Number(dbCursors.antigravityEnd) || Number(dbCursors.antigravity) || 0
-  const agyEvents = agyDb ? dbSources.readAntigravity(agySince, agyDb) : []
   for (const event of agyEvents) addEvent(buckets, 'antigravity', event)
   if (agyEvents.length) {
     dbCursors.antigravityEnd = agyEvents[agyEvents.length - 1].endTs

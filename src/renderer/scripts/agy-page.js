@@ -1,16 +1,16 @@
 import { createElement, copyModelId, createProxyPage, formatPercent, formatReset } from './proxy-page.js'
 
 /**
- * AGY 反向代理頁：骨架在 proxy-page.js，這裡只有 Antigravity 的憑證指引與模型型錄。
- * 維護 token 的是 Antigravity CLI 或 IDE（誰在跑誰續期），AxonDeck 只讀不寫，
- * 所以指引能做的就是把使用者導回那兩個工具。
+ * 反向代理頁（Antigravity＋Grok 共用一個端點）：骨架在 proxy-page.js，這裡只有憑證指引與模型型錄。
+ * 維護 token 的是 Antigravity CLI／IDE 與 Grok CLI（誰在跑誰續期），AxonDeck 只讀不寫，
+ * 所以指引能做的就是把使用者導回那些工具。
  */
 
 /** 官方文件（CLI 安裝說明）。取自 agy.exe 內建的字串，非自行推測。 */
 const ANTIGRAVITY_DOCS_URL = 'https://antigravity.google/docs'
 
 /** 依偵測到的來源給不同指引：沒裝過的人光看「請先登入」不知道要裝什麼、去哪裝 */
-function credentialGuidance(info) {
+function agyGuidance(info) {
   const sources = info?.sources || {}
   const toolName = sources.cli ? 'Antigravity CLI' : 'Antigravity'
 
@@ -42,9 +42,96 @@ function credentialGuidance(info) {
   }
 }
 
+/**
+ * 兩家都沒登入時才會出現（登入任一家就能用）：Antigravity 的指引，再補一行 Grok 的登入方式。
+ * @param {object} info
+ */
+function credentialGuidance(info) {
+  const agy = agyGuidance(info)
+  const grokStep = info?.grok?.sources?.cli === false
+    ? { text: '要用 Grok 模型：到設定頁「CLI 版本」安裝 Grok CLI，再執行 ', code: 'grok', tail: ' 登入 SuperGrok 帳號' }
+    : { text: '要用 Grok 模型：開終端機執行 ', code: 'grok', tail: ' 登入 SuperGrok 帳號' }
+  return { title: agy.title, steps: [...agy.steps.slice(0, -1), grokStep, agy.steps[agy.steps.length - 1]] }
+}
+
+/** 狀態列：兩家各自的登入狀態；任一家可用就算正常 */
+function credentialSummary(info) {
+  const agy = info?.agy || info
+  const grok = info?.grok
+  const agyText = agy?.connected ? `已連線${agy.tier ? ` · ${agy.tier}` : ''}` : '未登入'
+  const grokText = grok?.connected ? '已連線' : '未登入'
+  return { text: `Antigravity ${agyText}／Grok ${grokText}`, ok: Boolean(agy?.connected || grok?.connected) }
+}
+
+// ===== Grok（SuperGrok 訂閱；模型名一律 grok-*，同一個端點轉過去） =====
+
+/** 每週額度標籤：billing 的已用百分比與這一期結束時間 */
+function grokQuotaTag(quota) {
+  if (!quota) return null
+  const left = Math.max(0, 100 - quota.usedPercent)
+  const reset = formatReset(quota.resetAt)
+  const tag = createElement('span', 'agy-model-tag is-quota', `週 剩 ${formatPercent(left)}`)
+  if (left < 10) tag.classList.add('is-low')
+  tag.title = `SuperGrok 每週額度${reset ? `，${reset} 重置` : ''}；所有模型共用`
+  return tag
+}
+
+/**
+ * 一顆模型一列：名字複製本體 ID（上游預設強度），每個強度一顆 chip 複製 `<id>-<強度>`。
+ * @param {{ id: string, name: string, description: string, contextWindow: number, efforts: string[], defaultEffort: string }} model
+ */
+function buildGrokModelLine(model) {
+  const row = createElement('div', 'agy-model-line')
+  const name = createElement('button', 'agy-model-name', model.id)
+  name.type = 'button'
+  name.title = `${model.name}${model.description ? `：${model.description}` : ''}\n點一下複製 ${model.id}`
+  name.setAttribute('aria-label', `複製模型 ID ${model.id}`)
+  name.addEventListener('click', () => copyModelId(model.id))
+  row.appendChild(name)
+
+  const chips = createElement('div', 'agy-model-variants')
+  for (const effort of model.efforts) {
+    const id = `${model.id}-${effort}`
+    const chip = createElement('button', 'agy-model-variant', effort === model.defaultEffort ? `${effort}（預設）` : effort)
+    chip.type = 'button'
+    chip.title = `點一下複製 ${id}`
+    chip.setAttribute('aria-label', `複製模型 ID ${id}`)
+    chip.addEventListener('click', () => copyModelId(id))
+    chips.appendChild(chip)
+  }
+  row.appendChild(chips)
+
+  const meta = createElement('div', 'agy-model-meta')
+  if (model.contextWindow) {
+    const context = createElement('span', 'agy-model-tag', `${Math.round(model.contextWindow / 1000)}k`)
+    context.title = `上下文 ${model.contextWindow} tokens`
+    meta.appendChild(context)
+  }
+  row.appendChild(meta)
+  return row
+}
+
+const grokModelsOf = (data) => (Array.isArray(data?.grok?.models) ? data.grok.models : [])
+
+/** @returns {HTMLElement | null} */
+function buildGrokGroup(data) {
+  const models = grokModelsOf(data)
+  if (!models.length) return null
+  const section = createElement('section', 'agy-model-group')
+  const head = createElement('div', 'agy-model-group-head')
+  const title = createElement('h3', 'agy-model-group-title', 'Grok（SuperGrok）')
+  title.title = '所有模型共用同一份每週額度；強度 chip 會帶 -<強度> 後綴'
+  head.appendChild(title)
+  const tag = grokQuotaTag(data.grok.quota)
+  if (tag) head.appendChild(tag)
+  section.appendChild(head)
+  for (const model of models) section.appendChild(buildGrokModelLine(model))
+  return section
+}
+
 /** 依額度池分組；生圖與 IDE 內部／方案用不了的另外放，不跟可對話的混在一起 */
 const MODEL_GROUPS = Object.freeze([
-  { key: 'claude', title: 'Claude／GPT 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
+  { key: 'claude', title: 'Claude 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
   { key: 'gemini', title: 'Gemini 池', hint: '同池共用 5 小時與每週額度，依 token 成本比例扣' },
   { key: 'image', title: '生圖', hint: '聊天端點回 markdown 圖片，另有 /v1/images/generations' },
   { key: 'internal', title: 'IDE 內部／方案不可用', hint: '不能拿來對話' }
@@ -149,10 +236,19 @@ function buildVariantChip(model) {
 function renderModels(data) {
   const showAll = document.getElementById('agyModelsShowAll')?.checked === true
   const rows = showAll ? modelsOf(data) : modelsOf(data).filter(isUsable)
-  return MODEL_GROUPS
+  const groups = MODEL_GROUPS
     .map((group) => ({ ...group, models: rows.filter((model) => modelGroupOf(model) === group.key) }))
     .filter((group) => group.models.length)
     .map(buildModelGroup)
+  const grok = buildGrokGroup(data)
+  return grok ? [...groups, grok] : groups
+}
+
+function modelsMeta(data) {
+  const agy = modelsOf(data)
+  const parts = agy.length ? [`Antigravity ${agy.length} 個（對話可用 ${agy.filter(isUsable).length}）`] : []
+  if (grokModelsOf(data).length) parts.push(`Grok ${grokModelsOf(data).length} 個`)
+  return parts.length ? parts.join('、') : '沒有已登入的上游'
 }
 
 const page = createProxyPage({
@@ -161,7 +257,8 @@ const page = createProxyPage({
   defaultPort: 8788,
   credentialLabel: 'Antigravity 憑證無法使用',
   credentialGuidance,
-  modelsMeta: (data) => `共 ${modelsOf(data).length} 個（對話可用 ${modelsOf(data).filter(isUsable).length}）`,
+  credentialSummary,
+  modelsMeta,
   renderModels,
   bindExtra: ({ renderModelCatalog }) => {
     document.getElementById('agyModelsShowAll')?.addEventListener('change', renderModelCatalog)

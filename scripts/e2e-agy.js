@@ -166,6 +166,11 @@ async function main() {
   const mockPort = mock.address().port
 
   logs.init({ userDataPath })
+  // 同一個服務也轉 Grok：這台機器真的登入了 Grok 的話，型錄與自我測試會打到真上游，這裡注入成沒登入
+  require(path.join(__dirname, '..', 'src', 'main', 'grokproxy', 'server')).configureUpstream({
+    baseUrl: 'http://127.0.0.1:9',
+    credential: { acquire: async () => { throw Object.assign(new Error('NO_CREDENTIAL'), { code: 'NO_CREDENTIAL' }) }, invalidate: () => {} }
+  })
   server.configureUpstream({
     baseUrl: `http://127.0.0.1:${mockPort}/v1internal`,
     readCredential: async () => JSON.stringify({
@@ -461,8 +466,6 @@ async function main() {
     server.applySettings({ port: proxyPort, apiKey: API_KEY, logBodies: false })
   }
   {
-    const removed = logs.cleanup(1)
-    check('保留天數清理可執行', Number.isInteger(removed))
     logs.clear()
     check('清空日誌', logs.list({ limit: 5 }).total === 0)
   }
@@ -810,6 +813,8 @@ async function main() {
   }
 
   logs.close()
+  // service.configure 也開了 Grok 那份日誌，不關 Windows 刪不掉暫存資料夾
+  require(path.join(__dirname, '..', 'src', 'main', 'grokproxy', 'logs')).close()
   mock.close()
   removeTree(userDataPath)
 

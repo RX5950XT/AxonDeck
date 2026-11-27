@@ -1,7 +1,7 @@
 'use strict'
 
 const { randomUUID } = require('crypto')
-const { createProxyServer, readBody: readRequestBody, sendJson, sendProtocolError: sendError } = require('../local-proxy-http')
+const { sendJson, sendProtocolError: sendError } = require('../local-proxy-http')
 const convert = require('../ccswitch/gateway/convert')
 const catalog = require('./catalog')
 const logs = require('./logs')
@@ -9,8 +9,9 @@ const openai = require('./openai')
 const upstream = require('./upstream')
 
 /**
- * Grok 反代的本機 HTTP 服務。防護照 AGY：只綁 127.0.0.1、Host 必須是本機、強制金鑰、
- * body 有上限；上游狀態碼不透傳（只有 429 照回），錯誤訊息只用我們自己寫的字。
+ * Grok 反代的請求處理。本機 HTTP 服務只有一個（`agy/server.js`，同一個埠與金鑰），
+ * 模型名是 `grok-*` 的請求才轉到這裡；防護（127.0.0.1、Host、金鑰、body 上限）都在那邊做。
+ * 上游狀態碼不透傳（只有 429 照回），錯誤訊息只用我們自己寫的字。
  *
  * 三種客戶端協議，上游一律是 Grok 的 Responses 串流：
  * - `/v1/chat/completions`（OpenAI Chat）→ 轉 Responses，再把串流轉回 Chat
@@ -18,7 +19,6 @@ const upstream = require('./upstream')
  * - `/v1/responses`（OpenAI Responses，Codex 之類）→ 只換模型名，串流原樣轉送
  */
 
-const MAX_BODY_BYTES = 32 * 1024 * 1024
 const FIRST_TOKEN_MS = 120_000
 const IDLE_MS = 180_000
 
@@ -33,7 +33,12 @@ function getUpstreamOptions() {
   return upstreamOptions
 }
 
-const readBody = (req) => readRequestBody(req, MAX_BODY_BYTES)
+/** 共用服務的設定（只用到 logBodies），由 `agy/server.js` 綁上 */
+let settingsOf = () => ({ logBodies: false })
+
+function bindSettings(getSettings) {
+  settingsOf = getSettings
+}
 
 function statusFor(code) {
   if (code === 'BODY_TOO_LARGE') return 413
@@ -100,12 +105,13 @@ function trackResponses(collector, payload) {
 }
 
 /**
- * 三種協議共用的管線：讀 body → 解析模型 → 打上游串流 → 轉回客戶端協議 → 記日誌。
+ * 三種協議共用的管線：解析模型 → 打上游串流 → 轉回客戶端協議 → 記日誌。
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
  * @param {'openai'|'anthropic'|'responses'} protocol
+ * @param {{ raw: string, body: object | undefined }} request 共用服務已讀好的 body；`body` undefined＝不是合法 JSON
  */
-async function handleCompletion(req, res, protocol) {
+async function handleCompletion(req, res, protocol, request) {
   const startedMs = Date.now()
   const entry = { id: randomUUID(), ts: startedMs, protocol, path: String(req.url || '').split('?')[0], status: 0, durationMs: 0, stream: false }
   let adapter = null
@@ -123,14 +129,9 @@ async function handleCompletion(req, res, protocol) {
   })
 
   try {
-    const raw = await readBody(req)
-    if (proxy.getSettings().logBodies) entry.requestBody = raw
-    let body
-    try {
-      body = JSON.parse(raw)
-    } catch {
-      throw Object.assign(new Error('INVALID_JSON'), { code: 'INVALID_JSON' })
-    }
+    const { raw, body } = request
+    if (settingsOf().logBodies) entry.requestBody = raw
+    if (body === undefined) throw Object.assign(new Error('INVALID_JSON'), { code: 'INVALID_JSON' })
 
     const resolved = catalog.resolveModel(body?.model, await catalog.snapshot({ options: upstreamOptions }))
     entry.model = resolved.model
@@ -177,7 +178,7 @@ async function handleCompletion(req, res, protocol) {
     } else {
       throw Object.assign(new Error('UPSTREAM_FAILED'), { code: 'UPSTREAM_FAILED' })
     }
-    if (proxy.getSettings().logBodies) entry.responseBody = adapter.collector.text
+    if (settingsOf().logBodies) entry.responseBody = adapter.collector.text
   } catch (error) {
     clearTimeout(timer)
     const own = typeof error?.code === 'string' ? error.code : ''
@@ -210,9 +211,10 @@ async function handleCompletion(req, res, protocol) {
  * Claude Code 會呼叫 count_tokens 估上下文。上游沒有這支，用字數粗估（約 4 字元一 token），
  * 比回 404 讓它整段功能失效好。
  */
-async function handleCountTokens(req, res) {
+async function handleCountTokens(req, res, request) {
   try {
-    const body = JSON.parse(await readBody(req))
+    const { body } = request
+    if (body === undefined) throw Object.assign(new Error('INVALID_JSON'), { code: 'INVALID_JSON' })
     const size = JSON.stringify([body?.system ?? '', body?.messages ?? [], body?.tools ?? []]).length
     sendJson(res, 200, { input_tokens: Math.ceil(size / 4) })
   } catch (error) {
@@ -221,27 +223,10 @@ async function handleCountTokens(req, res) {
   }
 }
 
-function handleModels(req, res) {
-  return catalog.listForApi({ options: upstreamOptions })
-    .then((data) => sendJson(res, 200, { object: 'list', data }))
-    .catch(() => sendError(res, 'openai', 502, 'UPSTREAM_ERROR', '無法取得模型清單'))
-}
-
-const proxy = createProxyServer({
-  'GET /v1/models': handleModels,
-  'POST /v1/chat/completions': (req, res) => handleCompletion(req, res, 'openai'),
-  'POST /v1/responses': (req, res) => handleCompletion(req, res, 'responses'),
-  'POST /v1/messages': (req, res) => handleCompletion(req, res, 'anthropic'),
-  'POST /v1/messages/count_tokens': handleCountTokens
-})
-
 module.exports = {
-  HOST: proxy.HOST,
-  MAX_BODY_BYTES,
-  applySettings: proxy.applySettings,
+  bindSettings,
   configureUpstream,
   getUpstreamOptions,
-  start: proxy.start,
-  status: proxy.status,
-  stop: proxy.stop
+  handleCompletion,
+  handleCountTokens
 }

@@ -61,7 +61,8 @@ function makeRequire(fakeStore) {
   const dbSources = {
     readOpencode: () => [],
     readAntigravity: () => [],
-    readAntigravityCli: () => []
+    readAntigravityCli: () => [],
+    readAllInWorker: async () => ({ agyFiles: [], agyModels: {}, opencodeEvents: [], agyEvents: [] })
   }
 
   return (request) => {

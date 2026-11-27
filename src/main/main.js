@@ -48,7 +48,6 @@ const TTS_PREVIEW_TEXT = Object.freeze({
 })
 const { registerUsageIpc } = require('./usage/ipc')
 const { registerAgyIpc } = require('./agy/ipc')
-const { registerGrokProxyIpc } = require('./grokproxy/ipc')
 const { registerTerminalIpc } = require('./terminal/ipc')
 // 只用來驗 store 裡的桌布檔名（不碰 node-pty，載進來不影響啟動時間）
 const termBackground = require('./terminal/background')
@@ -112,7 +111,6 @@ const loadGpu = lazyLoad('./gpu-capability')
 const loadCudaEnv = lazyLoad('./cuda-env')
 
 let agyMod = null
-let grokProxyMod = null
 let dictationMod = null
 let terminalMod = null
 let workspaceMod = null
@@ -469,19 +467,6 @@ async function loadAgy() {
 }
 
 /**
- * 第一次用到 Grok 反代才載模組並開 SQLite。
- * @returns {Promise<object>}
- */
-async function loadGrokProxy() {
-  await initStore()
-  if (!grokProxyMod) {
-    grokProxyMod = require('./grokproxy')
-    grokProxyMod.configure({ userDataPath: app.getPath('userData'), store })
-  }
-  return grokProxyMod
-}
-
-/**
  * 語音辨識的共用入口。scope 決定讀哪一頁的選擇（三頁各存一份），
  * 本地再由 `asr-select` 依那一頁選的模型分流。scope 由呼叫點決定，
  * **不接受 renderer 傳進來**。
@@ -714,11 +699,6 @@ function scheduleBackgroundServices() {
       // 閘道沒有手動開關了：目前那家要經閘道就跟著 App 一起開，不然 Claude Code 連不上
       void loadCcSwitch().autoStartGateway()
         .catch((err) => console.warn('[ccswitch] gateway autoStart failed:', err?.code || err?.message))
-      if (store.get('grokProxyEnabled') === true) {
-        void loadGrokProxy().then((service) => service.autoStart())
-          .then((result) => { if (!result.ok) console.warn('[grok-proxy] autoStart failed:', result.error) })
-          .catch((err) => console.warn('[grok-proxy] autoStart error:', err?.code || err?.message))
-      }
       if (store.get('agyEnabled') !== true) return { ok: false, error: 'DISABLED' }
       return loadAgy().then((service) => service.autoStart())
     })
@@ -2139,25 +2119,6 @@ registerAgyIpc({
   isMainSender: assertMainWindowSender
 })
 
-// ===== Grok 反向代理 =====
-// 同 AGY：grokProxy* 設定不進 STORE_ALLOWLIST，renderer 只能透過 grokProxy:* 操作。
-registerGrokProxyIpc({
-  ipcMain,
-  service: {
-    status: async (...args) => (await loadGrokProxy()).status(...args),
-    start: async (...args) => (await loadGrokProxy()).start(...args),
-    stop: async (...args) => (await loadGrokProxy()).stop(...args),
-    saveSettings: async (...args) => (await loadGrokProxy()).saveSettings(...args),
-    regenerateApiKey: async (...args) => (await loadGrokProxy()).regenerateApiKey(...args),
-    getLogs: async (...args) => (await loadGrokProxy()).getLogs(...args),
-    getStats: async (...args) => (await loadGrokProxy()).getStats(...args),
-    listModels: async (...args) => (await loadGrokProxy()).listModels(...args),
-    clearLogs: async (...args) => (await loadGrokProxy()).clearLogs(...args),
-    selfTest: async (...args) => (await loadGrokProxy()).selfTest(...args)
-  },
-  isMainSender: assertMainWindowSender
-})
-
 // ===== 終端機 =====
 let agentNotifier = null
 /** 背景 agent 的系統通知；第一次要通知才載入 */
@@ -3174,8 +3135,7 @@ app.on('before-quit', (e) => {
     stopScreentime,
     stopGateway,
     ccSwitchMod ? ccSwitchMod.stopMcpChecks() : Promise.resolve(),
-    agyMod ? agyMod.shutdown() : Promise.resolve(),
-    grokProxyMod ? grokProxyMod.shutdown() : Promise.resolve()
+    agyMod ? agyMod.shutdown() : Promise.resolve()
   ])
   stopAgy
     .catch((err) => console.error('[agy] shutdown on quit failed:', err))

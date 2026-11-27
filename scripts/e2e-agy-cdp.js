@@ -226,7 +226,7 @@ async function main() {
     pass('未啟動時顯示已停止，且日誌有空狀態說明')
 
     // --- 換到測試埠並啟動 ---
-    await cdp.eval(`window.electronAPI.agy.saveSettings({ port: ${AGY_TEST_PORT}, logBodies: false, retentionDays: 30 })`)
+    await cdp.eval(`window.electronAPI.agy.saveSettings({ port: ${AGY_TEST_PORT}, logBodies: false })`)
     const startResult = await cdp.eval(`window.electronAPI.agy.start()`)
     if (!startResult?.ok || startResult.data?.running !== true) {
       fail(`啟動失敗：${JSON.stringify(startResult)}`)
@@ -603,8 +603,8 @@ async function main() {
         // 還原使用者原本的埠與開關；這支腳本跑在真實 userData 上，不還原等於把設定改壞。
         // 拿不到原設定（開頭就失敗）才退回預設值。
         const restore = originalAgy
-          ? { port: originalAgy.port, logBodies: originalAgy.logBodies === true, retentionDays: originalAgy.retentionDays }
-          : { port: 8788, logBodies: false, retentionDays: 30 }
+          ? { port: originalAgy.port, logBodies: originalAgy.logBodies === true }
+          : { port: 8788, logBodies: false }
         await cdp.eval(`window.electronAPI.agy.saveSettings(${JSON.stringify(restore)})`)
         if (originalAgy?.running) await cdp.eval(`window.electronAPI.agy.start()`)
       } catch {}

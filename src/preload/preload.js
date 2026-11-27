@@ -271,13 +271,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     claudeLoginCancel: () => ipcRenderer.invoke('usage:claudeLoginCancel')
   },
 
-  // ===== AGY 反向代理 =====
+  // ===== 反向代理（Antigravity＋Grok 共用一個埠與金鑰） =====
   // 憑證、上游 URL 與 project id 都留在 main；這裡只傳得到 port／開關這種無害設定。
   agy: {
     status: () => ipcRenderer.invoke('agy:status'),
     start: () => ipcRenderer.invoke('agy:start'),
     stop: () => ipcRenderer.invoke('agy:stop'),
-    /** @param {{ port: number, logBodies: boolean, retentionDays: number }} settings */
+    /** @param {{ port: number, logBodies: boolean }} settings */
     saveSettings: (settings) => ipcRenderer.invoke('agy:saveSettings', settings),
     regenerateKey: () => ipcRenderer.invoke('agy:regenerateKey'),
     /** @param {{ limit?: number, protocol?: string, onlyErrors?: boolean }} query */
@@ -288,24 +288,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearLogs: () => ipcRenderer.invoke('agy:clearLogs'),
     /** 端到端自我測試：自動挑模型，從本機閘道真的送一則訊息 */
     test: () => ipcRenderer.invoke('agy:test')
-  },
-
-  // ===== Grok 反向代理 =====
-  // 同 AGY：token 與上游 URL 留在 main，這裡只有開關、埠與日誌查詢。
-  grokProxy: {
-    status: () => ipcRenderer.invoke('grokProxy:status'),
-    start: () => ipcRenderer.invoke('grokProxy:start'),
-    stop: () => ipcRenderer.invoke('grokProxy:stop'),
-    /** @param {{ port: number, logBodies: boolean, retentionDays: number }} settings */
-    saveSettings: (settings) => ipcRenderer.invoke('grokProxy:saveSettings', settings),
-    regenerateKey: () => ipcRenderer.invoke('grokProxy:regenerateKey'),
-    /** @param {{ limit?: number, protocol?: string, onlyErrors?: boolean }} query */
-    logs: (query) => ipcRenderer.invoke('grokProxy:logs', query),
-    /** @param {{ range?: '6h'|'24h'|'7d'|'30d'|'all' }} [query] */
-    stats: (query) => ipcRenderer.invoke('grokProxy:stats', query),
-    models: (force) => ipcRenderer.invoke('grokProxy:models', force === true),
-    clearLogs: () => ipcRenderer.invoke('grokProxy:clearLogs'),
-    test: () => ipcRenderer.invoke('grokProxy:test')
   },
 
   // ===== 終端機 =====

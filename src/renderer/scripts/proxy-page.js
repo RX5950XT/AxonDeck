@@ -108,6 +108,7 @@ function statCard(label, value, hint) {
  *   defaultPort: number,
  *   credentialLabel: string,
  *   credentialGuidance: (info: object) => { title: string, steps: Array<{ text: string, code?: string, tail?: string, link?: string }> },
+ *   credentialSummary?: (info: object) => { text: string, ok: boolean },
  *   modelsMeta: (data: object) => string,
  *   renderModels: (data: object) => HTMLElement[],
  *   bindExtra?: (page: { renderModelCatalog: () => void }) => void
@@ -203,9 +204,13 @@ export function createProxyPage(config) {
     const credential = byId('Credential')
     if (credential) {
       const info = status?.credential
+      const summary = running && info ? config.credentialSummary?.(info) : null
       if (!running) {
         credential.textContent = '服務停止中'
         credential.className = 'agy-credential'
+      } else if (summary) {
+        credential.textContent = summary.text
+        credential.className = `agy-credential ${summary.ok ? 'is-ok' : 'is-bad'}`
       } else if (info?.connected) {
         credential.textContent = info.tier ? `已連線 · ${info.tier}` : '已連線'
         credential.className = 'agy-credential is-ok'
@@ -266,11 +271,9 @@ export function createProxyPage(config) {
 
   function renderSettingsInputs() {
     const port = byId('PortInput')
-    const retention = byId('RetentionInput')
     const logBodies = byId('LogBodiesInput')
     // 使用者正在輸入時不要覆寫掉他打到一半的值
     if (port && document.activeElement !== port) port.value = String(status?.port ?? config.defaultPort)
-    if (retention && document.activeElement !== retention) retention.value = String(status?.retentionDays ?? 30)
     if (logBodies) logBodies.checked = status?.logBodies === true
   }
 
@@ -643,20 +646,14 @@ export function createProxyPage(config) {
 
   async function saveSettings() {
     const port = Number(byId('PortInput')?.value)
-    const retentionDays = Number(byId('RetentionInput')?.value)
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
       showError('監聽埠必須是 1024–65535 的整數。')
-      return
-    }
-    if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
-      showError('日誌保留天數必須是 1–365 的整數。')
       return
     }
     const wasRunning = status?.running === true
     await withBusy(async () => {
       const next = await call('saveSettings', {
         port,
-        retentionDays,
         logBodies: byId('LogBodiesInput')?.checked === true
       })
       if (!next) return
@@ -686,7 +683,7 @@ export function createProxyPage(config) {
     byId('TestBtn')?.addEventListener('click', () => void runSelfTest())
     byId('RegenerateBtn')?.addEventListener('click', () => void regenerateKey())
     // 跟設定頁其他區一樣改完就存；數字欄的 change 在離開欄位或按 Enter 才發，打字中不會一直重啟服務
-    for (const name of ['PortInput', 'RetentionInput', 'LogBodiesInput']) {
+    for (const name of ['PortInput', 'LogBodiesInput']) {
       byId(name)?.addEventListener('change', () => void saveSettings())
     }
     byId('ClearLogsBtn')?.addEventListener('click', () => void clearLogs())

@@ -4,8 +4,10 @@
 
 Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言模型、語音轉文字、翻譯、文字轉語音、生成圖片影像、系統監控，全部放在同一個 App。語音與翻譯可以完全離線跑本地模型，也能改用雲端 API。
 
-**目前版本 v1.85.4** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
+**目前版本 v1.86.0** — [下載安裝檔](https://github.com/RX5950XT/AxonDeck/releases)（裝好後在 App 內自動更新）
 
+> **v1.86.0**：AGY 與 Grok 兩套反代合併成單一「反向代理」服務與設定頁——同一個本機端點與金鑰同時支援兩家（`grok-*` 走 Grok，其餘走 Antigravity），模型清單只列已登入的項目，流量日誌與統計合併顯示並改為永久保留（不再滿 30 天自動刪除，僅手動清空）；用量統計改在背景執行緒讀取 SQLite，大型對話檔不再卡住主畫面；Antigravity 額度只顯示 Claude 與 Gemini 兩池（濾除 GPT），並隱藏舊世代 3.1-flash-lite／3-flash／2.5-flash 模型線。
+>
 > **v1.85.4**：Telegram 兩格並排時，在一格反白訊息後按 Ctrl+C 或右鍵「複製」不再沒反應（之前鍵盤焦點會留在另一格，剪貼簿還是舊內容）；視窗切回前景後點網頁也會正確拿到焦點，網頁版 AI 與內建瀏覽器一併修正。
 >
 > **v1.85.3**：Telegram 反白改成螢光黃，在深色與紫色訊息氣泡上都看得清楚選了哪些字。
@@ -60,7 +62,7 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 | **生成圖片影像** | 內嵌 Miroxen：Qwen-Image 生圖、MiniMax-H3 生有聲影片 |
 | **系統監控** | 硬體規格與即時讀數、使用時長、處理程序、風扇、效能調整、壓力測試、磁碟空間 |
 | **Local SI** | 從 Hugging Face 搜尋、下載、載入 GGUF 模型，自動決定最佳參數 |
-| **設定** | 雲端模型、外觀、AGY 反代、Grok 反代、軟體安裝與更新、AI CLI 版本 |
+| **設定** | 雲端模型、外觀、反向代理（Antigravity＋Grok）、軟體安裝與更新、AI CLI 版本 |
 
 ---
 
@@ -146,10 +148,9 @@ Windows 桌面 AI 工作台：AI 對話、專案終端機、本機大型語言�
 - **自動調參**：實際載入量記憶體、實測比較幾組參數，挑最快的套用；每一項都能手動覆寫。
 - 載入的模型直接出現在 AI 對話的模型選單；另有本機 API 可給其他工具用。
 
-### AGY 反代與設定
+### 反向代理與設定
 
-- **AGY 反代**：把本機 Antigravity 登入轉成 OpenAI（`/v1/chat/completions`）與 Anthropic（`/v1/messages`）相容 API，另支援生圖（`/v1/images/generations`）；只聽 `127.0.0.1`、強制金鑰，附流量日誌與統計。
-- **Grok 反代**：把 Grok CLI 登入的 SuperGrok 訂閱轉成 OpenAI（`/v1/chat/completions`、`/v1/responses`）與 Anthropic（`/v1/messages`）相容 API；模型名加 `-low`／`-high` 等後綴指定思考強度，顯示每週額度，同樣只聽本機、強制金鑰、附日誌與統計。
+- **反向代理**：同一個端點與金鑰，把本機 Antigravity 登入與 Grok CLI 登入的 SuperGrok 訂閱轉成 OpenAI（`/v1/chat/completions`）與 Anthropic（`/v1/messages`）相容 API；`grok-*` 模型走 Grok（另有 `/v1/responses`，模型名加 `-low`／`-high` 等後綴指定思考強度），其餘走 Antigravity（另支援生圖 `/v1/images/generations`）。模型清單只列有登入的那幾家；只聽 `127.0.0.1`、強制金鑰，附流量日誌與統計（日誌永久保留，可手動清空）。
 - **安裝**：常用軟體一鍵安裝，WinGet 已安裝程式的更新與解除安裝；更新失敗自動改用管理員權限或原廠安裝程式重試。
 - **CLI 版本**：Claude Code、Codex、Grok、OpenCode 等的版本檢查、安裝與更新。
 - 主題深淺色、終端機外觀、開機自啟動、關視窗留在系統匣、自動更新。

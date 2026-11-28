@@ -203,7 +203,7 @@ export function createProjectSessions({ call, getList, getProject, onOpen, onRes
     actions.className = 'proj-sess-actions'
     actions.append(
       action('接續', '在新的終端機接續這段對話', () => withProject(projectId, (project) => onResume(project, row))),
-      action('複製', '複製這段對話的文字內容', () => void copyText(projectId, row))
+      action('複製', '複製這段對話紀錄檔的完整路徑', () => void copyPath(projectId, row))
     )
     wrap.append(main, actions)
     wrap.addEventListener('contextmenu', (event) => {

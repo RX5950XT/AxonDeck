@@ -3253,23 +3253,11 @@ function paintAiSessionTab(tab) {
       bar: el.aiSessionBar,
       title: el.aiSessionTitle,
       meta: el.aiSessionMeta,
-      body: el.aiSessionBody,
-      resumeBtn: /** @type {HTMLButtonElement | null} */ (el.aiResumeBtn),
-      resumeIntoBtn: /** @type {HTMLButtonElement | null} */ (el.aiResumeIntoBtn),
-      copyPathBtn: /** @type {HTMLButtonElement | null} */ (el.aiCopyPathBtn)
+      body: el.aiSessionBody
     },
-    onCopyPath: (file) => void navigator.clipboard.writeText(file).then(
-      () => showToast('已複製路徑'),
-      () => showToast('複製失敗', 'error')
-    ),
     onOpenFile: (rel) => {
       if (tab.projectId) void openEditorTab({ id: tab.projectId, name: '' }, rel)
-    },
-    // 「送進現有終端機」只列**這個專案分頁列上**開著的那些
-    terminals: () => tabs
-      .filter((one) => one.kind === 'terminal')
-      .map((one) => ({ id: one.id, title: one.title })),
-    onResume: (terminalId) => void resumeSession(tab, terminalId)
+    }
   })
 }
 
@@ -3279,39 +3267,6 @@ async function readAiSession(tab, cursor) {
   if (!tab.projectId || !row) return null
   const result = await electronAPI.workspace.agentSessionDetail(tab.projectId, row.agent, row.id, cursor)
   return result?.ok ? result.data : null
-}
-
-/**
- * 接續一段對話。
- *
- * 指令字串由 main 組，而且 main 會**先確認這段對話真的屬於這個專案**——
- * renderer 這邊連 session id 都只是原樣轉交。
- *
- * @param {WsTab} tab
- * @param {string} terminalId 空字串＝開一個新的終端機
- */
-async function resumeSession(tab, terminalId) {
-  const row = tab.sessionRow
-  if (!tab.projectId || !row) return
-  const generation = projectSwitch
-  let info
-  try {
-    info = await call(
-      electronAPI.workspace.agentResume(tab.projectId, row.agent, row.id),
-      '接續不了這段對話'
-    )
-  } catch {
-    return
-  }
-  if (generation !== projectSwitch || findTab(tab.id) !== tab) return
-  const title = `${info.agentLabel} · ${shortTitle(row.title || row.id)}`
-  if (!terminalId) {
-    await newTerminalWithCommand(title, info.command, info)
-    return
-  }
-  // 送進現有的那一顆：先切過去，讓人看得到指令真的被打進去了
-  await activate(terminalId)
-  await electronAPI.terminal.write(terminalId, `${info.command}\r`)
 }
 
 // ===== 新增分頁的選單 =====
@@ -3896,9 +3851,6 @@ export function initWsTabs() {
   el.aiSessionMeta = document.getElementById('wsAiSessionMeta')
   el.aiSessionBody = document.getElementById('wsAiSessionBody')
   initAiSessionFind(el.aiSession, el.aiSessionBody)
-  el.aiResumeBtn = document.getElementById('wsAiResumeBtn')
-  el.aiResumeIntoBtn = document.getElementById('wsAiResumeIntoBtn')
-  el.aiCopyPathBtn = document.getElementById('wsAiCopyPathBtn')
   el.editorToChatBtn = document.getElementById('wsEditorToChatBtn')
 
   // IDE 元素

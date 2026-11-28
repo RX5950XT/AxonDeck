@@ -3998,14 +3998,15 @@ webview {
   gap: 6px;
 }
 
-/* 標題獨立一列，操作鈕不會被長文字推到中間。 */
+/* 標題吃掉剩下的寬度，搜尋鈕固定貼右邊。 */
 .ws-ai-session-bar .btn {
   flex: none;
+  margin-left: auto;
   white-space: nowrap;
 }
 
 .ws-ai-session-title {
-  flex-basis: 100%;
+  flex: 1 1 0;
   min-width: 0;
   font-weight: 600;
   font-size: 13px;
@@ -5769,7 +5770,18 @@ body.is-col-resizing webview {
   color: var(--text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  user-select: text;
 }
+
+/* AI 回覆的 Markdown：字級跟著對話走，標題不要比內文大太多 */
+.ws-ai-turn-text.is-markdown {
+  white-space: normal;
+  color: var(--text-primary);
+}
+.ws-ai-turn-text.is-markdown > :first-child { margin-top: 0; }
+.ws-ai-turn-text.is-markdown > :last-child { margin-bottom: 0; }
+.ws-ai-turn-text.is-markdown :is(h1, h2, h3, h4, h5, h6) { font-size: 13px; margin: 10px 0 4px; }
+.ws-ai-turn-text.is-markdown pre { max-width: 100%; overflow-x: auto; font-size: 12px; }
 
 .ws-ai-turn-tool {
   display: flex;

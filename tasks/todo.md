@@ -5,7 +5,7 @@
 
 ## 現況（交接）
 
-- AxonDeck（v1.40 前叫 VoiceInk）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5；目前 v1.86.0（2026-11-27）。資料在 `%APPDATA%/axondeck/`（舊安裝沿用 `voiceink`）。
+- AxonDeck（v1.40 前叫 VoiceInk）：Windows Electron AI 工作台，Vanilla JS＋Vite，Electron 43.7.5；目前 v1.87.0（2026-11-28）。資料在 `%APPDATA%/axondeck/`（舊安裝沿用 `voiceink`）。
 - 九頁 `data-page`：`chat`（SI：Agent／Chat／Browser，主區 `setChatPaneMode('chat'|'workspace'|'web'|'browser'|'telegram'|'tools')`）、`explorer`、`stt`、`translate`、`speech`、`imagegen`（iframe Miroxen）、`sysmon`、`hfmodels`（Local SI）、`settings`。導覽順序 localStorage `navOrder`，圖示 `ws-tool-icons.js`。SI 版面由 `si-layout.js` 管：標題列兩顆收合左右側欄（localStorage），專案模式額度條搬進 `#termMain` 底、四顆入口 `#quotaDock` 搬到右側欄底（右欄收起／≤900px 回條上），抽屜高度由 `fitDrawer` 量成蓋滿上方那塊。原 CC Proxy 頁已拆：供應商／用量統計是額度條抽屜、MCP／Skills 是 `tools` 主畫面、AGY 與 CLI 版本在設定頁，邏輯仍在 `ccswitch-page.js`。
 - GPU 可重建圖片快取預設 64 MiB（`main.js` 的 `force-gpu-mem-discardable-limit-mb`，啟動參數可覆寫）；未做長時重度媒體回歸。
 

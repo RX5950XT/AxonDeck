@@ -3,13 +3,13 @@
  *
  * 從 `ws-tabs.js` 拆出來的：那支已經很大，而這裡的規則跟分頁機制無關。
  *
- * 三件跟以前不一樣的事：
+ * 幾件跟以前不一樣的事：
  * 1. **讀過的檔案跟改過的檔案分開**（main 也分開回了）。混在一起的話，
  *    使用者以為 agent 動過三十個檔案，其實只是看過。
  * 2. **工具細節預設收起來**（`<details>`）：一輪對話動輒上百次工具呼叫，
  *    全部攤開之後看不到自己講過什麼。
- * 3. **可以直接接續**：開新終端機，或送進**已經開著**的那個終端機
- *    （常見情況是 agent 就在那裡等，只是被別的分頁蓋住）。
+ * 3. **AI 回覆走 Markdown**；自己打的字照原樣（跟終端機的對話清單一樣）。
+ *    接續／複製路徑留在左側清單那一列，這裡的工具列只放搜尋。
  */
 
 /**
@@ -18,6 +18,31 @@
  * @returns {HTMLElement}
  */
 import { refreshAiSessionFind, sessionTitleExcerpt } from './ws-ai-session-find.js'
+import { renderMarkdown } from './markdown.js'
+
+/**
+ * 同一段對話重畫時沿用已經畫好的 Markdown（跟著看的對話幾秒就重畫一次）。
+ * key＝第幾輪＋全文，每次重畫只留這次用到的，舊的丟掉。
+ * @type {{ view: string, nodes: Map<string, HTMLElement> }}
+ */
+let mdCache = { view: '', nodes: new Map() }
+
+/**
+ * @param {Map<string, HTMLElement>} next 這次重畫用到的
+ * @param {string} key
+ * @param {string} text
+ * @returns {HTMLElement}
+ */
+function markdownTurn(next, key, text) {
+  let node = mdCache.nodes.get(key)
+  if (!node) {
+    node = document.createElement('div')
+    node.className = 'ws-ai-turn-text is-markdown'
+    node.append(renderMarkdown(text))
+  }
+  next.set(key, node)
+  return node
+}
 
 function note(text, className = 'ws-ai-note') {
   const el = document.createElement('p')
@@ -104,13 +129,10 @@ function toolGroup(tools) {
  *
  * @param {object} opts
  * @param {any} opts.tab 分頁本身（帶 sessionData／sessionRow）
- * @param {{ bar: HTMLElement | null, title: HTMLElement | null, meta: HTMLElement | null, body: HTMLElement | null, resumeBtn: HTMLButtonElement | null, resumeIntoBtn: HTMLButtonElement | null, copyPathBtn: HTMLButtonElement | null }} opts.els
+ * @param {{ bar: HTMLElement | null, title: HTMLElement | null, meta: HTMLElement | null, body: HTMLElement | null }} opts.els
  * @param {(rel: string) => void} opts.onOpenFile
- * @param {() => Array<{ id: string, title: string }>} opts.terminals 這個專案現在開著哪些終端機
- * @param {(terminalId: string) => void} opts.onResume 接續（空字串＝開一個新的）
- * @param {(file: string) => void} opts.onCopyPath 複製記錄檔的完整路徑
  */
-export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCopyPath }) {
+export function paintAiSession({ tab, els, onOpenFile }) {
   const data = tab.sessionData
   const row = tab.sessionRow
   const findFocused = els.body?.querySelector('.ws-ai-find-input') === document.activeElement
@@ -136,34 +158,6 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
     if (row?.mtime) bits.push(new Date(row.mtime).toLocaleString('zh-TW'))
     els.meta.textContent = bits.join(' · ')
     els.meta.title = els.meta.textContent
-  }
-
-  // 接續：兩顆鈕都掛在工具列上（第二顆只有真的有終端機開著時才出現）
-  if (els.resumeBtn) {
-    els.resumeBtn.onclick = () => onResume('')
-    els.resumeBtn.hidden = false
-  }
-  if (els.resumeIntoBtn) {
-    const list = terminals()
-    els.resumeIntoBtn.hidden = list.length === 0
-    els.resumeIntoBtn.onclick = (event) => {
-      const rect = /** @type {HTMLElement} */ (event.currentTarget).getBoundingClientRect()
-      import('./ws-menu.js').then((mod) => {
-        mod.showMenu(
-          { x: rect.left, y: rect.bottom + 4 },
-          list.map((one) => ({
-            label: one.title,
-            onSelect: () => onResume(one.id)
-          }))
-        )
-      })
-    }
-  }
-
-  if (els.copyPathBtn) {
-    const file = typeof data?.file === 'string' ? data.file : ''
-    els.copyPathBtn.hidden = !file
-    els.copyPathBtn.onclick = () => onCopyPath(file)
   }
 
   if (!els.body) return
@@ -262,7 +256,9 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
     card.appendChild(title)
     const list = document.createElement('div')
     list.className = 'ws-ai-turns'
-    for (const turn of groupSessionTurns(turns)) {
+    if (mdCache.view !== view) mdCache = { view, nodes: new Map() }
+    const nextMd = new Map()
+    for (const [index, turn] of groupSessionTurns(turns).entries()) {
       if (turn.tools) {
         list.appendChild(toolGroup(turn.tools))
         continue
@@ -272,12 +268,16 @@ export function paintAiSession({ tab, els, onOpenFile, terminals, onResume, onCo
       const who = document.createElement('span')
       who.className = 'ws-ai-turn-role'
       who.textContent = turn.role === 'user' ? '我' : `${row?.agentLabel || 'AI'}${turn.thought ? ' · 思考' : ''}${turn.continued ? ' · 接續' : ''}`
-      const text = document.createElement('div')
-      text.className = 'ws-ai-turn-text'
-      text.textContent = turn.text || ''
+      let text
+      if (turn.role === 'user' || !turn.text) {
+        text = document.createElement('div')
+        text.className = 'ws-ai-turn-text'
+        text.textContent = turn.text || ''
+      } else text = markdownTurn(nextMd, `${index}:${turn.text}`, turn.text)
       item.append(who, text)
       list.appendChild(item)
     }
+    mdCache.nodes = nextMd
     card.appendChild(list)
     els.body.appendChild(card)
   }

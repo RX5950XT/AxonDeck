@@ -13,6 +13,24 @@ export function findTextMatches(text, query) {
   return matches
 }
 
+/**
+ * textContent 裡第 offset 個字落在哪個文字節點（Markdown 會拆成很多段）。
+ * @param {Node} root
+ * @param {number} offset
+ * @returns {[Node, number]}
+ */
+function textPoint(root, offset) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let last = null
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.nodeValue.length
+    if (offset <= length) return [node, offset]
+    offset -= length
+    last = node
+  }
+  return last ? [last, last.nodeValue.length] : [root, 0]
+}
+
 function updateCurrent(state, scroll) {
   CSS.highlights.delete('ws-ai-find-current')
   state.count.textContent = state.input.value ? (state.total ? `${state.index + 1} / ${state.total}` : '找不到') : '輸入關鍵字'
@@ -21,8 +39,8 @@ function updateCurrent(state, scroll) {
   const entry = state.entries.find(one => state.index < one.base + one.matches.length)
   const [start, end] = entry.matches[state.index - entry.base]
   const range = document.createRange()
-  range.setStart(entry.node.firstChild, start)
-  range.setEnd(entry.node.firstChild, end)
+  range.setStart(...textPoint(entry.node, start))
+  range.setEnd(...textPoint(entry.node, end))
   CSS.highlights.set('ws-ai-find-current', new Highlight(range))
   if (!scroll) return
   const fold = entry.node.closest('details')

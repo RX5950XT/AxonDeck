@@ -132,10 +132,11 @@ gh release upload vX.Y.Z dist/AxonDeck-Setup-X.Y.Z.exe dist/AxonDeck-Setup-X.Y.Z
 - 狀態＝宿主結束 → Claude hook → 畫面 → 靜默（`term-agent.js` 的 `mergeState`）；hook 說 idle 最弱。hook exe 的 stdout 一個字都不能寫；`--user-data-dir` 時不寫真的 `~/.claude/settings.json`。畫面規則照 `scripts/fixtures/term-agent/` 真實畫面校正。
 - 忙碌判定 OSC 133（帶 history id 比大小）＋靜默雙軌；無標記的 cmd 不套「送出後一直算運行中」。
 - 輸入法：組字期間用 CSS 變數＋`!important` 釘錨點（`term-ime.js`），不要改回每幀 JS 擺位；textarea 用透明色藏不用 `opacity: 0`；`.term-host` 用 `overflow: clip`。
-- 用 WebGL renderer（DOM 版游標會亂閃）；`onContextLoss` 要 dispose 重掛；Unicode 11 要 load 後再 `activeVersion = '11'`；`.xterm-viewport` 要 `background-color: transparent` 與 `scrollbar-width: none`。
+- 用 WebGL renderer（DOM 版游標會亂閃）；`onContextLoss` 要 dispose 重掛；字寬表用 `term-width.js` 的 `CONPTY_UNICODE`（跟 ConPTY 實測一致：零寬字它算 1 格、新 emoji 算 2 格；換回 Unicode 11 會整片錯列、疊出重複的行；Windows 改了 conhost 要重量）；`.xterm-viewport` 要 `background-color: transparent` 與 `scrollbar-width: none`。
 - 不要攔截 CLI 滑鼠模式（`term-mouse.js` 只把 Ctrl+滾輪留給字級）；Shift+拖曳仍是本地選取；必須給 `linkHandler`（OSC 8）。
 - 剪貼簿一律跟 main 要（`navigator.clipboard` 沒焦點會 reject）；截圖落檔貼路徑；有選取 Ctrl+C／右鍵＝複製。Shift+Enter 送 `\x1b\r`。
 - 切回終端機走 `fitAndSync`；分割不搬 DOM、每格各自 fit；狀態變動就地改那一列不 `renderList()`。標題／cwd 欄位叫 `osTitle`／`liveCwd`；連結：`provideLinks` 是整份緩衝區 1-based 列號、x 是 cell 欄位；路徑先問 main 存不存在再畫底線。
+- 進出 alternate screen 不可改終端機寬度（只藏捲軸）：Claude Code 的 Ctrl+G 會進出一次，寬度一變連送兩次 resize，畫面疊出重複的行。
 - Ctrl+G 橋接：batch 只能 ASCII、路徑不出 batch；`EDITOR=notepad` 不算使用者選過；`EDITOR`／`VISUAL` 都要蓋；存檔不收分頁、關分頁才放走；放走過的請求進忽略名單。
 - 桌布：store 只存檔名、renderer 轉 `blob:`（CSS 塞 data URI 超過約 2M 字元會安靜失效）；強度下限 10；管理員終端機用 `Start-Process -Verb RunAs` 開 host；host 模式 userData 指到暫存。
 

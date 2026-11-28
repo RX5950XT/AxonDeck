@@ -2598,7 +2598,6 @@ option:disabled:checked {
 
 /* 捲軸與右上角導覽同一欄，展開只覆蓋畫面，不重排 CLI。 */
 .term-screen { position: absolute; inset: 0 30px 0 0; }
-.term-pane.has-native-tui .term-screen { right: 0; }
 /* 補回舊對話與畫面時不畫：逐段寫入會一路捲給人看，寫完才一次出現在最底 */
 .term-pane.is-restoring .term-screen,
 .term-pane.is-restoring > .term-scrollbar { visibility: hidden; }

@@ -21,6 +21,7 @@ import { FitAddon } from '../../../node_modules/@xterm/addon-fit/lib/addon-fit.m
 import { SearchAddon } from '../../../node_modules/@xterm/addon-search/lib/addon-search.mjs'
 import { Unicode11Addon } from '../../../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.mjs'
 import { WebglAddon } from '../../../node_modules/@xterm/addon-webgl/lib/addon-webgl.mjs'
+import { CONPTY_UNICODE } from './term-width.js'
 
 /**
  * 終端機頁。
@@ -665,9 +666,14 @@ function createPane(id) {
   term.loadAddon(search)
   // 預設的字寬表是 Unicode 6 的：emoji 與一部分框線字元會被算成一格，
   // AI CLI 畫的方框就會歪掉。載了還要真的切過去，只 `loadAddon` 不會生效。
-  const unicode11 = new Unicode11Addon()
-  term.loadAddon(unicode11)
-  term.unicode.activeVersion = '11'
+  // 接 ConPTY 時字寬要跟 ConPTY 一致，不然整片錯列、疊出重複的行（見 term-width.js）
+  if (catalog.winBuild) {
+    term.unicode.register(CONPTY_UNICODE)
+    term.unicode.activeVersion = CONPTY_UNICODE.version
+  } else {
+    term.loadAddon(new Unicode11Addon())
+    term.unicode.activeVersion = '11'
+  }
   const cliMouse = () => term.modes.mouseTrackingMode !== 'none'
   const screen = document.createElement('div')
   screen.className = 'term-screen'
@@ -677,12 +683,11 @@ function createPane(id) {
   blockMouseReporting(term, deltaY => applyFontSize(fontSize + (deltaY < 0 ? 1 : -1)))
   // 寫完一幀再看畫面底部（Claude 想很久時宿主的靜默計時會誤判成做完）
   term.onWriteParsed(() => scheduleScreenScan(id))
+  // 全螢幕 CLI 只藏捲軸，**不改寬度**：Claude Code 按 Ctrl+G 開編輯器會進出一次
+  // alternate screen，寬度跟著變就連送兩次 resize，ConPTY 與 xterm 各自重排舊內容，
+  // CLI 照它記的行數重畫，畫面就疊出好幾份重複的行。
   term.onWriteParsed(() => {
-    const fullscreen = term.buffer.active.type === 'alternate'
-    if (pane.classList.contains('has-native-tui') === fullscreen) return
-    pane.classList.toggle('has-native-tui', fullscreen)
-    const entry = panes.get(id)
-    if (entry) fitAndSync(id, entry)
+    pane.classList.toggle('has-native-tui', term.buffer.active.type === 'alternate')
   })
   const webgl = attachRenderer(term)
   registerTermLinks(term, id)
